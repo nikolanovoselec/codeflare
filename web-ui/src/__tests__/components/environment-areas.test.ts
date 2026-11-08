@@ -15,6 +15,16 @@ function managedEnvironmentArea(section: unknown) {
 }
 
 describe('Environment area summaries', () => {
+  it.each([undefined, 'exclude', 'include'])('Data governance summary makes selected persistence scope %s discoverable', syncPolicyMode => {
+    const configuration: AdminConfigurationResponse = {
+      mode: 'enterprise', revision: 1, applicableSections: ['dataGovernance'], activeRunId: null, latest: {},
+      sections: { dataGovernance: { governedMode: false, viewOnlyStorage: false, syncPolicyMode } },
+    };
+    const areas = environmentAreas(configuration);
+    expect(areas[0].summary).toContain(syncPolicyMode === 'include' ? 'approved locations only' : 'save unless excluded');
+    expect(filterEnvironmentAreas(areas, 'persistence').map(area => area.section)).toEqual(['dataGovernance']);
+  });
+
   it('REQ-SETUP-023 AC3: orders areas by displayed label without changing their summaries or authoritative input', () => {
     const configuration: AdminConfigurationResponse = {
       mode: 'enterprise', revision: 1, applicableSections: ['securityEgress', 'mcpPortals', 'domain', 'aiRouting', 'access'],

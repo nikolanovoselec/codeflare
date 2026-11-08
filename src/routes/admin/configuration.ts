@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { readSyncPolicyMode } from '../../lib/sync-policy';
 import { getConfiguredMcpPortals, validateMcpPortals } from '../../lib/mcp-portals';
 import type { Env } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
@@ -218,6 +219,7 @@ app.get('/', requireAdmin, async (c) => {
     sections.dataGovernance = {
       governedMode: r2SseDisabled === 'active',
       viewOnlyStorage: downloadsDisabled === 'active',
+      syncPolicyMode: await readSyncPolicyMode(c.env.KV),
     };
   }
 

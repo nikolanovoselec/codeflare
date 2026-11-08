@@ -99,7 +99,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. External triggers interrupt daemon sleep for immediate bisync and coalesce during an active cycle into one rerun ([REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui)). <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-003 AC2 / REQ-STOR-015 AC5 / REQ-MEM-004 AC4: SIGUSR1 trigger)) -->
 3. Conflict resolution is newest-file-wins. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 4. After a transient failure, the next automatic retry begins after two minutes. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (daemon retries two minutes after transient failure and continues the cycle (REQ-STOR-003 AC4)) -->
-5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget. <!-- @impl: entrypoint.sh::recover_vanished_files --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (failure + vanishing-file recovery retries bisync and clears CONSECUTIVE_FAILURES (REQ-STOR-003 AC5)) -->
+5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget. Applicable recovery exclusions take precedence over positive persistence rules. <!-- @impl: entrypoint.sh::recover_vanished_files --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (failure + vanishing-file recovery retries bisync and clears CONSECUTIVE_FAILURES (REQ-STOR-003 AC5)) -->
 6. Baseline and subsequent bisync invocations limit each deletion set to 5,000 files. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync use the 5000-file deletion limit) -->
 
 **Constraints:**
@@ -367,7 +367,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The default sync scope (`none`) syncs only settings and config directories and excludes the workspace directory entirely. <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
+1. The default workspace sync scope (`none`) excludes the workspace directory entirely; home persistence still follows the selected Include/Exclude policy and session mode. <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
 2. The full sync scope (`full`) syncs the entire workspace directory, excluding dependency-install directories. <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
 3. The metadata sync scope (`metadata`) syncs only the agent-config files (per-repo agent instruction files and the per-repo agent rule directory). <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
 4. Every sync scope excludes the [documented caches, logs, ephemeral data, root Pi work-evidence, build artifacts, regenerable state, vendor credential caches and disposable Temporary checkout/download paths](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011). Ordinary Temporary and Uploads content remains persistent. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 AC4: excludes only root Pi work-evidence in every sync scope) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 AC4: disposable agent checkouts never sync while user trays remain persistent) -->
@@ -377,6 +377,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
+- Unknown future files inside an admitted durable namespace remain eligible; detecting every novel cache there is not guaranteed. An exclusion does not authorize deletion or classify user content as disposable.
+- Administration's single Data governance policy selector applies to new or restarted sessions. The existing workspace toggle remains independent; no per-file enrollment, second settings surface or additional scheduler is introduced.
 - Sync configuration uses filter rules with explicit precedence (not order-sensitive include/exclude lists) so the active scope is unambiguous when multiple rules match.
 - The Container API surface currently exposes only the binary workspace-sync toggle (full or none); the metadata scope is reachable only by direct sync-mode configuration.
 
@@ -943,14 +945,16 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. Initial restore includes the universal managed-policy document. <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-IDE-002 AC6 / REQ-STOR-031 AC1: syncs bounded Browser IDE manifests and managed policy) --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) -->
-2. Protected modes verify exact policy identity after restore and before baseline creation. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
-3. The generated filter excludes protected exact paths. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
+2. Protected modes verify exact policy identity after restore and before baseline. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
+3. The generated filter excludes protected exact paths even when positive persistence rules also match. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
 4. Exclusive filtering also excludes governed resource roots. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
 5. Mutable transition removes stale local policy and filter state before baseline. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (mutable reset removes stale policy and filter before baseline) -->
-6. Baseline, periodic, manual, recovery, and final bisync use the common generated filter. <!-- @impl: entrypoint.sh::RCLONE_FILTERS --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persistence) / REQ-STOR-004 (initial sync) / REQ-STOR-005 (graceful shutdown final sync) / REQ-SESSION-003 AC3 (entrypoint initial rclone sync) + AC4 (bisync daemon + SIGUSR1) / REQ-SESSION-011 (graceful shutdown with final sync) / REQ-VAULT-006 (shutdown bisync vault writes) / REQ-OPS-010 (graceful container shutdown) / REQ-MEM-004 (memory dirs in bisync filter)) -->
+6. Baseline, periodic, manual, recovery, compaction and final bisync use one effective ordered filter policy: verified managed vetoes, applicable recovery vetoes, transient exclusions and mode-specific inclusions, then the selected Include deny or Exclude admission fallback. Different rclone flag-family ordering must not bypass a veto. <!-- @impl: entrypoint.sh::compose_rclone_filters --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persistence) / REQ-STOR-004 (initial sync) / REQ-STOR-005 (graceful shutdown final sync) / REQ-SESSION-003 AC3 (entrypoint initial rclone sync) + AC4 (bisync daemon + SIGUSR1) / REQ-SESSION-011 (graceful shutdown with final sync) / REQ-VAULT-006 (shutdown bisync vault writes) / REQ-OPS-010 (graceful container shutdown) / REQ-MEM-004 (memory dirs in bisync filter)) -->
 7. With remote curation active, startup restores declared image-owned runtime companions without replacing release-owned bytes.  <!-- @impl: entrypoint.sh::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) -->
 
-**Constraints:** Container policy is non-authoritative, with no Durable Object policy persistence or replacement of release-owned extension bytes by image copies.
+
+
+**Constraints:** Container policy is non-authoritative, with no Durable Object policy persistence or replacement of release-owned extension bytes by image copies. Worker-side authorization is unchanged; an upstream denial does not substitute for correct local filter composition.
 
 **Priority:** P0
 
@@ -1682,3 +1686,28 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Status:** Implemented
 
 ---
+
+### REQ-STOR-055: Home persistence admission and scope transitions
+
+**Intent:** Persistence preserves eligible user state while allowing an explicit approved-location policy.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Exclude is the compatible default and admits home paths unless explicitly restricted; Include denies paths outside root-anchored durable namespaces. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-002/004/011/031/032: production persistence policy matrix) -->
+2. Approved agent and application-data namespaces admit new nested files without filename inventories, including Pi base configuration and recovery archives; transient and managed restrictions still apply. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-002/004/011/031/032: production persistence policy matrix) -->
+3. Personal npm manifests, locks and local package source, MCP recovery archives, shared IDE state and getting-started documentation remain eligible under the existing session and workspace gates. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-002/004/011/031/032: production persistence policy matrix) -->
+4. A scope transition preserves newly excluded local and remote objects and uses the existing newest-side-wins baseline. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011/045: restart scope migration keeps excluded old data while admitted deletions still propagate) --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
+5. Subsequent ordinary synchronization propagates deletions of admitted files. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011/045: restart scope migration keeps excluded old data while admitted deletions still propagate) --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
+6. Ordinary synchronization rejects missing, invalid or incomplete required protected policy without treating authoritative bootstrap restoration as a verified baseline. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @impl: entrypoint.sh::compose_rclone_filters --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-003/004/031: recovery veto wins over namespace positives and invalid policy prevents baseline and ordinary sync I/O) -->
+
+**Constraints:** Exclusion does not authorize deletion.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-011](#req-stor-011-sync-mode-controls-workspace-scope), [REQ-STOR-031](#req-stor-031-managed-resource-container-sync)
+
+**Verification:** Existing named behavioral tests; CI qualification remains separate.
+
+**Status:** Implemented

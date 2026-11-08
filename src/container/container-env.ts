@@ -4,6 +4,7 @@
  * Extracted from Container DO (index.ts) to reduce file size.
  * All functions receive explicit state/context parameters instead of `this`.
  */
+import { parseStoredSyncPolicyMode, type SyncPolicyMode } from '../lib/sync-policy';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import type { OperatorContainerProfile } from './operator-context';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
@@ -39,6 +40,7 @@ export interface ContainerEnvState {
   _managedResourcePolicy?: ManagedResourcePolicy;
   _managedResourcePathsDigest?: string | null;
   _workspaceSyncEnabled: boolean;
+  _syncPolicyMode?: SyncPolicyMode;
   _fastStartEnabled: boolean;
   _tabConfig: TabConfig[] | null;
   _openaiApiKey: string | null;
@@ -100,6 +102,7 @@ interface RestartPrefsInput {
   modelDisplayNames?: Record<string, string>;
   promptCacheTargets?: string[];
   workspaceSyncEnabled?: boolean;
+  syncPolicyMode?: SyncPolicyMode;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
   openaiApiKey?: string;
@@ -148,6 +151,7 @@ export interface SetBucketNameCreds {
   r2AccountId?: string;
   r2Endpoint?: string;
   workspaceSyncEnabled?: boolean;
+  syncPolicyMode?: SyncPolicyMode;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
   openaiApiKey?: string;
@@ -193,6 +197,7 @@ export function validateBucketNameInput(input: {
   r2AccountId?: unknown;
   r2Endpoint?: unknown;
   workspaceSyncEnabled?: unknown;
+  syncPolicyMode?: unknown;
   fastStartEnabled?: unknown;
   sessionMode?: unknown;
   sessionWorkspace?: unknown;
@@ -218,6 +223,9 @@ export function validateBucketNameInput(input: {
   }
   if ((r2AccessKeyId === undefined) !== (r2SecretAccessKey === undefined)) {
     return 'r2AccessKeyId and r2SecretAccessKey must be provided together';
+  }
+  if (input.syncPolicyMode !== undefined && input.syncPolicyMode !== 'exclude' && input.syncPolicyMode !== 'include') {
+    return 'syncPolicyMode must be exclude or include when provided';
   }
   if (workspaceSyncEnabled !== undefined && typeof workspaceSyncEnabled !== 'boolean') {
     return 'workspaceSyncEnabled must be a boolean when provided';
@@ -363,6 +371,7 @@ export function buildEnvVars(
     WORKSPACE_SYNC_ENABLED: !restrictedOperator && state._workspaceSyncEnabled ? 'true' : 'false',
     FAST_CLI_START: state._fastStartEnabled ? 'true' : 'false',
     SYNC_MODE: !restrictedOperator && state._workspaceSyncEnabled ? 'full' : 'none',
+    SYNC_POLICY_MODE: parseStoredSyncPolicyMode(state._syncPolicyMode),
     ...(operatorProfile && {
       CODEFLARE_OPERATOR_SESSION: 'true',
       ...(state._operatorPackageResources && {
@@ -571,6 +580,10 @@ export async function applyBucketName(
   }
   state._bucketName = name;
   await storage.put('bucketName', name);
+  if (r2Creds?.syncPolicyMode !== undefined) {
+    state._syncPolicyMode = r2Creds.syncPolicyMode;
+    await storage.put('syncPolicyMode', r2Creds.syncPolicyMode);
+  }
   if (typeof r2Creds?.workspaceSyncEnabled === 'boolean') {
     state._workspaceSyncEnabled = r2Creds.workspaceSyncEnabled;
     await storage.put('workspaceSyncEnabled', r2Creds.workspaceSyncEnabled);
@@ -695,6 +708,12 @@ export async function applyPrefsOnRestart(
   if (input.sessionId) {
     await storage.put('_sessionId', input.sessionId);
     state._sessionId = input.sessionId;
+    changed = true;
+  }
+
+  if (input.syncPolicyMode !== undefined && input.syncPolicyMode !== state._syncPolicyMode) {
+    state._syncPolicyMode = input.syncPolicyMode;
+    await storage.put('syncPolicyMode', input.syncPolicyMode);
     changed = true;
   }
 

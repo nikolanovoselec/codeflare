@@ -17,6 +17,9 @@ import {
   SYNC_STATUS_FILE,
 } from '../dist/runtime-paths.js';
 
+// Isolate unmanaged lifecycle behavior; real policy composition is covered by the rclone matrix.
+const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
 
@@ -47,6 +50,7 @@ function captureRcloneArgs(functionName) {
     `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}`,
     "R2_BUCKET_NAME='bucket'",
     "RCLONE_CONFIG='/dev/null'",
+    unmanagedPolicyFixture,
     'RCLONE_FILTERS=()',
     `RECOVERY_FILTER_FILE='${syncDir}/recovery-filters.txt'`,
     `TMPDIR='${disposableTmp}'`,

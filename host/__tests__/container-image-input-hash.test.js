@@ -117,6 +117,7 @@ describe('deployment container image input hash', () => {
       'scripts/prepare-rclone-s3-fixture.py',
       'scripts/ci/rclone-bookkeeping_test.go',
       'scripts/patch-context-mode-bundles.mjs',
+      'scripts/qualify-context-mode.mjs',
       'scripts/patch-chrome-devtools-timeouts.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
@@ -193,7 +194,7 @@ describe('deployment container image input hash', () => {
     assert.notEqual(portalTag, cleanupTag);
 
     let qualifierTag = portalTag;
-    for (const file of ['scripts/qualify-pi-mcp.mjs', 'host/__tests__/pi-mcp-stock.test.js', 'host/__fixtures__/pi-mcp-extension-server.mjs']) {
+    for (const file of ['scripts/qualify-context-mode.mjs', 'scripts/qualify-pi-mcp.mjs', 'host/__tests__/pi-mcp-stock.test.js', 'host/__fixtures__/pi-mcp-extension-server.mjs']) {
       write(file, 'image qualification change\n');
       commit('image qualification change');
       const changed = imageHashResult().tag;

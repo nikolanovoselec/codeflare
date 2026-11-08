@@ -137,12 +137,20 @@ Step 1c — record the scope decision so Task agents can read it without re-pars
   if [ "$SCOPE" = "diff" ]; then
     BASE_REF=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo "main")
     echo "BASE_REF=$BASE_REF"
-    echo "DIFF_CMD=git diff origin/${BASE_REF}...HEAD"
+    BASE_SHA=$(git merge-base "origin/${BASE_REF}" HEAD)
+    HEAD_SHA=$(git rev-parse HEAD)
+    RANGE="${BASE_SHA}..${HEAD_SHA}"
+    echo "RANGE=$RANGE"
+    echo "WORK_SET=changed-hunks-and-direct-invalidations"
+  else
+    echo "WORK_SET=whole-requested-tree"
   fi
 } > "$REVIEW_DIR/.scope.txt"
 ```
 
-> **Force-push caveat:** `git diff origin/$BASE_REF...HEAD` resolves against the current branch tip and does not consult the Stop hook's PR-specific `.git/sdd-review-ack-pr-<number>` checkpoint. On force-pushed branches, the diff may include files whose history was rewritten rather than just the genuinely new changes. The noise is bounded (still scoped to the merge-base side of `...`) and only affects manually-invoked `/review` on force-pushed PRs. If you need a strict "since-last-review" diff on a force-pushed branch, either explicitly check out the merge-base before running, or use `/review --all` to bypass diff resolution entirely.
+Resolve packet ownership per reviewer, not through persisted packet files. A reviewer consumes an already-inlined packet without rebuilding it; otherwise it builds its assigned lane once through `review-scope` with `--with-evidence` and consumes the JSON in the same call. Never save `.packet-*` files or return raw packet JSON. Root-owned reports and scope/REQ-batch metadata remain normal review artifacts.
+
+> **Force-push caveat:** Freeze the merge-base and head as the exact two-dot range recorded above. Review only that immutable work set; use `--all` only when the whole requested tree is intended.
 
 Step 1d — print the run summary so the user knows what's happening:
 ```
@@ -155,25 +163,11 @@ Step 1d — print the run summary so the user knows what's happening:
 
 Use `$REVIEW_DIR` for ALL output files and `$REVIEW_DIR/.scope.txt` for scope plumbing in every subsequent phase.
 
-Step 1e — refresh the graphify graph for graph-capable Phase 2 specialists and optional deep reviewers. Per REQ-AGENT-023, graphify is ambient infrastructure in every codeflare container; per REQ-AGENT-025 the post-clone hook ensures a graph exists. Before Phase 2 spawns any agent:
-
-```bash
-if [ -f "$PROJECT_ROOT/graphify-out/graph.json" ]; then
-  # AST-only refresh, free, ~5-15s on medium repos; ensures graph-capable specialists
-  # do not consume stale structure. Code/spec/doc reviewers still use direct evidence.
-  if ! (cd "$PROJECT_ROOT" && timeout 180 bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh . 2>>"$REVIEW_DIR/.graphify-update.log"); then
-    echo "Note: graphify update . failed or timed out at $(date -Iseconds). Graph at $PROJECT_ROOT/graphify-out/graph.json may be stale; treating as no-graph to avoid stale-orphan false positives. See .graphify-update.log for details." > "$REVIEW_DIR/.no-graph.notice"
-  fi
-else
-  echo "Note: no graphify graph at $PROJECT_ROOT/graphify-out/graph.json - structural review checks will fall back to grep-style search. Run /graphify once to enable graph-aware review." > "$REVIEW_DIR/.no-graph.notice"
-fi
-```
-
-The update runs at most once per `/review` invocation, with a 180s hard timeout to prevent indefinite hang. Failures (non-zero exit, timeout, missing CLI) are non-fatal and write `.no-graph.notice` — downstream phases fall back to grep-equivalent search instead of risking stale-graph false positives. Tool-agnostic: in context-mode environments the same step runs via `mcp__context-mode__ctx_execute` for the `graphify update` call; in plain Bash via the snippet above.
+Step 1e — classify graph availability without refreshing it. Use an existing current graph for focused direct-impact lookups. If absent or known stale, record `.no-graph.notice` and fall back to focused source searches. Never refresh/build a graph without explicit user authorization or treat absence as a finding.
 
 ## Phase 2: Parallel Agent Dispatch (6 Task agents)
 
-Launch **all 6 agents in parallel** using the Task tool. Each agent reviews the parsed `$SCOPE` plus the optional `$SCOPE_HINT` and returns one complete structured report. After all six complete, the root session writes each returned report to its designated output file.
+Launch **all 6 agents together in the background** using the Task tool (`run_in_background: true`). Each agent reviews the parsed `$SCOPE` plus the optional `$SCOPE_HINT` and returns one complete structured report. After all six complete, the root session writes each returned report to its designated output file.
 
 | # | Agent subagent_type | Output File | Focus |
 |---|---------------------|-------------|-------|
@@ -205,13 +199,16 @@ Project root: [PROJECT_ROOT]
 The root session persists every report and applies approved fixes.
 
 Scope mode: [SCOPE]    ([SCOPE_DESCRIPTION])
-[If SCOPE = diff]: review only what appears in `git diff origin/[BASE_REF]...HEAD`.
-                   Read $REVIEW_DIR/.scope.txt for BASE_REF + DIFF_CMD.
+Work set and exact range: read [REVIEW_DIR]/.scope.txt.
+Packet lane: [PACKET_LANE]. Follow review-scope: consume an inlined packet, or
+build once with --with-evidence and consume it in memory in the same call.
+Never persist packets. In diff scope, inspect lane-owned hunks and direct
+invalidations only; in all scope, inspect the entire requested lane tree.
 [If SCOPE = all]:  review the entire codebase.
 
 [SCOPE_HINT if provided, e.g., "Within that scope, focus on src/routes/."]
 
-[For SCOPE = diff: Use the DIFF_CMD output to identify changed files; inspect each changed file and only directly-related files needed for context.]
+[For SCOPE = diff: use the packet's exact range and changed-hunk intersections, not path equality or a fresh branch-tip diff.]
 [For SCOPE = all: inspect the complete requested tree using the tools granted to your agent.]
 
 Use only the tools granted by your agent definition. Do not retrieve policy or evidence through a global index, and do not widen the supplied scope.
@@ -254,6 +251,7 @@ When dispatching, substitute the placeholders:
 - `[SCOPE]` → `all` or `diff` (literal value from `$REVIEW_DIR/.scope.txt`)
 - `[SCOPE_DESCRIPTION]` → `"comprehensive whole-codebase"` for `all`, or `"diff-scoped"` for `diff`
 - `[BASE_REF]` → value from `.scope.txt`, only meaningful in diff mode
+- `[PACKET_LANE]` → `doc-updater` for `doc-updater`; `code-reviewer` for the other Phase 2 agents
 - `[SCOPE_HINT]` → the free-text remainder, or omitted if empty
 
 Agent ID prefixes: SEC (security), ARCH (architecture), QUAL (code-quality), DEAD (dead-code), TEST (test-gaps), DOCS (documentation).
@@ -262,7 +260,7 @@ Agent ID prefixes: SEC (security), ARCH (architecture), QUAL (code-quality), DEA
 
 The six agents are immutable, report-only workers. They return reports in parallel; the root session writes `$REVIEW_DIR/0N-*.md` after every result arrives.
 
-If the environment does not support 6 parallel Task calls, launch in batches of 3. If any agent fails, retry once. If it still fails, continue with successful reports and note the missing report in the summary.
+Do not impose artificial concurrency, turn, token or tool caps. If an agent fails, retry that failed call once; if it still fails, report its missing result and continue without claiming that lane passed.
 
 Wait for all 6 agents to complete. Write each complete returned report to its table-mapped output file in the root session; for a terminally failed agent, write a one-line missing-report record. Then:
 - If `$DEEP` is `true`: proceed to Phase 3.
@@ -278,53 +276,13 @@ When `$DEEP` is `true`, this phase spawns ceil(N/15) parallel `deep-reviewer` ag
 
 The main agent (NOT a Task agent — this is a cheap shell step) materialises the REQ list and partitions it into batches of 15.
 
-```bash
-# Discover Implemented REQs in scope
-if [ "$SCOPE" = "diff" ]; then
-  # Only REQs whose impl files appear in the diff
-  CHANGED_FILES=$(git diff origin/${BASE_REF}...HEAD --name-only)
-  # Grep sdd/ for REQ IDs whose Implements/Verification fields reference changed files
-  # (heuristic: any REQ block in sdd/*.md that mentions any changed-file path)
-  REQ_IDS=$(grep -lE "REQ-[A-Z]+-[0-9]+" sdd/*.md \
-            | xargs awk '
-              /^### REQ-[A-Z]+-[0-9]+/ { req=$2 }
-              /Status:.*Implemented/ && req { print req; req="" }
-            ')
-  # Filter to REQs whose body references any changed file
-  REQ_IDS=$(for r in $REQ_IDS; do
-    if grep -qF -f <(echo "$CHANGED_FILES") <(awk "/$r/,/^### REQ-/" sdd/*.md); then
-      echo "$r"
-    fi
-  done)
-else
-  # SCOPE=all — every Implemented REQ
-  REQ_IDS=$(awk '
-    /^### REQ-[A-Z]+-[0-9]+/ { req=$2 }
-    /Status:.*Implemented/ && req { print req; req="" }
-  ' sdd/*.md)
-fi
+In one read-only processing call, the root builds the `spec-reviewer` packet through the canonical CLI with `--with-evidence`, the resolved scope and exact range. Consume it in memory; emit only REQ/batch metadata, never packet JSON or source bodies. This is scope plumbing, not root-owned behavioral analysis.
 
-# Apply SCOPE_HINT if provided (free-text grep narrow)
-if [ -n "$SCOPE_HINT" ]; then
-  REQ_IDS=$(echo "$REQ_IDS" | grep -F "$SCOPE_HINT" || echo "$REQ_IDS")
-fi
-
-# Group by impl-file (locality preserved across batches) then chunk by 15.
-# The grouping algorithm:
-#   1. Read each REQ's Implements field to extract the primary impl file path
-#   2. Sort REQs by impl file path (lexical) — REQs sharing a file end up adjacent
-#   3. Chunk the sorted list into groups of up to 15 REQs
-# Each chunk becomes one Phase 3 batch. The Task agent reads the impl file once
-# per batch even though up to 15 REQs reference it.
-
-REQ_COUNT=$(echo "$REQ_IDS" | wc -l)
-BATCH_COUNT=$(( (REQ_COUNT + 14) / 15 ))
-
-# Write the batches to disk so each Task agent can find its own slice
-mkdir -p "$REVIEW_DIR/.deep"
-echo "$REQ_IDS" | split -l 15 - "$REVIEW_DIR/.deep/batch-"
-ls "$REVIEW_DIR/.deep/" > "$REVIEW_DIR/.deep/index.txt"
-```
+- Read the existing `sdd/spec/` layout when present, otherwise flat `sdd/`; no SDD means zero REQs.
+- Select `Implemented` REQs. In `all`, include the requested corpus. In `diff`, include changed REQ blocks and unchanged REQs whose resolved implementation/test blocks intersect changed-input hunks; use `changedInputIntersects`, not file-path equality. Resolve missing evidence rather than interpreting it as no impact.
+- Apply the scope hint within that work set using REQ and implementation/test context; never widen an empty match back to the whole corpus.
+- Sort by primary implementation path, then REQ ID, and partition into JSON arrays of at most 15 IDs. Root writes only these metadata arrays to `$REVIEW_DIR/.deep/batch-[BATCH_ID]` and their filenames to `.deep/index.txt`.
+- Set `REQ_COUNT` from the selected array length and `BATCH_COUNT` from the actual nonempty batches. Do not count an empty newline as one REQ.
 
 If `REQ_COUNT` is 0, write `$REVIEW_DIR/07-req-verify-00.md` with a one-line `"# REQ Behavioral Verification - SKIPPED (no Implemented REQs in scope)"` header and proceed to Phase 4. Do not spawn Task agents.
 
@@ -340,7 +298,7 @@ Phase 3 (deep): $REQ_COUNT Implemented REQs in scope, dispatching $BATCH_COUNT b
 
 Launch `$BATCH_COUNT` Task agents in a SINGLE message with `subagent_type: deep-reviewer`. Each agent receives its batch identifier and the REQ list path.
 
-If `$BATCH_COUNT > 5`, launch in waves of 5 (the Task API may rate-limit beyond that). The waves are sequential at the wave boundary; within each wave agents run in parallel.
+Launch all batches together with `run_in_background: true`; do not impose artificial concurrency, turn, token or tool caps.
 
 Each agent's prompt:
 
@@ -350,11 +308,13 @@ You are deep-reviewer batch [BATCH_ID] of [BATCH_COUNT] for /review run [REVIEW_
 review_mode=report-only
 Project root: [PROJECT_ROOT]
 Report path for the root: [REVIEW_DIR]/07-req-verify-[BATCH_ID].md
-Scope:        [SCOPE]   (diff -> base ref origin/[BASE_REF])
+Scope:        [SCOPE]   (diff -> exact RANGE in .scope.txt)
 Scope hint:   [SCOPE_HINT or "(none)"]
 
 REQ list for your batch: [REVIEW_DIR]/.deep/batch-[BATCH_ID]
-Read it and verify every REQ ID it contains.
+Consume any inlined packet once; if needed and absent, build one evidence-enabled
+spec-reviewer packet and consume it in memory. Verify only the listed REQs and
+their in-scope hunks/direct anchor invalidations. Never persist packet JSON.
 
 Follow your standard verification procedure (read REQ, identify impl, read impl,
 read tests, judge per AC, suggest fix type for mismatches). Return the complete
@@ -366,7 +326,7 @@ For REQ-to-impl mapping and AC-to-symbol chain verification, PREFER the
 is the structural axis for behavioural-match verification: if the graph returns
 a path, the impl chain exists; no path means the implementation is missing or
 named differently. The graph at [PROJECT_ROOT]/graphify-out/graph.json was
-refreshed in Phase 1 Step 1e. If [REVIEW_DIR]/.no-graph.notice exists, the
+classified without refresh in Phase 1 Step 1e. If [REVIEW_DIR]/.no-graph.notice exists, the
 graph is unavailable or stale - fall back to grep / Read for impl identification
 and record "graph unavailable" as evidence for any unclear verdict. Graphify
 MCP tools work identically under both Bash and context-mode environments.
@@ -568,8 +528,8 @@ the questions, surface all N.
 
 Match the finding's (location, category) tuple against entries in
 sdd/.review-decisions.md. If a prior entry exists with decision Defer / Ignore /
-Tech-Debt AND no commit has touched the file since that entry's date:
-  -> DROP. Audit reason: "Q1: prior <decision> recorded <date>, no commits since."
+Tech-Debt AND no commit has touched the file since that entry's date AND no concrete evidence shows its recorded revisit trigger has been met:
+  -> DROP. Audit reason: "Q1: prior <decision> recorded <date>, no commits since and no evidenced met revisit trigger."
 
 If the file has been touched since the prior entry, the prior decision is invalidated
 (the code may now have a real bug). Re-evaluate via Q2-Q6.
@@ -577,6 +537,8 @@ If the file has been touched since the prior entry, the prior decision is invali
 Use literal file path matching. Renames are rare; if a file was renamed, the prior
 decision will simply not match and the finding gets surfaced fresh - the audit log
 makes this visible and the user can re-defer if appropriate.
+
+A documented revisit trigger that is demonstrably met requires re-evaluation through Q2–Q6 even without a source commit. Cite the trigger and current evidence; unknown or absent trigger evidence is not proof of expiry and must not be invented. A comment or metadata field alone grants no safety waiver or permission to remediate.
 
 ### Q2: Explicit-memory-says-no drop
 
@@ -713,7 +675,7 @@ will treat these as Tech-Debt by default unless the user upgrades them.]
 ## Auto-Filtered (audit log)
 
 ### Q1: Repeat-offender drops (X)
-- CF-NNN at <location> (<category>): prior <Defer|Ignore|Tech-Debt> recorded <date>, no commits since.
+- CF-NNN at <location> (<category>): prior <Defer|Ignore|Tech-Debt> recorded <date>, no commits since and no evidenced met revisit trigger.
 
 ### Q2: Explicit-memory-says-no drops (X)
 - CF-NNN at <location> (<category>): contradicts root-supplied user decision "<quote>".
@@ -872,6 +834,8 @@ Specifically the `## Real Findings` and `## Tech-Debt Surfaced` sections.
 
 For findings whose raw IDs include a DEEP-* entry, the `suggested_fix_type` field (`spec`, `code`, `test`, or `unclear`) is shown alongside the canonical ID in the triage UI so the user sees at a glance which lane the finding implies. The triage decision lanes (Fix / Record as AD / Tech Debt / Defer / Ignore) are unchanged — `suggested_fix_type` is informational, not prescriptive.
 
+For material findings, explain the concrete condition, wrong result and consequence if left unfixed in plain language. State evidenced workload/concurrency assumptions when relevant; do not invent scale requirements or add filler to clean reports. Preserve finding IDs, evidence, approval choices and the existing boundary triage format.
+
 ### Pre-Triage Summary
 
 Before asking per-finding questions, present a triage summary showing:
@@ -904,6 +868,12 @@ For each finding or batch of related findings, use `AskUserQuestion` with these 
 
 **For cluster findings (CF-NNN-cluster):**
 The default options are presented for the cluster as a whole. The user's decision applies to ALL locations in the cluster. A "Split" option breaks the cluster into individual findings if the user wants per-location decisions.
+
+### Optional technical-debt context
+
+When technical debt has an accepted operating limit or revisit condition, retain it from existing evidence or the user's triage answer as **Accepted limit** and **Revisit trigger**. These are optional metadata, not additional triage decisions. Omit irrelevant fields; write `Unknown` for an applicable field whose value is not established. Never invent thresholds, dates, approval or operating assumptions, and do not add a question solely to populate these fields.
+
+Carry applicable values through the existing cycle report, technical-debt history entry and approved GitHub issue. Do not generalize a member-specific limit across a cluster. Older entries remain valid without backfilling. This metadata neither waives security/correctness requirements nor changes severity, scope or permission to create issues; Q1 re-evaluation still requires concrete evidence that a recorded trigger is met; it introduces no separate ledger or mandatory comment convention.
 
 ### Batching Rules
 
@@ -1004,6 +974,8 @@ Format:
   - **Severity:** [severity]
   - **Area:** [module/component]
   - **Why deferred:** [reason]
+  - **Accepted limit:** [when applicable: established limit/assumption, otherwise Unknown]
+  - **Revisit trigger:** [when applicable: established condition for reassessment, otherwise Unknown]
   - **Suggested remediation:** [approach]
 
 [...repeat for each Tech Debt finding]
@@ -1055,6 +1027,10 @@ append a section like:
 - **Suggested action:** <suggestion from finding>
 - **Sunset hint:** If 3 cycles in a row see this same decision, consider promoting to ADR.
 
+For Technical Debt decisions only, preserve applicable **Accepted limit** and
+**Revisit trigger** values from the debt entry in this history entry, including
+`Unknown`. Omit irrelevant fields and do not add them to Defer/Ignore entries.
+
 For cluster findings (CF-NNN-cluster) whose decision was NOT Split: expand to one
 entry per location in the cluster. Each entry shares the same Reason. This makes
 Q1's per-location lookup trivial in cycle N+1.
@@ -1093,7 +1069,8 @@ You are updating architecture decisions and creating GitHub issues from a codeba
    - If not found, append a new AD subsection at the end of the Decisions section with the next available AD number
 
 3. For each "Technical Debt" entry:
-   - Create a GitHub issue using: `gh issue create --label "technical-debt" --title "TD: [title]" --body "[description + remediation]"`
+   - Create a GitHub issue using: `gh issue create --label "technical-debt" --title "TD: [title]" --body "[description + remediation + applicable accepted limit and revisit trigger]"`
+   - Preserve applicable debt metadata from the cycle report verbatim, including `Unknown`; do not infer new limits or triggers.
    - Do NOT write tech debt to any documentation file
 
 IMPORTANT: Read documentation/decisions/README.md fully before editing. Use the Edit tool for AD insertions.

@@ -10,6 +10,7 @@
  * See the CONTAINER LIFECYCLE + KV STATUS CONTRACT block in index.ts for the
  * canonical description of when the SDK invokes each hook.
  */
+import { createLogger } from '../lib/logger';
 import { toError, toErrorMessage } from '../lib/error-types';
 import type { Env } from '../types';
 import { D1SessionRepository, type D1Session } from '../lib/session-repository';
@@ -18,7 +19,10 @@ import { updateEnvVars, type ContainerHost } from './container-config';
 import {
   collectMetrics as doCollectMetrics,
   openNotRunningConfirmation,
-  beginMonitorTransportRecovery,
+  captureMetricsExecution,
+  raceBudget,
+  type MetricsExecution,
+  type MetricsPin,
   SHUTDOWN_REQUESTED_KEY,
   TRANSPORT_FAILURE_STREAK_KEY,
   TRANSPORT_RECOVERY_KEY,
@@ -33,6 +37,7 @@ import { discardReviewSessionHuman } from './review-session-human';
 import { BROWSER_REFERENCE_KEY } from './container-browser';
 
 const SESSION_ID_KEY = '_sessionId';
+const logger = createLogger('container-lifecycle');
 
 /**
  * SDK-provided method capabilities the lifecycle hooks need beyond plain state.
@@ -48,9 +53,11 @@ export interface LifecycleHost extends ContainerHost {
   _shutdownStartedAt: number;
   /** Invalidates an older graceful continuation when KILL or a fresh start wins. */
   _teardownEpoch?: number;
+  /** Coalesces provider I/O only; D1 remains the termination authority. */
+  _unreachableDestroy?: { generation: number; intentId: string; completion: Promise<void> };
 
   stop(signal: number | string): Promise<void>;
-  schedule(delaySec: number, method: string): Promise<unknown>;
+  schedule(delaySec: number, method: string, payload?: MetricsPin): Promise<unknown>;
   deleteSchedules(method: string): void;
   /** Calls super.destroy() on the DO class (SDK teardown). */
   superDestroy(): Promise<void>;
@@ -63,7 +70,7 @@ export interface SessionStopRequest {
 }
 
 const OPERATIONAL_STORAGE_KEYS = [
-  SESSION_ID_KEY, 'bucketName', 'workspaceSyncEnabled', 'fastStartEnabled',
+  SESSION_ID_KEY, 'bucketName', 'workspaceSyncEnabled', 'syncPolicyMode', 'fastStartEnabled',
   'tabConfig', 'sessionWorkspace', 'sleepAfter', TRANSPORT_FAILURE_STREAK_KEY,
   'containerAuthToken', 'vaultKey', 'review:session-human', 'review:session-principal',
   'review:boundary-input', 'review:push-evidence', 'review:pr-creation', BROWSER_REFERENCE_KEY,
@@ -71,6 +78,7 @@ const OPERATIONAL_STORAGE_KEYS = [
 
 function clearOperationalMemory(host: LifecycleHost): void {
   host._bucketName = null;
+  host._syncPolicyMode = 'exclude';
   host._sessionId = null;
   host._r2AccessKeyId = null;
   host._r2SecretAccessKey = null;
@@ -167,22 +175,37 @@ export async function killSession(host: LifecycleHost, input: SessionStopRequest
 /** Called when the container starts successfully. */
 export async function onStart(host: LifecycleHost): Promise<void> {
   const shutdownAtEntry = host._shutdownStartedAt;
+  const epochAtEntry = host._teardownEpoch;
+  const ownerKey = host._bucketName;
+  const sessionId = host._sessionId;
+  const runtime = host.ctx.container;
+  const assertEntryCurrent = () => {
+    if (host._teardownEpoch !== epochAtEntry || host.ctx.container !== runtime
+      || host._bucketName !== ownerKey || host._sessionId !== sessionId) throw new Error('Container start superseded');
+  };
   updateEnvVars(host);
-  if (!host._bucketName || !host._sessionId) throw new Error('Session identity unavailable on start');
+  if (!ownerKey || !sessionId) throw new Error('Session identity unavailable on start');
   const repository = new D1SessionRepository(host.env.USAGE_DB);
-  const session = await repository.getSession(host._bucketName, host._sessionId);
-  if (!session || (session.lifecycleState !== 'starting' && session.lifecycleState !== 'running')) {
+  const session = await repository.getSession(ownerKey, sessionId);
+  assertEntryCurrent();
+  if (!session || (session.lifecycleState !== 'starting' && session.lifecycleState !== 'running'
+    && session.lifecycleState !== 'unreachable')) {
     throw new Error('D1 start generation unavailable');
   }
 
   const isFreshStart = session.lifecycleState === 'starting';
   if (isFreshStart) {
-    host._teardownEpoch = (host._teardownEpoch ?? 0) + 1;
+    const startEpoch = host._teardownEpoch = (host._teardownEpoch ?? 0) + 1;
+    const assertStartCurrent = () => {
+      if (host._teardownEpoch !== startEpoch || host.ctx.container !== runtime
+        || host._bucketName !== ownerKey || host._sessionId !== sessionId) throw new Error('Container start superseded');
+    };
     const startedAt = Date.now();
     // Retire old authority with the generation handoff even if exit cleanup
     // is delayed. Same-generation authority and newer executions remain intact.
     await host.ctx.storage.transaction(async txn => {
       const previous = await txn.get<number>('lifecycleGeneration');
+      assertStartCurrent();
       if (previous !== undefined && (!Number.isSafeInteger(previous) || previous < 0
         || previous > session.lifecycleGeneration)) throw new Error('D1 start generation handoff unavailable');
       if (previous !== session.lifecycleGeneration) {
@@ -194,21 +217,26 @@ export async function onStart(host: LifecycleHost): Promise<void> {
       await txn.put('lifecycleGeneration', session.lifecycleGeneration);
       await txn.put('observationSequence', 0);
       await txn.put('containerStartedAt', startedAt);
+      assertStartCurrent();
     });
+    assertStartCurrent();
     host.containerStartedAt = startedAt;
     const observedAt = new Date().toISOString();
-    if (!await repository.project(host._bucketName, host._sessionId, session.lifecycleGeneration, 0, {
+    if (!await repository.project(ownerKey, sessionId, session.lifecycleGeneration, 0, {
       lifecycleState: 'running', observedAt,
     })) throw new Error('D1 running projection rejected');
+    assertStartCurrent();
     if (host._shutdownStartedAt === shutdownAtEntry) host._shutdownStartedAt = 0;
   } else {
     // The Containers SDK can replay onStart after the first hook projected the
     // generation. Only the same durable generation is a harmless replay.
     const persistedGeneration = await host.ctx.storage.get<number>('lifecycleGeneration');
+    assertEntryCurrent();
     if (persistedGeneration !== session.lifecycleGeneration) {
       throw new Error('D1 start generation replay unavailable');
     }
     const persistedStartedAt = await host.ctx.storage.get<number>('containerStartedAt');
+    assertEntryCurrent();
     host.containerStartedAt = typeof persistedStartedAt === 'number'
       && Number.isFinite(persistedStartedAt) && persistedStartedAt > 0
       ? persistedStartedAt
@@ -219,18 +247,138 @@ export async function onStart(host: LifecycleHost): Promise<void> {
   // claimed fresh generation is allowed to arm normal metrics work.
   if (isFreshStart) {
     try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-    await host.schedule(60, 'collectMetrics');
+    await host.schedule(60, 'collectMetrics', { ownerKey: session.ownerKey, sessionId: session.sessionId, generation: session.lifecycleGeneration });
   }
 }
 
-export async function collectMetrics(host: LifecycleHost): Promise<void> {
+/** Recovery expiry has no reachable host to drain. It must not enter ordinary destroy(). */
+async function terminateUnreachable(host: LifecycleHost, observed: D1Session, execution: MetricsExecution): Promise<boolean> {
+  const { ownerKey, sessionId, generation, runtime } = execution;
+  const incidentId = observed.unreachableIncidentId;
+  const deadlineMs = observed.unreachableDeadlineMs;
+  if (!incidentId || deadlineMs === undefined || !execution.isCurrent()) return false;
+  const intentId = `unreachable-${generation}-${incidentId}`;
+  const evidence = { sessionId, lifecycleGeneration: generation, incidentId, terminationIntentId: intentId };
+  const repository = new D1SessionRepository(host.env.USAGE_DB);
+  const bounded = async <T>(operation: Promise<T>): Promise<T> => {
+    const result = await raceBudget(operation.then(value => ({ value })), CONTAINER_POLL_BUDGET_MS);
+    if (result === null) throw new Error('Recovery termination operation deadline exceeded');
+    if (!execution.isCurrent()) throw new Error('Recovery termination superseded');
+    return result.value;
+  };
+  let automaticRetry = true;
+  try {
+    let claimed = observed;
+    if (observed.lifecycleState === 'unreachable') {
+      if (Date.now() < deadlineMs) return true;
+      const result = await bounded(repository.claimUnreachableTermination(ownerKey, sessionId, generation,
+        incidentId, deadlineMs, intentId, Date.now()));
+      if (!result) return true;
+      claimed = result;
+      host.logger.info('termination_claimed', { ...evidence, reason: 'recovery_expiry' });
+    }
+    if (claimed.lifecycleState !== 'stopping' || claimed.terminationIntentId !== intentId
+      || claimed.terminationGeneration !== generation) return false; // Ordinary Stop owns its own drain.
+    // Durable attempt consumption, not a cached promise, retires automatic work
+    // after failure/timeout and across coordinator reconstruction.
+    if (claimed.lifecycleReason === 'recovery_force_started') return false;
+    const claimedAt = Date.parse(claimed.terminationClaimedAt ?? '');
+    if (!Number.isFinite(claimedAt)) throw new Error('Recovery termination claim time unavailable');
+    await bounded(host.ctx.storage.transaction(async txn => {
+      if (!execution.isCurrent() || await txn.get<number>('lifecycleGeneration') !== generation) {
+        throw new Error('Recovery operational generation changed');
+      }
+      await txn.put(SHUTDOWN_REQUESTED_KEY, claimedAt);
+    }));
+    await bounded(fencePendingBoundaryStart(host.env, repository, claimed));
+    const readOwned = async (): Promise<D1Session> => {
+      const current = await bounded(repository.getSession(ownerKey, sessionId));
+      if (!current || current.lifecycleState !== 'stopping' || current.lifecycleGeneration !== generation
+        || current.terminationGeneration !== generation || current.terminationIntentId !== intentId
+        || current.unreachableIncidentId !== incidentId || current.unreachableDeadlineMs !== deadlineMs
+        || current.boundaryActivityId) throw new Error('Recovery termination ownership changed');
+      return current;
+    };
+    if (Date.now() < claimedAt + 135_000) {
+      const current = await readOwned();
+      if (!current.terminationSignalAcceptedAt) {
+        // No await from the final D1/local check to the synchronous native effect.
+        // SDK 0.3.7 stop() skips this signal when its running hint is false.
+        if (!execution.isCurrent()) return false;
+        try { runtime.signal(15); }
+        catch (error) { host.logger.error('signal_failed', undefined, { ...evidence, errorClass: 'signal_failed' }); throw error; }
+        host.logger.info('signal_accepted', evidence);
+        await bounded(repository.recordTerminationSignal(ownerKey, sessionId, generation, intentId,
+          new Date(Date.now()).toISOString()));
+      }
+      return true; // Signal acceptance is not process-exit evidence.
+    }
+    await readOwned();
+    if (!execution.isCurrent()) return false;
+    // A missing acknowledgement must not authorize native I/O, even if the
+    // write committed. Never reconcile this CAS into permission to dispatch.
+    automaticRetry = false;
+    if (!await bounded(repository.markRecoveryForceStarted(ownerKey, sessionId, generation, intentId, incidentId, deadlineMs))) return false;
+    if (!execution.isCurrent()) return false;
+    // Attach confirmation to the native promise itself, not the bounded await:
+    // positive completion may arrive after this alarm has retired. The original
+    // epoch/runtime plus D1 owner/generation/intent/incident fences still apply.
+    const completion = runtime.destroy().then(async () => {
+      await readOwned();
+      if (!execution.isCurrent()) return;
+      const confirmed = await bounded(repository.confirmStoppedOrObserved(ownerKey, sessionId, generation, intentId,
+        new Date(Date.now()).toISOString()));
+      if (!confirmed) throw new Error('Confirmed recovery exit could not be persisted');
+      host.logger.info('process_exit_confirmed', { ...evidence, reason: 'native_destroy_completed' });
+    });
+    host._unreachableDestroy = { generation, intentId, completion };
+    void completion.catch(() => {
+      host.logger.error('recovery_termination_failed: retry Stop or KILL', undefined, { ...evidence, errorClass: 'termination_failed' });
+    });
+    await bounded(completion);
+    return false;
+  } catch {
+    // Privacy-safe and actionable. Provider, D1, or cancellation failure never
+    // releases ownership; normal Retry Stop/KILL remains available.
+    host.logger.error('recovery_termination_failed: retry Stop or KILL', undefined, { ...evidence, errorClass: 'termination_failed' });
+    return automaticRetry && execution.isCurrent();
+  }
+}
+
+export async function collectMetrics(host: LifecycleHost, delivered?: MetricsPin, captured?: MetricsExecution): Promise<void> {
+  const epoch = host._teardownEpoch;
+  const runtime = host.ctx.container;
+  const assigned = captured ?? await captureMetricsExecution(host.ctx, delivered,
+    () => host._teardownEpoch === epoch && host.ctx.container === runtime);
+  if (!assigned || !assigned.isCurrent()) return;
+  const execution: MetricsExecution = { ...assigned, isCurrent: () => assigned.isCurrent()
+    && (!host._bucketName || host._bucketName === assigned.ownerKey)
+    && (!host._sessionId || host._sessionId === assigned.sessionId) };
+  const pin = { ownerKey: execution.ownerKey, sessionId: execution.sessionId, generation: execution.generation };
   const callbacks: MetricsCallbacks = {
-    stop: (signal: number | string) => host.stop(signal as number),
-    schedule: (delaySec: number, method: string) => host.schedule(delaySec, method) as Promise<unknown>,
+    stop: async (signal: number | string) => {
+      if (!execution.isCurrent()) return;
+      if (execution.runtime.running) {
+        await host.stop(signal as number);
+      } else {
+        // A responding host can outlive the SDK hint. Its idle/quota stop must
+        // reach the native runtime, then retain the pinned reconciliation alarm.
+        execution.runtime.signal(signal === 'SIGTERM' ? 15 : signal as number);
+        if (execution.isCurrent()) await callbacks.schedule(5, 'collectMetrics');
+      }
+    },
+    schedule: async (delaySec: number, method: string) => {
+      if (!execution.isCurrent()) return;
+      // SDK schedules are one-shot rows on the existing alarm. Replace this
+      // callback's rows so an SDK stop callback cannot duplicate the reaper.
+      host.deleteSchedules(method);
+      return await host.schedule(delaySec, method, pin);
+    },
     idleTimeoutPref: host.idleTimeoutPref,
     setIdleTimeoutPref: (next: string) => { host.idleTimeoutPref = next; },
+    terminateUnreachable: (session, current) => terminateUnreachable(host, session, current),
   };
-  await doCollectMetrics(host as unknown as MetricsState, host.ctx, host.env, callbacks);
+  await doCollectMetrics(host as unknown as MetricsState, host.ctx, host.env, callbacks, execution);
 }
 
 // Durable audit of the final-sync outcome on teardown (#516). Persisted to DO
@@ -520,6 +668,8 @@ export async function confirmMonitoredExit(
   await fencePendingBoundaryStart(env, repository, stopping);
   const confirmed = await repository.confirmStopped(ownerKey, sessionId, generation, intentId, new Date().toISOString());
   if (confirmed) {
+    logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
+      incidentId: current.unreachableIncidentId, terminationIntentId: intentId, reason: 'attached_monitor' });
     try {
       // A replacement may claim a new generation while the exit callback
       // completes. Never fence or discard authority belonging to the replacement.
@@ -543,24 +693,34 @@ export async function confirmMonitoredExit(
 export async function onStop(host: LifecycleHost): Promise<void> {
   const shutdownElapsedMs = host._shutdownStartedAt > 0 ? Date.now() - host._shutdownStartedAt : null;
   host.logger.info('Container SDK stop observed (exit unverified)', { shutdownElapsedMs });
-  let shutdownRequested: number | undefined;
-  try { shutdownRequested = await host.ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY); } catch { return; }
-  if (typeof shutdownRequested === 'number') {
-    try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
+  const epoch = host._teardownEpoch;
+  const execution = await captureMetricsExecution(host.ctx, undefined, () => host._teardownEpoch === epoch);
+  if (!execution || !execution.isCurrent()) return;
+  let shutdownRequested: unknown;
+  try { shutdownRequested = await host.ctx.storage.get(SHUTDOWN_REQUESTED_KEY); } catch { return; }
+  let current: D1Session | null = null;
+  try { current = await raceBudget(new D1SessionRepository(host.env.USAGE_DB)
+    .getSession(execution.ownerKey, execution.sessionId), CONTAINER_POLL_BUDGET_MS); }
+  catch { /* D1 uncertainty retains ownership and the existing retry cadence. */ }
+  if (!execution.isCurrent() || (current && current.lifecycleGeneration !== execution.generation)) return;
+  const automaticStop = current?.lifecycleState === 'stopping' && current.unreachableIncidentId
+    && current.terminationIntentId === `unreachable-${execution.generation}-${current.unreachableIncidentId}`;
+  if (current?.lifecycleState === 'stopped' || current?.lifecycleReason === 'recovery_force_started'
+    || (typeof shutdownRequested === 'number' && current && !automaticStop)) {
+    try { host.deleteSchedules('collectMetrics'); } catch { /* no schedule to retire */ }
     return;
   }
-  const owner = host._bucketName ?? await host.ctx.storage.get<string>('bucketName');
-  const sessionId = host._sessionId ?? await host.ctx.storage.get<string>(SESSION_ID_KEY);
-  if (owner && sessionId) {
-    try {
-      const current = await new D1SessionRepository(host.env.USAGE_DB).getSession(owner, sessionId);
-      if (current?.lifecycleState === 'stopped') {
-        try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-        return;
-      }
-    } catch { /* D1 uncertainty keeps ownership and retry cadence */ }
+  // A synthetic SDK callback after SIGTERM cannot retire the recovery reaper.
+  try {
+    host.deleteSchedules('collectMetrics');
+    await host.schedule(automaticStop ? 5 : 60, 'collectMetrics', {
+      ownerKey: execution.ownerKey, sessionId: execution.sessionId, generation: execution.generation,
+    });
+  } catch (error) {
+    host.logger.error('Container stop retry alarm unavailable', undefined, { sessionId: execution.sessionId,
+      lifecycleGeneration: execution.generation, errorClass: 'schedule_failed' });
+    throw error;
   }
-  try { await host.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
 }
 
 /** Called when the container encounters an error. */
@@ -568,27 +728,23 @@ export async function onError(host: LifecycleHost, error: unknown): Promise<void
   const errorMessage = toErrorMessage(error);
   host.logger.error('Container error', error instanceof Error ? error : new Error(errorMessage));
 
-  // The Containers SDK already aborts its Durable Object when this exact
-  // container-services failure occurs during startup. Its monitor path instead
-  // marks private SDK state stopped and invokes onError, which makes the
-  // running-only watchdog miss the same recovery opportunity. Persist and arm
-  // the existing bounded incident before reconstructing the coordinator.
-  if (errorMessage.toLowerCase().includes('network connection lost')) {
-    const recovery = await beginMonitorTransportRecovery(
-      host.ctx,
-      async () => {
-        try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-        return await host.schedule(5, 'collectMetrics');
-      },
-    );
-    if (recovery !== 'fallback') return;
-  }
-  // SDK monitor errors can be transport loss while the process survives.
-  // Record the not-running observation for diagnostics and re-arm the retry
-  // loop, but never infer process exit or release the D1 generation from it.
-  if (!host.ctx.container?.running) {
-    await openNotRunningConfirmation(host.ctx);
-    try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-    await host.schedule(60, 'collectMetrics');
+  // A rejected SDK monitor is not a host observation or an exit. Re-arm the
+  // same pinned no-start probe; only its complete failure may open D1 unreachable.
+  let execution: MetricsExecution | null;
+  const epoch = host._teardownEpoch;
+  try {
+    if (typeof await host.ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
+    execution = await captureMetricsExecution(host.ctx, undefined, () => host._teardownEpoch === epoch);
+  } catch { return; }
+  if (!execution || !execution.isCurrent()) return;
+  if (!execution.runtime.running) await openNotRunningConfirmation(host.ctx);
+  const delay = errorMessage.toLowerCase().includes('network connection lost') ? 5 : 60;
+  try {
+    host.deleteSchedules('collectMetrics');
+    await host.schedule(delay, 'collectMetrics', { ownerKey: execution.ownerKey,
+      sessionId: execution.sessionId, generation: execution.generation });
+  } catch (scheduleError) {
+    host.logger.error('Container error retry alarm unavailable', toError(scheduleError));
+    throw scheduleError;
   }
 }

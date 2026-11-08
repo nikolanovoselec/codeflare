@@ -882,6 +882,46 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.idleTimeoutPref).toBe('12h');
     });
 
+    it('REQ-SESSION-008: sync policy survives initial configuration, both restart directions, and DO wake', async () => {
+      const persisted = new Map<string, unknown>();
+      mockStorage.get.mockImplementation(async (key: string) => persisted.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
+      let instance = new ContainerClass(mockCtx as any, mockEnv);
+      await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
+      const initial = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ bucketName: 'test-bucket', workspaceSyncEnabled: false }),
+      }));
+      expect(initial.status).toBe(200);
+      expect(instance.envVars?.SYNC_POLICY_MODE).toBe('exclude');
+      for (const syncPolicyMode of ['include', 'exclude', 'include']) {
+        const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ bucketName: 'test-bucket', syncPolicyMode, workspaceSyncEnabled: false }),
+        }));
+        expect(response.status).toBe(409);
+        expect(persisted.get('syncPolicyMode')).toBe(syncPolicyMode);
+        expect(instance.envVars?.SYNC_POLICY_MODE).toBe(syncPolicyMode);
+        expect(instance.envVars?.SYNC_MODE).toBe('none');
+        instance = new ContainerClass(mockCtx as any, mockEnv);
+        await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
+        expect(instance.envVars?.SYNC_POLICY_MODE).toBe(syncPolicyMode);
+        expect(instance.envVars?.SYNC_MODE).toBe('none');
+      }
+      for (const syncPolicyMode of ['Include', null, true, '']) {
+        const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ bucketName: 'test-bucket', syncPolicyMode }),
+        }));
+        expect(response.status).toBe(400);
+        expect(persisted.get('syncPolicyMode')).toBe('include');
+        expect(instance.envVars?.SYNC_POLICY_MODE).toBe('include');
+      }
+      persisted.set('syncPolicyMode', 'Include');
+      new ContainerClass(mockCtx as any, mockEnv);
+      await expect(mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value).rejects.toThrow(/sync policy/i);
+    });
+
     it('calls blockConcurrencyWhile in constructor', () => {
       new ContainerClass(mockCtx as any, mockEnv);
       expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalledTimes(1);
@@ -1492,7 +1532,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockContainerRuntime.running = sdkRunning;
       if (!sdkRunning) mockTcpPortFetch.mockResolvedValue(new Response('healthy'));
       let resolveExit!: () => void;
-      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((resolve) => { resolveExit = resolve; }));
+      let rejectExit!: (error: unknown) => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((resolve, reject) => { resolveExit = resolve; rejectExit = reject; }));
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance._sessionId).toBe(sessionId));
       await vi.waitFor(() => expect(resolveExit).toBeDefined());
@@ -1500,7 +1541,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         resolveExit();
         await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
       };
-      return { kv, key, completeExit, resolveExit, persisted, instance };
+      return { kv, key, completeExit, resolveExit, rejectExit, persisted, instance };
     }
 
     async function reconstruct() {
@@ -1513,6 +1554,19 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await completion;
       return instance;
     }
+
+    it('REQ-SESSION-024: an old scheduled generation cannot observe or signal the replacement', async () => {
+      const { instance, kv, key, persisted } = await attachedMonitor(12);
+      persisted.set('lifecycleGeneration', 13);
+      kv._set(key, { id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 13 });
+      const effects: string[] = [];
+      mockTcpPortFetch.mockImplementation(async () => { effects.push('probe'); throw Error('old alarm'); });
+      mockContainerRuntime.signal.mockImplementation(() => { effects.push('signal'); });
+      mockContainerRuntime.destroy.mockImplementation(async () => { effects.push('destroy'); });
+      await instance.collectMetrics({ ownerKey: owner, sessionId, generation: 12 });
+      expect(effects).toEqual([]);
+      expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 13 });
+    });
 
     it('does not release ownership after a transport monitor rejection', async () => {
       const { kv, key, persisted } = await attachedMonitor(12);
@@ -1528,13 +1582,16 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(persisted.has('monitoredExitGeneration')).toBe(false);
     });
 
-    it('confirms an explicit nonzero process exit from the low-level monitor', async () => {
+    it.each([
+      'container exited with unexpected exit code: 137',
+      'Runtime signalled the container to exit due to a new version rollout: 143',
+    ])('confirms an explicit nonzero process exit from the low-level monitor: %s', async (message) => {
       const { kv, key } = await attachedMonitor(13);
       let rejectExit!: (error: unknown) => void;
       mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((_, reject) => { rejectExit = reject; }));
       await reconstruct();
       await vi.waitFor(() => expect(rejectExit).toBeDefined());
-      rejectExit(new Error('container exited with unexpected exit code: 137'));
+      rejectExit(new Error(message));
       await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
     });
 
@@ -1629,8 +1686,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
     });
 
-    it('cannot stop a replacement when the old monitor resolves late', async () => {
-      const { kv, key, resolveExit, persisted, instance } = await attachedMonitor(7);
+    it.each(['resolved exit', 'rollout exit'] as const)('cannot stop a replacement when the old monitor completes late: %s', async (completion) => {
+      const { kv, key, resolveExit, rejectExit, persisted, instance } = await attachedMonitor(7);
       let retryScheduled!: () => void;
       const retry = new Promise<void>((resolve) => { retryScheduled = resolve; });
       vi.spyOn(instance, 'schedule').mockImplementation(async () => { retryScheduled(); return {} as Awaited<ReturnType<typeof instance.schedule>>; });
@@ -1638,7 +1695,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 8,
         createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
       });
-      resolveExit();
+      if (completion === 'rollout exit') rejectExit(new Error('Runtime signalled the container to exit due to a new version rollout: 143'));
+      else resolveExit();
       await retry;
       expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 7 });
       expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 8 });

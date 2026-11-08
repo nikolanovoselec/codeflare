@@ -1,4 +1,6 @@
-// CI/image-only qualification: no patching, private channels or credential companion.
+// CI/image-only qualification: unmodified pi-mcp-adapter 5.3.1 on Pi 1.5.0.
+// Keep the historical portal-test filename and the independent stdio consult suite.
+// No patching, private channels, credential companion or local long-wait qualification.
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));

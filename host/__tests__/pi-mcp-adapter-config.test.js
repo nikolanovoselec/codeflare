@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 async function fixture(t) {
-  const { default: register, migratePiMcpAdapterConfig } = await import('../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts');
+  const { default: register, migratePiMcpAdapterConfig, preparePiMcpAdapterConfig } = await import('../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts');
   const home = mkdtempSync(join(tmpdir(), 'pi-adapter-config-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const directory = join(home, '.pi', 'agent');
@@ -18,6 +18,8 @@ async function fixture(t) {
   return { home, directory, legacy: join(directory, 'mcp-adapter.json'), target: join(directory, 'mcp.json'), backup: join(directory, 'mcp-adapter.json.migrated'),
     migrate: (regenerate = false) => migratePiMcpAdapterConfig(directory, regenerate),
     prepare: (regenerate = false) => migratePiMcpAdapterConfig(directory, regenerate, true),
+    native: (regenerate = false) => preparePiMcpAdapterConfig(directory, regenerate),
+    selectAdapter: () => writeFileSync(join(directory, 'settings.json'), JSON.stringify({ packages: ['npm:pi-mcp-adapter@5.3.1'], extensions: ['-builtin:mcp'] })),
     load: (pi = {}) => register(pi, { HOME: home }),
   };
 }
@@ -85,7 +87,7 @@ for (const [name, settings, selected] of [
         for (const { message } of notifications) {
           assert.doesNotMatch(message, /synthetic|\/home\/|npm:|owns|owner is/);
         }
-      } else assert.deepEqual(notifications, []);
+      } else assert.ok(notifications.some(({ level }) => level === 'warning'));
     }
   });
 }
@@ -375,142 +377,6 @@ test('nonregular destination blocks migration and retains legacy', async (t) => 
   assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
 });
 
-function startConsult(home, restoredLegacy, overrides = {}) {
-  const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-  const lines = readFileSync(join(repo, 'entrypoint.sh'), 'utf8').split('\n');
-  function functionSource(name) {
-    const start = lines.findIndex((line) => line === `${name}() {`);
-    const end = lines.findIndex((line, index) => index > start && line === '}');
-    if (start < 0 || end < 0) throw new Error(`missing production helper ${name}`);
-    return lines.slice(start, end + 1).join('\n');
-  }
-  const functions = ['configure_pi_mcp_adapter', '_merge_consult_llm_mcp', '_remove_consult_llm_mcp', '_remove_disabled_consult_llm', 'configure_consult_llm'].map(functionSource).join('\n');
-  return spawnSync('bash', ['-c', `${functions}\nconfigure_pi_mcp_adapter "$MIGRATION_MODULE"\nconfigure_consult_llm
-if [ -n "$RESTORED_LEGACY" ]; then
-  # Execute the rclone exclusion wire contract against a synthetic restored object.
-  python3 - "$RESTORED_LEGACY" "$USER_HOME" "\${RCLONE_FILTERS[@]}" <<'BASELINE'
-import pathlib, re, shutil, sys
-args=sys.argv[3:]
-rules=[args[i+1] for i in range(len(args)-1) if args[i] == '--filter']
-def included(key):
-    for rule in rules:
-        action, pattern = rule[:2], rule[2:]
-        anchored = pattern.startswith('/')
-        pattern = pattern.lstrip('/') if anchored else pattern
-        expression = re.escape(pattern).replace(r'\\*\\*', '.*').replace(r'\\*', '[^/]*').replace(r'\\?', '[^/]')
-        candidates = [key] if anchored else [key] + [key[i+1:] for i, char in enumerate(key) if char == '/']
-        if any(re.fullmatch(expression, candidate) for candidate in candidates):
-            return action != '- '
-    return True
-source, destination = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-for obj in source.rglob('*'):
-    if obj.is_file() and included(obj.relative_to(source).as_posix()):
-        target = destination / obj.relative_to(source)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(obj, target)
-BASELINE
-fi`], {
-    encoding: 'utf8',
-    env: { ...process.env, USER_HOME: home, USER_CLAUDE_JSON: join(home, '.claude.json'),
-      MIGRATION_MODULE: join(repo, 'preseed/agents/pi/extensions/00-mcp-adapter-config.ts'),
-      RESTORED_LEGACY: restoredLegacy || '', CODEFLARE_OPENAI_API_KEY: 'synthetic-openai', CODEFLARE_GEMINI_API_KEY: '', ENTERPRISE_MODE: '', ...overrides,
-    },
-  });
-}
-
-test('REQ-AGENT-069: startup bootstraps consult-llm at the adapter filename, lazily, without creating legacy', async (t) => {
-  const f = await fixture(t);
-  const result = startConsult(f.home);
-  assert.equal(result.status, 0, result.stderr);
-  const config = JSON.parse(readFileSync(f.target, 'utf8'));
-  assert.equal(config.mcpServers['consult-llm'].lifecycle, 'lazy');
-  assert.equal(config.settings.requestTimeoutMs, 360000,
-    'fresh configuration must retain the fixed six-minute request budget');
-  assert.equal(config.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-openai');
-  assert.equal(existsSync(f.legacy), false);
-});
-
-test('REQ-AGENT-069: adding consult preserves existing user startup settings and unrelated servers', async t => {
-  const f = await fixture(t);
-  const config = { mcpServers: { custom: { command: 'custom', args: ['keep'], lifecycle: 'lazy' } },
-    settings: { deferWithMissingMetadata: false, custom: true } };
-  writeFileSync(f.target, JSON.stringify(config));
-  const result = startConsult(f.home);
-  assert.equal(result.status, 0, result.stderr);
-  const updated = JSON.parse(readFileSync(f.target, 'utf8'));
-  assert.deepEqual(updated.settings, { ...config.settings, requestTimeoutMs: 360000 });
-  assert.deepEqual(updated.mcpServers.custom, config.mcpServers.custom);
-  assert.equal(updated.mcpServers['consult-llm'].lifecycle, 'lazy');
-});
-
-test('REQ-AGENT-069: startup retains existing consult credentials and both-file user settings exactly', async (t) => {
-  const f = await fixture(t);
-  const target = '{"mcpServers":{"consult-llm":{"command":"custom-consult","env":{"TOKEN":"synthetic-custom"}}},"settings":{"custom":true}}';
-  writeFileSync(f.legacy, legacyConfig);
-  writeFileSync(f.target, target);
-  const result = startConsult(f.home);
-  assert.equal(result.status, 0, result.stderr);
-  const original = JSON.parse(target);
-  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
-    ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
-  });
-  assertArchived(f, 'mcp.json.migrated', target);
-  assert.equal(readFileSync(f.backup, 'utf8'), legacyConfig);
-  assert.equal(existsSync(f.legacy), false);
-});
-
-test('REQ-AGENT-069: startup recovers malformed legacy and bootstraps lazy consult without changing Claude behavior', async (t) => {
-  const f = await fixture(t);
-  writeFileSync(f.legacy, '{invalid');
-  const result = startConsult(f.home);
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(existsSync(f.legacy), false);
-  assertArchived(f, 'mcp-adapter.json.migrated', '{invalid');
-  assert.equal(JSON.parse(readFileSync(f.target, 'utf8')).mcpServers['consult-llm'].lifecycle, 'lazy');
-  assert.equal(JSON.parse(readFileSync(join(f.home, '.claude.json'), 'utf8')).mcpServers['consult-llm'].command, 'consult-llm-mcp');
-});
-
-
-test('REQ-AGENT-217: active mcp.json and recovery objects remain baseline-sync eligible', async t => {
-  const f = await fixture(t);
-  const restored = join(f.home, 'remote');
-  const remoteAgent = join(restored, '.pi', 'agent');
-  mkdirSync(join(remoteAgent, 'nested'), { recursive: true });
-  const remoteAdapter = { mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', lifecycle: 'lazy' } }, settings: { restored: true } };
-  writeFileSync(join(remoteAgent, 'mcp-adapter.json'), legacyConfig);
-  writeFileSync(join(remoteAgent, 'mcp.json'), JSON.stringify(remoteAdapter));
-  writeFileSync(join(remoteAgent, 'mcp-adapter.json.migrated.baseline'), 'remote recovery bytes');
-  writeFileSync(join(remoteAgent, 'nested', 'mcp-adapter.json'), 'unrelated nested bytes');
-  writeFileSync(f.legacy, legacyConfig);
-  writeFileSync(f.target, '{}');
-  writeFileSync(f.backup, 'old passive archive');
-  const result = startConsult(f.home, restored);
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig, 'the handoff must not introduce a new sync exclusion');
-  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), remoteAdapter);
-  assert.equal(readFileSync(join(f.directory, 'mcp-adapter.json.migrated.baseline'), 'utf8'), 'remote recovery bytes');
-  assert.equal(readFileSync(join(f.directory, 'nested', 'mcp-adapter.json'), 'utf8'), 'unrelated nested bytes');
-  assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
-  assert.equal(readFileSync(f.backup, 'utf8'), 'old passive archive');
-});
-
-test('REQ-AGENT-069: fresh startup regenerates managed consult credentials while retaining custom servers and settings', async t => {
-  const f = await fixture(t);
-  const config = { mcpServers: {
-    'consult-llm': { command: 'consult-llm-mcp', env: { OPENAI_API_KEY: 'synthetic-stale-managed-key' } },
-    custom: { command: 'custom-server', env: { TOKEN: 'synthetic-custom-token' } },
-  }, settings: { deferWithMissingMetadata: false, custom: true } };
-  writeFileSync(f.target, JSON.stringify(config));
-  const result = startConsult(f.home);
-  assert.equal(result.status, 0, result.stderr);
-  const updated = JSON.parse(readFileSync(f.target, 'utf8'));
-  assert.equal(updated.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-openai');
-  assert.equal(updated.mcpServers['consult-llm'].lifecycle, 'lazy');
-  assert.deepEqual(updated.mcpServers.custom, config.mcpServers.custom);
-  assert.deepEqual(updated.settings, { ...config.settings, requestTimeoutMs: 360000 });
-});
-
-
 for (const location of ['target', 'legacy']) {
   for (const customization of ['arguments', 'environment', 'server-fields', 'browser-headers', 'browser-endpoint']) {
     test(`startup preserves canonical-command ${customization} customization from ${location}`, async (t) => {
@@ -569,20 +435,6 @@ test('unreadable passive archive cannot block custom legacy recovery', { skip: p
   assert.ok(recoverable.some(name => readFileSync(join(f.directory, name), 'utf8') === legacyConfig));
 });
 
-test('REQ-AGENT-217: failed preparation does not exclude restored legacy from baseline', async (t) => {
-  const f = await fixture(t);
-  const outside = join(f.home, 'unsafe-target');
-  writeFileSync(outside, 'external original');
-  symlinkSync(outside, f.target);
-  const remote = join(f.home, 'remote-failed-preparation');
-  mkdirSync(join(remote, '.pi', 'agent'), { recursive: true });
-  writeFileSync(join(remote, '.pi', 'agent', 'mcp-adapter.json'), legacyConfig);
-  const result = startConsult(f.home, remote);
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
-  assert.equal(readFileSync(outside, 'utf8'), 'external original');
-});
-
 test('replacement write failure preserves the original custom adapter for recovery', async (t) => {
   const f = await fixture(t);
   const original = JSON.stringify({ settings: { custom: true }, mcpServers: {
@@ -606,28 +458,6 @@ test('replacement write failure preserves the original custom adapter for recove
   }
 });
 
-for (const mode of ['no-provider', 'enterprise']) {
-  test(`REQ-AGENT-069: ${mode} startup preserves customized Pi consult while retaining Claude cleanup`, async (t) => {
-    const f = await fixture(t);
-    const original = { settings: { custom: true }, mcpServers: {
-      'consult-llm': { command: 'consult-llm-mcp', args: ['--user-option'], env: { USER_TOKEN: 'synthetic-private' } },
-      unrelated: { command: 'user-server' },
-    } };
-    writeFileSync(f.target, JSON.stringify(original));
-    const claude = join(f.home, '.claude.json');
-    writeFileSync(claude, JSON.stringify({ mcpServers: { 'consult-llm': { command: 'consult-llm-mcp' }, unrelated: { command: 'keep' } } }));
-    const result = startConsult(f.home, undefined, {
-      CODEFLARE_OPENAI_API_KEY: '', ENTERPRISE_MODE: mode === 'enterprise' ? 'active' : '',
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
-      ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
-    });
-    assertArchived(f, 'mcp.json.migrated', JSON.stringify(original));
-    assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).mcpServers, { unrelated: { command: 'keep' } });
-  });
-}
-
 for (const lifecycle of ['lazy-keep-alive', 'lazy-keepalive']) {
   test(`REQ-AGENT-217: ${lifecycle} handoff preserves authentication and supports the replacement lifecycle`, async t => {
     const f = await fixture(t);
@@ -650,15 +480,6 @@ for (const lifecycle of ['lazy-keep-alive', 'lazy-keepalive']) {
     assert.equal(existsSync(f.legacy), false);
   });
 }
-
-
-test('REQ-AGENT-069: generated Pi provider environment preserves a literal leading exclamation mark', async t => {
-  const f = await fixture(t);
-  const result = startConsult(f.home, undefined, { CODEFLARE_OPENAI_API_KEY: '!synthetic-openai' });
-  assert.equal(result.status, 0, result.stderr);
-  const config = JSON.parse(readFileSync(f.target, 'utf8'));
-  assert.equal(config.mcpServers['consult-llm'].env.OPENAI_API_KEY, '!synthetic-openai');
-});
 
 
 for (const regenerate of [false, true]) {
@@ -744,34 +565,6 @@ test('REQ-AGENT-217: rejected legacy env produces a content-free managed-load di
 });
 
 
-test('REQ-AGENT-217: entrypoint preparation decodes selected custom consult env before preserved-entry merge', async t => {
-  const f = await fixture(t);
-  const original = { settings: { requestTimeoutMs: 360000 }, mcpServers: {
-    'consult-llm': { command: 'consult-llm-mcp', args: ['--synthetic-user-owned'], lifecycle: 'lazy',
-      env: { OPENAI_API_KEY: '!!synthetic-custom-provider', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' } },
-  } };
-  const bytes = JSON.stringify(original);
-  writeFileSync(f.legacy, bytes);
-  const result = startConsult(f.home);
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), { ...original, mcpServers: {
-    'consult-llm': { ...original.mcpServers['consult-llm'], env: { ...original.mcpServers['consult-llm'].env, OPENAI_API_KEY: '!synthetic-custom-provider' } },
-  } });
-  assertArchived(f, 'mcp-adapter.json.migrated', bytes);
-});
-
-for (const expression of ['!synthetic-command', '${SYNTHETIC_VAR}', '$env:SYNTHETIC_VAR', '{env:SYNTHETIC_VAR}']) {
-  test(`REQ-AGENT-217: rejected selected legacy env blocks entrypoint Pi merge (${expression})`, async t => {
-    const f = await fixture(t);
-    const bytes = JSON.stringify({ mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', env: { OPENAI_API_KEY: expression } } } });
-    writeFileSync(f.legacy, bytes);
-    const result = startConsult(f.home);
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(readFileSync(f.legacy, 'utf8'), bytes);
-    assert.equal(existsSync(f.target), false, 'failed semantic preparation must block active Pi config creation');
-  });
-}
-
 // Exact managed non-client exclusions must not change MCP client selection.
 for (const form of ['absolute', 'relative', 'dot-relative', 'canonical']) {
   for (const owner of ['stock', 'adapter', 'ambiguous', 'unknown']) {
@@ -813,7 +606,7 @@ for (const form of ['absolute', 'relative', 'dot-relative', 'canonical']) {
         assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
         assert.equal(readFileSync(f.target, 'utf8'), target);
         assert.deepEqual(readdirSync(f.directory).sort(), before);
-        if (owner === 'adapter') assert.deepEqual(notifications, []);
+        if (owner === 'adapter') assert.ok(notifications.some(({ level }) => level === 'warning'));
         else assert.ok(notifications.some(({ message, level }) =>
           level === 'warning' && /selection.*ambiguous|ambiguous.*selection/i.test(message)));
       }
@@ -843,49 +636,768 @@ for (const exclusion of ['-custom/review-enforcement.ts', '-extensions/operator-
   });
 }
 
-for (const inventory of ['local-only', 'settled-review']) {
-  test(`REQ-AGENT-217 AC1: real startup package assembly permits stock handoff (${inventory})`, async t => {
+
+// Native restore contracts: adapter file, public settings, no auth-store import.
+test('REQ-AGENT-217: selected adapter prepares its native filename on load and reload', async t => {
+  const f = await fixture(t);
+  f.selectAdapter();
+  f.load();
+  assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')), { settings: { requestTimeoutMs: 360000, deferWithMissingMetadata: true } });
+  assert.equal(existsSync(f.target), false);
+  const before = readdirSync(f.directory).sort();
+  const bytes = readFileSync(f.legacy, 'utf8');
+  f.load();
+  assert.equal(readFileSync(f.legacy, 'utf8'), bytes);
+  assert.deepEqual(readdirSync(f.directory).sort(), before);
+  assert.equal(lstatSync(f.legacy).mode & 0o777, 0o600);
+});
+
+test('REQ-AGENT-217: native restore retains commands, headers, CA, idle minutes, auto-auth and custom timeouts', async t => {
+  const f = await fixture(t);
+  f.selectAdapter();
+  const custom = { command: 'custom', env: { TOKEN: '!trusted-native-command', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' },
+    args: ['${NATIVE_OPTION}'], lifecycle: 'lazy-keep-alive', idleTimeout: 27, requestTimeoutMs: 2400 };
+  const remote = { url: 'https://example.test/mcp', headers: { Authorization: '!!native-literal' },
+    requestHeadersCommand: { command: 'trusted-native-headers' }, caFile: '/synthetic/remote-ca.pem', auth: false };
+  const original = JSON.stringify({ mcpServers: { custom, remote }, settings: { autoAuth: false, idleTimeout: 19, requestTimeoutMs: 5000 } });
+  writeFileSync(f.legacy, original, { mode: 0o600 });
+  const auth = join(f.directory, 'mcp-auth.json');
+  const authBytes = '{"synthetic-private-oauth":{"access_token":"synthetic-private-token"}}';
+  writeFileSync(auth, authBytes);
+  f.load();
+  assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')), { mcpServers: { custom, remote },
+    settings: { autoAuth: false, idleTimeout: 19, requestTimeoutMs: 360000, deferWithMissingMetadata: true } });
+  assertArchived(f, 'mcp-adapter.json.migrated', original);
+  assert.equal(readFileSync(auth, 'utf8'), authBytes);
+  assert.doesNotMatch(readFileSync(f.legacy, 'utf8'), /synthetic-private/);
+  assert.equal(existsSync(f.target), false);
+});
+
+test('REQ-BROWSER-009: native browser has explicit progress-resetting request timeout and lazy idle behavior', async t => {
+  const f = await fixture(t);
+  const browser = { command: 'custom-browser', args: [
+    '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/synthetic/browser-rendering/devtools/browser?keep_alive=600000',
+    '--wsHeaders={"Authorization":"Bearer synthetic-custom","X-Custom":"keep"}',
+  ], env: { NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' }, idleTimeout: 10, lifecycle: 'lazy-keep-alive' };
+  writeFileSync(f.legacy, JSON.stringify({ mcpServers: { 'chrome-devtools': browser } }));
+  assert.equal(f.native(), true);
+  const prepared = JSON.parse(readFileSync(f.legacy, 'utf8'));
+  assert.deepEqual(prepared.mcpServers['chrome-devtools'], { ...browser, requestTimeoutMs: 360000,
+    args: [browser.args[0].replace('600000', '1200000'), browser.args[1]] });
+  assert.equal(prepared.settings.requestTimeoutMs, 360000);
+});
+
+test('REQ-AGENT-217: compatible stock literals merge disjoint servers with exact stock recovery and untouched OAuth stores', async t => {
+  const f = await fixture(t);
+  f.selectAdapter();
+  const nativeServer = { command: 'native', env: { TOKEN: '!!native' }, idleTimeout: 31, requestTimeoutMs: 9000 };
+  writeFileSync(f.legacy, JSON.stringify({ mcpServers: { native: nativeServer }, settings: { autoAuth: true } }));
+  const stockConfig = { mcpServers: {
+    stock: { command: 'stock-command', args: ['--literal'], cwd: '/synthetic', transport: 'stdio', env: { ONE: '!literal', TWO: '!!literal', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' }, requestTimeoutMs: 2000, lifecycle: 'lazy' },
+    remote: { url: 'https://example.test/mcp', transport: 'streamable-http', headers: { Authorization: '!literal-header' } },
+  }, settings: { requestTimeoutMs: 60000, deferWithMissingMetadata: true } };
+  const bytes = JSON.stringify(stockConfig);
+  writeFileSync(f.target, bytes);
+  writeFileSync(join(f.directory, 'mcp-auth.json'), 'private raw OAuth, deliberately not valid JSON');
+  f.load();
+  const prepared = JSON.parse(readFileSync(f.legacy, 'utf8'));
+  assert.equal(existsSync(f.target), false);
+  assertArchived(f, 'mcp.json.migrated', bytes);
+  assert.equal(readFileSync(join(f.directory, 'mcp-auth.json'), 'utf8'), 'private raw OAuth, deliberately not valid JSON');
+  assert.deepEqual(prepared.settings, { requestTimeoutMs: 360000, deferWithMissingMetadata: true, autoAuth: true });
+  assert.deepEqual(prepared.mcpServers.native, nativeServer);
+  const { transport, ...stockServer } = stockConfig.mcpServers.stock;
+  assert.deepEqual(prepared.mcpServers.stock, { ...stockServer, env: { ONE: '!!literal', TWO: '!!!literal', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' } });
+  assert.deepEqual(prepared.mcpServers.remote, { url: 'https://example.test/mcp', headers: { Authorization: '!!literal-header' }, httpTransport: 'streamable-http', auth: false });
+  const once = readFileSync(f.legacy, 'utf8');
+  const inventory = readdirSync(f.directory).sort();
+  assert.equal(f.native(), true);
+  assert.equal(readFileSync(f.legacy, 'utf8'), once);
+  assert.deepEqual(readdirSync(f.directory).sort(), inventory);
+});
+
+for (const [name, stockConfig] of [
+  ['env interpolation', { mcpServers: { custom: { command: 'custom', env: { TOKEN: '${SYNTHETIC_PRIVATE}' } } } }],
+  ['argument interpolation', { mcpServers: { custom: { command: 'custom', args: ['$env:SYNTHETIC_PRIVATE'] } } }],
+  ['header interpolation', { mcpServers: { custom: { url: 'https://example.test', headers: { Authorization: '{env:SYNTHETIC_PRIVATE}' } } } }],
+  ['expression resembling malformed interpolation', { mcpServers: { custom: { command: 'custom', env: { TOKEN: '${SYNTHETIC:-private}' } } } }],
+  ['home expansion', { mcpServers: { custom: { command: '~/synthetic-private' } } }],
+  ['raw OAuth', { mcpServers: { custom: { url: 'https://example.test', auth: { type: 'oauth', clientSecret: 'synthetic-private' } } } }],
+  ['provider auth', { mcpServers: { custom: { url: 'https://example.test', auth: { provider: 'synthetic-private' } } } }],
+  ['unknown field', { mcpServers: { custom: { command: 'custom', disabled: true } } }],
+  ['unknown settings', { settings: { autoAuth: true } }],
+  ['imports', { imports: ['synthetic-private'] }],
+  ['two transports', { mcpServers: { custom: { command: 'custom', url: 'https://example.test' } } }],
+  ['conflicting aliases', { mcpServers: { custom: { command: 'custom', transport: 'stdio', type: 'http' } } }],
+  ['partial server', { mcpServers: { custom: { lifecycle: 'lazy' } } }],
+  ['malformed env', { mcpServers: { custom: { command: 'custom', env: { TOKEN: 123 } } } }],
+  ['unknown lifecycle', { mcpServers: { custom: { command: 'custom', lifecycle: 'keep-alive' } } }],
+  ['malformed document', '{synthetic-private'],
+]) {
+  test(`REQ-AGENT-217: native conversion rejects ${name} without partial writes or content disclosure`, async t => {
     const f = await fixture(t);
-    const stockPath = join(f.directory, 'local-mcp-runtime/npm/node_modules/pi-mcp-extension');
-    writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({
-      packages: [stockPath, 'npm:pi-mcp-adapter@5.3.1'],
-      extensions: ['-extensions/mcp-portal-oauth.ts', '-builtin:mcp'],
-      customPreference: { keep: true },
-    }));
-    if (inventory === 'settled-review') {
-      mkdirSync(join(f.directory, 'extensions'));
-      for (const name of ['operator-review-selector.ts', 'operator-review-remote.ts']) {
-        writeFileSync(join(f.directory, 'extensions', name), 'export default () => {}');
-      }
-    }
-    // Reuse the real settings assembly program, never a duplicated resolver.
-    const entrypoint = readFileSync(new URL('../../entrypoint.sh', import.meta.url), 'utf8');
-    const marker = `node - "$pi_settings" <<'NODE'`;
-    const start = entrypoint.indexOf(marker);
-    if (start === -1) throw new Error('Pi settings assembly heredoc not found');
-    const bodyStart = entrypoint.indexOf('\n', start) + 1;
-    const end = entrypoint.indexOf('\nNODE', bodyStart);
-    if (end === -1) throw new Error('Pi settings assembly terminator not found');
-    const script = join(f.home, 'assembly.cjs');
-    writeFileSync(script, entrypoint.slice(bodyStart, end));
+    f.selectAdapter();
+    const native = '{"mcpServers":{"native":{"command":"native"}},"settings":{"autoAuth":false}}\n';
+    const stock = typeof stockConfig === 'string' ? stockConfig : JSON.stringify(stockConfig);
+    writeFileSync(f.legacy, native);
+    writeFileSync(f.target, stock);
+    const before = readdirSync(f.directory).sort();
+    assert.equal(f.native(), false);
     const notifications = [];
-    for (let boot = 0; boot < 2; boot++) {
-      const result = spawnSync('node', [script, join(f.directory, 'settings.json')], { encoding: 'utf8' });
+    f.load({ on(event, handler) {
+      if (event === 'session_start') handler({}, { ui: { notify(message, level) { notifications.push({ message, level }); } } });
+    } });
+    assert.equal(readFileSync(f.legacy, 'utf8'), native);
+    assert.equal(readFileSync(f.target, 'utf8'), stock);
+    assert.deepEqual(readdirSync(f.directory).sort(), before);
+    assert.ok(notifications.some(({ level }) => level === 'warning'));
+    for (const { message } of notifications) assert.doesNotMatch(message, /synthetic|TOKEN|example\.test|clientSecret|SYNTHETIC/);
+  });
+}
+
+for (const collision of ['server', 'setting']) {
+  test(`REQ-AGENT-217: native ${collision} collision chooses no winner`, async t => {
+    const f = await fixture(t);
+    const native = JSON.stringify(collision === 'server' ? { mcpServers: { custom: { command: 'native' } } }
+      : { settings: { deferWithMissingMetadata: false } });
+    const stock = JSON.stringify(collision === 'server' ? { mcpServers: { custom: { command: 'stock' } } }
+      : { settings: { deferWithMissingMetadata: true } });
+    writeFileSync(f.legacy, native);
+    writeFileSync(f.target, stock);
+    const before = readdirSync(f.directory).sort();
+    assert.equal(f.native(), false);
+    assert.equal(readFileSync(f.legacy, 'utf8'), native);
+    assert.equal(readFileSync(f.target, 'utf8'), stock);
+    assert.deepEqual(readdirSync(f.directory).sort(), before);
+  });
+}
+
+for (const path of ['legacy', 'target']) for (const kind of ['symlink', 'directory', 'malformed']) {
+  test(`REQ-AGENT-217: native handoff rejects ${path} ${kind} preserving all originals`, async t => {
+    const f = await fixture(t);
+    const outside = join(f.home, 'outside.json');
+    writeFileSync(outside, 'synthetic-private-original');
+    if (kind === 'symlink') symlinkSync(outside, f[path]);
+    if (kind === 'directory') mkdirSync(f[path]);
+    if (kind === 'malformed') writeFileSync(f[path], '{synthetic-private');
+    const before = readdirSync(f.directory).sort();
+    assert.equal(f.native(), false);
+    assert.deepEqual(readdirSync(f.directory).sort(), before);
+    assert.equal(readFileSync(outside, 'utf8'), 'synthetic-private-original');
+    if (kind === 'symlink') assert.equal(lstatSync(f[path]).isSymbolicLink(), true);
+    if (kind === 'malformed') assert.equal(readFileSync(f[path], 'utf8'), '{synthetic-private');
+  });
+}
+
+for (const race of ['native', 'stock', 'create-native', 'disk-full']) {
+  test(`REQ-AGENT-217: native preparation preserves concurrent files on ${race}`, async t => {
+    const f = await fixture(t);
+    const original = '{"mcpServers":{"native":{"command":"native"}}}';
+    if (race !== 'create-native') writeFileSync(f.legacy, original);
+    writeFileSync(f.target, '{}');
+    const write = fs.writeFileSync;
+    let injected = false;
+    try {
+      fs.writeFileSync = (path, ...args) => {
+        if (!injected && typeof path === 'string' && path.endsWith('.tmp')) {
+          injected = true;
+          if (race === 'disk-full') throw Object.assign(new Error('synthetic ENOSPC'), { code: 'ENOSPC' });
+          write(race === 'stock' ? f.target : f.legacy, '{"settings":{"concurrent":true}}');
+        }
+        return write(path, ...args);
+      };
+      syncBuiltinESMExports();
+      assert.equal(f.native(), false);
+    } finally { fs.writeFileSync = write; syncBuiltinESMExports(); }
+    assert.equal(readFileSync(f.legacy, 'utf8'), ['native', 'create-native'].includes(race) ? '{"settings":{"concurrent":true}}' : original);
+    assert.equal(readFileSync(f.target, 'utf8'), race === 'stock' ? '{"settings":{"concurrent":true}}' : '{}');
+    assert.equal(readdirSync(f.directory).some(name => name.endsWith('.tmp') || name.includes('.migrated')), false);
+  });
+}
+
+for (const invalid of [null, [], 'synthetic-private', { command: 'native', url: 'https://example.test' },
+  { command: 'native', env: { TOKEN: 123 } }, { command: 'native', args: [123] }]) {
+  test(`REQ-AGENT-217: ambiguous native server remains byte-for-byte recoverable (${JSON.stringify(invalid)})`, async t => {
+    const f = await fixture(t);
+    const original = JSON.stringify({ mcpServers: { native: invalid } });
+    writeFileSync(f.legacy, original);
+    const before = readdirSync(f.directory).sort();
+    assert.equal(f.native(), false);
+    assert.equal(readFileSync(f.legacy, 'utf8'), original);
+    assert.deepEqual(readdirSync(f.directory).sort(), before);
+  });
+}
+
+test('REQ-AGENT-217: symlink ancestor blocks native preparation', async t => {
+  const f = await fixture(t);
+  const linked = join(f.home, 'linked-agent');
+  symlinkSync(f.directory, linked);
+  const { preparePiMcpAdapterConfig } = await import('../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts');
+  assert.equal(preparePiMcpAdapterConfig(linked), false);
+  assert.equal(existsSync(f.legacy), false);
+});
+
+test('REQ-AGENT-217: native replacement failure leaves the active original and recovery bytes intact', async t => {
+  const f = await fixture(t);
+  const original = '{"mcpServers":{"native":{"command":"native"}}}';
+  writeFileSync(f.legacy, original);
+  const rename = fs.renameSync;
+  try {
+    fs.renameSync = () => { throw Object.assign(new Error('synthetic ENOSPC'), { code: 'ENOSPC' }); };
+    syncBuiltinESMExports();
+    assert.equal(f.native(), false);
+  } finally { fs.renameSync = rename; syncBuiltinESMExports(); }
+  assert.equal(readFileSync(f.legacy, 'utf8'), original);
+  assertArchived(f, 'mcp-adapter.json.migrated', original);
+  assert.equal(readdirSync(f.directory).some(name => name.endsWith('.tmp')), false);
+});
+
+test('REQ-AGENT-217: managed stock handoff survives native portal reconciliation and repeated startup', async t => {
+  const f = await fixture(t);
+  f.selectAdapter();
+  const { mergePiMcpPortals } = await import('../../scripts/merge-pi-mcp-portals.mjs');
+  const portals = [{ name: 'synthetic', url: 'https://portal.example.test/mcp?codemode=search_and_execute' }];
+  const original = JSON.stringify({ mcpServers: {
+    'chrome-devtools': { command: '/opt/codeflare/bin/chrome-devtools-mcp', args: ['--wsEndpoint=wss://example.test', '--wsHeaders={"Authorization":"Bearer synthetic"}'], lifecycle: 'lazy', requestTimeoutMs: 360000 },
+    'codeflare-portal-synthetic': { url: portals[0].url, transport: 'streamable-http', headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' },
+    'consult-llm': { command: 'consult-llm-mcp', args: [], env: { OPENAI_API_KEY: 'synthetic-literal', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' }, lifecycle: 'lazy' },
+  }, settings: { requestTimeoutMs: 360000 }, _codeflareMcpPortals: portals });
+  writeFileSync(f.target, original, { mode: 0o600 });
+  const auth = join(f.directory, 'mcp-auth.json');
+  writeFileSync(auth, 'synthetic-private-auth-store');
+  assert.equal(f.native(), true);
+  const migrated = JSON.parse(readFileSync(f.legacy, 'utf8'));
+  assert.deepEqual(migrated._codeflareMcpPortals, portals);
+  assert.equal(existsSync(f.target), false);
+  assertArchived(f, 'mcp.json.migrated', original);
+  const merged = mergePiMcpPortals(migrated, portals);
+  assert.deepEqual(merged.mcpServers['codeflare-portal-synthetic'], { url: portals[0].url,
+    headers: { Authorization: 'Bearer codeflare-mcp-portal' }, auth: false, lifecycle: 'lazy', idleTimeout: 10,
+    requestTimeoutMs: 360000, directTools: 'search' });
+  const nativeBytes = JSON.stringify(merged, null, 2) + '\n';
+  writeFileSync(f.legacy, nativeBytes);
+  const inventory = readdirSync(f.directory).sort();
+  for (let startup = 0; startup < 2; startup++) {
+    assert.equal(f.native(), true);
+    f.load();
+    assert.equal(readFileSync(f.legacy, 'utf8'), nativeBytes);
+    assert.equal(existsSync(f.target), false);
+    assert.deepEqual(readdirSync(f.directory).sort(), inventory);
+    assert.equal(readFileSync(auth, 'utf8'), 'synthetic-private-auth-store');
+    assertArchived(f, 'mcp.json.migrated', original);
+  }
+});
+
+for (const marker of [null, {}, [{ name: 'synthetic', url: 'https://example.test/mcp', token: 'synthetic-private' }],
+  [{ name: 'synthetic', url: 'https://user:synthetic-private@example.test/mcp' }],
+  [{ name: 'synthetic', url: 'https://example.test/mcp?token=synthetic-private' }],
+  [{ name: 'synthetic', url: 'http://example.test/mcp' }],
+  [{ name: 'synthetic', url: 'https://example.test/mcp' }, { name: 'synthetic', url: 'https://other.test/mcp' }]]) {
+  test(`REQ-AGENT-217: invalid portal ownership marker preserves stock and native originals (${JSON.stringify(marker)})`, async t => {
+    const f = await fixture(t);
+    const stock = JSON.stringify({ mcpServers: {}, _codeflareMcpPortals: marker });
+    const native = '{"settings":{"requestTimeoutMs":360000}}';
+    writeFileSync(f.target, stock);
+    writeFileSync(f.legacy, native);
+    const inventory = readdirSync(f.directory).sort();
+    assert.equal(f.native(), false);
+    assert.equal(readFileSync(f.target, 'utf8'), stock);
+    assert.equal(readFileSync(f.legacy, 'utf8'), native);
+    assert.deepEqual(readdirSync(f.directory).sort(), inventory);
+  });
+}
+
+test('REQ-BROWSER-009: native keep-alive browser lifecycle and custom idle minutes survive timeout preparation', async t => {
+  const f = await fixture(t);
+  const browser = { command: 'custom-browser', lifecycle: 'keep-alive', idleTimeout: 23, requestTimeoutMs: 2000 };
+  writeFileSync(f.legacy, JSON.stringify({ mcpServers: { 'chrome-devtools': browser } }));
+  assert.equal(f.native(), true);
+  assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')).mcpServers['chrome-devtools'], { ...browser, requestTimeoutMs: 360000 });
+  const prepared = readFileSync(f.legacy, 'utf8');
+  assert.equal(f.native(), true);
+  assert.equal(readFileSync(f.legacy, 'utf8'), prepared);
+});
+
+for (const kind of ['conflicting-file', 'symlink']) {
+  test(`REQ-AGENT-217: stock recovery collision remains passive and preserves exact active source (${kind})`, async t => {
+    const f = await fixture(t);
+    const stock = '{"mcpServers":{"custom":{"command":"custom","env":{"TOKEN":"!literal"}}}}';
+    writeFileSync(f.target, stock);
+    const archive = join(f.directory, 'mcp.json.migrated');
+    const outside = join(f.home, 'outside-recovery');
+    writeFileSync(outside, 'passive-private-recovery');
+    if (kind === 'symlink') symlinkSync(outside, archive);
+    else writeFileSync(archive, 'passive-private-recovery');
+    assert.equal(f.native(), true);
+    assert.equal(existsSync(f.target), false);
+    assertArchived(f, 'mcp.json.migrated', stock);
+    assert.equal(readFileSync(archive, 'utf8'), 'passive-private-recovery');
+    assert.equal(readFileSync(outside, 'utf8'), 'passive-private-recovery');
+    assert.equal(JSON.parse(readFileSync(f.legacy, 'utf8')).mcpServers.custom.env.TOKEN, '!!literal');
+    const bytes = readFileSync(f.legacy, 'utf8');
+    assert.equal(f.native(), true);
+    assert.equal(readFileSync(f.legacy, 'utf8'), bytes);
+  });
+}
+
+test('REQ-AGENT-217: already prepared native config still archives and retires the matching active stock file', async t => {
+  const f = await fixture(t);
+  const native = '{"settings":{"requestTimeoutMs":360000,"deferWithMissingMetadata":true},"mcpServers":{}}';
+  writeFileSync(f.legacy, native);
+  writeFileSync(f.target, '{"settings":{"requestTimeoutMs":360000}}');
+  assert.equal(f.native(), true);
+  assert.equal(readFileSync(f.legacy, 'utf8'), native);
+  assert.equal(existsSync(f.target), false);
+  assertArchived(f, 'mcp.json.migrated', '{"settings":{"requestTimeoutMs":360000}}');
+});
+
+for (const failure of ['archive-write', 'native-commit', 'stock-change-after-commit', 'native-change-after-commit']) {
+  test(`REQ-AGENT-217: one-time handoff retains active stock on ${failure}`, async t => {
+    const f = await fixture(t);
+    const stock = '{"mcpServers":{"custom":{"command":"custom"}}}';
+    const native = '{"settings":{"requestTimeoutMs":5000}}';
+    writeFileSync(f.target, stock);
+    writeFileSync(f.legacy, native);
+    const write = fs.writeFileSync;
+    const rename = fs.renameSync;
+    try {
+      fs.writeFileSync = (path, ...args) => {
+        if (failure === 'archive-write' && path === `${f.target}.migrated`) throw Object.assign(new Error('synthetic ENOSPC'), { code: 'ENOSPC' });
+        return write(path, ...args);
+      };
+      fs.renameSync = (source, target) => {
+        if (failure === 'native-commit') throw Object.assign(new Error('synthetic ENOSPC'), { code: 'ENOSPC' });
+        const result = rename(source, target);
+        if (failure === 'stock-change-after-commit') write(f.target, '{"settings":{"concurrent":true}}');
+        if (failure === 'native-change-after-commit') write(f.legacy, '{"settings":{"concurrent":true}}');
+        return result;
+      };
+      syncBuiltinESMExports();
+      assert.equal(f.native(), false);
+    } finally { fs.writeFileSync = write; fs.renameSync = rename; syncBuiltinESMExports(); }
+    assert.equal(readFileSync(f.target, 'utf8'), failure === 'stock-change-after-commit' ? '{"settings":{"concurrent":true}}' : stock);
+    if (['archive-write', 'native-commit'].includes(failure)) assert.equal(readFileSync(f.legacy, 'utf8'), native);
+    if (failure !== 'archive-write') assertArchived(f, 'mcp.json.migrated', stock);
+    assert.equal(readdirSync(f.directory).some(name => name.endsWith('.tmp')), false);
+  });
+}
+
+function startConsult(home, restoredLegacy, overrides = {}) {
+  const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const lines = readFileSync(join(repo, 'entrypoint.sh'), 'utf8').split('\n');
+  function functionSource(name) {
+    const start = lines.findIndex((line) => line === `${name}() {`);
+    const end = lines.findIndex((line, index) => index > start && line === '}');
+    if (start < 0 || end < 0) throw new Error(`missing production helper ${name}`);
+    return lines.slice(start, end + 1).join('\n');
+  }
+  const functions = ['configure_pi_mcp_adapter', '_merge_consult_llm_mcp', '_remove_consult_llm_mcp', '_remove_disabled_consult_llm', 'configure_consult_llm', 'configure_pi_mcp_portals'].map(functionSource).join('\n')
+    .replace('/opt/codeflare/merge-pi-mcp-portals.mjs', join(repo, 'scripts/merge-pi-mcp-portals.mjs'));
+  const entrypoint = lines.join('\n');
+  const browserStart = entrypoint.indexOf('if [ "${SESSION_MODE:-default}" = "advanced" ] \\\n   && [ -n "${CLOUDFLARE_API_TOKEN:-}" ]');
+  const browserEnd = entrypoint.indexOf('    # Claude (~/.claude.json) - the cheap one-shot', browserStart);
+  if (browserStart < 0 || browserEnd < 0) throw new Error('Missing production browser registration');
+  const browser = entrypoint.slice(browserStart, browserEnd) + '\nfi';
+  return spawnSync('bash', ['-c', `${functions}\nRCLONE_FILTERS=(--filter "+ /.pi/**" --filter "+ **")\nconfigure_pi_mcp_adapter "$MIGRATION_MODULE"\nconfigure_consult_llm
+if [ -n "\${CODEFLARE_MCP_PORTALS_JSON:-}" ]; then
+  coding_agent_is_selected() { return 0; }
+  configure_pi_mcp_portals
+fi
+if [ "\${QUALIFY_BROWSER:-0}" = "1" ]; then
+${browser}
+fi
+if [ -n "$RESTORED_LEGACY" ]; then
+  # Execute the rclone exclusion wire contract against a synthetic restored object.
+  python3 - "$RESTORED_LEGACY" "$USER_HOME" "\${RCLONE_FILTERS[@]}" <<'BASELINE'
+import pathlib, re, shutil, sys
+args=sys.argv[3:]
+rules=[args[i+1] for i in range(len(args)-1) if args[i] == '--filter']
+def included(key):
+    for rule in rules:
+        action, pattern = rule[:2], rule[2:]
+        anchored = pattern.startswith('/')
+        pattern = pattern.lstrip('/') if anchored else pattern
+        expression = re.escape(pattern).replace(r'\\*\\*', '.*').replace(r'\\*', '[^/]*').replace(r'\\?', '[^/]')
+        candidates = [key] if anchored else [key] + [key[i+1:] for i, char in enumerate(key) if char == '/']
+        if any(re.fullmatch(expression, candidate) for candidate in candidates):
+            return action != '- '
+    return True
+source, destination = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+for obj in source.rglob('*'):
+    if obj.is_file() and included(obj.relative_to(source).as_posix()):
+        target = destination / obj.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(obj, target)
+BASELINE
+fi`], {
+    encoding: 'utf8',
+    env: { ...process.env, USER_HOME: home, USER_CLAUDE_JSON: join(home, '.claude.json'),
+      MIGRATION_MODULE: join(repo, 'preseed/agents/pi/extensions/00-mcp-adapter-config.ts'),
+      RESTORED_LEGACY: restoredLegacy || '', CODEFLARE_OPENAI_API_KEY: 'synthetic-openai', CODEFLARE_GEMINI_API_KEY: '', ENTERPRISE_MODE: '', CODEFLARE_MCP_PORTALS_JSON: '', ...overrides,
+    },
+  });
+}
+
+
+test('REQ-AGENT-069: startup bootstraps consult-llm at the adapter filename, lazily, without creating stock', async t => {
+  const f = await fixture(t);
+  const result = startConsult(f.home);
+  assert.equal(result.status, 0, result.stderr);
+  const config = JSON.parse(readFileSync(f.legacy, 'utf8'));
+  assert.equal(config.mcpServers['consult-llm'].lifecycle, 'lazy');
+  assert.equal(config.settings.requestTimeoutMs, 360000);
+  assert.equal(config.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-openai');
+  assert.equal(existsSync(f.target), false);
+  assert.equal(JSON.parse(readFileSync(join(f.home, '.claude.json'), 'utf8')).mcpServers['consult-llm'].command, 'consult-llm-mcp');
+});
+
+test('REQ-AGENT-217: actual startup shell hands off stock once and preserves custom native consult on repeated startup', async t => {
+  const f = await fixture(t);
+  const custom = { command: 'custom-consult', args: ['--user-owned'], env: { TOKEN: '!literal', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' }, lifecycle: 'lazy' };
+  const original = JSON.stringify({ mcpServers: { 'consult-llm': custom, unrelated: { command: 'custom' } }, settings: { requestTimeoutMs: 5000 } });
+  writeFileSync(f.target, original);
+  let result = startConsult(f.home);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(f.target), false);
+  assertArchived(f, 'mcp.json.migrated', original);
+  const prepared = readFileSync(f.legacy, 'utf8');
+  assert.deepEqual(JSON.parse(prepared), { mcpServers: { 'consult-llm': { ...custom, env: { ...custom.env, TOKEN: '!!literal' } }, unrelated: { command: 'custom' } }, settings: { requestTimeoutMs: 360000, deferWithMissingMetadata: true } });
+  result = startConsult(f.home);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(f.legacy, 'utf8'), prepared);
+  assert.equal(existsSync(f.target), false);
+});
+
+test('REQ-AGENT-217: active native configuration and recovery objects remain baseline-sync eligible', async t => {
+  const f = await fixture(t);
+  const restored = join(f.home, 'remote');
+  const remoteAgent = join(restored, '.pi', 'agent');
+  mkdirSync(join(remoteAgent, 'nested'), { recursive: true });
+  const remoteNative = '{"mcpServers":{"remote":{"command":"remote"}},"settings":{"restored":true}}';
+  writeFileSync(join(remoteAgent, 'mcp-adapter.json'), remoteNative);
+  writeFileSync(join(remoteAgent, 'mcp.json'), '{"mcpServers":{"stock":{"command":"stock"}}}');
+  writeFileSync(join(remoteAgent, 'mcp.json.migrated.baseline'), 'remote recovery bytes');
+  writeFileSync(join(remoteAgent, 'nested', 'mcp-adapter.json'), 'nested unrelated bytes');
+  writeFileSync(join(remoteAgent, 'nested', 'mcp.json'), 'nested stock config bytes');
+  const stock = '{"mcpServers":{"before":{"command":"before"}}}';
+  writeFileSync(f.target, stock);
+  const result = startConsult(f.home, restored);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(f.legacy, 'utf8'), remoteNative);
+  assert.equal(existsSync(f.target), false, 'successful migration prevents obsolete root stock config from returning');
+  assert.equal(readFileSync(join(f.directory, 'mcp.json.migrated.baseline'), 'utf8'), 'remote recovery bytes');
+  assert.equal(readFileSync(join(f.directory, 'nested', 'mcp-adapter.json'), 'utf8'), 'nested unrelated bytes');
+  assert.equal(readFileSync(join(f.directory, 'nested', 'mcp.json'), 'utf8'), 'nested stock config bytes');
+  assertArchived(f, 'mcp.json.migrated', stock);
+});
+
+test('REQ-AGENT-217: failed native preparation blocks Pi shell merge without excluding restored files from baseline', async t => {
+  const f = await fixture(t);
+  const outside = join(f.home, 'unsafe-native');
+  writeFileSync(outside, 'external original');
+  symlinkSync(outside, f.legacy);
+  const remote = join(f.home, 'remote-failed-preparation');
+  mkdirSync(join(remote, '.pi', 'agent'), { recursive: true });
+  const stock = '{"mcpServers":{"custom":{"command":"custom"}}}';
+  writeFileSync(join(remote, '.pi', 'agent', 'mcp.json'), stock);
+  const result = startConsult(f.home, remote);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(f.target, 'utf8'), stock);
+  assert.equal(readFileSync(outside, 'utf8'), 'external original');
+  assert.equal(lstatSync(f.legacy).isSymbolicLink(), true);
+});
+
+for (const mode of ['no-provider', 'enterprise']) {
+  test(`REQ-AGENT-069: ${mode} startup preserves customized native consult while retaining Claude cleanup`, async t => {
+    const f = await fixture(t);
+    const original = { settings: { custom: true }, mcpServers: {
+      'consult-llm': { command: 'consult-llm-mcp', args: ['--user-option'], env: { USER_TOKEN: 'synthetic-private' } },
+      unrelated: { command: 'user-server' },
+    } };
+    writeFileSync(f.legacy, JSON.stringify(original));
+    const claude = join(f.home, '.claude.json');
+    writeFileSync(claude, JSON.stringify({ mcpServers: { 'consult-llm': { command: 'consult-llm-mcp' }, unrelated: { command: 'keep' } } }));
+    const result = startConsult(f.home, undefined, { CODEFLARE_OPENAI_API_KEY: '', ENTERPRISE_MODE: mode === 'enterprise' ? 'active' : '' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')), { ...original, settings: { ...original.settings, requestTimeoutMs: 360000, deferWithMissingMetadata: true } });
+    assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).mcpServers, { unrelated: { command: 'keep' } });
+  });
+}
+
+test('REQ-AGENT-069: generated native provider environment escapes a literal leading exclamation mark', async t => {
+  const f = await fixture(t);
+  const result = startConsult(f.home, undefined, { CODEFLARE_OPENAI_API_KEY: '!synthetic-openai' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(readFileSync(f.legacy, 'utf8')).mcpServers['consult-llm'].env.OPENAI_API_KEY, '!!synthetic-openai');
+});
+
+for (const origin of ['native', 'stock']) for (const explicit of [undefined, false, true]) {
+  test(`REQ-AGENT-069: cold lazy metadata defaults only after ${origin} merge and preserves explicit ${explicit}`, async t => {
+    const f = await fixture(t);
+    const original = { settings: explicit === undefined ? {} : { deferWithMissingMetadata: explicit },
+      mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', lifecycle: 'lazy' } } };
+    writeFileSync(origin === 'native' ? f.legacy : f.target, JSON.stringify(original));
+    assert.equal(f.native(), true);
+    const prepared = JSON.parse(readFileSync(f.legacy, 'utf8'));
+    assert.deepEqual(prepared.settings, { ...original.settings, requestTimeoutMs: 360000,
+      deferWithMissingMetadata: explicit === undefined ? true : explicit });
+    assert.deepEqual(prepared.mcpServers, original.mcpServers);
+    const bytes = readFileSync(f.legacy, 'utf8');
+    assert.equal(f.native(), true);
+    assert.equal(readFileSync(f.legacy, 'utf8'), bytes);
+  });
+}
+
+test('REQ-AGENT-069: adding consult preserves existing native user startup settings and unrelated servers', async t => {
+  const f = await fixture(t);
+  const custom = { command: 'custom', args: ['keep'], lifecycle: 'keep-alive', idleTimeout: 29 };
+  const settings = { deferWithMissingMetadata: false, custom: true };
+  writeFileSync(f.legacy, JSON.stringify({ mcpServers: { custom }, settings }));
+  const result = startConsult(f.home);
+  assert.equal(result.status, 0, result.stderr);
+  const updated = JSON.parse(readFileSync(f.legacy, 'utf8'));
+  assert.deepEqual(updated.settings, { ...settings, requestTimeoutMs: 360000 });
+  assert.deepEqual(updated.mcpServers.custom, custom);
+  assert.equal(updated.mcpServers['consult-llm'].lifecycle, 'lazy');
+});
+
+for (const expression of ['!synthetic-command-${PRIVATE}', '${SYNTHETIC_VAR}', '$env:SYNTHETIC_VAR', '{env:SYNTHETIC_VAR}']) {
+  test(`REQ-AGENT-217: rejected selected stock env blocks entrypoint Pi merge (${expression})`, async t => {
+    const f = await fixture(t);
+    const stock = JSON.stringify({ mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', env: { OPENAI_API_KEY: expression } } } });
+    writeFileSync(f.target, stock);
+    const result = startConsult(f.home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(f.target, 'utf8'), stock);
+    assert.equal(existsSync(f.legacy), false);
+    assert.equal(readdirSync(f.directory).some(name => name.includes('.migrated')), false);
+  });
+}
+
+function generatedServers(modern = false) {
+  const policy = modern ? { idleTimeout: 10, requestTimeoutMs: 360000, directTools: 'search' } : {};
+  return {
+    'consult-llm': { command: 'consult-llm-mcp', args: [], env: { OPENAI_API_KEY: 'synthetic-stale-managed' }, lifecycle: 'lazy', ...policy },
+    'chrome-devtools': { command: '/opt/codeflare/bin/chrome-devtools-mcp', args: [
+      '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/synthetic-stale/browser-rendering/devtools/browser?keep_alive=1200000',
+      '--wsHeaders={"Authorization":"Bearer synthetic-stale-managed"}',
+    ], lifecycle: 'lazy', ...policy },
+  };
+}
+
+for (const origin of ['stock', 'native', 'native-modern']) {
+  test(`REQ-AGENT-217 AC6: actual startup regenerates proven managed consult and browser from fresh inputs (${origin})`, async t => {
+    const f = await fixture(t);
+    const custom = { command: 'custom', env: { TOKEN: 'synthetic-private', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' }, lifecycle: 'lazy' };
+    const original = JSON.stringify({ mcpServers: { ...generatedServers(origin === 'native-modern'), custom },
+      settings: { deferWithMissingMetadata: false, requestTimeoutMs: 360000 } });
+    writeFileSync(origin === 'stock' ? f.target : f.legacy, original);
+    const overrides = { QUALIFY_BROWSER: '1', SESSION_MODE: 'advanced', CLOUDFLARE_API_TOKEN: 'synthetic-fresh-browser',
+      CLOUDFLARE_ACCOUNT_ID: 'synthetic-fresh-account', CODEFLARE_OPENAI_API_KEY: 'synthetic-fresh-consult' };
+    for (let startup = 0; startup < 2; startup++) {
+      const result = startConsult(f.home, undefined, overrides);
       assert.equal(result.status, 0, result.stderr);
-      const settings = JSON.parse(readFileSync(join(f.directory, 'settings.json'), 'utf8'));
-      assert.deepEqual(settings.customPreference, { keep: true });
-      assert.ok(settings.packages.includes('npm:pi-mcp-extension@1.12.1'));
-      assert.ok(!settings.packages.includes('npm:pi-mcp-adapter@5.3.1'));
-      writeFileSync(f.legacy, legacyConfig);
-      f.load({ on(event, handler) {
-        if (event === 'session_start') handler({}, { ui: { notify(message, level) {
-          notifications.push({ message, level });
-        } } });
-      } });
-      assert.equal(existsSync(f.legacy), false);
-      assert.equal(JSON.parse(readFileSync(f.target, 'utf8')).settings.requestTimeoutMs, 360000);
-      assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
+      const prepared = JSON.parse(readFileSync(f.legacy, 'utf8'));
+      assert.deepEqual(prepared.mcpServers.custom, custom);
+      assert.deepEqual(prepared.settings, { deferWithMissingMetadata: false, requestTimeoutMs: 360000 });
+      assert.equal(prepared.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-fresh-consult');
+      const browser = prepared.mcpServers['chrome-devtools'];
+      assert.equal(browser.args[0], '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/synthetic-fresh-account/browser-rendering/devtools/browser?keep_alive=1200000');
+      assert.deepEqual(JSON.parse(browser.args[1].slice('--wsHeaders='.length)), { Authorization: 'Bearer synthetic-fresh-browser' });
+      for (const server of [browser, prepared.mcpServers['consult-llm']]) {
+        assert.equal(server.lifecycle, 'lazy');
+        assert.equal(server.requestTimeoutMs, 360000);
+        assert.equal(server.idleTimeout, 10);
+        assert.equal(server.directTools, 'search');
+      }
+      assert.equal(existsSync(f.target), false);
     }
-    assert.deepEqual(notifications, []);
+    assertArchived(f, origin === 'stock' ? 'mcp.json.migrated' : 'mcp-adapter.json.migrated', original);
+  });
+}
+
+test('REQ-AGENT-217 AC6: ordinary native load never regenerates managed entries', async t => {
+  const f = await fixture(t);
+  f.selectAdapter();
+  const servers = generatedServers(true);
+  const original = JSON.stringify({ mcpServers: servers, settings: { requestTimeoutMs: 360000, deferWithMissingMetadata: true } });
+  writeFileSync(f.legacy, original);
+  f.load();
+  assert.equal(readFileSync(f.legacy, 'utf8'), original);
+  assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')).mcpServers, servers);
+  assert.equal(f.native(true), true);
+  assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')).mcpServers, {});
+  assertArchived(f, 'mcp-adapter.json.migrated', original);
+});
+
+for (const customization of ['CA', 'arguments', 'headers', 'auth', 'keep-alive', 'timeout', 'idle', 'directTools', 'description']) {
+  test(`REQ-AGENT-217 AC6: native startup ownership guards preserve customized canonical commands (${customization})`, async t => {
+    const f = await fixture(t);
+    const servers = generatedServers(true);
+    const consult = servers['consult-llm'];
+    const browser = servers['chrome-devtools'];
+    if (customization === 'CA') { consult.env.NODE_EXTRA_CA_CERTS = '/synthetic/ca.pem'; browser.env = { NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' }; }
+    if (customization === 'arguments') { consult.args = ['--custom']; browser.args.push('--custom'); }
+    if (customization === 'headers') { consult.headers = { 'X-Custom': 'private' }; browser.args[1] = '--wsHeaders={"Authorization":"Bearer synthetic-custom","X-Custom":"private"}'; }
+    if (customization === 'auth') { consult.auth = false; browser.auth = false; }
+    if (customization === 'keep-alive') { consult.lifecycle = 'keep-alive'; browser.lifecycle = 'keep-alive'; }
+    if (customization === 'timeout') { consult.requestTimeoutMs = 2345; browser.requestTimeoutMs = 2345; }
+    if (customization === 'idle') { consult.idleTimeout = 29; browser.idleTimeout = 29; }
+    if (customization === 'directTools') { consult.directTools = false; browser.directTools = false; }
+    if (customization === 'description') { consult.description = 'custom'; browser.description = 'custom'; }
+    const original = JSON.stringify({ mcpServers: servers });
+    writeFileSync(f.legacy, original);
+    assert.equal(f.native(true), true);
+    const prepared = JSON.parse(readFileSync(f.legacy, 'utf8'));
+    assert.deepEqual(prepared.mcpServers, { ...servers, 'chrome-devtools': { ...browser, requestTimeoutMs: 360000 } });
+    assertArchived(f, 'mcp-adapter.json.migrated', original);
+  });
+}
+
+function restoredManagedPair() {
+  const portals = [{ name: 'synthetic', url: 'https://portal.example.test/mcp?codemode=search_and_execute' }];
+  const portal = 'codeflare-portal-synthetic';
+  const native = { mcpServers: { ...generatedServers(true),
+    [portal]: { url: portals[0].url, headers: { Authorization: 'Bearer codeflare-mcp-portal' }, auth: false,
+      lifecycle: 'lazy', idleTimeout: 10, requestTimeoutMs: 360000, directTools: 'search' },
+    unrelated: { command: 'synthetic-custom', env: { TOKEN: '!!synthetic-native', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' } },
+  }, settings: { requestTimeoutMs: 360000, deferWithMissingMetadata: true, autoAuth: false }, _codeflareMcpPortals: portals };
+  const stock = { mcpServers: { ...generatedServers(),
+    [portal]: { url: portals[0].url, transport: 'streamable-http', headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' },
+    missing: { command: 'synthetic-missing', env: { TOKEN: '!synthetic-literal' } },
+  }, settings: { requestTimeoutMs: 360000 }, _codeflareMcpPortals: portals };
+  stock.mcpServers['chrome-devtools'].requestTimeoutMs = 360000;
+  return { native, stock, portals, portal };
+}
+
+for (const shape of ['stock', 'native-shaped', 'marker-order']) {
+  test(`REQ-AGENT-217 AC2/AC4/AC7: dual restored managed defaults retain native authority and retire exact obsolete source (${shape})`, async t => {
+    const f = await fixture(t);
+    f.selectAdapter();
+    const { native, stock } = restoredManagedPair();
+    if (shape === 'native-shaped') {
+      for (const name of ['chrome-devtools', 'consult-llm', 'codeflare-portal-synthetic']) stock.mcpServers[name] = structuredClone(native.mcpServers[name]);
+    }
+    if (shape === 'marker-order') {
+      const second = { name: 'second', url: 'https://second.example.test/mcp' };
+      native._codeflareMcpPortals.push(second);
+      stock._codeflareMcpPortals = [...native._codeflareMcpPortals].reverse().map(({ name, url }) => ({ url, name }));
+    }
+    const original = JSON.stringify(stock, null, 1) + '\n';
+    writeFileSync(f.legacy, JSON.stringify(native));
+    writeFileSync(f.target, original);
+    const auth = join(f.directory, 'mcp-auth.json');
+    const authBytes = 'synthetic-private-auth-store';
+    writeFileSync(auth, authBytes);
+    const read = fs.readFileSync;
+    try {
+      fs.readFileSync = (path, ...args) => {
+        if (path === auth) throw new Error('Auth store must never be read');
+        return read(path, ...args);
+      };
+      syncBuiltinESMExports();
+      const warnings = [];
+      const pi = { on(event, handler) {
+        if (event === 'session_start') handler({}, { ui: { notify: message => warnings.push(message) } });
+      } };
+      f.load(pi);
+      assert.equal(existsSync(f.target), false);
+      assertArchived(f, 'mcp.json.migrated', original);
+      assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')), { ...native,
+        mcpServers: { ...native.mcpServers, missing: { command: 'synthetic-missing', env: { TOKEN: '!!synthetic-literal' } } } });
+      const once = readFileSync(f.legacy, 'utf8');
+      const inventory = readdirSync(f.directory).sort();
+      f.load(pi);
+      assert.equal(readFileSync(f.legacy, 'utf8'), once);
+      assert.deepEqual(readdirSync(f.directory).sort(), inventory);
+      assert.deepEqual(warnings, []);
+    } finally { fs.readFileSync = read; syncBuiltinESMExports(); }
+    assert.equal(readFileSync(auth, 'utf8'), authBytes);
+  });
+}
+
+for (const enterprise of [false, true]) {
+  test(`REQ-AGENT-217 AC2/AC6/AC7: actual dual-file startup refreshes managed constructors and portals (enterprise=${enterprise})`, async t => {
+    const f = await fixture(t);
+    const { native, stock, portals, portal } = restoredManagedPair();
+    const original = JSON.stringify(stock);
+    writeFileSync(f.legacy, JSON.stringify(native));
+    writeFileSync(f.target, original);
+    const overrides = { QUALIFY_BROWSER: '1', SESSION_MODE: 'advanced', CLOUDFLARE_API_TOKEN: 'synthetic-current-browser',
+      CLOUDFLARE_ACCOUNT_ID: 'synthetic-current-account', CODEFLARE_OPENAI_API_KEY: 'synthetic-current-consult',
+      ENTERPRISE_MODE: enterprise ? 'active' : '', CODEFLARE_MCP_PORTALS_JSON: JSON.stringify(portals) };
+    for (let startup = 0; startup < 2; startup++) {
+      const result = startConsult(f.home, undefined, overrides);
+      assert.equal(result.status, 0, result.stderr);
+      assert.doesNotMatch(result.stdout + result.stderr, /migration skipped|portal configuration skipped/);
+      assert.equal(existsSync(f.target), false);
+      const prepared = JSON.parse(readFileSync(f.legacy, 'utf8'));
+      assert.deepEqual(prepared.settings, native.settings);
+      assert.deepEqual(prepared.mcpServers.unrelated, native.mcpServers.unrelated);
+      assert.deepEqual(prepared.mcpServers[portal], native.mcpServers[portal]);
+      assert.deepEqual(prepared.mcpServers.missing, { command: 'synthetic-missing', env: { TOKEN: '!!synthetic-literal' } });
+      if (enterprise) assert.equal(prepared.mcpServers['consult-llm'], undefined);
+      else assert.equal(prepared.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-current-consult');
+      const browser = prepared.mcpServers['chrome-devtools'];
+      assert.equal(browser.args[0], '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/synthetic-current-account/browser-rendering/devtools/browser?keep_alive=1200000');
+      assert.deepEqual(JSON.parse(browser.args[1].slice('--wsHeaders='.length)), { Authorization: 'Bearer synthetic-current-browser' });
+      assert.equal(browser.requestTimeoutMs, 360000);
+      assert.equal(browser.idleTimeout, 10);
+      assert.equal(browser.directTools, 'search');
+      assertArchived(f, 'mcp.json.migrated', original);
+    }
+  });
+}
+
+for (const side of ['native', 'stock']) for (const change of [
+  'portal-header', 'portal-url', 'portal-CA', 'portal-unknown', 'portal-policy', 'portal-auth', 'portal-unmarked',
+  'browser-CA', 'browser-args', 'browser-policy', 'consult-custom-env',
+]) {
+  test(`REQ-AGENT-217 AC4: dual-file custom collision preserves both originals (${side}, ${change})`, async t => {
+    const f = await fixture(t);
+    const pair = restoredManagedPair();
+    const selected = pair[side];
+    const portal = selected.mcpServers[pair.portal];
+    const browser = selected.mcpServers['chrome-devtools'];
+    if (change === 'portal-header') portal.headers.Authorization = 'Bearer synthetic-custom';
+    if (change === 'portal-url') portal.url = 'https://custom.example.test/mcp';
+    if (change === 'portal-CA') portal.caFile = '/synthetic/ca.pem';
+    if (change === 'portal-unknown') portal.custom = 'synthetic';
+    if (change === 'portal-policy') portal.requestTimeoutMs = 2345;
+    if (change === 'portal-auth') portal.auth = { type: 'oauth', clientSecret: 'synthetic-private' };
+    if (change === 'portal-unmarked') delete selected._codeflareMcpPortals;
+    if (change === 'browser-CA') browser.env = { NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' };
+    if (change === 'browser-args') browser.args.push('--synthetic-custom');
+    if (change === 'browser-policy') browser.requestTimeoutMs = 2345;
+    if (change === 'consult-custom-env') selected.mcpServers['consult-llm'].env.CUSTOM = 'synthetic-private';
+    const nativeBytes = JSON.stringify(pair.native);
+    const stockBytes = JSON.stringify(pair.stock);
+    writeFileSync(f.legacy, nativeBytes);
+    writeFileSync(f.target, stockBytes);
+    const inventory = readdirSync(f.directory).sort();
+    assert.equal(f.native(true), false);
+    assert.equal(readFileSync(f.legacy, 'utf8'), nativeBytes);
+    assert.equal(readFileSync(f.target, 'utf8'), stockBytes);
+    assert.deepEqual(readdirSync(f.directory).sort(), inventory);
+  });
+}
+
+for (const duplicate of ['absent-native', 'custom-native', 'unknown-stock']) {
+  test(`REQ-AGENT-217 AC4: native-shaped obsolete entries do not broaden stock schema (${duplicate})`, async t => {
+    const f = await fixture(t);
+    const { native, stock, portal } = restoredManagedPair();
+    stock.mcpServers[portal] = structuredClone(native.mcpServers[portal]);
+    if (duplicate === 'absent-native') delete native.mcpServers[portal];
+    if (duplicate === 'custom-native') native.mcpServers[portal].headers.Authorization = 'Bearer synthetic-custom';
+    if (duplicate === 'unknown-stock') stock.mcpServers[portal].custom = true;
+    const nativeBytes = JSON.stringify(native);
+    const stockBytes = JSON.stringify(stock);
+    writeFileSync(f.legacy, nativeBytes);
+    writeFileSync(f.target, stockBytes);
+    const inventory = readdirSync(f.directory).sort();
+    assert.equal(f.native(), false);
+    assert.equal(readFileSync(f.legacy, 'utf8'), nativeBytes);
+    assert.equal(readFileSync(f.target, 'utf8'), stockBytes);
+    assert.deepEqual(readdirSync(f.directory).sort(), inventory);
   });
 }

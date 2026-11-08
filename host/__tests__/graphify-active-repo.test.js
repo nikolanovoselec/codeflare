@@ -204,6 +204,25 @@ describe('graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges v
     assert.equal(sentinel(sentinelDir), repoB);
   });
 
+  it('ctx_batch shape: iterates commands[] for cd targets', () => {
+    const repoB = makeRepo(workspace, 'repo-b');
+    const { status } = runHook(
+      {
+        tool_name: 'mcp__context-mode__ctx_batch',
+        cwd: workspace,
+        tool_input: {
+          commands: [
+            'echo hi',
+            `cd ${repoB} && ls`,
+          ],
+        },
+      },
+      sentinelDir
+    );
+    assert.equal(status, 0);
+    assert.equal(sentinel(sentinelDir), repoB);
+  });
+
   it('ctx_execute_file shape: same parsing as ctx_execute', () => {
     const repoB = makeRepo(workspace, 'repo-b');
     const { status } = runHook(

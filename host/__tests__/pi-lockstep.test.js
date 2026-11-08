@@ -255,13 +255,13 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'codex_fast', package: '@calesennett/pi-codex-fast', entrypoint: 'extensions/codex-fast.ts' },
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
   { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },
-  { variable: 'mcp', package: 'pi-mcp-extension', entrypoint: 'src/index.ts' },
+  { variable: 'mcp', package: 'pi-mcp-adapter', entrypoint: 'index.ts' },
   { variable: 'advisor', package: '@juicesharp/rpiv-advisor', entrypoint: 'index.ts' },
   { variable: 'ask_user', package: '@juicesharp/rpiv-ask-user-question', entrypoint: 'index.ts' },
   { variable: 'todo', package: '@juicesharp/rpiv-todo', entrypoint: 'index.ts' },
   { variable: 'web', package: 'pi-web-access', entrypoint: 'dist/index.js' },
   { variable: 'smart_compact', package: 'pi-smart-compact', entrypoint: 'dist/index.js' },
-  { variable: 'context', package: 'context-mode', entrypoint: 'build/adapters/pi/extension.js' },
+  { variable: 'context', package: 'context-mode', entrypoint: 'pi/index.js' },
 ];
 
 function runImageWarmFixture(omitPackage = '', wrongLocalPath = false) {
@@ -273,6 +273,12 @@ function runImageWarmFixture(omitPackage = '', wrongLocalPath = false) {
     const localSource = join(imageRoot, 'pi-agent/extensions/local.ts');
     mkdirSync(dirname(localSource), { recursive: true });
     writeFileSync(localSource, 'export const name: string = "local";\n');
+    const secondLocalSource = join(dirname(localSource), 'second.ts');
+    writeFileSync(secondLocalSource, 'export const name: string = "second";\n');
+    const helperSource = join(dirname(localSource), 'transcript-trim/engine.mjs');
+    mkdirSync(dirname(helperSource), { recursive: true });
+    writeFileSync(helperSource, 'export const helper = true;\n');
+    writeFileSync(localSource, "import './transcript-trim/engine.mjs'; export const name: string = 'local';\n");
     mkdirSync(join(imageRoot, 'scripts'), { recursive: true });
     symlinkSync(script, join(imageRoot, 'scripts/verify-pi-lockstep.mjs'));
     const sources = WARMED_NPM_ENTRYPOINTS.map(({ package: name, entrypoint }) => {
@@ -294,15 +300,26 @@ import { dirname, join } from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
 import { execFileSync } from 'node:child_process';
 const args = process.argv.slice(2);
-const sources = args.includes('--list-models')
-  ? args.flatMap((arg, i) => arg === '--extension' ? [args[i + 1]] : [])
-  : [process.env.FIXTURE_LOCAL_SOURCE];
+// Fail on any completion route, even with a configured provider key.
+if (!args.includes('--list-models') || args.includes('-p') || args.includes('--print')) {
+  console.error('fixture provider completion attempted');
+  process.exit(9);
+}
+const sources = args.flatMap((arg, i) => arg === '--extension' ? [args[i + 1]] : []);
+const retainedHelperUrl = ${JSON.stringify(pathToFileURL(helperSource).href)};
 for (let source of sources) {
   if (process.env.WRONG_LOCAL_PATH === '1' && source === process.env.FIXTURE_LOCAL_SOURCE) source = process.env.WRONG_LOCAL_SOURCE;
   if (process.env.OMIT_PACKAGE && source.includes('/node_modules/' + process.env.OMIT_PACKAGE + '/')) continue;
   const artifact = execFileSync(process.execPath, [${JSON.stringify(script)}, '--jiti-cache-path', source, join(process.env.TMPDIR, 'jiti')], { encoding: 'utf8' }).trim();
   mkdirSync(dirname(artifact), { recursive: true });
-  writeFileSync(artifact, stripTypeScriptTypes(readFileSync(source, 'utf8')));
+  // The cache execution assertion runs after the synthetic warm home is removed.
+  const compiled = stripTypeScriptTypes(readFileSync(source, 'utf8')).replaceAll("'./transcript-trim/engine.mjs'", JSON.stringify(retainedHelperUrl));
+  writeFileSync(artifact, compiled);
+  if (source === process.env.FIXTURE_LOCAL_SOURCE) {
+    const helper = join(dirname(source), 'transcript-trim/engine.mjs');
+    await import((await import('node:url')).pathToFileURL(helper).href);
+    if (process.env.JITI_DEBUG === '1') console.log('[jiti] [native] [import] ' + helper.replace(process.cwd(), '.'));
+  }
   if (process.env.JITI_DEBUG === '1') {
     const displayedSource = source.replace(process.cwd(), '.');
     console.log(source.endsWith('.js') ? '[jiti] [native] [import] ' + displayedSource : '[jiti] [cache] [hit] ' + displayedSource + ' ~> ' + artifact.replace(process.cwd(), '.'));
@@ -317,9 +334,9 @@ for (let source of sources) {
       .replaceAll('/opt/codeflare', imageRoot).replaceAll('/home/user', home);
     const result = spawnSync('bash', ['-e', '-c', command], {
       encoding: 'utf8', timeout: 30_000,
-      env: { ...process.env, FIXTURE_LOCAL_SOURCE: join(home, '.pi/agent/extensions/local.ts'), OMIT_PACKAGE: omitPackage, WRONG_LOCAL_PATH: wrongLocalPath ? '1' : '0', WRONG_LOCAL_SOURCE: localSource },
+      env: { ...process.env, OPENAI_API_KEY: 'fixture-not-a-real-key', FIXTURE_LOCAL_SOURCE: join(home, '.pi/agent/extensions/local.ts'), OMIT_PACKAGE: omitPackage, WRONG_LOCAL_PATH: wrongLocalPath ? '1' : '0', WRONG_LOCAL_SOURCE: localSource },
     });
-    return { directory, imageRoot, result, localRuntimeSource: join(home, '.pi/agent/extensions/local.ts'), sources: [...sources, { source: localSource, name: 'local' }] };
+    return { directory, imageRoot, result, localRuntimeSource: join(home, '.pi/agent/extensions/local.ts'), sources: [...sources, { source: localSource, name: 'local' }, { source: secondLocalSource, name: 'second' }] };
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });
     throw error;
@@ -333,8 +350,8 @@ describe('REQ-AGENT-111/REQ-AGENT-056/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
       assert.equal(fixture.result.status, 0, fixture.result.stderr);
       for (const { source, name } of fixture.sources) {
         const algorithm = getFips?.() ? 'sha256' : 'md5';
-        const artifact = name === 'local'
-          ? join(fixture.imageRoot, 'jiti-cache', `extensions-local.${createHash(algorithm).update(fixture.localRuntimeSource).digest('hex').slice(0, 8)}.mjs`)
+        const artifact = ['local', 'second'].includes(name)
+          ? join(fixture.imageRoot, 'jiti-cache', `extensions-${name}.${createHash(algorithm).update(join(dirname(fixture.localRuntimeSource), `${name}.ts`)).digest('hex').slice(0, 8)}.mjs`)
           : resolveCachePath(source, join(fixture.imageRoot, 'jiti-cache'));
         const compiled = await import(pathToFileURL(artifact).href);
         assert.equal(compiled.name, name);
@@ -351,7 +368,7 @@ describe('REQ-AGENT-111/REQ-AGENT-056/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
   });
 
   it('REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches', () => {
-    for (const name of ['@calesennett/pi-codex-fast', 'pi-open-tui', '@gotgenes/pi-subagents', 'pi-mcp-extension', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access', 'pi-smart-compact']) {
+    for (const name of ['@calesennett/pi-codex-fast', 'pi-open-tui', '@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access', 'pi-smart-compact']) {
       const fixture = runImageWarmFixture(name);
       try {
         assert.notEqual(fixture.result.status, 0);

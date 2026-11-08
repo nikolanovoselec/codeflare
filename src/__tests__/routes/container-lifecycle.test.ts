@@ -384,6 +384,20 @@ describe('Container Lifecycle Routes', () => {
       );
     });
 
+    it.each([undefined, 'include', 'exclude'] as const)('REQ-SESSION-008: transports current global sync policy %s on start', async policy => {
+      const fetch = createLifecycleApp('my-bucket');
+      mockKV._set('session:my-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12', name: 'Test', userId: 'my-bucket', status: 'stopped',
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      });
+      if (policy !== undefined) await mockKV.put('setup:sync_policy_mode', policy);
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      const request = container().fetch.mock.calls.map(call => call[0] as Request)
+        .find(request => new URL(request.url).pathname === '/_internal/setBucketName');
+      expect(request).toBeDefined();
+      expect(await request!.json()).toMatchObject({ syncPolicyMode: policy ?? 'exclude', workspaceSyncEnabled: false });
+    });
+
     it('passes workspaceSyncEnabled preference to setBucketName', async () => {
       const fetch = createLifecycleApp('my-bucket');
       mockKV._set('session:my-bucket:abcdef1234567890abcdef12', {

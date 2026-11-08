@@ -1,34 +1,33 @@
 ---
 name: pi-mcp-adapter
-description: Use configured MCP servers through pi-mcp-extension when no native tool covers the required external capability.
+description: Use configured MCP servers through the native adapter proxy or discovered deferred tools when no native capability covers the task.
 disable-model-invocation: true
 ---
 
-# MCP Servers (Pi)
+# MCP adapter (Pi)
 
-When positively selected as the sole client, `pi-mcp-extension` owns configured MCP servers. Prefer native tools when they cover the task. The historical skill path remains stable; there is no `mcp` proxy.
+`pi-mcp-adapter` is the sole managed MCP connection/tool owner; builtin MCP and the replacement extension stay disabled. Prefer native tools when they cover the task. For managed portals, load [MCP portals](../mcp-portals/SKILL.md): Codeflare Settings owns OAuth, not Pi.
 
-For Codeflare-managed portals, load [MCP portals](../mcp-portals/SKILL.md): bootstrap every configured approved portal before semantic selection. Managed portals use Settings-owned OAuth and eager placeholder connections; the lazy/local OAuth instructions below apply to unrelated servers.
+## Discover, connect and call
 
-## Discover, connect, activate
+1. Activate the exact `mcp` tool through `capability`, inspect its live schema, and call `{}` to inspect configured servers and catalogue coverage. Names identify connections, never relevance.
+2. Use valid cached catalogues without keeping connections alive. When live access or missing metadata requires an authorized connection, use `{"connect":"<configured server>"}`. Consult requires the explicit-user-request gate in `consult-llm`.
+3. Search using `{"search":"<capability words>","limit":12,"offset":0}`; inspect a returned definition using `{"describe":"<exact returned tool name>"}`. Never manufacture prefixes, names or argument schemas.
+4. Execute with `{"tool":"<exact returned tool name>","args":{}}`, filling arguments from that live definition. Search-activated direct tools can also be found and activated through `capability`; activation alone does not establish a connection or permission.
 
-1. Discover and activate `mcp_status` through `capability` using its exact name, then inspect configured server names and states. Search/activation alone does not connect a server.
-2. When the task authorizes using the server, activate `mcp_connect` and call it with `{ name: "<configured server>" }`. Lazy servers start only on explicit connection. Consult requires the explicit-user-request gate in the `consult-llm` skill.
-3. Search registered tools with `capability`, inspect the discovered tool schema, and activate the exact returned name. Names use sanitized `mcp_<server>_<tool>` with collision handling; never guess a qualified name or reuse old proxy arguments.
-4. Call the activated direct tool with its actual input schema. A connected server can still have inactive tools because another extension controls exposure; resolve exact-tool activation rather than repeatedly reconnecting.
+Deferred startup is not a prohibition on cold discovery: the first gateway operation may briefly start uncached servers to read metadata. This never authorizes consultation or other tool actions; keep their user-request gates.
 
-`mcp_list_resources` and `mcp_read_resource` cover resources. User commands include `/mcp`, `/mcp:start`, `/mcp:stop`, and `/mcp:auth`. Global configuration is `<agent dir>/mcp.json`; trusted projects may override it through `.pi/mcp.json`. Builtin MCP stays disabled so there is one lifecycle owner.
+Global configuration is `<agent dir>/mcp-adapter.json`; trusted project overrides follow upstream precedence. `/mcp-adapter` manages connections; managed portal authorization still belongs in Codeflare Settings. Do not use Pi's `/mcp-auth` for managed portals or copy credentials between clients.
 
-## Lifetime and errors
+## Lifetime, timeouts and errors
 
-- Managed MCP requests have a fixed 360000 ms per-call budget. Progress does not extend it. Navigation uses an explicit 120000 ms timeout when supported by the live schema.
-- Lazy connections persist until stop, shutdown, or failure; this extension has no idle disconnect. Browser Run's configured `keep_alive=360000` independently governs remote browser inactivity, not website authentication.
-- The extension reconnects failed transports for future calls. An uncertain failed tool call is not automatically safe to repeat: verify its outcome before any retry, especially mutations. Never replay a mutating operation merely because reconnection succeeded.
-- Do not add health pings or retention/auth workarounds. Preserve configured command, CA, credentials and retention. Never print configuration secrets, headers, cookies or credential-bearing URLs.
-- Connection/auth errors do not authorize login. Interactive owner authentication requires explicit current-user authorization for that site and flow.
+- Managed lazy connections disconnect after ten idle minutes; checks run every thirty seconds. Active calls and protocol operations prevent idle shutdown. The deadline is a minimum, not an exact disconnect instant. The next call reconnects; cached discovery remains available.
+- Managed MCP request timeout is `360000` ms. The adapter resets it on progress; supported elicitation can pause it. It is not a fixed total workflow deadline. Task timeouts apply to individual task requests.
+- For browser navigation, supply `120000` ms when the live tool schema supports it. Browser provider retention, MCP idle lifetime, request timeout and website authentication are separate.
+- Do not add health pings or auth/retention workarounds. Preserve configured commands, CA, custom overrides, headers and credentials. Never print secrets or credential-bearing URLs.
+- An expired MCP session can reconnect, but an uncertain failed write is not safe to repeat. Read back its outcome before considering another mutation.
+- Managed `MCP_RECONNECT_REQUIRED` is resolved by Worker refresh or owner browser-SSO recovery in the authenticated app; inspect Settings if provider interaction remains required; switching clients or reconnecting transport does not prove the grant is repaired. Interactive login requires explicit current-user authorization.
 
-## Configuration handoff boundary
+## Configuration ownership
 
-The instructions above describe the stock `pi-mcp-extension` client, not native `pi-mcp-adapter`. Default load preparation checks global configured package/extension selections, not installed folders. Adapter-only selection leaves its native `mcp-adapter.json` unchanged. A content-free ambiguous/unknown-selection warning means both files were preserved: inspect global package/extension selections without printing config contents. Both clients may still register handlers; this guard neither resolves ownership nor disables either client. Do not automatically edit settings, move ignored fields, or copy credentials between clients.
-
-For a positively selected stock handoff only, selected legacy stdio environment literals are translated: an old `!!` prefix loses exactly one `!`. New `mcp.json` literals are never decoded. Selected legacy command-backed values or old environment interpolation require explicit conversion; preparation fails closed without evaluating them or partially writing configuration. Do not execute a secret resolver, print the expression, or copy old expression text into the new literal schema as a workaround. A valid new destination takes precedence over unsupported expressions in the displaced adapter file.
+Startup selects one managed package and prepares its native configuration. A guarded handoff preserves displaced originals and unrelated servers without importing OAuth stores. Ambiguous selection, unsafe paths, conflicting entries or unsupported literal conversions fail closed with a content-free warning. Do not execute secret expressions or hand-edit settings to bypass that boundary.

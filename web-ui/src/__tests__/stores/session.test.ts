@@ -341,6 +341,26 @@ describe('Session Store', () => {
       },
     );
 
+    it.each(['poll', 'load'] as const)('REQ-SESSION-010 AC3 / REQ-SESSION-012 AC6: newer D1 stopped supersedes running transport ownership through %s', async (source) => {
+      const base = { id: `d1-running-${source}`, name: 'Running', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };
+      mockGetSessions.mockResolvedValue([{ ...base, status: 'running', lifecycle: 'running', generation: 2, revision: 3 }] as never);
+      await sessionStore.loadSessions();
+      sessionStore.initializeTerminalsForSession(base.id);
+      const tabs = sessionStore.getTerminalsForSession(base.id)?.tabs.map((tab) => tab.id);
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1);
+      terminalLifecycle.ownedSessionIds.add(base.id);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        [base.id]: { status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 4 },
+      } });
+
+      if (source === 'poll') await sessionStore.refreshSessionStatuses();
+      else await sessionStore.loadSessions();
+
+      expect(sessionStore.sessions.find(s => s.id === base.id)).toMatchObject({ status: 'stopped', lifecycle: 'stopped', generation: 2, revision: 4 });
+      expect(terminal.terminalStore.ownsSession?.(base.id)).toBe(false);
+      expect(sessionStore.getTerminalsForSession(base.id)?.tabs.map((tab) => tab.id)).toEqual(tabs);
+    });
+
     it('REQ-SESSION-012 AC6: newer running batch overrides a listed stop without ending transport ownership', async () => {
       const base = { id: 'd1-stop-order', name: 'Ordering', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };
       mockGetSessions.mockResolvedValueOnce([{ ...base, status: 'stopping', lifecycle: 'stopping', generation: 2, revision: 3 }] as never)

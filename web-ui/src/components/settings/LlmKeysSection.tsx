@@ -1,5 +1,5 @@
 import { Component, Show, createSignal, onMount } from 'solid-js';
-import { deleteLlmKeys, getLlmKeys, updateLlmKeys } from '../../api/client';
+import { getLlmKeys, updateLlmKeys } from '../../api/client';
 import ProviderRow from './ProviderRow';
 import { OpenAIIcon, GeminiIcon } from './BrandIcons';
 
@@ -13,8 +13,6 @@ const LlmKeysSection: Component = () => {
   const [geminiMessage, setGeminiMessage] = createSignal<string | null>(null);
   const [geminiError, setGeminiError] = createSignal<string | null>(null);
   const [loadState, setLoadState] = createSignal<'pending' | 'error' | 'success'>('pending');
-  const [clearAllSaving, setClearAllSaving] = createSignal(false);
-  const [clearAllError, setClearAllError] = createSignal<string | null>(null);
 
   const openaiConnected = () => openaiKey().startsWith('****');
   const geminiConnected = () => geminiKey().startsWith('****');
@@ -93,20 +91,6 @@ const LlmKeysSection: Component = () => {
     }
   };
 
-  const handleClearAll = async () => {
-    setClearAllSaving(true);
-    setClearAllError(null);
-    try {
-      await deleteLlmKeys();
-      setOpenaiKey('');
-      setGeminiKey('');
-    } catch (error) {
-      setClearAllError(error instanceof Error ? error.message : 'Failed to clear keys.');
-    } finally {
-      setClearAllSaving(false);
-    }
-  };
-
   return (
     <>
       <p class="llm-keys-explanation" data-testid="llm-keys-explanation">
@@ -166,22 +150,6 @@ const LlmKeysSection: Component = () => {
           <Show when={geminiConnected()}><code data-testid="llm-gemini-mask">{geminiKey()}</code></Show>
         </ProviderRow>
 
-        <Show when={openaiConnected() || geminiConnected()}>
-          <div class="llm-keys-actions">
-            <button
-              type="button"
-              class="settings-action settings-action--destructive"
-              data-testid="llm-keys-clear-all"
-              disabled={clearAllSaving()}
-              onClick={() => { void handleClearAll(); }}
-            >
-              {clearAllSaving() ? 'Clearing...' : 'Clear all keys'}
-            </button>
-            <Show when={clearAllError()}>
-              <span class="provider-row-error" role="alert">{clearAllError()}</span>
-            </Show>
-          </div>
-        </Show>
       </Show>
 
       <div class="setting-row setting-row--column-gap">

@@ -98,7 +98,7 @@ Every session arrives with organizational rules, reusable skills, specialist age
 
 Managed Environment curation makes that content manageable out of band. A deployment points at a private release repository, a scoped read token, and a signing key; the operator publishes a signed, immutable release on its own schedule and each user's environment converges to it before the next session starts. Skills, rules, agents, and required Browser IDE extensions change without rebuilding Codeflare, and the image-baked preseed remains an independent fallback. The Worker verifies repository identity, asset digests, signature, and release sequence before any content reaches user storage; credentials never enter a session container. See [Managed Environment data flow](documentation/lanes/architecture.md#managed-environment-data-flow).
 
-Codeflare's own curated content lives in [codeflare-curation](https://github.com/nikolanovoselec/codeflare-curation) (access required). Each operator points at their own repository instead.
+Codeflare's managed content is maintained privately. Deployment owners configure their own managed release repository; public contributors do not need access to Codeflare's private curation or operator repositories.
 
 ![Codeflare session preload](assets/documentation/platform-preload.gif)
 
@@ -165,24 +165,9 @@ The verification model is documented in [CI & Testing](documentation/lanes/ci-cd
 
 ## Development
 
-Install the root and frontend dependencies, then start the Worker development environment:
+Start with the [contribution guide](CONTRIBUTING.md) for the public fork-to-`develop` workflow, lane-specific runtime requirements, dependency setup, and separate Workers, Node, and package suites. It distinguishes workstation commands from managed-agent execution restrictions and explains the verification evidence to include in a pull request.
 
-```bash
-npm install
-cd web-ui && npm install && cd ..
-npm run dev
-```
-
-Package owners keep their own test suites:
-
-```bash
-npm test
-(cd web-ui && npm test)
-(cd landing && npm test)
-(cd host && npm test)
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for branch, test, and pull-request expectations.
+Public contributions do not require access to private curation or operator repositories. Maintainers coordinate any related private changes separately; keep public source, tests, and behavior documentation in this repository.
 
 ## Documentation
 

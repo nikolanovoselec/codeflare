@@ -70,10 +70,12 @@ const TOOL_MAP = {
     'mcp__graphify__shortest_path': 'graphify_path',
     'mcp__graphify__graph_stats': 'graphify_query',
     'mcp__context-mode__ctx_execute': 'ctx_execute',
-    'mcp__context-mode__ctx_batch_execute': 'ctx_batch_execute',
-    'mcp__context-mode__ctx_execute_file': 'ctx_execute_file',
+    'mcp__context-mode__ctx_batch': 'ctx_batch',
+    'mcp__context-mode__ctx_index': 'ctx_index',
+    'mcp__context-mode__ctx_batch_execute': 'ctx_batch',
+    'mcp__context-mode__ctx_execute_file': 'ctx_execute',
     'mcp__context-mode__ctx_search': 'ctx_search',
-    'mcp__context-mode__ctx_fetch_and_index': 'ctx_fetch_and_index',
+    'mcp__context-mode__ctx_fetch_and_index': 'ctx_index',
   },
 };
 
@@ -250,11 +252,13 @@ const PI_RUNTIME_REPLACEMENTS = [
   ['mcp__graphify__god_nodes', 'graphify_query'],
   ['mcp__graphify__graph_stats', 'graphify_query'],
   ['mcp__graphify__*', 'Pi graphify tools'],
-  ['mcp__context-mode__ctx_batch_execute', 'ctx_batch_execute'],
-  ['mcp__context-mode__ctx_execute_file', 'ctx_execute_file'],
+  ['mcp__context-mode__ctx_batch_execute', 'ctx_batch'],
+  ['mcp__context-mode__ctx_batch', 'ctx_batch'],
+  ['mcp__context-mode__ctx_index', 'ctx_index'],
+  ['mcp__context-mode__ctx_execute_file', 'ctx_execute'],
   ['mcp__context-mode__ctx_execute', 'ctx_execute'],
   ['mcp__context-mode__ctx_search', 'ctx_search'],
-  ['mcp__context-mode__ctx_fetch_and_index', 'ctx_fetch_and_index'],
+  ['mcp__context-mode__ctx_fetch_and_index', 'ctx_index'],
   // Pi markdown must not name Claude models (REQ-AGENT-007); the graphify
   // extraction-spec pins Claude's subagent tier in prose, which the frontmatter
   // model-pin removal cannot reach.
@@ -339,7 +343,7 @@ function adaptAgentFrontmatter(content, agentId) {
             // context-mode helpers: declared in the shared agent frontmatter and remapped
             // to Pi-native names above. Harmless when context-mode is off (the tools do not
             // exist, so Pi drops them), usable when /ctx enables it. No Pi-specific agent edits.
-            'ctx_execute', 'ctx_batch_execute', 'ctx_execute_file', 'ctx_search', 'ctx_fetch_and_index',
+            'ctx_execute', 'ctx_batch', 'ctx_search', 'ctx_index',
           ];
           const piTools = [...new Set(remapped.filter((t) => allowed.includes(t)))];
           const dropped = remapped.filter((t) => !allowed.includes(t));
@@ -407,7 +411,7 @@ const PI_SDD_SKILLS = new Set([
   'tdd-enforce',
 ]);
 
-const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use only tools exposed by the current agent. Report-only reviewers use Bash; root sessions may use Bash/Read/Grep/Find/Edit/Write. Do not assume context-mode \`ctx_*\` tools exist.\n- Root sessions may use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. Report-only reviewers inspect repository artifacts through Bash and do not invoke Graphify tools.\n- Root sessions use Pi's \`subagent\` tool for delegation and the \`Plan\` agent for Plan Mode. Report-only reviewers never launch subagents or mutate files.\n`;
+const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use only tools exposed by the current agent. Report-only reviewers use Bash; root sessions may use Bash/Read/Grep/Find/Edit/Write. Do not assume context-mode \`ctx_*\` tools exist.\n- Context-mode v2 uses \`ctx_batch\` with string command arrays, \`ctx_index({url})\` for URL indexing, and \`ctx_execute\` with \`file\` for file execution. Discover live schemas; legacy argument examples are not compatible.\n- Root sessions may use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. Report-only reviewers inspect repository artifacts through Bash and do not invoke Graphify tools.\n- Root sessions use Pi's \`subagent\` tool for delegation and the \`Plan\` agent for Plan Mode. Report-only reviewers never launch subagents or mutate files.\n`;
 
 function compactPiSkillDescription(content, skillName) {
   return content.replace(/^description:\s*(.+)$/m, (_match, rawDescription) => {

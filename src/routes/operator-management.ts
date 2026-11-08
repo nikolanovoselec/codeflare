@@ -256,8 +256,7 @@ async function manualInference(c: Context<RouteEnv>, routes: Awaited<ReturnType<
     if (selection) {
       for (const policy of [selection.operator.policy, selection.installation.policy]) {
         const inference = policy.inference;
-        if (!policy.capabilities.includes('inference') || source === 'pi-native' && (!inference?.allowedSources?.includes('pi-native')
-          || value.reasoningLevel != null && !inference.reasoningLevels.includes(value.reasoningLevel as typeof inference.reasoningLevels[number]))) {
+        if (!policy.capabilities.includes('inference') || source === 'pi-native' && !inference?.allowedSources?.includes('pi-native')) {
           return { ...value, status: 'blocked', reason: 'policy-denied' };
         }
         if (source === 'managed' && inference) resolveOperatorInference({ policy: { inference }, trusted: {

@@ -187,12 +187,12 @@ export function shellInvocations(event: any, sessionCwd: string): ShellInvocatio
   if ((name === "bash" || name === "Bash") && typeof input.command === "string") {
     return commandInvocations(input.command, cwd);
   }
-  if (name.endsWith("ctx_execute") && input.language === "shell" && typeof input.code === "string") {
+  if (name.endsWith("ctx_execute") && ["shell", "sh", "bash", "zsh", "dash", "ksh", "fish"].includes(input.language) && typeof input.code === "string") {
     return commandInvocations(input.code, cwd);
   }
-  if (name.endsWith("ctx_batch_execute") && Array.isArray(input.commands)) {
+  if ((name.endsWith("ctx_batch") || name.endsWith("ctx_batch_execute")) && Array.isArray(input.commands)) {
     return input.commands
-      .map((item: Record<string, unknown>) => item?.command)
+      .map((item: unknown) => typeof item === "string" ? item : (item as Record<string, unknown>)?.command)
       .filter((command: unknown): command is string => typeof command === "string")
       .flatMap((command: string) => commandInvocations(command, cwd));
   }

@@ -32,6 +32,12 @@ The [reviewed release](https://github.com/Graphify-Labs/graphify/blob/86c57be820
 
 The [0.9.101 release notes](https://github.com/Graphify-Labs/graphify/blob/v0.9.101/CHANGELOG.md) extend these changes: file/declaration collisions and case-distinct symbols can receive different IDs, and AST cache schema 36 plus case-preserving cache keys can cause re-extraction on the next explicitly authorized refresh. Old IDs, counts and callflow are not stable comparison baselines across that refresh; do not rewrite IDs or clear caches manually. Collapsed same-relation edges retain weaker provenance in `also_seen`; preserve it alongside parallel relations. Path confidence is conservative: it reflects the weakest evidence on the weakest hop, and among equal-length routes the route with the weakest such confidence is selected, not the strongest route. See `references/query.md` before interpreting those results. None of this authorizes a refresh or changes the public Pi `subagent` semantic-extraction workflow; never fall back to an external-provider API key.
 
+## Graphify 0.9.103 compatibility
+
+[0.9.103](https://github.com/Graphify-Labs/graphify/releases/tag/v0.9.103) advances the AST cache schema to 39; re-extraction still requires an explicitly authorized refresh. Do not clear caches or rewrite graphs to adopt the version. `export tree` shows at most 200 children per directory by default; `total_count` includes undisplayed children, so use explicit `--max-children` when exhaustive enumeration is needed. Unsupported-file warnings mean incomplete coverage.
+
+Upstream Pi project installation uses `.pi/skills/graphify/`; user installation remains `~/.pi/agent/skills/graphify/`. Neither that path correction nor upstream compact hooks authorize reinstalling or replacing Codeflare-managed skills/hooks. Preserve `GRAPHIFY_NO_AUTO_REFRESH=1` and the external-provider prohibition.
+
 ## Graph paths
 
 ```text

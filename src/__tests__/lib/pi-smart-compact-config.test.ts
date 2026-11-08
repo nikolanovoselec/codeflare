@@ -195,7 +195,7 @@ describe('REQ-AGENT-223: provider-neutral Smart Compact settings preparation', (
     writeSettings({ theme: 'user-theme', packages: [userPackage,
       'npm:pi-smart-compact@10.6.2', { source: 'npm:context-mode@1.0.169', extensions: [] }] });
     const store = { read: readSettings, write: (settings: PiSettings) => writeSettings(settings) };
-    const disabledPackage = { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] };
+    const disabledPackage = { source: 'npm:context-mode@2.1.4', extensions: [], skills: [] };
 
     await handleContextModeCommand('off', { ui: { notify() {} }, reload: async () => {} }, store);
     expect(readSettings().packages).toEqual([userPackage, 'npm:pi-smart-compact@10.6.2', disabledPackage]);

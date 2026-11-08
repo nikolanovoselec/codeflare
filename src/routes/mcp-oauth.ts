@@ -4,7 +4,7 @@ import type { AuthVariables } from '../middleware/auth';
 import { getBaseUrl } from '../lib/kv-keys';
 import { getConfiguredMcpPortals } from '../lib/mcp-portals';
 import { beginMcpPortalConnect, finishMcpPortalConnect, getMcpPortalGrant, disconnectMcpPortal,
-  mcpPortalClientMetadata, MCP_CLIENT_METADATA_PATH, publicHttps } from '../lib/mcp-portal-token';
+  getValidMcpPortalToken, type McpPortalTokenFailure, mcpPortalClientMetadata, MCP_CLIENT_METADATA_PATH, publicHttps } from '../lib/mcp-portal-token';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { authenticateRequest } from '../lib/access';
 import { isSessionOidcMode } from '../lib/onboarding';
@@ -15,9 +15,10 @@ export interface McpOAuthDependencies {
   authenticate: typeof authenticateRequest;
   begin: typeof beginMcpPortalConnect; finish: typeof finishMcpPortalConnect;
   grant: typeof getMcpPortalGrant; disconnect: typeof disconnectMcpPortal;
+  token: typeof getValidMcpPortalToken;
 }
 const defaults: McpOAuthDependencies = { authenticate: authenticateRequest, begin: beginMcpPortalConnect, finish: finishMcpPortalConnect,
-  grant: getMcpPortalGrant, disconnect: disconnectMcpPortal };
+  grant: getMcpPortalGrant, disconnect: disconnectMcpPortal, token: getValidMcpPortalToken };
 
 function ownerAuthentication(authenticate: typeof authenticateRequest): MiddlewareHandler<{ Bindings: Env; Variables: AuthVariables }> {
   return async (c, next) => {
@@ -90,6 +91,33 @@ export function createMcpPortalApiRoutes(deps: McpOAuthDependencies = defaults) 
       } catch { /* Missing encryption/configuration is disconnected, not a secret-bearing error. */ }
       return { ...portal, connected };
     })) });
+  });
+  // REQ-AGENT-226 AC5/6, REQ-AGENT-228 AC4: explicit, owner-bound recovery only.
+  app.post('/:name/recover', createRateLimiter({ windowMs: 60_000, maxRequests: 20, keyPrefix: 'mcp-recover' }), async c => {
+    try {
+      const base = new URL(await getBaseUrl(c.env.KV, c.req.url)).origin;
+      if (c.req.header('Origin') !== base || c.req.header('Sec-Fetch-Site') === 'cross-site') return c.json({ error: 'Origin denied' }, 403);
+      if (new URL(c.req.url).origin !== base || !base.startsWith('https://')) return c.json({ error: 'Use the configured instance URL' }, 400);
+      let body: unknown;
+      try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid recovery intent' }, 400); }
+      if (!body || typeof body !== 'object' || Array.isArray(body) || !('authorize' in body)
+        || typeof body.authorize !== 'boolean' || Object.keys(body).length !== 1) return c.json({ error: 'Invalid recovery intent' }, 400);
+      const portal = (await getConfiguredMcpPortals(c.env.KV)).find(p => p.name === c.req.param('name'));
+      if (!portal) return c.json({ state: 'ineligible' });
+      const owner = c.get('bucketName');
+      const grant = await deps.grant(c.env, owner, portal);
+      if (!grant || grant.instance !== base) return c.json({ state: 'ineligible' });
+      const observed: { failure?: McpPortalTokenFailure } = {};
+      const token = await deps.token(c.env, owner, portal, undefined, result => { observed.failure = result; });
+      if (token) return c.json({ state: 'ready' });
+      const failure = observed.failure;
+      if (!body.authorize || !(failure?.reason === 'no-refresh-token'
+        || (failure?.reason === 'refresh-error' && failure.detail === 'invalid_grant'))) return c.json({ state: 'unavailable' });
+      const current = await deps.grant(c.env, owner, portal);
+      if (!current || current.id !== grant.id || current.instance !== base) return c.json({ state: 'unavailable' });
+      const url = await deps.begin(c.env, owner, portal, base, undefined, grant.id);
+      return c.json({ state: 'authorization', url });
+    } catch { return c.json({ state: 'unavailable' }); }
   });
   app.post('/:name/disconnect', async c => {
     const base = new URL(await getBaseUrl(c.env.KV, c.req.url)).origin;

@@ -431,7 +431,7 @@ Container placeholder + opaque authorized handle/canonical level → Worker inte
 
 ### Strict Gateway Egress
 
-Host-specific registrations own their credential stamping; otherwise-unclaimed direct internet crosses `env.EGRESS` and customer Gateway. Explicit own-account platform exceptions stay scoped. Ordinary catch-all traffic is transparent apart from bound-bucket R2 re-signing; configured MCP portals delegate owner-authorized credentials to the existing [REQ-AGENT-229 boundary](../../sdd/spec/agents.md#req-agent-229-worker-mediated-mcp-portal-transport). Absent mandatory binding never falls back to global fetch. [REQ-ENTERPRISE-024](../../sdd/spec/security.md#req-enterprise-024-strict-gateway-egress-host-specific-interceptor-routing) supplements component contracts. [Security](security.md) owns mechanisms.
+Host-specific registrations own their credential stamping; otherwise-unclaimed direct internet crosses `env.EGRESS` and customer Gateway. Explicit own-account platform exceptions stay scoped. Ordinary catch-all traffic is transparent apart from bound-bucket R2 re-signing; configured MCP portals delegate owner-authorized credentials to the existing [REQ-AGENT-229 boundary](../../sdd/spec/mcp.md#req-agent-229-worker-mediated-mcp-portal-transport). Absent mandatory binding never falls back to global fetch. [REQ-ENTERPRISE-024](../../sdd/spec/security.md#req-enterprise-024-strict-gateway-egress-host-specific-interceptor-routing) supplements component contracts. [Security](security.md) owns mechanisms.
 
 ### Pi Memory and Vault Extraction Data Flow
 

@@ -96,9 +96,36 @@ export function createMockSessionD1(kv: MockKV): D1Database {
             }
             session.boundaryActivityId = undefined;
           }
+          else if (/SET\s+lifecycle_state='unreachable'/.test(sql)) {
+            if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId
+                || (session.lifecycleGeneration ?? 0) !== args[2] || Number(args[3]) <= (session.observationSequence ?? -1)) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            session.status = 'unreachable'; session.observationSequence = args[3];
+            session.unreachableIncidentId ??= args[4]; session.unreachableFirstObservedAt ??= args[5]; session.unreachableDeadlineMs ??= args[6];
+          }
+          else if (sql.includes("SET lifecycle_state='running', unreachable_incident_id=NULL")) {
+            if (session.status !== 'unreachable' || session.terminationIntentId
+                || session.unreachableIncidentId !== args[4] || (session.lifecycleGeneration ?? 0) !== args[2]
+                || Number(args[3]) <= (session.observationSequence ?? -1)) return { success: true, meta: { changes: 0 } };
+            session.status = 'running'; session.observationSequence = args[3];
+            session.unreachableIncidentId = undefined; session.unreachableFirstObservedAt = undefined; session.unreachableDeadlineMs = undefined;
+          }
+          else if (sql.includes("SET lifecycle_reason='recovery_force_started'")) {
+            if (session.status !== 'stopping' || session.terminationIntentId !== args[3]
+                || (session.lifecycleGeneration ?? 0) !== args[2] || session.terminationGeneration !== args[2]
+                || session.unreachableIncidentId !== args[4] || session.unreachableDeadlineMs !== args[5]
+                || session.lifecycleReason !== 'recovery_expiry' || session.boundaryActivityId) return { success: true, meta: { changes: 0 } };
+            session.lifecycleReason = 'recovery_force_started';
+          }
+          else if (sql.includes('SET termination_signal_accepted_at=')) {
+            if (session.status !== 'stopping' || session.terminationIntentId !== args[3]
+                || (session.lifecycleGeneration ?? 0) !== args[2] || session.boundaryActivityId) return { success: true, meta: { changes: 0 } };
+            session.terminationSignalAcceptedAt ??= args[4];
+          }
           else if (/SET\s+lifecycle_state='starting'/.test(sql)) {
             if (session.status !== 'stopped' || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
-            session.status = 'starting'; session.lifecycleGeneration = (session.lifecycleGeneration ?? 0) + 1;
+            session.status = 'starting'; session.lifecycleGeneration = (session.lifecycleGeneration ?? 0) + 1; session.observationSequence = -1;
             session.editorReady = false; session.editorReadyError = false;
           }
           else if (/SET\s+lifecycle_state='stopping'/.test(sql)) {
@@ -106,15 +133,24 @@ export function createMockSessionD1(kv: MockKV): D1Database {
               || (sql.includes('lifecycle_generation=?5') && args[4] != null && (session.lifecycleGeneration ?? 0) !== args[4])) {
               return { success: true, meta: { changes: 0 } };
             }
-            session.status = 'stopping'; session.terminationIntentId = args[2]; session.terminationGeneration = session.lifecycleGeneration ?? 0;
+            if (sql.includes('unreachable_deadline_ms=?5') && (session.status !== 'unreachable'
+                || (session.lifecycleGeneration ?? 0) !== args[2] || session.unreachableIncidentId !== args[3]
+                || session.unreachableDeadlineMs !== args[4] || Number(args[4]) > Number(args[7]))) return { success: true, meta: { changes: 0 } };
+            const expiry = sql.includes('unreachable_deadline_ms=?5');
+            if (expiry) session.lifecycleReason = 'recovery_expiry';
+            session.status = 'stopping'; session.terminationIntentId = expiry ? args[5] : args[2];
+            session.terminationClaimedAt = expiry ? args[6] : args[3]; session.terminationGeneration = session.lifecycleGeneration ?? 0;
           }
           else if (/SET\s+lifecycle_state='stopped'/.test(sql)) {
             if (session.status !== 'stopping' || session.terminationIntentId !== args[3]
               || (session.lifecycleGeneration ?? 0) !== args[2] || session.boundaryActivityId) return { success: true, meta: { changes: 0 } };
             session.status = 'stopped'; session.lastActiveAt = args[4]; session.terminationIntentId = undefined; session.terminationGeneration = undefined;
+            session.terminationClaimedAt = undefined; session.terminationSignalAcceptedAt = undefined;
+            session.unreachableIncidentId = undefined; session.unreachableFirstObservedAt = undefined; session.unreachableDeadlineMs = undefined;
           }
           else if (sql.includes('lifecycle_state=COALESCE') && sql.includes('observation_sequence=?4')) {
-            if (!['starting', 'running', 'unreachable'].includes(session.status) || session.terminationIntentId) return { success: true, meta: { changes: 0 } };
+            if (!['starting', 'running'].includes(session.status) || session.terminationIntentId
+                || (session.lifecycleGeneration ?? 0) !== args[2] || Number(args[3]) <= (session.observationSequence ?? -1)) return { success: true, meta: { changes: 0 } };
             if (args[4] != null) session.status = args[4];
             session.lastInputAt = args[5] ?? session.lastInputAt;
             session.metrics = { cpu: args[6] ?? undefined, mem: args[7] ?? undefined, hdd: args[8] ?? undefined, syncStatus: args[9] ?? undefined, updatedAt: args[12] };
@@ -128,12 +164,19 @@ export function createMockSessionD1(kv: MockKV): D1Database {
             if (args[4] === 'lastActiveAt' || (args[3] === 'running' && args[4] === 'lastStartedAt')) session.lastActiveAt = args[5];
           }
           if (sql.includes('editor_ready=?4')) { session.editorReady = args[3] === 1; session.editorReadyError = args[4] === 1; }
-          if (sql.includes('clones_json=?3')) session.clones = JSON.parse(String(args[2]));
+          if (sql.includes('clones_json=?3')) {
+            if (args[3] != null && ((session.lifecycleGeneration ?? 0) !== args[3]
+                || Number(args[4]) <= (session.observationSequence ?? -1)
+                || !['starting', 'running'].includes(session.status) || session.unreachableIncidentId
+                || session.terminationIntentId)) return { success: true, meta: { changes: 0 } };
+            session.clones = JSON.parse(String(args[2]));
+          }
           if (sql.includes('name=COALESCE')) { if (args[2] != null) session.name = args[2]; if (args[3] != null) session.tabConfig = JSON.parse(String(args[3])); session.lastAccessedAt = args[4]; }
           if (sql.includes('last_accessed_at=?3')) session.lastAccessedAt = args[2];
           // Model UPDATE semantics: deleting the row while this fake statement
           // is in flight yields changes=0 and must never resurrect it.
           if (!await get(args[0], args[1])) return { success: true, meta: { changes: 0 } };
+          session.responseRevision = (session.responseRevision ?? 0) + 1;
           await put(args[0], session);
           return { success: true, meta: { changes: 1 } };
         },

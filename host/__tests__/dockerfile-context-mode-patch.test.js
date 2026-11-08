@@ -11,7 +11,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   patchContextModeBundle,
   patchContextModeInstallations,
@@ -71,6 +71,7 @@ describe('Context-mode installation patch (createRequire shim + REQ-AGENT-076 AC
         mkdirSync(directory, { recursive: true });
         writeFileSync(join(directory, 'package.json'), '{"version":"1.2.3"}\n');
         for (const bundle of BUNDLE_NAMES) {
+          mkdirSync(dirname(join(directory, bundle)), { recursive: true });
           writeFileSync(join(directory, bundle), `var bundle = "${UPDATE_PROBE_URL}";\n`);
         }
       }

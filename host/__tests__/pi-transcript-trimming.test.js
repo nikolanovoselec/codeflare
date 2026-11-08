@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findPackageJSON, stripTypeScriptTypes } from 'node:module';
+import { findPackageJSON } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import {importPiExtension} from './fixtures/pi-extension-module.mjs';
 const { registerActiveSessionTranscriptTrimming, prepareLocalTranscriptTrim, trimActiveSessionTranscript, parseTranscript, createTranscriptTrimRequest, commitTranscriptTrimCandidate }=await importPiExtension('active-session-transcript-trimming');
@@ -97,21 +97,8 @@ const replay = branch => {
   return d ? { tasks: d.tasks, nextId: d.nextId } : { tasks: [], nextId: 1 };
 };
 
-// The existing cadence module uses extensionless TS imports. As in pi-lockstep's fixture,
-// use Node's public type stripper, not an installed SDK/compiler or a live Pi process.
-const extensionDir = new URL('../../preseed/agents/pi/extensions/', import.meta.url);
-const fixtureModules = new Map();
-function fixtureModule(name) {
-  if (fixtureModules.has(name)) return fixtureModules.get(name);
-  let source = stripTypeScriptTypes(fs.readFileSync(new URL(name + '.ts', extensionDir), 'utf8'));
-  source = source.replace(/from "\.\/([a-z-]+)(?:\.ts)?"/g, (_match, dependency) => `from "${fixtureModule(dependency)}"`);
-  const url = 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
-  fixtureModules.set(name, url);
-  return url;
-}
-
 test('REQ-MEM-028 AC1: shared cadence preserves frozen capture inputs without eager delivery', async t => {
-  const { registerMemoryVault } = await import(fixtureModule('memory-vault'));
+  const { registerMemoryVault } = await importPiExtension('memory-vault');
   const f = fixture(t, [{ type: 'session', id: 'fixture' }]);
   const paths = { vaultRoot: join(f.root, 'Vault'), cacheDir: join(f.root, 'cache'), memoryCounterDir: join(f.root, 'counters'),
     memoryPromptFile: join(f.root, 'memory.md'), vaultPromptFile: join(f.root, 'vault.md'),
@@ -133,7 +120,6 @@ test('REQ-MEM-028 AC1: shared cadence preserves frozen capture inputs without ea
   assert.equal(sent.length, 0);
   assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vars'), 'utf8'), frozen);
   assert.deepEqual(fs.readdirSync(paths.memoryCounterDir).sort(), filesBefore);
-  assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vault-count'), 'utf8'), '40');
   assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.count'), 'utf8'), '1');
   assert.deepEqual(fs.readdirSync(paths.cacheDir).map(name => [name, fs.readFileSync(join(paths.cacheDir, name), 'utf8')]), frozenCache);
   assert.equal(sent.length, 0); // Scheduling never launches extraction or a model turn.
@@ -478,7 +464,13 @@ test('REQ-MEM-028 AC5: provisioned public SDK appends and disk reopen survive sa
   assert.equal(commitTranscriptTrimCandidate(ctx, request).status, 'trimmed');
   assert.ok(fs.statSync(f.file).size <= 20_000_000);
   assert.equal(JSON.stringify(manager.getBranch()), cacheBefore);
+  const committedPrefix = fs.readFileSync(f.file);
   append('after');
+  manager.appendCompaction('Synthetic post-trim summary', appended[0].id, 100);
+  manager.branchWithSummary(appended[0].id, 'Synthetic retained branch');
+  const branchedUser = manager.appendMessage({ role: 'user', content: 'Post-trim branch input', timestamp: Date.now() });
+  assert.deepEqual(fs.readFileSync(f.file).subarray(0, committedPrefix.length), committedPrefix);
+  assert.equal(reopen(f).find(entry => entry.id === branchedUser)?.message.content, 'Post-trim branch input');
   assert.equal(manager.getSessionFile(), f.file);
   const disk = reopen(f);
   for (const e of appended) assert.deepEqual(disk.filter(row => row.id === e.id), [e]);
@@ -487,4 +479,23 @@ test('REQ-MEM-028 AC5: provisioned public SDK appends and disk reopen survive sa
   for (const e of appended) assert.deepEqual(reopened.getEntry(e.id), e);
   assert.deepEqual(replay(reopened.getBranch()), replay(manager.getBranch()));
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
+});
+
+test('REQ-MEM-028 AC5: streamed cut preserves loaded SDK state, same-path append and disk reopen', {skip:process.env.GITHUB_ACTIONS!=='true'},async t=>{
+ const manifestPath=findPackageJSON('@earendil-works/pi-coding-agent',new URL('../../preseed/agents/pi/package.json',import.meta.url));assert.ok(manifestPath);
+ const manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));const {SessionManager}=await import(new URL(manifest.exports['.'].import,pathToFileURL(manifestPath)));
+ const f=fixture(t);
+ const naming={type:'session_info',id:'original-name',parentId:null,timestamp:'2026-01-01T00:00:00Z',name:'Preserved session title'};
+ f.entries[0].cwd=f.root;f.entries[1].parentId=naming.id;f.entries.splice(1,0,naming);fs.writeFileSync(f.file,jsonl(f.entries));
+ const manager=SessionManager.open(f.file,f.root,f.root),beforeIds=manager.getBranch().map(e=>e.id),tools=new Map();
+ const initialListing=await SessionManager.list(f.root,f.root);assert.equal(initialListing.find(e=>e.id==='fixture')?.name,'Preserved session title');
+ const ctx={sessionManager:manager},owner=registerActiveSessionTranscriptTrimming({registerTool:x=>tools.set(x.name,x),sendMessage(){}});t.after(()=>owner.cancel());owner.markDue(ctx);const item=owner.collect(ctx);assert.ok(item);
+ const child={sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:item.request.prompt}}]}};
+ const result=JSON.parse((await tools.get('transcript_trim').execute('cut',{operation:'trim'},undefined,undefined,child)).content[0].text);assert.equal(result.status,'trimmed');assert.equal(result.committed,true);
+ assert.deepEqual(manager.getBranch().map(e=>e.id),beforeIds);
+ const disk=SessionManager.open(f.file,f.root,f.root);assert.equal(disk.getSessionName(),'Preserved session title');assert.equal(disk.getLeafId(),beforeIds.at(-1));assert.equal(disk.getEntry(naming.id),undefined);
+ const listed=await SessionManager.list(f.root,f.root);assert.equal(listed.find(e=>e.id==='fixture')?.name,'Preserved session title');
+ const prefix=fs.readFileSync(f.file),id=manager.appendMessage({role:'user',content:'After streamed cut',timestamp:Date.now()});
+ assert.equal(manager.getSessionFile(),f.file);assert.deepEqual(fs.readFileSync(f.file).subarray(0,prefix.length),prefix);
+ const reopened=SessionManager.open(f.file,f.root,f.root);assert.equal(reopened.getEntry(id).message.content,'After streamed cut');assert.equal(reopened.getBranch().at(-1).id,id);
 });

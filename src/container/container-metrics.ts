@@ -6,9 +6,8 @@
  */
 import type { Env, Session } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
-import { toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
-import { D1SessionRepository } from '../lib/session-repository';
+import { D1SessionRepository, type D1Session } from '../lib/session-repository';
 import { normalizeTrackedClones } from '../lib/clone-targets';
 import { isSaasModeActive } from '../lib/onboarding';
 import {
@@ -44,6 +43,43 @@ export interface MetricsCallbacks {
   idleTimeoutPref: string;
   /** Update the in-memory cache after a fresh storage read. */
   setIdleTimeoutPref: (next: string) => void;
+  terminateUnreachable: (session: D1Session, execution: MetricsExecution) => Promise<boolean>;
+}
+
+/** SDK schedule payload: an old alarm is never rebound to the latest D1 generation. */
+export interface MetricsPin {
+  readonly ownerKey: string;
+  readonly sessionId: string;
+  readonly generation: number;
+}
+export interface MetricsExecution extends MetricsPin {
+  readonly runtime: NonNullable<DurableObjectState['container']>;
+  readonly sequence: number;
+  readonly authToken: string | null;
+  readonly isCurrent: () => boolean;
+  readonly onHostResponse?: () => Promise<void>;
+}
+
+/** Reserve observation order before any host or D1 observation can yield. */
+export async function captureMetricsExecution(ctx: DurableObjectState, expected?: MetricsPin,
+  isCurrent: () => boolean = () => true): Promise<MetricsExecution | null> {
+  const runtime = ctx.container;
+  if (!runtime) return null;
+  return ctx.storage.transaction(async txn => {
+    const ownerKey = await txn.get<string>('bucketName');
+    const sessionId = await txn.get<string>(SESSION_ID_KEY);
+    const generation = await txn.get<number>('lifecycleGeneration');
+    if (!ownerKey || !sessionId || !Number.isSafeInteger(generation) || generation === undefined
+      || !isCurrent() || (expected && (expected.ownerKey !== ownerKey || expected.sessionId !== sessionId
+        || expected.generation !== generation))) return null;
+    const previous = await txn.get<number>('observationSequence') ?? -1;
+    const authToken = await txn.get<string>('containerAuthToken') ?? null;
+    if (!Number.isSafeInteger(previous) || previous < -1 || !isCurrent()) return null;
+    const sequence = previous + 1;
+    await txn.put('observationSequence', sequence);
+    return { ownerKey, sessionId, generation, sequence, runtime, authToken,
+      isCurrent: () => ctx.container === runtime && isCurrent() };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +129,6 @@ const TRANSPORT_FAILURE_ABORT_THRESHOLD = 3;
 const TRANSPORT_FAILURE_RETRY_SECONDS = 5;
 const TRANSPORT_RECOVERY_MAX_ATTEMPTS = 2;
 const TRANSPORT_ABORT_REASON = 'container transport unresponsive after 3 complete probe failures';
-const MONITOR_TRANSPORT_ABORT_REASON = 'container monitor lost its connection to container services';
 
 // Budget the DO gives the in-container final sync (drainFinalSync) to complete
 // before a stop (REQ-SESSION-011 AC4). 120s pairs with the 135s teardown
@@ -154,7 +189,7 @@ function pollContainer(
  * timer is the only bound that certainly holds. The abandoned work keeps running;
  * what matters is that the alarm stops waiting on it and reaches its re-arm.
  */
-function raceBudget<T>(work: Promise<T>, budgetMs: number): Promise<T | null> {
+export function raceBudget<T>(work: Promise<T>, budgetMs: number): Promise<T | null> {
   // A rejection arriving after the timer already won is not a failure of this
   // tick — mark it handled so it cannot surface as an unhandled rejection.
   work.catch(() => {});
@@ -742,111 +777,6 @@ async function scheduleRecoveryOwnershipReadRetry(
   }
 }
 
-function monitorNetworkLossProbes(): TransportProbeObservations {
-  const error = new Error('Network connection lost.');
-  return {
-    activity: failedProbeObservation(error, Date.now()),
-    health: failedProbeObservation(error, Date.now()),
-  };
-}
-
-type MonitorRecoveryStart = 'recovering' | 'fallback' | 'suppressed';
-
-/**
- * Bridge the SDK monitor's Network connection lost error into the same durable,
- * bounded recovery incident used by failed host probes. The SDK applies this
- * ctx.abort workaround only in its startup path; monitor rejection otherwise
- * marks its private state stopped before invoking onError, so waiting for the
- * running-only probes permanently misses the reattachment opportunity.
- */
-export async function beginMonitorTransportRecovery(
-  ctx: DurableObjectState,
-  scheduleConfirmation: () => Promise<unknown>,
-): Promise<MonitorRecoveryStart> {
-  const probes = monitorNetworkLossProbes();
-  let shutdownRequested: number | undefined;
-  try {
-    shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
-  } catch (err) {
-    logger.warn('container monitor recovery: failed to read shutdown marker; suppressing reconstruction', {
-      durableObjectId: ctx.id.toString(),
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return 'suppressed';
-  }
-  if (typeof shutdownRequested === 'number') {
-    try { await clearTransportRecoveryState(ctx); } catch { /* teardown remains authoritative */ }
-    return 'suppressed';
-  }
-
-  let storedRecovery: unknown;
-  try {
-    storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
-  } catch (err) {
-    logger.warn('container monitor recovery: failed to read transport recovery state', {
-      durableObjectId: ctx.id.toString(),
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return 'suppressed';
-  }
-  if (storedRecovery != null) {
-    if (!isTransportRecoveryRecord(storedRecovery)) {
-      logger.error('container monitor recovery: invalid recovery record; suppressing reconstruction', undefined, {
-        durableObjectId: ctx.id.toString(),
-        valueType: typeof storedRecovery,
-      });
-      try { await ctx.storage.delete(TRANSPORT_RECOVERY_KEY); } catch { /* remain fail-closed */ }
-      return 'suppressed';
-    }
-    if (storedRecovery.status === 'exhausted') return 'fallback';
-    await scheduleConfirmation();
-    return 'recovering';
-  }
-
-  const now = Date.now();
-  const recovery: TransportRecoveryRecord = {
-    attemptId: crypto.randomUUID(),
-    startedAt: now,
-    lastAttemptAt: now,
-    attemptCount: 1,
-    postResetFailureCount: 0,
-    totalFailureCount: TRANSPORT_FAILURE_ABORT_THRESHOLD,
-    status: 'resetting',
-  };
-  try {
-    await ctx.storage.put(TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_FAILURE_ABORT_THRESHOLD);
-    await persistTransportRecovery(ctx, recovery);
-    await scheduleConfirmation();
-  } catch (err) {
-    logger.warn('container monitor recovery: failed to persist and arm reconstruction', {
-      ...transportRecoveryLogContext(ctx, recovery, probes),
-      error: err instanceof Error ? err.message : String(err),
-    });
-    try {
-      await clearTransportRecoveryState(ctx);
-      return 'fallback';
-    } catch {
-      // The valid partial incident still owns the lifecycle. Keep its recovery
-      // cadence armed rather than starting exit confirmation beside it.
-      try {
-        await scheduleConfirmation();
-      } catch (scheduleErr) {
-        logger.error('container monitor recovery: failed to re-arm retained recovery', toError(scheduleErr), {
-          ...transportRecoveryLogContext(ctx, recovery, probes),
-        });
-      }
-      return 'suppressed';
-    }
-  }
-
-  logger.warn('container monitor recovery: resetting Durable Object to reconstruct container transport', {
-    ...transportRecoveryLogContext(ctx, recovery, probes),
-    consecutiveFailures: TRANSPORT_FAILURE_ABORT_THRESHOLD,
-  });
-  ctx.abort(MONITOR_TRANSPORT_ABORT_REASON);
-  return 'recovering';
-}
-
 function transportRecoveryLogContext(
   ctx: DurableObjectState,
   recovery: TransportRecoveryRecord,
@@ -867,6 +797,8 @@ async function reconcileActiveTransportRecovery(
   ctx: DurableObjectState,
   recovery: TransportRecoveryRecord,
   probes: TransportProbeObservations,
+  execution: MetricsExecution,
+  authorizeReset: () => Promise<boolean>,
 ): Promise<TransportReconciliation> {
   if (recovery.status !== 'resetting') {
     // Exhausted recovery (including an older pending terminal phase) proves
@@ -942,53 +874,15 @@ async function reconcileActiveTransportRecovery(
     'collectMetrics: resetting Durable Object to retry container transport recovery',
     transportRecoveryLogContext(ctx, nextRecovery, probes),
   );
-  ctx.abort(TRANSPORT_ABORT_REASON);
+  if (await authorizeReset() && execution.isCurrent()) ctx.abort(TRANSPORT_ABORT_REASON);
   return { nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS, recordUsage: false };
-}
-
-async function reconcileNotRunningTransportRecovery(
-  ctx: DurableObjectState,
-): Promise<TransportReconciliation | 'none' | 'suppressed'> {
-  const probes = monitorNetworkLossProbes();
-  let shutdownRequested: number | undefined;
-  try {
-    shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
-  } catch (err) {
-    logger.warn('collectMetrics: failed to read shutdown marker; suppressing not-running recovery', {
-      durableObjectId: ctx.id.toString(),
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return 'suppressed';
-  }
-  if (typeof shutdownRequested === 'number') return 'suppressed';
-
-  let storedRecovery: unknown;
-  try {
-    storedRecovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
-  } catch (err) {
-    logger.warn('collectMetrics: failed to read not-running transport recovery state', {
-      durableObjectId: ctx.id.toString(),
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return 'suppressed';
-  }
-  if (storedRecovery == null) return 'none';
-  if (!isTransportRecoveryRecord(storedRecovery)) {
-    logger.error('collectMetrics: invalid not-running transport recovery record; suppressing reconstruction', undefined, {
-      durableObjectId: ctx.id.toString(),
-      valueType: typeof storedRecovery,
-    });
-    try { await ctx.storage.delete(TRANSPORT_RECOVERY_KEY); } catch { /* remain fail-closed */ }
-    return 'suppressed';
-  }
-  // No number of failed observations proves exit. Keep the owner and retry.
-  if (storedRecovery.status !== 'resetting') return 'none';
-  return reconcileActiveTransportRecovery(ctx, storedRecovery, probes);
 }
 
 async function reconcileContainerTransport(
   ctx: DurableObjectState,
   probes: TransportProbeObservations,
+  execution: MetricsExecution,
+  authorizeReset: () => Promise<boolean>,
 ): Promise<TransportReconciliation | null> {
   const anyProbeResponded = probes.activity.responded || probes.health.responded;
   let shutdownRequested: number | undefined;
@@ -1066,12 +960,12 @@ async function reconcileContainerTransport(
     }
     return {
       nextDelaySec: 60,
-      recordUsage: recovery?.status === 'exhausted' || (currentStreak === 0 && recovery === null),
+      recordUsage: currentStreak === 0 && recovery === null,
     };
   }
 
   if (recovery) {
-    return reconcileActiveTransportRecovery(ctx, recovery, probes);
+    return reconcileActiveTransportRecovery(ctx, recovery, probes, execution, authorizeReset);
   }
 
   const nextStreak = currentStreak + 1;
@@ -1109,7 +1003,7 @@ async function reconcileContainerTransport(
       ...transportRecoveryLogContext(ctx, nextRecovery, probes),
       consecutiveFailures: nextStreak,
     });
-    ctx.abort(TRANSPORT_ABORT_REASON);
+    if (await authorizeReset() && execution.isCurrent()) ctx.abort(TRANSPORT_ABORT_REASON);
   }
 
   logger.warn('collectMetrics: complete container probe failure, retrying quickly', {
@@ -1121,94 +1015,92 @@ async function reconcileContainerTransport(
   });
   return {
     nextDelaySec: TRANSPORT_FAILURE_RETRY_SECONDS,
-    recordUsage: currentStreak === 0,
+    recordUsage: false,
   };
 }
 
-/**
- * Collect health metrics, detect idle state, ping Timekeeper, and re-arm the schedule.
- *
- * Mutates `state` (lastSeenInputAt, _usageSeconds) in place.
- *
- * ALARM-LOOP LIFECYCLE: this runs as a one-shot DO alarm that re-arms itself
- * after 60s normally or 5s while confirming a complete transport failure,
- * ONLY while ctx.container.running. If the
- * container is not running on entry, the loop marks the session stopped (the
- * authoritative catch-all for an exit the SDK surfaced as onError, not onStop)
- * and returns WITHOUT re-arming; onStart() restarts the loop on the next start.
- * Consequences worth knowing: (a) DO alarms can fire late (observed ~60s drift
- * in prod); (b) the loop does NOT run while the DO/container is hibernated, so
- * the metrics heartbeat (m.u) can go stale on a perfectly healthy session.
- * That staleness is why a heartbeat-age heuristic is NOT a valid liveness
- * signal - KV status must come from the lifecycle hooks (see the contract above
- * container/index.ts::onStart). Removing that heuristic is codeflare#153.
- *
- * TIMESTAMP TAXONOMY (four distinct clocks - do not conflate):
- *   lastInputAt        in-container /activity: wall-clock of the latest
- *                      classified PTY input or client-to-server Browser IDE
- *                      frame. Does NOT advance on terminal output, server-to-client
- *                      editor traffic, vault/SilverBullet activity, or an
- *                      autonomously-working agent. The idle reference:
- *                      idleMs = Date.now() - (lastInputAt ?? containerStartedAt).
- *   lastSeenInputAt    MetricsState's cached copy of lastInputAt for this tick.
- *   lastActiveAt (KV)  mirrors lastInputAt (input-driven). Feeds the dashboard
- *                      sleep-timer countdown. NOT a liveness signal.
- *   metrics.updatedAt  KV meta m.u: wall-clock re-stamped here EVERY tick
- *     (m.u)            regardless of input. Metrics-staleness display only; it
- *                      freezes whenever this loop is not running (see above), so
- *                      it must not be used to infer liveness.
- */
+/** Collect one pinned observation and re-arm the existing one-shot alarm. */
 export async function collectMetrics(
   state: MetricsState,
   ctx: DurableObjectState,
   env: Env,
   callbacks: MetricsCallbacks,
+  execution: MetricsExecution,
 ): Promise<void> {
-  // Deliberate shutdown owns the generation before probes or projections. This
-  // recheck closes the race where shutdown begins while an earlier tick awaits I/O.
-  try {
-    if (typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
-  } catch {
-    // Ownership uncertainty fails closed: never project running or re-arm.
+  const { ownerKey, sessionId, generation, sequence, runtime } = execution;
+  const repository = new D1SessionRepository(env.USAGE_DB);
+  const readCurrent = async () => {
+    const result = await raceBudget(repository.getSession(ownerKey, sessionId).then(session => ({ session })), CONTAINER_POLL_BUDGET_MS);
+    if (!result) throw new Error('D1 lifecycle observation deadline exceeded');
+    return result.session;
+  };
+  const sameGeneration = (session: D1Session | null): session is D1Session =>
+    execution.isCurrent() && session?.lifecycleGeneration === generation;
+  const schedule = async (delay: number) => {
+    if (!execution.isCurrent()) return;
+    try { await callbacks.schedule(delay, 'collectMetrics'); }
+    catch (error) {
+      logger.error('collectMetrics: required lifecycle alarm unavailable', undefined, {
+        sessionId, lifecycleGeneration: generation, errorClass: 'schedule_failed',
+      });
+      throw error;
+    }
+  };
+  let shutdown: unknown;
+  try { shutdown = await ctx.storage.get(SHUTDOWN_REQUESTED_KEY); }
+  catch { return; }
+  if (!execution.isCurrent()) return;
+  if (typeof shutdown === 'number') {
+    // Deliberate Stop keeps its own teardown. Only an already claimed recovery
+    // expiry may continue through its shutdown fence on this same alarm.
+    let retry = false;
+    try {
+      const current = await readCurrent();
+      if (sameGeneration(current) && current.lifecycleState === 'stopping' && current.unreachableIncidentId) {
+        retry = await callbacks.terminateUnreachable(current, execution);
+      }
+    } catch {
+      logger.error('collectMetrics: recovery termination unavailable; retry Stop or KILL', undefined,
+        { sessionId, lifecycleGeneration: generation, errorClass: 'termination_failed' });
+      retry = true;
+    }
+    if (retry) await schedule(5);
     return;
   }
-
-  // Reading an old pending recovery record cannot justify a stopped write or
-  // a process signal. Only a trusted monitor exit or completed destroy can.
+  // These existing keys are retry diagnostics only. D1 is re-read before
+  // acting on an incident; no deadline or termination authority lives here.
+  let recoveryTick = !runtime.running;
   try {
-    await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
-  } catch (err) {
-    logger.warn('collectMetrics: failed to read transport recovery ownership', {
-      durableObjectId: ctx.id.toString(),
-      error: err instanceof Error ? err.message : String(err),
-    });
+    const recovery = await ctx.storage.get<unknown>(TRANSPORT_RECOVERY_KEY);
+    const streak = await ctx.storage.get<number>(TRANSPORT_FAILURE_STREAK_KEY);
+    recoveryTick ||= recovery != null || (typeof streak === 'number' && streak > 0);
+  } catch {
     await scheduleRecoveryOwnershipReadRetry(ctx, callbacks);
     return;
   }
-
-  // Not-running can be a false SDK/DO-reconstruction reading while the process
-  // survives. Record the observation and retry without changing D1 ownership.
-  // Only the separate low-level monitor's resolved exit or completed destroy
-  // authorizes the generation-fenced stopped transition.
-  if (!ctx.container?.running) {
-    const recovery = await reconcileNotRunningTransportRecovery(ctx);
-    if (recovery === 'suppressed') return;
-    if (recovery !== 'none') {
-      try { await callbacks.schedule(recovery.nextDelaySec, 'collectMetrics'); } catch { /* DO shutting down */ }
+  if (recoveryTick) {
+    let terminationRetry: boolean | undefined;
+    try {
+      const current = await readCurrent();
+      if (!execution.isCurrent() || (current && !sameGeneration(current))) return;
+      if (sameGeneration(current) && (current.lifecycleState === 'stopping'
+        || (current.lifecycleState === 'unreachable' && current.unreachableDeadlineMs !== undefined
+          && Date.now() >= current.unreachableDeadlineMs))) {
+        terminationRetry = await callbacks.terminateUnreachable(current, execution);
+      }
+    } catch {
+      logger.warn('collectMetrics: recovery ownership unavailable', { sessionId, lifecycleGeneration: generation, errorClass: 'd1_unavailable' });
+      terminationRetry = true;
+    }
+    if (terminationRetry !== undefined) {
+      if (terminationRetry) await schedule(5);
       return;
     }
-
-    await openNotRunningConfirmation(ctx);
-    logger.warn('collectMetrics: container not running; process exit unverified, retaining lifecycle ownership', {
-      durableObjectId: ctx.id.toString(),
-    });
-    try { await callbacks.schedule(60, 'collectMetrics'); } catch { /* DO shutting down */ }
-    return;
   }
-  // Container is running - clear any pending not-running confirmation marker so
-  // a future transient blip starts a fresh streak.
-  await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
-
+  if (!runtime.running) await openNotRunningConfirmation(ctx);
+  else await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
+  let projectionAccepted = false;
+  let projectionFailed = false;
   // Notification delivery owns its exceptional D1 read only when the host
   // actually offers events. The normal metrics path remains one host snapshot
   // plus one generation/sequence-fenced D1 update with no pre-read.
@@ -1234,14 +1126,18 @@ export async function collectMetrics(
   // (b) some code path wrote 'sleepAfter' to storage without updating the
   // cache. Storage is the authoritative source.
   let idleTimeoutPref = '12h';
+  let policySource: 'stored' | 'missing' | 'invalid' | 'read-failed' = 'missing';
   try {
     const stored = await ctx.storage.get<string>('sleepAfter');
     if (stored && /^(5m|15m|30m|1h|2h|4h|8h|12h)$/.test(stored)) {
       idleTimeoutPref = stored;
+      policySource = 'stored';
     } else {
+      policySource = stored === undefined ? 'missing' : 'invalid';
       logger.warn('collectMetrics: sleepAfter missing or invalid; selecting fail-safe 12h', { stored });
     }
   } catch (err) {
+    policySource = 'read-failed';
     logger.warn('collectMetrics: failed to read sleepAfter; selecting fail-safe 12h', {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -1257,12 +1153,12 @@ export async function collectMetrics(
   let activityProbe: ProbeObservation = { responded: false, durationMs: 0 };
   let healthProbe: ProbeObservation = { responded: false, durationMs: 0 };
   try {
-    const port = ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
+    const port = runtime.getTcpPort(TERMINAL_SERVER_PORT);
     const response = await pollContainer(
       port,
       'http://localhost/internal/runtime-observation',
       CONTAINER_POLL_BUDGET_MS,
-      state._containerAuthToken,
+      execution.authToken,
     );
     const observation: ProbeObservation = {
       responded: true,
@@ -1271,13 +1167,19 @@ export async function collectMetrics(
     };
     activityProbe = observation;
     healthProbe = observation;
+    if (execution.isCurrent() && execution.onHostResponse) {
+      void execution.onHostResponse().catch(() => {
+        logger.warn('collectMetrics: existing runtime monitor attachment unavailable', { sessionId, lifecycleGeneration: generation });
+      });
+    }
     if (!response.ok) {
       logger.warn('collectMetrics: runtime observation returned non-OK', { status: response.status });
     } else {
-      const snapshot = await response.json() as {
+      const snapshot = await raceBudget(response.json(), CONTAINER_POLL_BUDGET_MS) as {
         lastInputAt: number | null; cpu?: string; memory?: string; disk?: string;
         syncStatus?: string; editorReady?: boolean; editorReadyError?: boolean; workspaceRepos?: unknown; observedAt: string;
       };
+      if (!snapshot || typeof snapshot !== 'object' || !execution.isCurrent()) throw new Error('Runtime snapshot unavailable');
       // Only a finite positive timestamp is usable activity evidence. An
       // invalid value must not become the idle reference or D1 activity.
       const observedInputAt = typeof snapshot.lastInputAt === 'number'
@@ -1287,7 +1189,7 @@ export async function collectMetrics(
       state.lastSeenInputAt = observedInputAt;
       let canEnforceIdle = true;
       let containerStartedAt = state.containerStartedAt;
-      if (!Number.isFinite(containerStartedAt) || containerStartedAt <= 0) {
+      if (observedInputAt === null && (!Number.isFinite(containerStartedAt) || containerStartedAt <= 0)) {
         let persistedStartedAt: number | undefined;
         try {
           persistedStartedAt = await ctx.storage.get<number>('containerStartedAt');
@@ -1325,11 +1227,23 @@ export async function collectMetrics(
         }
       }
       const referenceTime = observedInputAt ?? containerStartedAt;
-      const idleMs = Date.now() - referenceTime;
-      if (canEnforceIdle && idleMs > sleepMs) {
+      const checkedAt = Date.now();
+      const idleMs = checkedAt - referenceTime;
+      // Metadata only: distinguish policy fallback from timing uncertainty or
+      // genuine activity without adding I/O ahead of a required idle stop.
+      logger.info('collectMetrics: idle policy decision', {
+        durableObjectId: ctx.id.toString(), sessionId: state._sessionId,
+        idleTimeoutPref, policySource, checkedAt, observedInputAt,
+        referenceTime: canEnforceIdle ? referenceTime : null,
+        canEnforceIdle,
+        decision: !canEnforceIdle ? 'timing-unavailable' : idleMs > sleepMs ? 'stop' : 'continue',
+      });
+      if (canEnforceIdle && idleMs > sleepMs && execution.isCurrent()) {
         logger.info('collectMetrics: idle exceeded threshold, stopping', { idleMs, sleepMs, idleTimeoutPref, referenceTime });
         await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);
+        if (!execution.isCurrent()) return;
         await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
+        if (!execution.isCurrent()) return;
         await callbacks.stop('SIGTERM');
         return;
       }
@@ -1337,46 +1251,98 @@ export async function collectMetrics(
         logger.warn('collectMetrics: container R2 sync unhealthy', { syncStatus: snapshot.syncStatus });
       }
       if (typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
-      const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
-      const bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;
-      if (!sessionId || !bucketName) throw new Error('session identity unavailable');
-      const generation = await ctx.storage.get<number>('lifecycleGeneration');
-      const previousSequence = await ctx.storage.get<number>('observationSequence') ?? -1;
-      if (typeof generation !== 'number') throw new Error('lifecycle generation unavailable');
-      const sequence = previousSequence + 1;
-      const repository = new D1SessionRepository(env.USAGE_DB);
+      if (!execution.isCurrent()) return;
       try {
         if (Array.isArray(snapshot.workspaceRepos)) {
-          await repository.updateTrackedClones(bucketName, sessionId, normalizeTrackedClones(snapshot.workspaceRepos));
+          const tracked = await raceBudget(repository.updateTrackedClones(ownerKey, sessionId,
+            normalizeTrackedClones(snapshot.workspaceRepos), { generation, sequence }), CONTAINER_POLL_BUDGET_MS);
+          if (tracked === null) throw new Error('D1 clone projection deadline exceeded');
+          if (!execution.isCurrent()) return;
         }
-        const accepted = await repository.project(bucketName, sessionId, generation, sequence, {
+        const accepted = await raceBudget(repository.project(ownerKey, sessionId, generation, sequence, {
           lifecycleState: 'running',
           lastInputAt: observedInputAt === null ? undefined : new Date(observedInputAt).toISOString(),
           cpu: snapshot.cpu, memory: snapshot.memory, disk: snapshot.disk, syncStatus: snapshot.syncStatus,
           editorReady: snapshot.editorReady, editorReadyError: snapshot.editorReadyError, observedAt: snapshot.observedAt,
-        });
-        if (accepted) await ctx.storage.put('observationSequence', sequence);
+        }), CONTAINER_POLL_BUDGET_MS);
+        if (accepted === null) throw new Error('D1 metrics projection deadline exceeded');
+        projectionAccepted = accepted;
       } catch (error) {
+        projectionFailed = true;
         // A D1 outage must not be misclassified as a dead container transport.
         logger.warn('collectMetrics: D1 projection failed', { error: error instanceof Error ? error.message : String(error) });
       }
     }
   } catch (err) {
     const failed = failedProbeObservation(err, observationStartedAt);
-    activityProbe = failed;
-    healthProbe = failed;
+    if (!activityProbe.responded) { activityProbe = failed; healthProbe = failed; }
     logger.warn('collectMetrics: runtime observation/projection failed', { error: err instanceof Error ? err.message : String(err) });
   }
 
-  const transportReconciliation = await reconcileContainerTransport(ctx, {
-    activity: activityProbe,
-    health: healthProbe,
-  });
-  if (transportReconciliation === null) {
-    // Deliberate teardown owns the lifecycle, or its ownership cannot be read.
-    // Fail closed: do not re-arm or reset the Durable Object.
+  if (!execution.isCurrent()) return;
+  let incident: D1Session | null = null;
+  const proposedIncidentId = crypto.randomUUID();
+  const failureObservedAt = Date.now();
+  const responded = activityProbe.responded || healthProbe.responded;
+  let terminationRetry: boolean | undefined;
+  let recoveredIncident = false;
+  try {
+    if (!responded) {
+      incident = await raceBudget(repository.observeUnreachable(ownerKey, sessionId, generation, sequence,
+        proposedIncidentId, failureObservedAt), CONTAINER_POLL_BUDGET_MS);
+    } else if (!projectionAccepted && !projectionFailed) {
+      incident = await readCurrent();
+      if (sameGeneration(incident) && incident.lifecycleState === 'unreachable' && incident.unreachableIncidentId
+        && Date.now() < (incident.unreachableDeadlineMs ?? 0)) {
+        const recovered = await raceBudget(repository.recoverUnreachable(ownerKey, sessionId, generation, sequence,
+          incident.unreachableIncidentId, new Date().toISOString()), CONTAINER_POLL_BUDGET_MS);
+        recoveredIncident = recovered === true;
+        if (recovered) logger.info('recovery_succeeded', { sessionId, lifecycleGeneration: generation,
+          incidentId: incident.unreachableIncidentId });
+      }
+    }
+    if (!execution.isCurrent()) return;
+    if (sameGeneration(incident) && (incident.lifecycleState === 'stopping'
+        || (incident.unreachableDeadlineMs !== undefined && Date.now() >= incident.unreachableDeadlineMs))) {
+      terminationRetry = await callbacks.terminateUnreachable(incident, execution);
+    }
+  } catch {
+    logger.warn('collectMetrics: D1 lifecycle observation unavailable', { sessionId, lifecycleGeneration: generation,
+      errorClass: 'd1_unavailable' });
+    terminationRetry = true;
+  }
+  if (terminationRetry !== undefined) {
+    if (terminationRetry) await schedule(5);
     return;
   }
+  if (incident && !sameGeneration(incident)) return;
+  if (responded && incident?.lifecycleState === 'unreachable' && !recoveredIncident) {
+    await schedule(5);
+    return;
+  }
+  // No acknowledged, same-generation D1 incident means no reconstruction.
+  if (!responded && !sameGeneration(incident)) { await schedule(5); return; }
+  if (!responded && incident?.unreachableIncidentId === proposedIncidentId) {
+    logger.warn('unreachable_incident_opened', { sessionId, lifecycleGeneration: generation,
+      incidentId: incident.unreachableIncidentId, deadlineMs: incident.unreachableDeadlineMs, reason: 'host_transport_loss' });
+  }
+  const authorizeReset = async () => {
+    const current = await readCurrent();
+    const authorized = sameGeneration(current) && current.lifecycleState === 'unreachable'
+      && current.unreachableIncidentId === incident?.unreachableIncidentId
+      && current.unreachableDeadlineMs === incident?.unreachableDeadlineMs
+      && Date.now() < (current.unreachableDeadlineMs ?? 0);
+    if (authorized) logger.info('reconstruction_started', { sessionId, lifecycleGeneration: generation,
+      incidentId: current.unreachableIncidentId });
+    return authorized;
+  };
+  // Re-arm before a possible ctx.abort; a failed required alarm must be visible.
+  if (!responded) await schedule(5);
+  const transportReconciliation = await reconcileContainerTransport(ctx, {
+    activity: activityProbe, health: healthProbe,
+  }, execution, authorizeReset);
+  if (transportReconciliation === null || !execution.isCurrent()) return;
+  if (!responded || incident || projectionFailed || recoveryTick) transportReconciliation.recordUsage = false;
   // Timekeeper records per-user compute consumption in every deployment mode.
   // A tick scheduled after a complete transport failure is a 5-second
   // confirmation, not another usage minute.
@@ -1415,7 +1381,7 @@ export async function collectMetrics(
 
       if (pingRes?.ok) {
         const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
-        if (quotaExceeded && isSaasModeActive(env.SAAS_MODE)) {
+        if (quotaExceeded && isSaasModeActive(env.SAAS_MODE) && execution.isCurrent()) {
           logger.warn('Quota exceeded — stopping container', { bucketName: state._bucketName });
           // Final notification delivery and R2 sync are independent
           // best-effort drains, both completed before SIGTERM.
@@ -1425,7 +1391,9 @@ export async function collectMetrics(
             env,
             CONTAINER_POLL_BUDGET_MS,
           );
+          if (!execution.isCurrent()) return;
           await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
+          if (!execution.isCurrent()) return;
           await callbacks.stop('SIGTERM');
           return; // Don't re-arm after stop
         }
@@ -1444,13 +1412,8 @@ export async function collectMetrics(
     });
   }
 
-  // Re-arm only if still running. schedule() is one-shot — if we don't
-  // re-arm, onStart() will restart the loop on next container start.
-  if (ctx.container?.running) {
-    try {
-      await callbacks.schedule(transportReconciliation.nextDelaySec, 'collectMetrics');
-    } catch {
-      // DO is shutting down or destroyed
-    }
+  // SDK false is not exit: a responding existing host retains the same alarm.
+  if (responded && typeof await ctx.storage.get(SHUTDOWN_REQUESTED_KEY) !== 'number') {
+    await schedule(transportReconciliation.nextDelaySec);
   }
 }

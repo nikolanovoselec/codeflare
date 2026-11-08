@@ -45,7 +45,7 @@ Never persist the packet or echo raw packet JSON. A `changedInputs` path is a le
 
 **Filter for signal.** Report only what you are >80% confident is real. Skip stylistic preferences unless they violate project convention, and issues in unchanged code unless CRITICAL security. Consolidate similar findings ("5 functions missing error handling", not 5 findings). Prioritise what causes bugs, vulnerabilities, or data loss.
 
-**Check the record before flagging.** `evidence.adrs` lists every ADR as an `AD<n>|title|status` row (status omitted when the record carries none), and the config is in the triage block — an Accepted ADR or a config disposition is sufficient to drop a finding, noted in your audit log. Read one ADR body only when its title says it may settle the finding. A settled decision is not a defect.
+**Check the record before flagging.** `evidence.adrs` lists every ADR as an `AD<n>|title|status` row (status omitted when the record carries none), and the config is in the triage block — an Accepted ADR or a config disposition is sufficient to drop a finding, noted in your audit log. Read one ADR body only when its title says it may settle the finding. A settled decision is not a defect. Never use an ADR or config disposition to waive a correctness or security defect.
 
 ## Orphaned `@impl` source-anchor check (binding when SDD is bootstrapped)
 
@@ -59,12 +59,13 @@ If `sdd/` exists, check changes align with it — a new feature should have a RE
 
 ## Report
 
-Organise by severity. Every finding carries file:line, what is wrong, and a concrete remediation:
+Organise by severity. Every finding carries file:line, what is wrong, and a concrete remediation. For each material finding, use `Issue` to state the concrete condition or input → wrong result and the consequence if left unfixed, `Evidence` to cite the source evidence and direct impact, and `Fix` for the smallest concrete correction. Use plain, clear wording; do not substitute labels or vague risk claims for the failure scenario:
 
 ```
 [CRITICAL] Hardcoded API key in source
 File: src/api/client.ts:42
-Issue: API key "sk-abc..." exposed in source; this reaches git history.
+Issue: anyone with repository access can read the hardcoded API key and use it to access the service if left unfixed.
+Evidence: src/api/client.ts:42 embeds the key used by the API client.
 Fix: move to an environment variable, add to .env.example
   const apiKey = "sk-abc123";           // BAD
   const apiKey = process.env.API_KEY;   // GOOD
@@ -89,7 +90,7 @@ Verdict: WARNING — 2 HIGH issues should be resolved before merge.
 
 Output is the most expensive thing you emit. Report findings, not the search for them.
 
-- One finding is at most six lines: severity + title, `File:`, one sentence of what is wrong, one sentence of consequence, the fix. Longer only for a CRITICAL whose remediation genuinely needs code.
+- Keep findings concise using severity + title, `File:`, `Issue:`, `Evidence:` and `Fix:`. Preserve the concrete condition, wrong result and consequence; allow more space when needed for clarity or remediation.
 - Never restate the diff, re-narrate your process, or quote a hunk back that the packet already carried. Cite `file:line`.
 - The audit log is counts and identifiers, not prose: `Verified, no finding: caller impact (4 symbols), record check (AD117), tdd-enforce (3 test files)`. One line, not a section.
 - No preamble, no recap of your instructions, no closing summary of the summary. The severity table and verdict end the report.

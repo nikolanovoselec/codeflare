@@ -495,7 +495,9 @@ async function loadSessions(): Promise<void> {
 
       const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
       if (currentStatus === 'initializing' || isLocallyStopping(session.id)) continue;
-      if (batchStatus.status === 'stopped' && currentStatus !== 'stopping' && shouldRetainNegativeKv(session.id)) continue;
+      if (batchStatus.status === 'stopped' && currentStatus !== 'stopping'
+        && (batchStatus.generation === undefined || batchStatus.revision === undefined || isWithinStartupGuard(session.id))
+        && shouldRetainNegativeKv(session.id)) continue;
 
       const wasRunning = existingStatuses.get(session.id) === 'running';
       updateSessionStatus(session.id, batchStatus.status);

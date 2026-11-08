@@ -15,7 +15,7 @@ name: Bump Shadow Pins
 # - browser-run-mcp: @modelcontextprotocol/sdk manifest + lock pin
 # - pi-extensions: dependencies in preseed/agents/pi/package.json except context-mode
 #   and the Pi runtime agent (the @juicesharp rpiv family, @narumitw/pi-goal,
-#   @narumitw/pi-plan-mode, pi-open-tui, pi-web-access, pi-mcp-extension,
+#   @narumitw/pi-plan-mode, pi-open-tui, pi-web-access, pi-mcp-adapter,
 #   @gotgenes/pi-subagents) — each is also a literal install spec in entrypoint.sh
 #   + baked into the seed; context-mode has its dedicated atomic job, and the
 #   Pi runtime family is owned atomically by agent-clis
@@ -1287,7 +1287,7 @@ jobs:
             --body "$BODY"
 
   # Every Pi extension in preseed/agents/pi/package.json (the @juicesharp rpiv
-  # family, pi-open-tui, pi-web-access, pi-mcp-extension, @gotgenes/pi-subagents) is pinned in more
+  # family, pi-open-tui, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) is pinned in more
   # than the manifest: each version is mirrored as a literal `npm:<name>@<ver>`
   # install spec in entrypoint.sh's Pi settings `required` array and baked into
   # src/lib/agent-seed.generated.ts, so Dependabot (manifest-only) would drift them.
@@ -1471,7 +1471,7 @@ jobs:
               ;;
           esac
           npm ci --no-audit --no-fund --silent
-          if [ "$PKG" = 'pi-mcp-extension' ]; then
+          if [ "$PKG" = 'pi-mcp-adapter' ]; then
             (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
             # Qualify this regenerated candidate before artifacts/commit/push.
             node scripts/qualify-pi-mcp.mjs
@@ -1748,7 +1748,7 @@ jobs:
 
   chrome-devtools-mcp:
     # chrome-devtools-mcp is the interactive Browser Run MCP server Claude Code
-    # and Pi use (Pi through pi-mcp-extension). It is installed from the shared
+    # and Pi use (Pi through pi-mcp-adapter). It is installed from the shared
     # lock and exposed through a stable image bin path.
     runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl

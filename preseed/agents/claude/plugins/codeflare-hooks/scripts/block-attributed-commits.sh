@@ -36,7 +36,7 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null) || true
 case "$TOOL_NAME" in
   Bash) ;;
   mcp__*ctx_execute) ;;
-  mcp__*ctx_batch_execute) ;;
+  mcp__*ctx_batch|mcp__*ctx_batch_execute) ;;
   *) exit 0 ;;
 esac
 
@@ -64,10 +64,10 @@ esac
 COMMAND=$(echo "$INPUT" | jq -r '
   if (.tool_input.command // "") != "" then
     .tool_input.command
-  elif (.tool_input.language // "") == "shell" and (.tool_input.code // "") != "" then
+  elif ((.tool_input.language // "") | IN("shell", "sh", "bash", "zsh", "dash", "ksh", "fish")) and (.tool_input.code // "") != "" then
     .tool_input.code
   elif (.tool_input.commands | type? == "array") then
-    [.tool_input.commands[]?.command // empty] | join("; ")
+    [.tool_input.commands[]? | if type == "string" then . else .command // empty end] | join("; ")
   else
     empty
   end

@@ -33,6 +33,7 @@ function configurationErrorMessage(reason: unknown): string {
 }
 
 function changeValue(field: string, value: unknown): string {
+  if (field === 'syncPolicyMode') return value === 'include' ? 'Include: save only approved locations' : 'Exclude (default): save unless excluded';
   if (value === null || value === undefined) return 'Not configured';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) {

@@ -28,6 +28,12 @@ The [0.9.102 release notes](https://github.com/Graphify-Labs/graphify/releases/t
 
 For semantic updates, a partly read document is incomplete: keep it queued until its remaining content has been read and extracted, and never stamp it complete in the incremental manifest. Preserve the existing refresh consent, selected input root, scan options, and provider prohibition. Forward `--force` through the managed update wrapper only when the user explicitly selected a forced refresh; a cache-version change alone does not authorize it. Keep Codeflare's managed hooks and `GRAPHIFY_NO_AUTO_REFRESH=1`; upstream skill/hook installation is not part of this package bump.
 
+## Graphify 0.9.103 compatibility
+
+[0.9.103](https://github.com/Graphify-Labs/graphify/releases/tag/v0.9.103) advances the AST cache schema to 39; re-extraction still requires an explicitly authorized refresh. Do not clear caches or rewrite graphs to adopt the version. `export tree` shows at most 200 children per directory by default; `total_count` includes undisplayed children, so use explicit `--max-children` when exhaustive enumeration is needed. Unsupported-file warnings mean incomplete coverage.
+
+Upstream Pi project installation uses `.pi/skills/graphify/`; user installation remains `~/.pi/agent/skills/graphify/`. Neither that path correction nor upstream compact hooks authorize reinstalling or replacing Codeflare-managed skills/hooks. Preserve `GRAPHIFY_NO_AUTO_REFRESH=1` and the external-provider prohibition.
+
 ## Quick Reference
 
 **Python interpreter:** All `python3` code blocks in this skill must use graphify's own interpreter: `/root/.local/share/uv/tools/graphifyy/bin/python`. System `python3` cannot import graphify. The CLI at `/root/.local/bin/graphify` is on PATH.

@@ -74,13 +74,15 @@ Do not re-read policy text, packet sections, or retrieved evidence. Process dete
 
 Report only findings supported by concrete file-and-line evidence and at least 80% confidence. Consolidate repeated instances with one root cause. In diff scope, an unchanged defect is reportable only when the diff directly exposes or worsens it; explain that link.
 
+For each material finding, state the concrete condition or input → wrong result and the consequence if left unfixed in `Issue`; cite source evidence and direct impact in `Evidence`; give the smallest concrete correction in `Fix`. Use plain, clear wording, not labels or vague risk claims.
+
 For each finding output:
 
 ```text
 [SEVERITY] Short title
 File: path:line
-Issue: observable failure or contract violation
-Evidence: changed hunk plus direct impact
+Issue: condition or input → wrong result; consequence if left unfixed
+Evidence: source file:line, changed hunk and direct impact
 Fix: smallest concrete correction
 ```
 

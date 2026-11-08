@@ -6,11 +6,11 @@ disable-model-invocation: true
 
 # Execute portal workflows
 
-Complete [bootstrap](../mcp-portal-connect/SKILL.md) and [live discovery](../mcp-portal-discovery/SKILL.md) first. Activate the actual originating portal's execute wrapper and read its current JSON schema. Every method name and argument object must come from that portal's live definitions.
+Complete [bootstrap](../mcp-portal-connect/SKILL.md) and [live discovery](../mcp-portal-discovery/SKILL.md) first. Discover the actual originating portal's execute tool and read its current JSON schema. Use the native `mcp` proxy with `tool` and `args`, or activate a verified deferred wrapper through `capability`. Every method name and argument object must come from that portal's live definitions.
 
 ## Single call and dependent steps
 
-If the live wrapper accepts `code`, this JSON envelope illustrates invocation mechanics only. Replace the labelled placeholders with an actual returned sanitized name and valid arguments:
+For a direct wrapper accepting `code`, this JSON envelope illustrates invocation mechanics only. Through the proxy, place the same argument object inside `{"tool":"<exact returned execute tool>","args":{"code":"<schema-valid code>"}}`. Replace the labelled placeholders with an actual returned sanitized name and valid arguments:
 
 ```json
 {"code":"async () => { const actualName = '<name returned by this portal search>'; const args = {}; return await codemode[actualName](args); }"}

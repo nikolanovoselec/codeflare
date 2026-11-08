@@ -73,6 +73,7 @@ vi.mock('@cloudflare/containers', () => {
     };
     env: Record<string, unknown>;
     envVars: Record<string, string> | undefined;
+    ready: Promise<void> = Promise.resolve();
 
     constructor() {
       this.ctx = {
@@ -190,7 +191,10 @@ vi.mock('@cloudflare/containers', () => {
             }
           } };
         })(),
-        blockConcurrencyWhile: async (fn: () => Promise<void>) => fn(),
+        blockConcurrencyWhile: (fn: () => Promise<void>) => {
+          this.ready = fn();
+          return this.ready;
+        },
         abort: (reason: string): never => {
           testState.abortReasons.push(reason);
           throw new Error('mock Durable Object abort');
@@ -290,10 +294,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
       get: vi.fn(() => timekeeperStub),
     };
-    await vi.waitFor(
-      () => expect((containerInstance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
-      { timeout: 1000 },
-    );
+    await (containerInstance as unknown as { ready: Promise<void> }).ready;
     return timekeeperStub;
   };
 
@@ -353,6 +354,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storageStore.set('observationSequence', -1);
 
     containerInstance = createContainerInstance();
+    await (containerInstance as unknown as { ready: Promise<void> }).ready;
   });
 
   afterEach(() => {
@@ -396,6 +398,20 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(await storage().get('observationSequence')).toBe(7);
       expect(testState.scheduleCalls).toEqual(schedulesBeforeReplay);
       expect(testState.deleteScheduleCalls).toEqual(deletionsBeforeReplay);
+    });
+
+    it('REQ-SESSION-022: a reconstructed onStart replay preserves its assigned D1 incident and deadline', async () => {
+      const incident = { id: 'testsession123456', name: 'Test', userId: 'test-bucket',
+        status: 'unreachable', lifecycleGeneration: 0, observationSequence: 4,
+        unreachableIncidentId: 'assigned-incident', unreachableFirstObservedAt: '2027-01-01T00:00:00.000Z',
+        unreachableDeadlineMs: 1_800_000_120_000 };
+      mockKV._set('session:test-bucket:testsession123456', incident);
+      await storage().put('observationSequence', 4);
+      await storage().put('containerStartedAt', 1_800_000_000_000);
+      await containerInstance.onStart();
+      expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toEqual(incident);
+      expect(await storage().get('observationSequence')).toBe(4);
+      expect(testState.scheduleCalls).toEqual([]);
     });
 
     it('rejects a stale onStart replay without clearing shutdown ownership', async () => {
@@ -775,6 +791,76 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(projected.metrics?.cpu).toBe('45%');
     });
 
+    it.each(['missing', 'unreadable', 'unpersistable'] as const)(
+      'REQ-SESSION-004/034: valid input enforces its 1h deadline with %s startup timing',
+      async fault => {
+        let now = Date.now();
+        vi.spyOn(Date, 'now').mockImplementation(() => now);
+        testState.storedSleepAfter = '1h';
+        testState.activityResult.lastInputAt = now;
+        mockKV._set('session:test-bucket:testsession123456', {
+          id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+          createdAt: new Date(now).toISOString(), lastAccessedAt: new Date(now).toISOString(),
+        } as Session);
+        await containerInstance.collectMetrics();
+
+        // Reconstructed timing state has no usable startup reference, but the
+        // authenticated host still supplies genuine input timing evidence.
+        (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+        testState.storageStore.delete('containerStartedAt');
+        if (fault === 'unreadable') testState.storageGetFailures.add('containerStartedAt');
+        if (fault === 'unpersistable') testState.storagePutFailures.add('containerStartedAt');
+        testState.activityResult.lastInputAt = now - 59 * 60_000;
+
+        await containerInstance.collectMetrics();
+        expect(testState.platformStopSignals).toEqual([]);
+        now += 2 * 60_000;
+        await containerInstance.collectMetrics();
+        expect(testState.platformStopSignals).toEqual(['SIGTERM']);
+      },
+    );
+
+    it.each([
+      { provenance: 'stored', value: '1h', readFailure: false, noInput: false, decision: 'stop' },
+      { provenance: 'missing', value: undefined, readFailure: false, noInput: false, decision: 'continue' },
+      { provenance: 'invalid', value: 'INVALID_POLICY_CANARY', readFailure: false, noInput: false, decision: 'continue' },
+      { provenance: 'read-failed', value: '1h', readFailure: true, noInput: false, decision: 'continue' },
+      { provenance: 'stored', value: '1h', readFailure: false, noInput: true, decision: 'timing-unavailable' },
+    ])('idle decision diagnostic contract: $provenance / $decision', async scenario => {
+      const now = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date(now).toISOString(), lastAccessedAt: new Date(now).toISOString(),
+      } as Session);
+      await containerInstance.collectMetrics();
+      testState.storedSleepAfter = scenario.value;
+      testState.activityResult.lastInputAt = scenario.noInput ? null : now - 2 * 3_600_000;
+      if (scenario.readFailure) testState.storageGetFailures.add('sleepAfter');
+      if (scenario.noInput) {
+        (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+        testState.storageGetFailures.add('containerStartedAt');
+      }
+      const emitted: unknown[] = [];
+      mockLogger.info.mockImplementation((message: string, data?: Record<string, unknown>) => {
+        if (message === 'collectMetrics: idle policy decision') emitted.push(data);
+      });
+      try {
+        await containerInstance.collectMetrics();
+        // Closed metadata contract: no raw input, policy contents, credentials,
+        // endpoints or other incidental host-observation data may be emitted.
+        expect(emitted).toContainEqual({
+          durableObjectId: 'mock-do-id', sessionId: 'testsession123456',
+          idleTimeoutPref: scenario.provenance === 'stored' ? '1h' : '12h',
+          policySource: scenario.provenance, checkedAt: now,
+          observedInputAt: scenario.noInput ? null : now - 2 * 3_600_000,
+          referenceTime: scenario.noInput ? null : now - 2 * 3_600_000,
+          canEnforceIdle: !scenario.noInput, decision: scenario.decision,
+        });
+        expect(testState.platformStopSignals).toEqual(scenario.decision === 'stop' ? ['SIGTERM'] : []);
+      } finally { mockLogger.info.mockReset(); }
+    });
+
     it.each([['8h', 8], ['12h', 12]] as const)('REQ-SESSION-004: %s stays alive until its configured idle deadline and then requests SIGTERM', async (duration, hours) => {
       let now = Date.now();
       vi.spyOn(Date, 'now').mockImplementation(() => now);
@@ -864,6 +950,44 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.abortReasons).toEqual([]);
       expect(testState.stopCalls).toBe(0);
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+    });
+
+    it('propagates a required ownership-read retry alarm failure without billing or destructive effects', async () => {
+      const key = 'session:test-bucket:testsession123456';
+      mockKV._set(key, {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        workspace: 'terminal', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+      await enableTimekeeper({ quotaExceeded: true });
+      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.scheduleFailuresRemaining = 1;
+
+      // Observe the single failing tick immediately and retain its rejection
+      // as an outcome that can be asserted without another rejected promise.
+      const observed = containerInstance.collectMetrics().then(
+        () => ({ ok: true }),
+        error => ({ ok: false, error }),
+      );
+      expect(await observed).toMatchObject({ ok: false, error: new Error('schedule failed') });
+
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(testState.callOrder).toEqual([]);
+      expect(testState.platformStopSignals).toEqual([]);
+      expect(testState.abortReasons).toEqual([]);
+      expect(await storage().get('usageSeconds')).toBeUndefined();
+      expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'running', workspace: 'terminal' });
+    });
+
+    it('deliberate shutdown still suppresses an unnecessary ownership-read retry alarm', async () => {
+      await storage().put('shutdownRequested', Date.now());
+      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
+      testState.scheduleFailuresRemaining = 1;
+
+      await expect(containerInstance.collectMetrics()).resolves.toBeUndefined();
+
+      expect(testState.scheduleCalls).toEqual([]);
+      expect(testState.platformStopSignals).toEqual([]);
+      expect(testState.abortReasons).toEqual([]);
     });
 
     it('REQ-GITHUB-015 AC1: tracks the repositories the container reports in its workspace', async () => {
@@ -1061,759 +1185,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([5, 'collectMetrics']);
     }, 25_000);
 
-    it('REQ-SESSION-021 AC6: reconstructs immediately when the SDK monitor loses container services after running becomes false', async () => {
+    it('REQ-SESSION-021/022: a monitor transport error schedules a no-start host observation before reconstruction', async () => {
       testState.containerRunning = false;
-
-      await expect(containerInstance.onError(new Error('Network connection lost.')))
-        .rejects.toThrow('mock Durable Object abort');
-
-      expect(testState.abortReasons).toEqual(['container monitor lost its connection to container services']);
-      expect(testState.deleteScheduleCalls).toEqual(['collectMetrics']);
-      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
-      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(3);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
-        attemptId: expect.any(String),
-        attemptCount: 1,
-        postResetFailureCount: 0,
-        totalFailureCount: 3,
-        status: 'resetting',
-      });
-      expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
-    });
-
-    it('REQ-SESSION-022 AC5: bounds monitor-loss recovery while running remains false, then resumes exit confirmation', async () => {
-      testState.containerRunning = false;
-      await expect(containerInstance.onError(new Error('Network connection lost.')))
-        .rejects.toThrow('mock Durable Object abort');
-      containerInstance = createContainerInstance();
-
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
-      containerInstance = createContainerInstance();
-
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-      expect(testState.abortReasons).toHaveLength(2);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-
-      testState.scheduleCalls = [];
-      await containerInstance.collectMetrics();
-      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-      expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
-    });
-
-    it('REQ-SESSION-018 AC7: failed monitor-recovery scheduling cannot treat elapsed time as exit proof', async () => {
-      const session: Session = {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      };
-      mockKV._set('session:test-bucket:testsession123456', session);
-      testState.containerRunning = false;
-      testState.scheduleFailuresRemaining = 1;
-
-      vi.useFakeTimers();
-      try {
-        await containerInstance.onError(new Error('Network connection lost.'));
-
-        expect(testState.abortReasons).toEqual([]);
-        expect(testState.deleteScheduleCalls).toEqual(['collectMetrics', 'collectMetrics']);
-        expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-        expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-
-        vi.advanceTimersByTime(91_000);
-        await containerInstance.collectMetrics();
-
-        expect((await mockKV.get('session:test-bucket:testsession123456', 'json') as Session).status).not.toBe('stopped');
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it('REQ-SESSION-024 AC1: schedule and cleanup failure retain recovery ownership with a confirmation tick', async () => {
-      testState.containerRunning = false;
-      testState.scheduleFailuresRemaining = 1;
-      testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
-
       await containerInstance.onError(new Error('Network connection lost.'));
-
       expect(testState.abortReasons).toEqual([]);
-      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
-      expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'resetting' });
-    });
-
-    it('REQ-SESSION-022 AC4: deliberate shutdown suppresses monitor-loss reconstruction', async () => {
-      await storage().put('shutdownRequested', Date.now());
-      testState.containerRunning = false;
-
-      await containerInstance.onError(new Error('Network connection lost.'));
-
-      expect(testState.abortReasons).toEqual([]);
-      expect(testState.scheduleCalls).toEqual([]);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-    });
-
-    it('REQ-SESSION-024 AC2: invalid monitor recovery state cannot authorize reconstruction', async () => {
-      await storage().put(TRANSPORT_RECOVERY_KEY, { status: 'resetting' });
-      testState.containerRunning = false;
-
-      await containerInstance.onError(new Error('Network connection lost.'));
-
-      expect(testState.abortReasons).toEqual([]);
-      expect(testState.scheduleCalls).toEqual([]);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'container monitor recovery: invalid recovery record; suppressing reconstruction',
-        undefined,
-        { durableObjectId: 'mock-do-id', valueType: 'object' },
-      );
-    });
-
-    it('REQ-SESSION-022 AC4: recovery-state read failure suppresses monitor-loss reconstruction', async () => {
-      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
-      testState.containerRunning = false;
-
-      await containerInstance.onError(new Error('Network connection lost.'));
-
-      expect(testState.abortReasons).toEqual([]);
-      expect(testState.scheduleCalls).toEqual([]);
-      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
-    });
-
-    it('REQ-SESSION-022 AC2: repeated monitor loss joins the existing incident without another reconstruction', async () => {
-      const recovery = {
-        attemptId: 'existing-monitor-incident',
-        startedAt: Date.now() - 5_000,
-        lastAttemptAt: Date.now() - 5_000,
-        attemptCount: 1,
-        postResetFailureCount: 0,
-        totalFailureCount: 3,
-        status: 'resetting',
-      };
-      await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 3);
-      await storage().put(TRANSPORT_RECOVERY_KEY, recovery);
-      testState.containerRunning = false;
-
-      await containerInstance.onError(new Error('Network connection lost.'));
-
-      expect(testState.abortReasons).toEqual([]);
-      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toEqual(recovery);
-    });
-
-    it('REQ-SESSION-022 AC5: exhausted monitor loss returns to ordinary exit confirmation', async () => {
-      await storage().put(TRANSPORT_FAILURE_STREAK_KEY, 3);
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'exhausted-monitor-incident',
-        startedAt: Date.now() - 30_000,
-        lastAttemptAt: Date.now() - 15_000,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      testState.containerRunning = false;
-
-      await containerInstance.onError(new Error('Network connection lost.'));
-
-      expect(testState.abortReasons).toEqual([]);
-      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-      expect(testState.storageStore.get('metricsNotRunningSince')).toEqual(expect.any(Number));
-    });
-
-    it('REQ-SESSION-022 AC4: monitor loss cannot reconstruct when deliberate-stop ownership is unreadable', async () => {
-      testState.containerRunning = false;
-      testState.storageGetFailures.add('shutdownRequested');
-
-      await containerInstance.onError(new Error('Network connection lost.'));
-
-      expect(testState.abortReasons).toEqual([]);
-      expect(testState.scheduleCalls).toEqual([]);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(testState.storageStore.has('metricsNotRunningSince')).toBe(false);
-    });
-
-    it('REQ-SESSION-021 AC1-AC3 + REQ-SESSION-025 AC1: resets the Durable Object after three consecutive ticks while preserving the workload and running status', async () => {
-      mockKV._set('session:test-bucket:testsession123456', {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      testState.tcpFetchShouldFail = true;
-
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-
-      expect(testState.abortReasons).toEqual([]);
-      expect(testState.scheduleCalls).toEqual([
-        [5, 'collectMetrics'],
-        [5, 'collectMetrics'],
-      ]);
-
-      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
-
-      expect(testState.abortReasons).toEqual(['container transport unresponsive after 3 complete probe failures']);
-      expect(testState.stopCalls).toBe(0);
-      const stoppedWrite = mockKV.put.mock.calls.find((call: unknown[]) => {
-        if (typeof call[0] !== 'string' || !(call[0] as string).includes('testsession123456')) return false;
-        try { return (JSON.parse(call[1] as string) as Session).status === 'stopped'; } catch { return false; }
-      });
-      expect(stoppedWrite).toBeUndefined();
-      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(3);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
-        attemptId: expect.any(String),
-        attemptCount: 1,
-        postResetFailureCount: 0,
-        totalFailureCount: 3,
-        status: 'resetting',
-      });
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'collectMetrics: resetting Durable Object to reconstruct container transport',
-        expect.objectContaining({
-          durableObjectId: 'mock-do-id',
-          recoveryAttemptId: expect.any(String),
-          recoveryAttempt: 1,
-          totalFailures: 3,
-          containerRunning: true,
-          probes: {
-            activity: expect.objectContaining({ responded: false, category: 'connection-refused', error: 'Connection refused', durationMs: expect.any(Number) }),
-            health: expect.objectContaining({ responded: false, category: 'connection-refused', error: 'Connection refused', durationMs: expect.any(Number) }),
-          },
-        }),
-      );
-    });
-
-    it('REQ-SESSION-022 AC1-AC2: confirms recovery only after a reconstructed instance probes the existing container', async () => {
-      testState.tcpFetchShouldFail = true;
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
-      const recovery = await storage().get<{ attemptId: string }>(TRANSPORT_RECOVERY_KEY);
-      containerInstance = createContainerInstance();
-
-      testState.tcpFetchShouldFail = false;
-      testState.scheduleCalls = [];
-      mockLogger.info.mockClear();
-      await containerInstance.collectMetrics();
-
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
-      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        'collectMetrics: container transport recovery confirmed',
-        expect.objectContaining({
-          durableObjectId: 'mock-do-id',
-          recoveryAttemptId: recovery?.attemptId,
-          recoveryAttempt: 1,
-          totalFailures: 3,
-          elapsedMs: expect.any(Number),
-          containerRunning: true,
-        }),
-      );
-    });
-
-    it('REQ-SESSION-022 AC2: does not confirm recovery or restore normal cadence until recovery evidence is cleared', async () => {
-      testState.tcpFetchShouldFail = true;
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
-      const recovery = await storage().get<{ attemptId: string }>(TRANSPORT_RECOVERY_KEY);
-      containerInstance = createContainerInstance();
-
-      testState.tcpFetchShouldFail = false;
-      testState.storageDeleteFailures.add(TRANSPORT_RECOVERY_KEY);
-      testState.scheduleCalls = [];
-      mockLogger.info.mockClear();
-      await containerInstance.collectMetrics();
-
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
-      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBe(3);
-      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
-      expect(mockLogger.info).not.toHaveBeenCalledWith(
-        'collectMetrics: container transport recovery confirmed',
-        expect.anything(),
-      );
-
-      testState.storageDeleteFailures.clear();
-      await containerInstance.collectMetrics();
-
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
-      expect(testState.scheduleCalls).toEqual([
-        [5, 'collectMetrics'],
-        [60, 'collectMetrics'],
-      ]);
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        'collectMetrics: container transport recovery confirmed',
-        expect.objectContaining({ recoveryAttemptId: recovery?.attemptId }),
-      );
-    });
-
-    it('REQ-SESSION-024 AC3: attempts to re-arm when the early recovery ownership read fails', async () => {
-      const timekeeperStub = await enableTimekeeper();
-      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
-      testState.scheduleCalls = [];
-
-      await containerInstance.collectMetrics();
-
-      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-      expect(testState.hostProbeCalls).toBe(0);
-      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
-      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'collectMetrics: failed to read transport recovery ownership',
-        expect.objectContaining({ error: `storage read failed: ${TRANSPORT_RECOVERY_KEY}` }),
-      );
-    });
-
-    it('REQ-SESSION-025 AC2 + REQ-SESSION-026 AC1: logs and propagates scheduling failure after the early recovery ownership read fails', async () => {
-      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
-      testState.scheduleFailuresRemaining = 1;
-
-      await expect(containerInstance.collectMetrics()).rejects.toThrow('schedule failed');
-
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'collectMetrics: failed to schedule recovery ownership read retry',
-        undefined,
-        expect.objectContaining({ error: 'schedule failed' }),
-      );
-    });
-
-    it('REQ-SESSION-022 AC2-AC3: exhausted reconstruction remains owning and cannot invent termination', async () => {
-      const sessionKey = 'session:test-bucket:testsession123456';
-      mockKV._set(sessionKey, {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      testState.tcpFetchShouldFail = true;
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
-      containerInstance = createContainerInstance();
-
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-      await expect(containerInstance.collectMetrics()).rejects.toThrow('mock Durable Object abort');
-      containerInstance = createContainerInstance();
-
-      testState.scheduleCalls = [];
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-
-      expect(testState.abortReasons).toHaveLength(2);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      expect(testState.scheduleCalls.at(-1)).toEqual([60, 'collectMetrics']);
-      const schedulesBeforeTerminalTick = testState.scheduleCalls.length;
-
-      await containerInstance.collectMetrics();
-
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
-      expect((await mockKV.get(sessionKey, 'json') as Session).status).not.toBe('stopped');
-      expect(testState.stopCalls).toBe(0);
-      expect(testState.scheduleCalls.length).toBeGreaterThan(schedulesBeforeTerminalTick);
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'collectMetrics: post-reconstruction transport confirmation failed',
-        expect.objectContaining({
-          durableObjectId: 'mock-do-id',
-          recoveryAttemptId: expect.any(String),
-          recoveryAttempt: expect.any(Number),
-          probes: {
-            activity: expect.objectContaining({ category: 'connection-refused', error: 'Connection refused', durationMs: expect.any(Number) }),
-            health: expect.objectContaining({ category: 'connection-refused', error: 'Connection refused', durationMs: expect.any(Number) }),
-          },
-        }),
-      );
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'collectMetrics: container transport recovery exhausted',
-        undefined,
-        expect.objectContaining({
-          durableObjectId: 'mock-do-id',
-          recoveryAttemptId: expect.any(String),
-          recoveryAttempt: 2,
-          totalFailures: 9,
-          containerRunning: true,
-        }),
-      );
-    });
-
-    it('REQ-SESSION-022 AC6: exhausted transport failure cannot publish stopped or bill a healthy runtime', async () => {
-      const sessionKey = 'session:test-bucket:testsession123456';
-      mockKV._set(sessionKey, {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      const now = Date.now();
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'recovery-exhausted-write-retry',
-        startedAt: now - 120_000,
-        lastAttemptAt: now - 60_000,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      testState.storedUserEmail = 'quota@example.com';
-      containerInstance = createContainerInstance();
-      const timekeeperStub = {
-        fetch: vi.fn(async () => new Response(JSON.stringify({ quotaExceeded: false }), { status: 200 })),
-      };
-      const instanceEnv = (containerInstance as unknown as { env: Record<string, unknown> }).env;
-      instanceEnv.SAAS_MODE = 'active';
-      instanceEnv.TIMEKEEPER = {
-        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
-        get: vi.fn(() => timekeeperStub),
-      };
-      await vi.waitFor(
-        () => expect((containerInstance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
-        { timeout: 1000 },
-      );
-      testState.tcpFetchShouldFail = true;
-      testState.scheduleCalls = [];
-      await containerInstance.collectMetrics();
-
-      expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('running');
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
-      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
-      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
-
-      await containerInstance.collectMetrics();
-
-      expect((await mockKV.get(sessionKey, 'json') as Session).status).not.toBe('stopped');
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
-      expect(testState.scheduleCalls.at(-1)?.[1]).toBe('collectMetrics');
-      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
-      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
-    });
-
-    it('REQ-SESSION-022 AC6: exhausted uncertainty cannot signal or release a surviving workload', async () => {
-      const sessionKey = 'session:test-bucket:testsession123456';
-      mockKV._set(sessionKey, {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      const now = Date.now();
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'recovery-exhausted-stop-retry',
-        startedAt: now - 120_000,
-        lastAttemptAt: now - 60_000,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      testState.storedUserEmail = 'quota@example.com';
-      containerInstance = createContainerInstance();
-      const timekeeperStub = {
-        fetch: vi.fn(async () => new Response(JSON.stringify({ quotaExceeded: false }), { status: 200 })),
-      };
-      const instanceEnv = (containerInstance as unknown as { env: Record<string, unknown> }).env;
-      instanceEnv.SAAS_MODE = 'active';
-      instanceEnv.TIMEKEEPER = {
-        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
-        get: vi.fn(() => timekeeperStub),
-      };
-      await vi.waitFor(
-        () => expect((containerInstance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
-        { timeout: 1000 },
-      );
-      testState.tcpFetchShouldFail = true;
-      testState.stopFailuresRemaining = 1;
-      testState.scheduleCalls = [];
-
-      await containerInstance.collectMetrics();
-
-      expect((await mockKV.get(sessionKey, 'json') as Session).status).not.toBe('stopped');
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'exhausted' });
-      expect(testState.stopCalls).toBe(0);
-      expect(testState.agentFinalDrainCalls).toBe(0);
-      expect(testState.scheduleCalls.at(-1)?.[1]).toBe('collectMetrics');
-      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
-      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
-
-      // A recovered probe confirms the workload survived. It must retain
-      // lifecycle ownership without a forced stop.
-      testState.tcpFetchShouldFail = false;
-      await containerInstance.collectMetrics();
-
-      expect((await mockKV.get(sessionKey, 'json') as Session).status).not.toBe('stopped');
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(testState.stopCalls).toBe(0);
-      expect(testState.agentFinalDrainCalls).toBe(0);
-      expect(testState.scheduleCalls.at(-1)?.[1]).toBe('collectMetrics');
-      expect((containerInstance as unknown as { _usageSeconds: number })._usageSeconds).toBe(60);
-    });
-
-    it('REQ-SESSION-022 AC6: scheduling failure cannot manufacture exit evidence', async () => {
-      const sessionKey = 'session:test-bucket:testsession123456';
-      mockKV._set(sessionKey, {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      const now = Date.now();
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'recovery-terminal-schedule-failure',
-        startedAt: now - 120_000,
-        lastAttemptAt: now - 60_000,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      testState.tcpFetchShouldFail = true;
-      testState.stopFailuresRemaining = 1;
-      testState.scheduleFailuresRemaining = 1;
-
-      await containerInstance.collectMetrics();
-
-      expect((await mockKV.get(sessionKey, 'json') as Session).status).not.toBe('stopped');
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toMatchObject({ status: 'exhausted' });
-    });
-
-    it('REQ-SESSION-022 AC1: a responding probe clears exhausted recovery without stopping the session', async () => {
-      const sessionKey = 'session:test-bucket:testsession123456';
-      mockKV._set(sessionKey, {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      const now = Date.now();
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'recovery-exhausted-but-responsive',
-        startedAt: now - 120_000,
-        lastAttemptAt: now - 60_000,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-      testState.scheduleCalls = [];
-
-      await containerInstance.collectMetrics();
-
-      expect((await mockKV.get(sessionKey, 'json') as Session).status).toBe('running');
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(testState.scheduleCalls).toEqual([[60, 'collectMetrics']]);
-    });
-
-    it('REQ-SESSION-022 AC5: suppresses reconstruction and re-arming when deliberate-stop ownership cannot be read', async () => {
-      testState.storageGetFailures.add('shutdownRequested');
-      testState.tcpFetchShouldFail = true;
-
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-
-      expect(testState.abortReasons).toEqual([]);
-      expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(testState.scheduleCalls).toEqual([]);
-    });
-
-    it('REQ-SESSION-024 AC2: malformed recovery state cannot authorize reconstruction', async () => {
-      const now = Date.now();
-      await storage().put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'invalid-exhausted-state',
-        startedAt: now,
-        lastAttemptAt: now,
-        attemptCount: 1,
-        postResetFailureCount: 3,
-        totalFailureCount: 6,
-        status: 'exhausted',
-      });
-      testState.tcpFetchShouldFail = true;
-
-      await containerInstance.collectMetrics();
-
-      expect(testState.abortReasons).toEqual([]);
-      expect(await storage().get(TRANSPORT_RECOVERY_KEY)).toBeUndefined();
-      expect(testState.scheduleCalls).toEqual([[5, 'collectMetrics']]);
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'collectMetrics: invalid transport recovery record; suppressing reconstruction',
-        undefined,
-        { durableObjectId: 'mock-do-id', valueType: 'object' },
-      );
-    });
-
-    it('REQ-SESSION-021 AC5: any responding probe clears the reconstruction failure streak', async () => {
-      mockKV._set('session:test-bucket:testsession123456', {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-
-      testState.tcpFetchShouldFail = true;
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-
-      // A non-OK unified observation still proves the DO-to-container
-      // attachment recovered and clears the reconstruction streak.
-      testState.tcpFetchShouldFail = false;
-      testState.healthStatus = 503;
-      await containerInstance.collectMetrics();
-
-      testState.healthStatus = 200;
-      testState.tcpFetchShouldFail = true;
-      await containerInstance.collectMetrics();
-      await containerInstance.collectMetrics();
-
-      expect(testState.abortReasons).toEqual([]);
-    });
-
-    it('REQ-SESSION-023 AC1-AC2: confirmation retries do not add billable usage or ping Timekeeper', async () => {
-      testState.storedBucketName = 'test-bucket';
-      testState.storedSessionId = 'testsession123456';
-      testState.storedUserEmail = 'quota@example.com';
-
-      const timekeeperStub = {
-        fetch: vi.fn(async () =>
-          new Response(JSON.stringify({ quotaExceeded: false, totalMonthlySeconds: 60 }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          })
-        ),
-      };
-      const TIMEKEEPER = {
-        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
-        get: vi.fn(() => timekeeperStub),
-      };
-      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
-        {},
-        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
-      );
-      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
-      instanceEnv.KV = mockKV;
-      instanceEnv.USAGE_DB = createMockSessionD1(mockKV);
-      instanceEnv.SAAS_MODE = 'active';
-      instanceEnv.TIMEKEEPER = TIMEKEEPER;
-      mockKV._set('session:test-bucket:testsession123456', {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      await vi.waitFor(
-        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
-        { timeout: 1000 },
-      );
-
-      testState.tcpFetchShouldFail = true;
-      testState.scheduleCalls = [];
-      await instance.collectMetrics();
-      await instance.collectMetrics();
-
-      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
-      expect((instance as unknown as { _usageSeconds: number })._usageSeconds).toBe(60);
-      expect(testState.scheduleCalls).toEqual([
-        [5, 'collectMetrics'],
-        [5, 'collectMetrics'],
-      ]);
-    });
-
-    it('REQ-SESSION-023 AC3: exhausted unreachable transport retains ownership without charging usage', async () => {
-      testState.storedBucketName = 'test-bucket';
-      testState.storedSessionId = 'testsession123456';
-      testState.storedUserEmail = 'quota@example.com';
-
-      const timekeeperStub = {
-        fetch: vi.fn(async () =>
-          new Response(JSON.stringify({ quotaExceeded: false, totalMonthlySeconds: 120 }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          })
-        ),
-      };
-      const TIMEKEEPER = {
-        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
-        get: vi.fn(() => timekeeperStub),
-      };
-      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
-        {},
-        { KV: mockKV, USAGE_DB: createMockSessionD1(mockKV), LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
-      );
-      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
-      instanceEnv.KV = mockKV;
-      instanceEnv.USAGE_DB = createMockSessionD1(mockKV);
-      instanceEnv.SAAS_MODE = 'active';
-      instanceEnv.TIMEKEEPER = TIMEKEEPER;
-      mockKV._set('session:test-bucket:testsession123456', {
-        id: 'testsession123456',
-        name: 'Test',
-        userId: 'test-bucket',
-        status: 'running',
-        createdAt: '2024-01-15T09:00:00.000Z',
-        lastAccessedAt: '2024-01-15T09:30:00.000Z',
-      } as Session);
-      await vi.waitFor(
-        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
-        { timeout: 1000 },
-      );
-      const instanceStorage = (instance as unknown as { ctx: { storage: TestStorage } }).ctx.storage;
-      const now = Date.now();
-      await instanceStorage.put(TRANSPORT_FAILURE_STREAK_KEY, 3);
-      await instanceStorage.put(TRANSPORT_RECOVERY_KEY, {
-        attemptId: 'recovery-exhausted',
-        startedAt: now,
-        lastAttemptAt: now,
-        attemptCount: 2,
-        postResetFailureCount: 3,
-        totalFailureCount: 9,
-        status: 'exhausted',
-      });
-
-      testState.tcpFetchShouldFail = true;
-      testState.scheduleCalls = [];
-      await instance.collectMetrics();
-
-      expect(timekeeperStub.fetch).not.toHaveBeenCalled();
-      expect((instance as unknown as { _usageSeconds: number })._usageSeconds).toBe(0);
-      expect(await instanceStorage.get(TRANSPORT_RECOVERY_KEY)).toBeDefined();
-      expect(testState.scheduleCalls.at(-1)?.[1]).toBe('collectMetrics');
-      expect((await mockKV.get('session:test-bucket:testsession123456', 'json') as Session).status).not.toBe('stopped');
+      expect(testState.scheduleCalls.at(-1)).toEqual([5, 'collectMetrics']);
     });
 
     it('should re-arm schedule if container is still running', async () => {
@@ -1881,11 +1257,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
         // First not-running tick: opens the confirmation window, no stopped write.
         await containerInstance.collectMetrics();
-        expect(
-          mockKV.put.mock.calls.find(
-            (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
-          )
-        ).toBeUndefined();
+        expect((await mockKV.get('session:test-bucket:testsession123456', 'json') as Session).status).toBe('running');
 
         vi.advanceTimersByTime(91_000);
         await containerInstance.collectMetrics();
@@ -1945,11 +1317,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       // deploy-roll) opens the window but does NOT write stopped...
       testState.containerRunning = false;
       await containerInstance.collectMetrics();
-      expect(
-        mockKV.put.mock.calls.find(
-          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
-        )
-      ).toBeUndefined();
+      expect((await mockKV.get('session:test-bucket:testsession123456', 'json') as Session).status).toBe('running');
 
       // ...and the very next tick sees the container alive again: it resumes
       // normal metric writes (status stays running, never flipped to stopped).

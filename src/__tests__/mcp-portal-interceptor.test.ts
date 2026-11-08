@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { forwardMcpPortal } from '../mcp-portal-interceptor';
 import { mcpPortalFixture, portal, access } from './helpers/mcp-portal-fixture';
 import { disconnectMcpPortal } from '../lib/mcp-portal-token';
+import { setLogLevel } from '../lib/logger';
+import { getMcpPortalGrant } from '../lib/mcp-portal-token';
 import { SETUP_KEYS } from '../lib/kv-keys';
 
 const props = { bucket: 'owner', portals: [portal] };
@@ -80,6 +82,63 @@ describe('MCP exact-destination Worker credential boundary', () => {
     }));
     expect(denied.status).toBe(401); expect(await denied.text()).toBe('original unauthorized outcome');
     expect(denied.headers.get('WWW-Authenticate')).toContain('portal.example');
+  });
+
+  it.each([
+    ['missing', 'lookup-unavailable', undefined],
+    ['lookup-throw', 'lookup-throws', undefined],
+    ['no-refresh', 'no-refresh-token', undefined],
+    ['oauth', 'refresh-error', 'invalid_grant'],
+    ['timeout', 'refresh-error', 'timeout'],
+    ['untrusted-error', 'refresh-error', 'other'],
+    ['concurrent', 'concurrent-change', undefined],
+    ['readback', 'readback-rejected', undefined],
+  ] as const)('REQ-AGENT-226 AC6: diagnostic wire contract for %s keeps reconnect status and metadata only', async (scenario, reason, detail) => {
+    const f = await mcpPortalFixture(); f.expiry(30);
+    if (scenario === 'no-refresh') f.withoutRefreshToken();
+    if (scenario !== 'missing') { await f.begin(); await f.finish(); }
+    if (scenario === 'lookup-throw') {
+      const get = f.kv.get.getMockImplementation()!;
+      f.kv.get.mockImplementation(async (key, type) => {
+        if (key === SETUP_KEYS.CUSTOM_DOMAIN) throw Error('SYNTHETIC-SECRET owner@example.test https://private.example');
+        return get(key, type);
+      });
+    }
+    if (scenario === 'readback') f.afterConnectionWrite(async () => { await f.kv.put(SETUP_KEYS.MCP_PORTALS, '[]'); });
+    const send: typeof fetch = async (input, init) => {
+      if (scenario === 'oauth') return Response.json({ error: 'invalid_grant',
+        error_description: `${access} owner@example.test ${portal.url}`, error_uri: 'https://private.example/secret' }, { status: 400 });
+      if (scenario === 'timeout') throw new DOMException('SYNTHETIC-SECRET owner@example.test', 'TimeoutError');
+      if (scenario === 'untrusted-error') throw { errorCode: 'SYNTHETIC-SECRET', payload: access, url: portal.url };
+      const response = await f.send(input, init);
+      if (scenario === 'concurrent') await f.kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
+      return response;
+    };
+    const records: string[] = [];
+    const output = vi.spyOn(console, 'warn').mockImplementation((line: string) => { records.push(line); });
+    setLogLevel('warn');
+    try {
+      const response = await forwardMcpPortal(request(), f.env, props, send);
+      expect(response.status).toBe(401);
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+      expect(await response.json()).toEqual({ code: 'MCP_RECONNECT_REQUIRED', error: 'MCP portal unavailable. Connect or reconnect this portal in Settings.' });
+      expect(records.map(line => {
+        const record = JSON.parse(line);
+        expect(record.timestamp).toEqual(expect.any(String));
+        return { ...record, timestamp: undefined };
+      })).toEqual([{ timestamp: undefined, level: 'warn', module: 'mcp-portal-interceptor',
+        message: 'MCP credential unavailable', data: { portalId: portal.name, reason, ...(detail ? { detail } : {}) } }]);
+    } finally { output.mockRestore(); setLogLevel('silent'); }
+  });
+
+  it('REQ-AGENT-226 AC6: missing Settings grant polling emits no MCP request failure diagnostics', async () => {
+    const f = await mcpPortalFixture(); const records: string[] = [];
+    const output = vi.spyOn(console, 'warn').mockImplementation((line: string) => { records.push(line); });
+    setLogLevel('warn');
+    try {
+      expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+      expect(records).toEqual([]);
+    } finally { output.mockRestore(); setLogLevel('silent'); }
   });
 
   it('REQ-AGENT-229 AC5: uncertain MCP writes are never replayed after response loss', async () => {

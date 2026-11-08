@@ -150,6 +150,7 @@ describe('complete_managed_curation_startup / REQ-IDE-048 AC3 (eager workspace l
   it('arms VS Code immediately after init instead of waiting for background baseline work', () => {
     const script = `
 ${extractFn('complete_managed_curation_startup')}
+prepare_managed_resource_filter() { :; }
 relay_managed_pi_extensions() { :; }
 configure_pi_packages_and_review_inventory() { :; }
 release_agent_pty_after_fast_start_updates() { printf 'init\\n'; }
@@ -168,6 +169,7 @@ complete_managed_curation_startup
   it('keeps an existing VS Code session usable after its future default is downgraded', () => {
     const script = `
 ${extractFn('complete_managed_curation_startup')}
+prepare_managed_resource_filter() { :; }
 relay_managed_pi_extensions() { :; }
 configure_pi_packages_and_review_inventory() { :; }
 release_agent_pty_after_fast_start_updates() { printf 'init\\n'; }
@@ -186,6 +188,7 @@ complete_managed_curation_startup
   it('does not eagerly arm Browser IDE for Terminal workspaces', () => {
     const script = `
 ${extractFn('complete_managed_curation_startup')}
+prepare_managed_resource_filter() { :; }
 relay_managed_pi_extensions() { :; }
 configure_pi_packages_and_review_inventory() { :; }
 release_agent_pty_after_fast_start_updates() { printf 'init\\n'; }

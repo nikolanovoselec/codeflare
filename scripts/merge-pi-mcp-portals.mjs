@@ -43,9 +43,11 @@ export function mergePiMcpPortals(config, portals) {
   for (const portal of previous) {
     const server = servers[serverKey(portal.name)];
     if (server !== undefined && (!object(server) || server.url !== portal.url
+      || !Object.keys(server).every(key => ['url', 'transport', 'type', 'headers', 'auth', 'lifecycle',
+        'idleTimeout', 'requestTimeoutMs', 'directTools', 'httpTransport', 'protocolVersion'].includes(key))
       || !['lazy', 'eager'].includes(server.lifecycle)
       || !(object(server.auth) && server.auth.type === 'oauth'
-        || server.auth === undefined && object(server.headers) && server.headers.Authorization === 'Bearer codeflare-mcp-portal')
+        || (server.auth === undefined || server.auth === false) && object(server.headers) && server.headers.Authorization === 'Bearer codeflare-mcp-portal')
       || server.command !== undefined || (server.transport !== undefined && server.transport !== 'streamable-http'))) {
       throw new Error('Managed MCP portal registration was changed; leaving configuration unchanged');
     }
@@ -58,8 +60,9 @@ export function mergePiMcpPortals(config, portals) {
   for (const key of previousNames) if (!nextNames.has(key)) delete servers[key];
   for (const portal of portals) {
     const key = serverKey(portal.name);
-    servers[key] = { url: portal.url, transport: 'streamable-http',
-      headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' };
+    servers[key] = { url: portal.url,
+      headers: { Authorization: 'Bearer codeflare-mcp-portal' }, auth: false,
+      lifecycle: 'lazy', idleTimeout: 10, requestTimeoutMs: 360000, directTools: 'search' };
   }
   return { ...config, mcpServers: servers, [ownershipKey]: portals.map(({ name, url }) => ({ name, url })) };
 }

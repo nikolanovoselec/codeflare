@@ -18,7 +18,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 7. **Durable authority without dashboard wakeups** -- Owner-scoped dashboard status reads use the complete D1 session catalog without waking containers or contacting their Durable Objects. The session runtime drives generation-fenced transitions and observations; D1 owns persisted lifecycle truth. Worker routing and authentication remain separate, and unrelated KV preferences or credentials do not become session authority.
 
-8. **Stable behavioral domains** -- The seventeen domains below are canonical. Extend the owning requirement instead of creating a specification for a repair, transport adapter, deployment mode or implementation phase. Requirement IDs retain their original namespaces when relocated; acceptance criteria, constraints, statuses, fragment aliases and evidence anchors remain attached to their obligations.
+8. **Stable behavioral domains** -- The eighteen domains below are canonical. Extend the owning requirement instead of creating a specification for a repair, transport adapter, deployment mode or implementation phase. Requirement IDs retain their original namespaces when relocated; acceptance criteria, constraints, statuses, fragment aliases and evidence anchors remain attached to their obligations.
 
 ## Actors
 
@@ -48,23 +48,24 @@ When a public behavior change affects one of these operator contracts, update bo
 
 | Domain | Description | Priority | Status |
 |--------|-------------|----------|--------|
-| [Session Lifecycle](spec/session-lifecycle.md) | Complete D1 authority, runtime generations, startup, idle policy, recovery and teardown | P0 | Active |
+| [Agents](spec/agents.md) | Agent selection, manifests, compiler projection, runtime adaptation and managed delivery | P1 | Active |
 | [Authentication](spec/authentication.md) | Verified identity, authentication, authorization, provisioning and account admission | P0 | Active |
-| [Terminal](spec/terminal.md) | PTY/WebSocket, classic/Herdr ownership, MultiView, notifications and mobile compatibility | P0 | Active |
+| [Browser IDE](spec/browser-ide.md) | Session-isolated editor, agent/edit transactions, extension continuity and workspace ownership | P2 | Active |
+| [Browser Run](spec/browser-run.md) | Agent-facing remote browser reads and interactive capabilities, separate from Browser IDE | P2 | Active |
+| [GitHub](spec/github.md) | Account connection, repositories, cloning/restoration and mediated credentials | P1 | Active |
+| [Landing](spec/landing.md) | Public website, mode-aware serving, contact pipeline and landing-owned presentation | P1 | Active |
+| [Memory](spec/memory.md) | Conversation capture, retrieval, preservation and cross-session context | P2 | Active |
+| [Model Context Protocol](spec/mcp.md) | Portal registration, owner grants, client discovery/configuration, credential-isolated transport and migration | P1 | Active |
+| [Models & Routing](spec/models-and-routing.md) | Target identity, discovery, evidence, reasoning, transport, replay, caching and publication | P1 | Active |
+| [Operations](spec/operations.md) | Delivery, artifact integrity, automated verification and promotion gates | P1 | Active |
+| [Operators](spec/operators.md) | Packages, catalog/installations, grants, activities, parent capabilities and publication fencing | P0 | Active |
+| [Security](spec/security.md) | Trust boundaries, credential isolation, cryptography, limiting and browser controls | P0 | Active |
+| [Session Lifecycle](spec/session-lifecycle.md) | Complete D1 authority, runtime generations, startup, idle policy, recovery and teardown | P0 | Active |
+| [Setup & Administration](spec/setup.md) | Bootstrap, deployment-mode configuration, administrative drafts, checks and application | P1 | Active |
 | [Storage](spec/storage.md) | R2 persistence, reconciliation, managed paths, conflicts and encryption-regime integration | P0 | Active |
 | [Subscription](spec/subscription.md) | Entitlement, payment, live quota accounting, historical usage and reporting | P1 | Active |
-| [Agents](spec/agents.md) | Agent selection, manifests, compiler projection, runtime adaptation and managed delivery | P1 | Active |
-| [GitHub](spec/github.md) | Account connection, repositories, cloning/restoration and mediated credentials | P1 | Active |
-| [Models & Routing](spec/models-and-routing.md) | Target identity, discovery, evidence, reasoning, transport, replay, caching and publication | P1 | Active |
-| [Operators](spec/operators.md) | Packages, catalog/installations, grants, activities, parent capabilities and publication fencing | P0 | Active |
-| [Browser Run](spec/browser-run.md) | Agent-facing remote browser reads and interactive capabilities, separate from Browser IDE | P2 | Active |
-| [Setup & Administration](spec/setup.md) | Bootstrap, deployment-mode configuration, administrative drafts, checks and application | P1 | Active |
-| [Landing](spec/landing.md) | Public website, mode-aware serving, contact pipeline and landing-owned presentation | P1 | Active |
-| [Security](spec/security.md) | Trust boundaries, credential isolation, cryptography, limiting and browser controls | P0 | Active |
-| [Operations](spec/operations.md) | Delivery, artifact integrity, automated verification and promotion gates | P1 | Active |
-| [Memory](spec/memory.md) | Conversation capture, retrieval, preservation and cross-session context | P2 | Active |
+| [Terminal](spec/terminal.md) | PTY/WebSocket, classic/Herdr ownership, MultiView, notifications and mobile compatibility | P0 | Active |
 | [Vault](spec/vault.md) | Notes/editor, ingestion, extraction transactions and knowledge-graph publication | P2 | Active |
-| [Browser IDE](spec/browser-ide.md) | Session-isolated editor, agent/edit transactions, extension continuity and workspace ownership | P2 | Active |
 
 The Operators domain also owns its normative registry/package/capability contract appendix. Concrete wire schemas remain contracts; they are not a separate implementation-phase domain. Enterprise-only conditions remain explicit in their owning requirements rather than forming a catchall specification.
 

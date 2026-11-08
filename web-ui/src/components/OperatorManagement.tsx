@@ -523,20 +523,26 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const inferenceStatus = () => {
     if (inferenceLoading()) return 'Loading your saved inference selection…';
     const value = manualInference();
-    if (!value || value.status === 'unavailable') return 'Selection unavailable — no fallback assumed.';
+    if (!value || value.status === 'unavailable') return 'Selection unavailable: no fallback assumed.';
     if (value.status === 'unconfigured') return value.source === 'pi-native'
-      ? 'Not configured — save a provider and model in your R2 Pi profile.' : 'Not configured — choose a Gateway route for this installation.';
-    if (value.status === 'profile') return 'Saved profile only — next-run eligibility is not established.';
+      ? 'Not configured: save a provider and model in your R2 Pi profile.' : 'Not configured: choose a Gateway route for this installation.';
+    if (value.status === 'profile') return 'Saved profile only: next-run eligibility is not established.';
+    if (value.status === 'blocked' && value.reason === 'policy-denied' && value.source === 'pi-native') {
+      const policies = [operator().policy, installation()?.policy];
+      if (policies.some(policy => !policy?.inference?.allowedSources?.includes('pi-native'))) {
+        return 'Blocked: Native Pi is not approved in both operator and installation restrictions.';
+      }
+    }
     if (value.status === 'blocked') return value.reason === 'invocation-denied'
-      ? 'Blocked — your account does not have invocation permission.'
-      : value.reason === 'installation-disabled' ? 'Blocked — this installation is not enabled for new runs.'
-      : value.reason === 'policy-denied' ? 'Blocked — the saved selection is not approved by current restrictions.'
-      : 'Blocked — the installed configuration is unavailable for execution.';
+      ? 'Blocked: your account does not have invocation permission.'
+      : value.reason === 'installation-disabled' ? 'Blocked: this installation is not enabled for new runs.'
+      : value.reason === 'policy-denied' ? 'Blocked: the saved selection is not approved by current restrictions.'
+      : 'Blocked: the installed configuration is unavailable for execution.';
     return nativeInference() ? 'Native selection' : 'Managed selection';
   };
   const guidedAssessment = () => operator().profile === 'dispatcher' && currentRelease()?.name === 'Renovate Dispatcher'
     && operator().repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
-  const configuredRuns = () => guidedAssessment() && currentRelease()?.intentVersion === '3'
+  const configuredRuns = () => guidedAssessment() && ['3', '4'].includes(currentRelease()?.intentVersion ?? '')
     && operator().source.repositoryId === operator().repositoryId
     && operator().source.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === operator().repositoryUrl.replace(/\.git$/i, '').toLowerCase();
   const [runRepository, setRunRepository] = createSignal('');
@@ -787,7 +793,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
             </label>
           </div>
           <Show when={!validManagedSelection()}><p class="admin-status-text" role="status">The saved Gateway route or reasoning is unavailable in the current verified catalog. Retained without substitution; {managedSelectionEdited() ? 'choose a compatible reasoning level and route, or clear them, before saving.' : 'unchanged choices can be retained when saving unrelated fields.'}</p></Show>
-        <p class="admin-help-text">Save approves only the selected route and explicit reasoning at operator and installation scope. Reasoning approvals are shared with an already-approved Native source. Existing approvals are retained; changed operator permissions disable installed runs. Saving never starts a run.</p>
+        <p class="admin-help-text">Save stores the selected Gateway route and reasoning. Gateway configuration does not restrict Native Pi reasoning, which comes from R2. Existing unrelated configuration is retained. Saving disables new runs and never starts a run.</p>
         <button class="admin-secondary-button" type="submit" disabled={!canChoose() || !managedSelectionEdited() || !validManagedSelection() || !operator().policy.capabilities.includes('inference')}>Save model settings</button>
       </fieldset>{props.feedback('gateway-settings')}</form></details></>}</Show>
       <details class="admin-route-details"><summary>Advanced settings</summary>

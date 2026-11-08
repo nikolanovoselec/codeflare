@@ -26,6 +26,7 @@
  * container-interception.ts (the outbound-HTTPS interception registry wired
  * pre-start).
  */
+import { parseStoredSyncPolicyMode } from '../lib/sync-policy';
 import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
@@ -64,6 +65,7 @@ import {
   ensureVaultKey as configEnsureVaultKey,
   type ContainerHost,
 } from './container-config';
+import { captureMetricsExecution, type MetricsPin } from './container-metrics';
 import { dispatchInternalRoute } from './container-router';
 import { bindReviewSessionHuman, openReviewSessionHuman } from './review-session-human';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -197,6 +199,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   _r2AccessKeyId: string | null = null;
   _r2SecretAccessKey: string | null = null;
   _workspaceSyncEnabled: boolean = false;
+  _syncPolicyMode: import('../lib/sync-policy').SyncPolicyMode = 'exclude';
   _fastStartEnabled: boolean = true;
   _tabConfig: TabConfig[] | null = null;
   _openaiApiKey: string | null = null;
@@ -330,11 +333,18 @@ export class container extends Container<Env> implements ContainerEnvState {
     return true;
   }
 
-  private async monitorExistingRuntime(verifiedByPort = false): Promise<void> {
+  private async monitorExistingRuntime(verifiedByPort = false, expected?: MetricsPin): Promise<void> {
     const runtime = this.ctx.container;
+    const owner = this._bucketName;
+    const session = this._sessionId;
+    const epoch = this._teardownEpoch;
+    const current = () => this.ctx.container === runtime && this._teardownEpoch === epoch
+      && this._bucketName === owner && this._sessionId === session;
     if (!runtime || !this._bucketName || !this._sessionId) return;
     const generation = await this.ctx.storage.get<number>('lifecycleGeneration');
-    if (!generation || !Number.isSafeInteger(generation) || this.monitoredGeneration === generation
+    if (!current() || !generation || !Number.isSafeInteger(generation)
+        || (expected && (expected.ownerKey !== owner || expected.sessionId !== session || expected.generation !== generation))
+        || this.monitoredGeneration === generation
         || (await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY))?.generation === generation) return;
     if (!runtime.running && !verifiedByPort) {
       const token = await this.ctx.storage.get<string>('containerAuthToken');
@@ -346,18 +356,16 @@ export class container extends Container<Env> implements ContainerEnvState {
         if (!response.ok) return;
       } catch { return; } // Probe failure cannot establish process exit.
     }
-    if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return;
-    const owner = this._bucketName;
-    const session = this._sessionId;
+    if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation || !current() || !owner || !session) return;
     this.monitoredGeneration = generation;
     const recordExit = async () => {
       if (this.pendingExit && this.pendingExit.generation > generation) return;
       this.pendingExit = { owner, session, generation };
       try {
-        if (!await this.retryObservedExit()) await this.schedule(60, 'collectMetrics');
+        if (!await this.retryObservedExit() && current()) await this.schedule(60, 'collectMetrics', { ownerKey: owner, sessionId: session, generation });
       } catch (error) {
         this.logger.warn('Container exit confirmation failed', { error: toErrorMessage(error) });
-        try { await this.schedule(60, 'collectMetrics'); } catch (scheduleError) {
+        try { if (current()) await this.schedule(60, 'collectMetrics', { ownerKey: owner, sessionId: session, generation }); } catch (scheduleError) {
           this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
         }
       }
@@ -365,10 +373,10 @@ export class container extends Container<Env> implements ContainerEnvState {
     try {
       const exit = runtime.monitor();
       void exit.then(recordExit, error => {
-        // The pinned SDK 0.3.7 recognizes these explicit exit messages.
+        // Trust explicit exit messages from this attached monitor, including rollouts.
         // Bare numbers, no-instance and transport failures are not proof here.
         const exitCode = error instanceof Error
-          ? /^(?:container exited with unexpected exit code:|runtime signalled the container to exit:)\s*(\d+)$/i.exec(error.message)?.[1]
+          ? /^(?:container exited with unexpected exit code:|runtime signalled the container to exit(?: due to a new version rollout)?:)\s*(\d+)$/i.exec(error.message)?.[1]
           : undefined;
         if (exitCode !== undefined && Number.isSafeInteger(Number(exitCode)) && Number(exitCode) >= 0) {
           void recordExit();
@@ -389,6 +397,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     // Load bucket name from storage on startup and update envVars
     this.ctx.blockConcurrencyWhile(async () => {
       this._bucketName = await this.ctx.storage.get<string>('bucketName') || null;
+      this._syncPolicyMode = parseStoredSyncPolicyMode(await this.ctx.storage.get('syncPolicyMode'));
       const storedWorkspaceSyncEnabled = await this.ctx.storage.get<boolean>('workspaceSyncEnabled');
       if (typeof storedWorkspaceSyncEnabled === 'boolean') {
         this._workspaceSyncEnabled = storedWorkspaceSyncEnabled;
@@ -403,6 +412,9 @@ export class container extends Container<Env> implements ContainerEnvState {
       const storedTerminalMode = await this.ctx.storage.get<TerminalMode>('terminalMode');
       this._terminalMode = storedTerminalMode === 'herdr' ? 'herdr' : 'classic';
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
+      const restoredGeneration = await this.ctx.storage.get<number>('lifecycleGeneration');
+      const restoredPin = this._bucketName && this._sessionId && Number.isSafeInteger(restoredGeneration)
+        ? { ownerKey: this._bucketName, sessionId: this._sessionId, generation: restoredGeneration! } : undefined;
       this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
       this._userEmail = await this.ctx.storage.get<string>('userEmail') || null;
       // Back-compat: older sessions persisted a single string under 'userGroup'.
@@ -498,14 +510,14 @@ export class container extends Container<Env> implements ContainerEnvState {
         if (await this.retryObservedExit()) return;
         const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
         if (evidence && evidence.generation === await this.ctx.storage.get<number>('lifecycleGeneration')) {
-          try { await this.schedule(60, 'collectMetrics'); } catch (scheduleError) {
+          try { if (restoredPin) await this.schedule(60, 'collectMetrics', restoredPin); } catch (scheduleError) {
             this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
           }
           return;
         }
       } catch (error) {
         this.logger.warn('Container exit confirmation retry failed', { error: toErrorMessage(error) });
-        try { await this.schedule(60, 'collectMetrics'); } catch (scheduleError) {
+        try { if (restoredPin) await this.schedule(60, 'collectMetrics', restoredPin); } catch (scheduleError) {
           this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
         }
       }
@@ -734,7 +746,8 @@ export class container extends Container<Env> implements ContainerEnvState {
       // RPC requires ordinary objects, not the safe snapshot's null-prototype dictionaries.
       const cause = captured && typeof captured === 'object' && Object.hasOwn(captured, 'cause')
         ? { cause: JSON.parse(JSON.stringify((captured as Record<string, unknown>).cause)) } : {};
-      return { ok: false, status, message: error.message, stack: error.stack, ...cause };
+      return { ok: false, status, message: error.message, stack: error.stack, ...cause,
+        ...(error.authFailure ? { authFailure: error.authFailure } : {}) };
     }
   }
 
@@ -908,27 +921,48 @@ export class container extends Container<Env> implements ContainerEnvState {
     await super.startAndWaitForPorts(...args);
   }
 
-  async collectMetrics(): Promise<void> {
+  async collectMetrics(delivered?: MetricsPin): Promise<void> {
+    // Capture generation, native runtime and local teardown epoch before any
+    // asynchronous monitor/host observation. A scheduled payload can only join
+    // that exact assignment, never the latest generation returned by D1.
+    const epoch = this._teardownEpoch;
+    const runtime = this.ctx.container;
+    const execution = await captureMetricsExecution(this.ctx, delivered,
+      () => this._teardownEpoch === epoch && this.ctx.container === runtime);
+    if (!execution || !execution.isCurrent()) return;
+    const pin = { ownerKey: execution.ownerKey, sessionId: execution.sessionId, generation: execution.generation };
+    const scheduleExitRetry = async () => {
+      if (execution.isCurrent()) {
+        this.deleteSchedules('collectMetrics');
+        await this.schedule(60, 'collectMetrics', pin);
+      }
+    };
     try {
+      // Positive attached-monitor evidence retains priority over all uncertainty.
       if (await this.retryObservedExit()) return;
       const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-      if (evidence && evidence.generation === await this.ctx.storage.get<number>('lifecycleGeneration')) {
-        await this.schedule(60, 'collectMetrics');
+      if (evidence && evidence.generation === execution.generation) {
+        await scheduleExitRetry();
         return;
       }
     } catch (error) {
       this.logger.warn('Container exit confirmation retry failed', { error: toErrorMessage(error) });
-      try { await this.schedule(60, 'collectMetrics'); } catch (scheduleError) {
+      try { await scheduleExitRetry(); } catch (scheduleError) {
         this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
+        throw scheduleError;
       }
       return;
     }
-    // A failed monitor attachment can be retried on a later healthy tick;
-    // neither its rejection nor a missing SDK running flag is exit evidence.
-    try { await this.monitorExistingRuntime(); } catch (error) {
-      this.logger.warn('Container monitor attachment unavailable', { error: toErrorMessage(error) });
+    if (!execution.isCurrent()) return;
+    // The metrics observation already probes SDK-false runtimes directly; a
+    // second pre-probe here would spend two host budgets on every failure tick.
+    if (execution.runtime.running) {
+      try { await this.monitorExistingRuntime(false, pin); } catch (error) {
+        this.logger.warn('Container monitor attachment unavailable', { error: toErrorMessage(error) });
+      }
     }
-    await lifecycleCollectMetrics(this.lifecycleHost);
+    await lifecycleCollectMetrics(this.lifecycleHost, pin, { ...execution,
+      onHostResponse: () => this.monitorExistingRuntime(true, pin) });
   }
 
   /**

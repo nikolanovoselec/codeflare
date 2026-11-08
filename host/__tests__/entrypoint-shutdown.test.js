@@ -27,6 +27,16 @@ const repoRoot = resolve(__dirname, '../..');
 const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
 const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8');
 
+function syncCompositionFixture() {
+  const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../entrypoint.sh'), 'utf8');
+  const functions = source.slice(source.indexOf('prepare_managed_resource_filter() {'), source.indexOf('# Step 1: One-way sync FROM R2 TO local'));
+  return `${functions}
+MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
+RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery-filters.txt"
+: > "$RECOVERY_FILTER_FILE"
+`;
+}
+
 function extractFunction(name) {
   const lines = entrypoint.split('\n');
   const start = lines.findIndex((line) => new RegExp(`^${name}\\(\\) \\{`).test(line));
@@ -35,7 +45,7 @@ function extractFunction(name) {
   if (end === -1) throw new Error(`Could not locate the end of ${name}()`);
   const body = lines.slice(start, end + 1).join('\n');
   if (['initial_sync_from_r2', 'establish_bisync_baseline', 'bisync_with_r2'].includes(name)) {
-    return `source ${JSON.stringify(resolve(repoRoot, 'scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
+    return `${syncCompositionFixture()}\nsource ${JSON.stringify(resolve(repoRoot, 'scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
   }
   return body;
 }

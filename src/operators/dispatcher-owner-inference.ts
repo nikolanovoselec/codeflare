@@ -55,9 +55,7 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
   for (const policy of inferencePolicies) {
     if (!policy.capabilities.includes('inference')) throw new Error('Owner inference policy denied');
     if (source === 'pi-native') {
-      if (!policy.inference?.allowedSources?.includes('pi-native')
-        || selection && selection.reasoningLevel !== null
-          && !policy.inference.reasoningLevels.includes(selection.reasoningLevel)) {
+      if (!policy.inference?.allowedSources?.includes('pi-native')) {
         throw new Error('Owner native policy denied');
       }
     } else if (policy.inference) {

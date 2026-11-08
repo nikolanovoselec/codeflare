@@ -272,6 +272,8 @@ describe('Claude-equivalent review boundary helpers', () => {
     const surfaces = [
       { name: 'bash', args: { command } },
       { name: 'functions.ctx_execute', args: { language: 'shell', code: command } },
+      { name: 'functions.ctx_execute', args: { language: 'bash', code: command } },
+      { name: 'functions.ctx_batch', args: { commands: [command], queries: ['push'] } },
       { name: 'functions.ctx_batch_execute', args: { commands: [{ label: 'push', command }] } },
     ];
 

@@ -228,19 +228,6 @@
   text-decoration: underline;
 }
 
-.llm-keys-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-
-.llm-keys-actions > [role='alert'] {
-  flex-basis: 100%;
-}
-
 /* Error message */
 .settings-error {
   padding: var(--space-2) 0;
