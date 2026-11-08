@@ -532,6 +532,8 @@ export async function advanceMigration(
   bucketName: string,
   deps: { drainContainers: () => Promise<void>; hasHealthyContainer: () => Promise<boolean> },
 ): Promise<void> {
+  // Keep the existing callback key compatible; callers supply authoritative D1 ownership, not a health hint.
+  const hasOwningContainer = deps.hasHealthyContainer;
   // Hoisted so the catch can release ONLY our own lease (mirrors commit's identity check).
   let myLease: number | undefined;
   try {
@@ -554,11 +556,9 @@ export async function advanceMigration(
       return;
     }
 
-    // D1 (no force-kill): never drain a running session from a background poll. Guards both a normal
-    // migration (a container could have raced /start before the gate engaged) AND a read-triggered
-    // mixed-recovery (which bypasses planRegimeReconcile's health check). If a container is healthy
-    // and we have not drained yet, defer — a later poll runs once the session stops.
-    if (!(state.drained ?? false) && await deps.hasHealthyContainer()) return;
+    // Prior drain progress cannot authorize mutation while a session now owns the bucket.
+    // D1 uncertainty throws into the existing retry path; an unhealthy owner still owns its workload.
+    if (await hasOwningContainer()) return;
 
     // Claim the lease for this chunk; `myLease` is the optimistic-lock value re-checked at commit.
     // Re-read immediately before claiming: another poll may have finished (→ ready) or claimed the
@@ -578,12 +578,15 @@ export async function advanceMigration(
 
     let drained = state.drained ?? false;
     if (!drained) {
-      // Bound the drain so a hung destroy can't blow the waitUntil window. D1 already ensured no
-      // container is healthy, so a timed-out drain is safe to proceed past — the verify-rescan +
-      // read self-heal are the backstop for any straggler.
+      // Preserve bounded best-effort drain recovery, but never treat its failure as ownership proof.
       await withTimeout(deps.drainContainers(), DRAIN_TIMEOUT_MS, 'drainContainers').catch((e) =>
-        logger.warn('drainContainers did not finish in time; proceeding (verify-rescan is the backstop)', { bucketName, error: String(e) }),
+        logger.warn('drainContainers did not finish; rechecking D1 ownership before proceeding', { bucketName, error: String(e) }),
       );
+    }
+    // Recheck after lease admission/drain, including already-drained chunks. Refusal releases our
+    // lease through the existing catch; it must precede multipart aborts and object mutations.
+    if (await hasOwningContainer()) throw new Error('Session workload owns the bucket');
+    if (!drained) {
       await abortInFlightMultiparts(env, bucketName, endpoint);
       drained = true;
     }

@@ -11,7 +11,7 @@
  * canonical description of when the SDK invokes each hook.
  */
 import { createLogger } from '../lib/logger';
-import { toError, toErrorMessage } from '../lib/error-types';
+import { toErrorMessage } from '../lib/error-types';
 import type { Env } from '../types';
 import { D1SessionRepository, type D1Session } from '../lib/session-repository';
 import { fencePendingBoundaryStart } from '../routes/session/boundary-stop';
@@ -52,6 +52,8 @@ export interface LifecycleHost extends ContainerHost {
   lastSeenInputAt: number | null;
   _usageSeconds: number;
   _shutdownStartedAt: number;
+  /** Last assigned generation observed by existing lifecycle reads; diagnostics only, never authority. */
+  _observedLifecycleGeneration?: number | null;
   /** Invalidates an older graceful continuation when KILL or a fresh start wins. */
   _teardownEpoch?: number;
   /** Coalesces provider I/O only; D1 remains the termination authority. */
@@ -62,6 +64,14 @@ export interface LifecycleHost extends ContainerHost {
   deleteSchedules(method: string): void;
   /** Calls super.destroy() on the DO class (SDK teardown). */
   superDestroy(): Promise<void>;
+}
+
+export interface LifecycleLogContext {
+  sessionId: string | null;
+  lifecycleGeneration: number | null;
+  incidentId: string | null;
+  terminationIntentId?: string;
+  reason: 'user' | 'platform' | 'unknown' | 'recovery_expiry';
 }
 
 export interface SessionStopRequest {
@@ -129,6 +139,8 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
   if (!await repository.confirmStoppedOrObserved(bucket, sessionId, generation, intentId, new Date().toISOString())) {
     throw new Error('Confirmed exit could not be persisted');
   }
+  logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
+    incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: intentId, reason: 'user' });
 }
 
 /** Force destruction shares D1 ownership with Stop, but never its graceful I/O. */
@@ -221,6 +233,7 @@ export async function onStart(host: LifecycleHost): Promise<void> {
       assertStartCurrent();
     });
     assertStartCurrent();
+    host._observedLifecycleGeneration = session.lifecycleGeneration;
     host.containerStartedAt = startedAt;
     const observedAt = new Date().toISOString();
     if (!await repository.project(ownerKey, sessionId, session.lifecycleGeneration, 0, {
@@ -236,6 +249,7 @@ export async function onStart(host: LifecycleHost): Promise<void> {
     if (persistedGeneration !== session.lifecycleGeneration) {
       throw new Error('D1 start generation replay unavailable');
     }
+    host._observedLifecycleGeneration = session.lifecycleGeneration;
     const persistedStartedAt = await host.ctx.storage.get<number>('containerStartedAt');
     assertEntryCurrent();
     host.containerStartedAt = typeof persistedStartedAt === 'number'
@@ -330,7 +344,7 @@ async function terminateUnreachable(host: LifecycleHost, observed: D1Session, ex
       const confirmed = await bounded(repository.confirmStoppedOrObserved(ownerKey, sessionId, generation, intentId,
         new Date(Date.now()).toISOString()));
       if (!confirmed) throw new Error('Confirmed recovery exit could not be persisted');
-      host.logger.info('process_exit_confirmed', { ...evidence, reason: 'native_destroy_completed' });
+      host.logger.info('process_exit_confirmed', { ...evidence, reason: 'recovery_expiry' });
     });
     host._unreachableDestroy = { generation, intentId, completion };
     void completion.catch(() => {
@@ -426,10 +440,14 @@ async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number, auth
     // The host reports its own reason in the body ({ synced, reason }); capture
     // it for the audit so a 504/'timeout' or 'bisync-failed' is distinguishable.
     let reason: string | undefined;
-    try { reason = ((await res.json()) as { reason?: string }).reason; } catch { /* body may be empty */ }
+    try {
+      const candidate = ((await res.json()) as { reason?: unknown }).reason;
+      // Preserve the host's existing outcome codes, never arbitrary response content.
+      if (typeof candidate === 'string' && ['disk-space-blocked', 'daemon-not-running', 'bisync-failed', 'timeout'].includes(candidate)) reason = candidate;
+    } catch { /* body may be empty */ }
     return { outcome: res.ok ? 'completed' : 'incomplete', httpStatus: res.status, reason };
-  } catch (err) {
-    return { outcome: 'errored', reason: toError(err).message };
+  } catch {
+    return { outcome: 'errored', reason: 'final-sync-failed' };
   }
 }
 
@@ -437,20 +455,29 @@ async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number, auth
 // outcome under FINAL_SYNC_AUDIT_KEY (same durable store SHUTDOWN_REQUESTED_KEY
 // uses, so it survives the destroy and is observable by a later incarnation /
 // tests) and log it (info on success, warn otherwise).
-async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult, sessionId: string | null): Promise<void> {
+async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult, context: LifecycleLogContext): Promise<void> {
   // sessionId is captured by destroy() before the storage-clear nulls it, so a
   // non-completed final sync stays correlatable to the deleted session in logs.
   const event: {
     outcome: FinalSyncOutcome; at: number; running: boolean;
-    sessionId?: string; httpStatus?: number; reason?: string;
+    sessionId?: string; lifecycleGeneration?: number; incidentId?: string | null;
+    terminationIntentId?: string; httpStatus?: number; reason?: string;
   } = { outcome: result.outcome, at: Date.now(), running: host.ctx.container?.running ?? false };
-  if (sessionId) event.sessionId = sessionId;
+  if (context.sessionId) event.sessionId = context.sessionId;
+  if (context.lifecycleGeneration !== null) {
+    event.lifecycleGeneration = context.lifecycleGeneration;
+    event.incidentId = context.incidentId;
+    if (context.terminationIntentId) event.terminationIntentId = context.terminationIntentId;
+  }
   if (result.httpStatus !== undefined) event.httpStatus = result.httpStatus;
   if (result.reason) event.reason = result.reason;
+  // The durable audit's reason remains an outcome code; the transition's reason is its initiator.
+  const transition = { ...event, ...context,
+    ...(result.outcome !== 'completed' ? { errorClass: result.reason ?? 'final_sync_incomplete' } : {}) };
   if (result.outcome === 'completed') {
-    host.logger.info('Final sync audit (teardown)', event);
+    host.logger.info('Final sync audit (teardown)', transition);
   } else {
-    host.logger.warn('Final sync did NOT complete on teardown', event);
+    host.logger.warn('Final sync did NOT complete on teardown', transition);
   }
   try { await host.ctx.storage.put(FINAL_SYNC_AUDIT_KEY, event); } catch { /* storage racing teardown */ }
 }
@@ -463,7 +490,10 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
  * identifiers are cleared first so any onStop() racing the exit cannot
  * resurrect the KV entry (REQ-SESSION-009).
  */
-export async function destroy(host: LifecycleHost): Promise<void> {
+export async function destroy(host: LifecycleHost, context?: LifecycleLogContext): Promise<void> {
+  const diagnostic: LifecycleLogContext = context ? { ...context } : {
+    sessionId: host._sessionId, lifecycleGeneration: host._observedLifecycleGeneration ?? null, incidentId: null, reason: 'unknown',
+  };
   const epoch = host._teardownEpoch = (host._teardownEpoch ?? 0) + 1;
   const assertCurrent = () => {
     if (host._teardownEpoch !== epoch) throw new Error('Graceful teardown superseded');
@@ -492,15 +522,15 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // Fence protected admissions before any teardown I/O yields. Cleanup failures
   // do not prevent the existing bounded final sync and guaranteed stop path.
   try { await withinDeadline(() => host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, start)); }
-  catch (err) { host.logger.warn('Shutdown fence could not be persisted', { error: toError(err).message }); }
+  catch { host.logger.warn('Shutdown fence could not be persisted', { ...diagnostic, errorClass: 'shutdown_fence_failed' }); }
   try { await withinDeadline(() => discardReviewSessionHuman(host as unknown as Parameters<typeof discardReviewSessionHuman>[0])); }
-  catch (err) { host.logger.warn('Review authority cleanup failed', { error: toError(err).message }); }
+  catch { host.logger.warn('Review authority cleanup failed', { ...diagnostic, errorClass: 'review_cleanup_failed' }); }
   try { await withinDeadline(() => host.ctx.storage.delete(['review:boundary-input', 'review:push-evidence', 'review:pr-creation'])); }
-  catch (err) { host.logger.warn('Boundary input cleanup failed', { error: toError(err).message }); }
+  catch { host.logger.warn('Boundary input cleanup failed', { ...diagnostic, errorClass: 'boundary_cleanup_failed' }); }
   host.logger.info('Destroying container, clearing operational storage');
   // Capture the session id BEFORE the storage-clear below nulls host._sessionId,
   // so the final-sync audit (recorded after the drain) stays correlatable.
-  const auditSessionId = host._sessionId;
+  // diagnostic retains the original identity before operational memory is cleared.
   // Capture the container auth token BEFORE the clear deletes it from storage
   // and nulls the in-memory copy: the final-sync drain runs AFTER the clear and
   // must authenticate against the in-container host or it 401s and the session
@@ -531,8 +561,8 @@ export async function destroy(host: LifecycleHost): Promise<void> {
       Math.max(0, Math.min(CONTAINER_POLL_BUDGET_MS, hardKillMs - (Date.now() - start))),
       auditAuthToken,
     ));
-  } catch (err) {
-    host.logger.warn('Final agent event drain exceeded teardown deadline', { error: toError(err).message });
+  } catch {
+    host.logger.warn('Final agent event drain exceeded teardown deadline', { ...diagnostic, errorClass: 'final_event_drain_failed' });
   }
 
   // Lifecycle remains stopping until destroy() returns confirmed process-exit evidence.
@@ -547,8 +577,8 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     assertCurrent();
     clearOperationalMemory(host);
     host.logger.info('Operational storage cleared');
-  } catch (err) {
-    host.logger.error('Failed to clear storage', toError(err));
+  } catch {
+    host.logger.error('Failed to clear storage', undefined, { ...diagnostic, errorClass: 'operational_cleanup_failed' });
   }
 
   // REQ-SESSION-011 + #516: ALWAYS attempt the final drain on a deliberate
@@ -580,13 +610,13 @@ export async function destroy(host: LifecycleHost): Promise<void> {
       Math.max(1, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start))),
       auditAuthToken,
     ));
-  } catch (err) {
-    syncResult = { outcome: 'errored', reason: toError(err).message };
+  } catch {
+    syncResult = { outcome: 'errored', reason: 'teardown-deadline-exhausted' };
   }
   try {
-    await withinDeadline(() => recordFinalSyncAudit(host, syncResult, auditSessionId));
-  } catch (err) {
-    host.logger.warn('Final sync audit exceeded teardown deadline', { error: toError(err).message });
+    await withinDeadline(() => recordFinalSyncAudit(host, syncResult, diagnostic));
+  } catch {
+    host.logger.warn('Final sync audit exceeded teardown deadline', { ...diagnostic, errorClass: 'final_sync_audit_failed' });
   }
 
   assertCurrent();
@@ -611,8 +641,8 @@ export async function destroy(host: LifecycleHost): Promise<void> {
       } else {
         host.logger.info('Graceful shutdown complete', { elapsed });
       }
-    } catch (err) {
-      host.logger.warn('Graceful shutdown failed, falling back to SIGKILL', { error: toError(err).message });
+    } catch {
+      host.logger.warn('Graceful shutdown failed, falling back to SIGKILL', { ...diagnostic, errorClass: 'graceful_stop_failed' });
     }
   }
 
@@ -624,17 +654,17 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   const superDestroyPromise = host.superDestroy();
   const remaining = hardKillMs - (Date.now() - start);
   if (remaining <= 0) {
-    void superDestroyPromise.catch((err) => {
-      host.logger.warn('Forced destroy failed after teardown deadline', { error: toError(err).message });
+    void superDestroyPromise.catch(() => {
+      host.logger.warn('Forced destroy failed after teardown deadline', { ...diagnostic, errorClass: 'native_destroy_failed' });
     });
     const deadlineError = new Error('teardown deadline exceeded');
-    host.logger.warn('Forced destroy failed or exceeded teardown deadline', { error: deadlineError.message });
+    host.logger.warn('Forced destroy failed or exceeded teardown deadline', { ...diagnostic, errorClass: 'teardown_deadline_exceeded' });
     throw deadlineError;
   }
   try {
     await withinDeadline(() => superDestroyPromise);
   } catch (err) {
-    host.logger.warn('Forced destroy failed or exceeded teardown deadline', { error: toError(err).message });
+    host.logger.warn('Forced destroy failed or exceeded teardown deadline', { ...diagnostic, errorClass: 'native_destroy_failed' });
     throw err;
   }
 }
@@ -650,10 +680,13 @@ export async function confirmMonitoredExit(
   ownerKey: string,
   sessionId: string,
   generation: number,
+  reason: 'platform' | 'unknown' = 'unknown',
+  onObservation?: (incidentId: string | null) => void,
 ): Promise<boolean> {
   const repository = new D1SessionRepository(env.USAGE_DB);
   const current = await repository.getSession(ownerKey, sessionId);
   if (!current || current.lifecycleGeneration !== generation || current.lifecycleState === 'stopped') return false;
+  onObservation?.(current.unreachableIncidentId ?? null);
   const intentId = current.lifecycleState === 'stopping'
     ? current.terminationIntentId
     : `monitored-exit-${generation}`;
@@ -669,7 +702,7 @@ export async function confirmMonitoredExit(
   const confirmed = await repository.confirmStopped(ownerKey, sessionId, generation, intentId, new Date().toISOString());
   if (confirmed) {
     logger.info('process_exit_confirmed', { sessionId, lifecycleGeneration: generation,
-      incidentId: current.unreachableIncidentId, terminationIntentId: intentId, reason: 'attached_monitor' });
+      incidentId: current.unreachableIncidentId ?? null, terminationIntentId: intentId, reason });
     try {
       // A replacement may claim a new generation while the exit callback
       // completes. Never fence or discard authority belonging to the replacement.
@@ -725,17 +758,22 @@ export async function onStop(host: LifecycleHost): Promise<void> {
 
 /** Called when the container encounters an error. */
 export async function onError(host: LifecycleHost, error: unknown): Promise<void> {
+  // The raw message remains local for existing retry timing, never serialized with its stack/content.
   const errorMessage = toErrorMessage(error);
-  host.logger.error('Container error', error instanceof Error ? error : new Error(errorMessage));
+  const logError = (execution?: MetricsExecution | null) => host.logger.error('Container error', undefined, {
+    sessionId: execution?.sessionId ?? host._sessionId, lifecycleGeneration: execution?.generation ?? null,
+    incidentId: null, reason: 'unknown', errorClass: 'sdk_error',
+  });
 
   // A rejected SDK monitor is not a host observation or an exit. Re-arm the
   // same pinned no-start probe; only its complete failure may open D1 unreachable.
   let execution: MetricsExecution | null;
   const epoch = host._teardownEpoch;
   try {
-    if (typeof await host.ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') return;
+    if (typeof await host.ctx.storage.get(SHUTDOWN_REQUESTED_KEY) === 'number') { logError(); return; }
     execution = await captureMetricsExecution(host.ctx, undefined, () => host._teardownEpoch === epoch);
-  } catch { return; }
+  } catch { logError(); return; }
+  logError(execution);
   if (!execution || !execution.isCurrent()) return;
   if (!execution.runtime.running) await openNotRunningConfirmation(host.ctx);
   const delay = errorMessage.toLowerCase().includes('network connection lost') ? 5 : 60;
@@ -744,7 +782,7 @@ export async function onError(host: LifecycleHost, error: unknown): Promise<void
     await host.schedule(delay, 'collectMetrics', { ownerKey: execution.ownerKey,
       sessionId: execution.sessionId, generation: execution.generation });
   } catch (scheduleError) {
-    host.logger.error('Container error retry alarm unavailable', toError(scheduleError), {
+    host.logger.error('Container error retry alarm unavailable', undefined, {
       sessionId: execution.sessionId, lifecycleGeneration: execution.generation,
       incidentId: null, errorClass: 'schedule_failed',
     });

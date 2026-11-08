@@ -471,6 +471,28 @@ describe('REQ-ENTERPRISE-020 AC3: ancillary poll drives the real migration engin
   });
 });
 
+describe('REQ-SESSION-026 AC4: ancillary migration respects D1 workload ownership', () => {
+  it.each(['starting', 'running', 'unreachable', 'stopping'] as const)('keeps policy drift pending while a %s session owns the bucket', async status => {
+    const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+    const originalObjects = structuredClone([...r2.store]);
+    const kv = createMockKV();
+    kv._store.set('setup:r2_sse_disabled', 'active');
+    kv._set('session:bkt:session01', { id: 'session01', userId: 'bkt', name: 'Owned workload', status,
+      lifecycleGeneration: 1, createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z' });
+    const app = createTestApp({ routes: [{ path: '/sessions', handler: lifecycleRoutes }], mockKV: kv,
+      bucketName: 'bkt', envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct', SAAS_MODE: 'false' } });
+    const work: Promise<unknown>[] = [];
+    const response = await app.request('/sessions/ancillary-status', {}, undefined, {
+      waitUntil: (task: Promise<unknown>) => { work.push(task); }, passThroughOnException: () => {},
+    } as ExecutionContext);
+    await Promise.all(work);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ bucketMigrating: false, bucketMigrationPending: true });
+    expect([...r2.store]).toEqual(originalObjects);
+    expect(await getRegimeState({ KV: kv } as unknown as Env, 'bkt')).toMatchObject({ status: 'ready', regime: 'sse-c', generation: 0 });
+  });
+});
+
 // Existing lower-level driver cases remain independent of route orchestration.
 describe('advanceMigration (chunked, verified, self-healing)', () => {
   const drainNoop = { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) };
@@ -680,6 +702,119 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
 
     expect(deps.drainContainers).not.toHaveBeenCalled(); // no force-kill
     expect(JSON.parse(store.get('r2-regime:bkt')!).status).toBe('migrating'); // deferred, not advanced
+  });
+
+  it.each(['held', 'unavailable'] as const)(
+    'REQ-SESSION-026 AC4: an already-drained chunk retains objects when ownership is %s', async authority => {
+      const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+      const originalObjects = structuredClone([...r2.store]);
+      const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c',
+        from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: true }) });
+
+      await advanceMigration(driverEnv(kv), 'bkt', {
+        drainContainers: async () => {},
+        hasHealthyContainer: async () => {
+          if (authority === 'unavailable') throw new Error('Ownership unavailable');
+          return true;
+        },
+      });
+
+      expect([...r2.store]).toEqual(originalObjects);
+      expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({
+        status: 'migrating', regime: 'sse-c', generation: 4, drained: true,
+      });
+    },
+  );
+
+  it.each(['held', 'unavailable'] as const)(
+    'REQ-SESSION-026 AC4: an already-drained chunk rechecks %s ownership acquired during admission', async authority => {
+      const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+      const originalObjects = structuredClone([...r2.store]);
+      const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c',
+        from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: true }) });
+      let ownershipChanged = false;
+      await advanceMigration(driverEnv(kv), 'bkt', {
+        drainContainers: async () => {},
+        hasHealthyContainer: async () => {
+          if (!ownershipChanged) { ownershipChanged = true; return false; }
+          if (authority === 'unavailable') throw new Error('Ownership unavailable');
+          return true;
+        },
+      });
+      expect([...r2.store]).toEqual(originalObjects);
+      const state = await getRegimeState(driverEnv(kv), 'bkt');
+      expect(state).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 4, drained: true });
+      expect(state.leaseExpiresAt).toBeUndefined();
+    },
+  );
+
+  it.each(['held', 'unavailable'] as const)(
+    'REQ-SESSION-026 AC4: a drain-time %s ownership refusal retains multipart uploads and object regime', async authority => {
+      const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+      const originalObjects = structuredClone([...r2.store]);
+      const uploads = new Set(['upload-1']);
+      mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'GET' && url.includes('uploads')) {
+          return new Response('<ListMultipartUploadsResult>' + [...uploads].map(id =>
+            `<Upload><Key>pending.md</Key><UploadId>${id}</UploadId></Upload>`).join('') + '</ListMultipartUploadsResult>');
+        }
+        if (init?.method === 'DELETE' && new URL(url).searchParams.get('uploadId') === 'upload-1') {
+          uploads.delete('upload-1');
+          return new Response(null, { status: 204 });
+        }
+        return r2.fetch(url, init);
+      });
+      const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c',
+        from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: false }) });
+
+      let ownershipChanged = false;
+      await advanceMigration(driverEnv(kv), 'bkt', {
+        hasHealthyContainer: async () => {
+          if (!ownershipChanged) return false;
+          if (authority === 'unavailable') throw new Error('Ownership unavailable');
+          return true;
+        },
+        drainContainers: async () => {
+          ownershipChanged = true;
+          throw new Error('Provider drain failed after ownership changed');
+        },
+      });
+
+      expect(uploads.has('upload-1')).toBe(true);
+      expect([...r2.store]).toEqual(originalObjects);
+      const state = await getRegimeState(driverEnv(kv), 'bkt');
+      expect(state).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 4, drained: false });
+      expect(state.leaseExpiresAt).toBeUndefined();
+      expect(state.lastError).toBeTruthy();
+    },
+  );
+
+  it('REQ-SESSION-026 AC4: an ownership refusal releases its lease so a later authorized poll can finish', async () => {
+    const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c',
+      from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: false }) });
+    let refuseDrain = true;
+    let ownershipUnavailable = false;
+    const deps = {
+      hasHealthyContainer: async () => {
+        if (ownershipUnavailable) throw new Error('Ownership unavailable');
+        return false;
+      },
+      drainContainers: async () => {
+        if (refuseDrain) {
+          ownershipUnavailable = true;
+          throw new Error('Provider drain failed');
+        }
+      },
+    };
+    await advanceMigration(driverEnv(kv), 'bkt', deps);
+    expect(r2.store.get('owned.md')?.regime).toBe('sse-c');
+    expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({ status: 'migrating', generation: 4 });
+
+    refuseDrain = false;
+    ownershipUnavailable = false;
+    expect(await runToReady(kv, deps)).toMatchObject({ status: 'ready', regime: 'plain', generation: 5 });
+    expect(r2.store.get('owned.md')?.regime).toBe('plain');
   });
 
   it('an oversized object does not wedge the migration — verify skips it and the bucket reaches ready', async () => {

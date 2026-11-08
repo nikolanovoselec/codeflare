@@ -83,6 +83,7 @@ import {
   onStop as lifecycleOnStop,
   onError as lifecycleOnError,
   type LifecycleHost,
+  type LifecycleLogContext,
 } from './container-lifecycle';
 
 export { validateBucketNameInput };
@@ -275,6 +276,8 @@ export class container extends Container<Env> implements ContainerEnvState {
    * Public so container-lifecycle.ts can read/write it via LifecycleHost.
    */
   _shutdownStartedAt = 0;
+  /** Diagnostic identity from existing lifecycle reads, never permission for an effect. */
+  _observedLifecycleGeneration: number | null = null;
   _teardownEpoch = 0;
   /** Monotonic usage counter (seconds) - sent to Timekeeper for delta computation */
   _usageSeconds = 0;
@@ -285,7 +288,11 @@ export class container extends Container<Env> implements ContainerEnvState {
   private pendingExit: ExitEvidence | null = null;
   private static readonly EXIT_OBSERVED_KEY = 'monitoredExitGeneration';
 
-  private async retryObservedExit(): Promise<boolean> {
+  private async retryObservedExit(
+    reason: 'platform' | 'unknown' = 'unknown',
+    onObservation?: (incidentId: string | null) => void,
+    expected?: MetricsPin,
+  ): Promise<boolean> {
     const pending = this.pendingExit;
     if (pending) {
       const persisted = await this.ctx.storage.transaction(async (txn) => {
@@ -317,7 +324,10 @@ export class container extends Container<Env> implements ContainerEnvState {
       });
       return false;
     }
-    const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation);
+    const matchesExpected = !expected || (expected.ownerKey === owner
+      && expected.sessionId === session && expected.generation === generation);
+    const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation,
+      matchesExpected ? reason : 'unknown', matchesExpected ? onObservation : undefined);
     if (!confirmed) {
       const current = await new D1SessionRepository(this.env.USAGE_DB).getSession(owner, session);
       if (current?.lifecycleState !== 'stopped' || current.lifecycleGeneration !== generation) return false;
@@ -330,6 +340,48 @@ export class container extends Container<Env> implements ContainerEnvState {
     });
     if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
     this.monitoredGeneration = generation;
+    return true;
+  }
+
+  /** Share captured retry context without a logging-only authority read. */
+  private async reconcileObservedExit(
+    pin: MetricsPin | undefined,
+    current: () => boolean,
+    replaceSchedule = false,
+    reason?: 'platform' | 'unknown',
+  ): Promise<boolean> {
+    let incidentId: string | null = null;
+    let retry = false;
+    try {
+      if (await this.retryObservedExit(reason ?? 'unknown', observed => { incidentId = observed; }, pin)) return true;
+      const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+      retry = reason !== undefined || (!!evidence && evidence.generation === pin?.generation);
+    } catch {
+      this.logger.warn('Container exit confirmation retry failed', {
+        sessionId: pin?.sessionId ?? null, lifecycleGeneration: pin?.generation ?? null,
+        incidentId, errorClass: 'exit_confirmation_failed',
+      });
+      retry = true;
+    }
+    if (!retry || !pin) return false;
+    if (current()) {
+      const schedule = async () => {
+        if (replaceSchedule) this.deleteSchedules('collectMetrics');
+        await this.schedule(60, 'collectMetrics', pin);
+      };
+      const logFailure = () => this.logger.error('Container exit retry alarm unavailable', undefined, {
+        sessionId: pin.sessionId, lifecycleGeneration: pin.generation, incidentId, errorClass: 'schedule_failed',
+      });
+      try { await schedule(); }
+      catch (error) {
+        logFailure();
+        // Preserve the existing warm monitor/metrics second chance for a transient scheduler failure.
+        if (current() && (replaceSchedule || reason !== undefined)) {
+          try { await schedule(); }
+          catch (retryError) { logFailure(); throw retryError; }
+        } else throw error;
+      }
+    }
     return true;
   }
 
@@ -358,36 +410,34 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
     if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation || !current() || !owner || !session) return;
     this.monitoredGeneration = generation;
-    const recordExit = async () => {
+    const recordExit = (reason: 'platform' | 'unknown') => {
       if (this.pendingExit && this.pendingExit.generation > generation) return;
       this.pendingExit = { owner, session, generation };
-      try {
-        if (!await this.retryObservedExit() && current()) await this.schedule(60, 'collectMetrics', { ownerKey: owner, sessionId: session, generation });
-      } catch (error) {
-        this.logger.warn('Container exit confirmation failed', { error: toErrorMessage(error) });
-        try { if (current()) await this.schedule(60, 'collectMetrics', { ownerKey: owner, sessionId: session, generation }); } catch (scheduleError) {
-          this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
-        }
-      }
+      // Own finite work after positive exit observation, not the monitor's lifetime.
+      this.ctx.waitUntil(this.reconcileObservedExit(
+        { ownerKey: owner, sessionId: session, generation }, current, false, reason));
     };
     try {
       const exit = runtime.monitor();
-      void exit.then(recordExit, error => {
+      void exit.then(() => recordExit('unknown'), error => {
         // Trust explicit exit messages from this attached monitor, including rollouts.
         // Bare numbers, no-instance and transport failures are not proof here.
         const exitCode = error instanceof Error
           ? /^(?:container exited with unexpected exit code:|runtime signalled the container to exit(?: due to a new version rollout)?:)\s*(\d+)$/i.exec(error.message)?.[1]
           : undefined;
         if (exitCode !== undefined && Number.isSafeInteger(Number(exitCode)) && Number(exitCode) >= 0) {
-          void recordExit();
+          recordExit(error instanceof Error && /^runtime signalled the container to exit due to a new version rollout:/i.test(error.message)
+            ? 'platform' : 'unknown');
           return;
         }
         if (this.monitoredGeneration === generation) this.monitoredGeneration = null;
-        this.logger.warn('Container monitor failed', { error: toErrorMessage(error) });
+        this.logger.warn('Container monitor failed', { sessionId: session, lifecycleGeneration: generation,
+          incidentId: null, errorClass: 'monitor_failed' });
       });
-    } catch (error) {
+    } catch {
       this.monitoredGeneration = null;
-      this.logger.warn('Container monitor registration failed', { error: toErrorMessage(error) });
+      this.logger.warn('Container monitor registration failed', { sessionId: session, lifecycleGeneration: generation,
+        incidentId: null, errorClass: 'monitor_registration_failed' });
     }
   }
 
@@ -413,6 +463,8 @@ export class container extends Container<Env> implements ContainerEnvState {
       this._terminalMode = storedTerminalMode === 'herdr' ? 'herdr' : 'classic';
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
       const restoredGeneration = await this.ctx.storage.get<number>('lifecycleGeneration');
+      this._observedLifecycleGeneration = restoredGeneration !== undefined && Number.isSafeInteger(restoredGeneration) && restoredGeneration >= 0
+        ? restoredGeneration : null;
       const restoredPin = this._bucketName && this._sessionId && Number.isSafeInteger(restoredGeneration)
         ? { ownerKey: this._bucketName, sessionId: this._sessionId, generation: restoredGeneration! } : undefined;
       this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
@@ -468,9 +520,9 @@ export class container extends Container<Env> implements ContainerEnvState {
         const r2Config = await getR2Config(this.env);
         this._r2AccountId = r2Config.accountId;
         this._r2Endpoint = r2Config.endpoint;
-      } catch (err) {
+      } catch {
         this.logger.warn('R2 config not available, will use empty values in envVars', {
-          error: toErrorMessage(err),
+          errorClass: 'r2_config_unavailable',
         });
       }
 
@@ -506,22 +558,13 @@ export class container extends Container<Env> implements ContainerEnvState {
         await refreshMcpPortalConfiguration(this.host);
         this.updateEnvVars();
       }
-      try {
-        if (await this.retryObservedExit()) return;
-        const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-        if (evidence && evidence.generation === await this.ctx.storage.get<number>('lifecycleGeneration')) {
-          try { if (restoredPin) await this.schedule(60, 'collectMetrics', restoredPin); } catch (scheduleError) {
-            this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
-          }
-          return;
-        }
-      } catch (error) {
-        this.logger.warn('Container exit confirmation retry failed', { error: toErrorMessage(error) });
-        try { if (restoredPin) await this.schedule(60, 'collectMetrics', restoredPin); } catch (scheduleError) {
-          this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
-        }
-      }
-      await this.monitorExistingRuntime();
+      const restoration = (async () => {
+        if (await this.reconcileObservedExit(restoredPin, () => true)) return;
+        await this.monitorExistingRuntime();
+      })();
+      this.ctx.waitUntil(restoration);
+      // Keep startup usable while the required operation retains its DO-owned rejection.
+      await restoration.catch(() => undefined);
     });
   }
 
@@ -934,34 +977,15 @@ export class container extends Container<Env> implements ContainerEnvState {
       () => this._teardownEpoch === epoch && this.ctx.container === runtime);
     if (!execution || !execution.isCurrent()) return;
     const pin = { ownerKey: execution.ownerKey, sessionId: execution.sessionId, generation: execution.generation };
-    const scheduleExitRetry = async () => {
-      if (execution.isCurrent()) {
-        this.deleteSchedules('collectMetrics');
-        await this.schedule(60, 'collectMetrics', pin);
-      }
-    };
-    try {
-      // Positive attached-monitor evidence retains priority over all uncertainty.
-      if (await this.retryObservedExit()) return;
-      const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-      if (evidence && evidence.generation === execution.generation) {
-        await scheduleExitRetry();
-        return;
-      }
-    } catch (error) {
-      this.logger.warn('Container exit confirmation retry failed', { error: toErrorMessage(error) });
-      try { await scheduleExitRetry(); } catch (scheduleError) {
-        this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
-        throw scheduleError;
-      }
-      return;
-    }
+    // This public call owns its rejection; future callbacks/restoration use waitUntil instead.
+    if (await this.reconcileObservedExit(pin, execution.isCurrent, true)) return;
     if (!execution.isCurrent()) return;
     // The metrics observation already probes SDK-false runtimes directly; a
     // second pre-probe here would spend two host budgets on every failure tick.
     if (execution.runtime.running) {
-      try { await this.monitorExistingRuntime(false, pin); } catch (error) {
-        this.logger.warn('Container monitor attachment unavailable', { error: toErrorMessage(error) });
+      try { await this.monitorExistingRuntime(false, pin); } catch {
+        this.logger.warn('Container monitor attachment unavailable', { sessionId: pin.sessionId,
+          lifecycleGeneration: pin.generation, incidentId: null, errorClass: 'monitor_attachment_failed' });
       }
     }
     await lifecycleCollectMetrics(this.lifecycleHost, pin, { ...execution,
@@ -975,11 +999,15 @@ export class container extends Container<Env> implements ContainerEnvState {
    * full rationale.
    */
   override async destroy(): Promise<void> {
+    await this.destroyWithContext();
+  }
+
+  private async destroyWithContext(context?: LifecycleLogContext): Promise<void> {
     if (this.sessionKillInFlight) {
       await this.sessionKillInFlight.completion;
       return;
     }
-    await lifecycleDestroy(this.lifecycleHost);
+    await lifecycleDestroy(this.lifecycleHost, context);
   }
 
   /** Own claim through confirmation even if the invoking Worker disconnects. */
@@ -1000,9 +1028,10 @@ export class container extends Container<Env> implements ContainerEnvState {
     const epoch = this._teardownEpoch;
     // Register the entire operation before any I/O, including its claim.
     const completion: Promise<void> = Promise.resolve().then(() =>
-      lifecycleStopSession(this.env, input, () => {
+      lifecycleStopSession(this.env, input, owned => {
         if (this._teardownEpoch !== epoch) throw new Error('Session stop superseded');
-        return this.destroy();
+        return this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
+          incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user' });
       })
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { getBucketName } from '../../lib/access';
+import { createLogger, type Logger } from '../../lib/logger';
 import { env, runInDurableObject } from 'cloudflare:test';
 import type { DurableObject as NativeDurableObject } from 'cloudflare:workers';
 import { OperatorActivity } from '../../operators/activity';
@@ -9,6 +10,7 @@ import { OperatorActivity } from '../../operators/activity';
 // Shared, hoisted call-order log so the mocked base Container can record when
 // super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
 // by the REQ-ENTERPRISE-004 pre-start interception-ordering test below.
+const lifecycleSerialization = vi.hoisted(() => ({ enabled: false }));
 const { callOrder, scanRuntime } = vi.hoisted(() => ({ callOrder: [] as string[],
   scanRuntime: { enabled: false, result: null as unknown } }));
 vi.mock('../../operators/runtime', async importOriginal => ({
@@ -50,14 +52,22 @@ vi.mock('../../lib/r2-config', () => ({
   getR2Config: vi.fn().mockResolvedValue({ accountId: 'test-account', endpoint: 'https://r2.test' }),
 }));
 
-vi.mock('../../lib/logger', () => ({
-  createLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  })),
-}));
+vi.mock('../../lib/logger', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/logger')>();
+  return {
+    ...actual,
+    createLogger: vi.fn((...args: Parameters<typeof actual.createLogger>) => {
+      const real = actual.createLogger(...args);
+      return {
+        debug: vi.fn((...values: Parameters<typeof real.debug>) => { if (lifecycleSerialization.enabled) real.debug(...values); }),
+        info: vi.fn((...values: Parameters<typeof real.info>) => { if (lifecycleSerialization.enabled) real.info(...values); }),
+        warn: vi.fn((...values: Parameters<typeof real.warn>) => { if (lifecycleSerialization.enabled) real.warn(...values); }),
+        error: vi.fn((...values: Parameters<typeof real.error>) => { if (lifecycleSerialization.enabled) real.error(...values); }),
+        child: vi.fn().mockReturnThis(),
+      };
+    }),
+  };
+});
 
 // Mock the @cloudflare/containers module
 vi.mock('@cloudflare/containers', () => ({
@@ -136,6 +146,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     storage: typeof mockStorage;
     id: { toString: () => string };
     blockConcurrencyWhile: ReturnType<typeof vi.fn>;
+    waitUntil: ReturnType<typeof vi.fn>;
     container: typeof mockContainerRuntime;
   };
   let mockEnv: any;
@@ -165,6 +176,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       storage: mockStorage,
       id: { toString: () => 'test-do-id-hex' },
       blockConcurrencyWhile: vi.fn(async (fn: () => Promise<void>) => fn()),
+      waitUntil: vi.fn(),
       container: mockContainerRuntime,
     };
     mockEnv = {
@@ -175,6 +187,26 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       KV: { get: vi.fn().mockResolvedValue(null) },
     };
   });
+
+  async function captureLifecycleSerialization() {
+    const { setLogLevel } = await import('../../lib/logger');
+    const lines: string[] = [];
+    const capture = (value: unknown) => { lines.push(String(value)); };
+    const log = vi.spyOn(console, 'log').mockImplementation(capture);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(capture);
+    const error = vi.spyOn(console, 'error').mockImplementation(capture);
+    setLogLevel('info');
+    lifecycleSerialization.enabled = true;
+    return {
+      lines,
+      entries: () => lines.map(line => JSON.parse(line) as { message: string; data?: Record<string, unknown> }),
+      restore: () => {
+        lifecycleSerialization.enabled = false;
+        setLogLevel('silent');
+        log.mockRestore(); warn.mockRestore(); error.mockRestore();
+      },
+    };
+  }
 
   describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     function scheduler(interval = 900) {
@@ -1556,6 +1588,239 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       return instance;
     }
 
+    function observeOwnedExitWork() {
+      const rejected: unknown[] = [];
+      const emitted: Array<{ level: string; message: string; data: Record<string, unknown> }> = [];
+      // Handle the actual promise registered with the DO owner immediately.
+      mockCtx.waitUntil.mockImplementation((completion: Promise<unknown>) => {
+        void Promise.resolve(completion).then(() => undefined, error => { rejected.push(error); });
+      });
+      const logger = (context: Record<string, unknown> = {}): Logger => ({
+        debug: (message, data) => { emitted.push({ level: 'debug', message, data: { ...context, ...data } }); },
+        info: (message, data) => { emitted.push({ level: 'info', message, data: { ...context, ...data } }); },
+        warn: (message, data) => { emitted.push({ level: 'warn', message, data: { ...context, ...data } }); },
+        error: (message, _error, data) => { emitted.push({ level: 'error', message, data: { ...context, ...data } }); },
+        child: data => logger({ ...context, ...data }),
+      });
+      vi.mocked(createLogger).mockImplementationOnce(() => logger());
+      return {
+        emitted,
+        async expectFailure(error: Error) {
+          await vi.waitFor(() => expect(rejected).toContain(error));
+        },
+      };
+    }
+
+    function deferExitConfirmation(mode: 'rejected' | 'refused') {
+      const original = mockEnv.USAGE_DB as D1Database;
+      let blocked = true;
+      mockEnv.USAGE_DB = {
+        prepare(sql: string) {
+          const statement = original.prepare(sql);
+          // Boundary fault injection only; outcomes never assert SQL text.
+          if (!sql.includes("SET lifecycle_state='stopped'")) return statement;
+          return { bind(...values: unknown[]) {
+            const bound = statement.bind(...values);
+            return { run: async () => {
+              if (!blocked) return bound.run();
+              if (mode === 'rejected') throw Error('exit persistence unavailable');
+              return { success: true, meta: { changes: 0 } };
+            } };
+          } };
+        },
+      };
+      return () => { blocked = false; };
+    }
+
+    function seedExitIncident(kv: ReturnType<typeof createMockKV>, key: string, generation: number, incidentId: string | null) {
+      kv._set(key, {
+        id: sessionId, userId: owner, status: incidentId ? 'unreachable' : 'running', lifecycleGeneration: generation,
+        ...(incidentId ? { unreachableIncidentId: incidentId,
+          unreachableFirstObservedAt: '2026-01-01T00:00:00.000Z', unreachableDeadlineMs: 2_000_000_000_000 } : {}),
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      });
+    }
+
+    const exitRetryCases = (['rejected', 'refused'] as const).flatMap(mode =>
+      [null, 'original-exit-incident'].map(incidentId => ({ mode, incidentId })));
+
+    describe.each(['resolved', 'rollout'] as const)('attached %s exit scheduling ownership', completion => {
+      it.each(exitRetryCases)(
+        'REQ-SESSION-026 AC1-3: $mode confirmation with incident $incidentId rejects owned completion and remains retryable',
+        async ({ mode, incidentId }) => {
+          const observed = observeOwnedExitWork();
+          const { instance, kv, key, persisted, resolveExit, rejectExit } = await attachedMonitor(21);
+          seedExitIncident(kv, key, 21, incidentId);
+          persisted.set('usageSeconds', 23);
+          const allowConfirmation = deferExitConfirmation(mode);
+          const unavailable = Error('required exit alarm unavailable');
+          const schedule = vi.spyOn(instance, 'schedule').mockRejectedValue(unavailable);
+          try {
+            if (completion === 'rollout') rejectExit(Error('Runtime signalled the container to exit due to a new version rollout: 143'));
+            else resolveExit();
+            await observed.expectFailure(unavailable);
+            expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
+              sessionId, lifecycleGeneration: 21, incidentId, errorClass: 'schedule_failed',
+            }));
+            expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 21 });
+            expect(persisted.get('lifecycleGeneration')).toBe(21);
+            expect(persisted.get('usageSeconds')).toBe(23);
+            expect(await kv.get(key, 'json')).toMatchObject({
+              status: 'stopping', lifecycleGeneration: 21, terminationGeneration: 21,
+              terminationIntentId: 'monitored-exit-21', ...(incidentId ? { unreachableIncidentId: incidentId } : {}),
+            });
+            allowConfirmation();
+            schedule.mockRestore();
+            await reconstruct();
+            expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 21 });
+            expect(persisted.has('monitoredExitGeneration')).toBe(false);
+            expect(persisted.get('usageSeconds')).toBe(23);
+          } finally { schedule.mockRestore(); }
+        },
+      );
+    });
+
+    it.each(exitRetryCases)(
+      'REQ-SESSION-026 AC1-3: reconstruction $mode confirmation with incident $incidentId owns retry failure without poisoning startup',
+      async ({ mode, incidentId }) => {
+        const { kv, key, persisted } = await attachedMonitor(22);
+        seedExitIncident(kv, key, 22, incidentId);
+        const evidence = { owner, session: sessionId, generation: 22 };
+        persisted.set('monitoredExitGeneration', evidence);
+        persisted.set('usageSeconds', 23);
+        const allowConfirmation = deferExitConfirmation(mode);
+        const observed = observeOwnedExitWork();
+        const unavailable = Error('restored exit alarm unavailable');
+        const schedule = vi.spyOn(ContainerClass.prototype, 'schedule').mockRejectedValue(unavailable);
+        try {
+          // Startup remains usable; required work rejects through its separate DO completion.
+          const restored = await reconstruct();
+          await observed.expectFailure(unavailable);
+          expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
+            sessionId, lifecycleGeneration: 22, incidentId, errorClass: 'schedule_failed',
+          }));
+          expect(persisted.get('monitoredExitGeneration')).toEqual(evidence);
+          expect(persisted.get('lifecycleGeneration')).toBe(22);
+          expect(persisted.get('usageSeconds')).toBe(23);
+          expect(await kv.get(key, 'json')).toMatchObject({
+            status: 'stopping', lifecycleGeneration: 22, terminationGeneration: 22,
+            terminationIntentId: 'monitored-exit-22', ...(incidentId ? { unreachableIncidentId: incidentId } : {}),
+          });
+          expect(restored._sessionId).toBe(sessionId);
+          allowConfirmation();
+          schedule.mockRestore();
+          await reconstruct();
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 22 });
+          expect(persisted.has('monitoredExitGeneration')).toBe(false);
+          expect(persisted.get('usageSeconds')).toBe(23);
+        } finally { schedule.mockRestore(); }
+      },
+    );
+
+    it.each(exitRetryCases)(
+      'REQ-SESSION-026 AC1-3: metrics caller receives $mode exit-retry alarm failure with observed incident $incidentId',
+      async ({ mode, incidentId }) => {
+        const observed = observeOwnedExitWork();
+        const { instance, kv, key, persisted } = await attachedMonitor(24);
+        seedExitIncident(kv, key, 24, incidentId);
+        persisted.set('monitoredExitGeneration', { owner, session: sessionId, generation: 24 });
+        persisted.set('usageSeconds', 23);
+        const allowConfirmation = deferExitConfirmation(mode);
+        const unavailable = Error('metrics exit alarm unavailable');
+        const schedule = vi.spyOn(instance, 'schedule').mockRejectedValue(unavailable);
+        try {
+          await expect(instance.collectMetrics({ ownerKey: owner, sessionId, generation: 24 })).rejects.toBe(unavailable);
+          expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
+            sessionId, lifecycleGeneration: 24, incidentId, errorClass: 'schedule_failed',
+          }));
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopping', lifecycleGeneration: 24, terminationIntentId: 'monitored-exit-24' });
+          expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 24 });
+          expect(persisted.get('usageSeconds')).toBe(23);
+          allowConfirmation();
+          schedule.mockRestore();
+          await reconstruct();
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 24 });
+          expect(persisted.has('monitoredExitGeneration')).toBe(false);
+          expect(persisted.get('usageSeconds')).toBe(23);
+        } finally { schedule.mockRestore(); }
+      },
+    );
+
+    it('REQ-SESSION-026: a transient metrics retry-alarm failure preserves its existing second chance and exit ownership', async () => {
+      const { instance, kv, key, persisted } = await attachedMonitor(25);
+      persisted.set('monitoredExitGeneration', { owner, session: sessionId, generation: 25 });
+      const allowConfirmation = deferExitConfirmation('refused');
+      const queue: unknown[] = [];
+      let unavailable = true;
+      const schedule = vi.spyOn(instance, 'schedule').mockImplementation(async (_delay, _method, payload) => {
+        if (unavailable) { unavailable = false; throw Error('transient scheduler outage'); }
+        queue.push(payload);
+        return {} as Awaited<ReturnType<typeof instance.schedule>>;
+      });
+      try {
+        await expect(instance.collectMetrics({ ownerKey: owner, sessionId, generation: 25 })).resolves.toBeUndefined();
+        expect(queue).toContainEqual({ ownerKey: owner, sessionId, generation: 25 });
+        expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopping', lifecycleGeneration: 25 });
+        expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 25 });
+        allowConfirmation();
+        schedule.mockRestore();
+        await reconstruct();
+        expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 25 });
+      } finally { schedule.mockRestore(); }
+    });
+
+    it('REQ-SESSION-026: alarm unavailability does not poison a working reconstruction without pending exit work', async () => {
+      const { kv, key, persisted } = await attachedMonitor(23);
+      let resolveRestoredExit!: () => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>(resolve => { resolveRestoredExit = resolve; }));
+      const schedule = vi.spyOn(ContainerClass.prototype, 'schedule').mockRejectedValue(Error('alarm unavailable'));
+      try {
+        const restored = await reconstruct();
+        mockTcpPortFetch.mockResolvedValueOnce(new Response('surviving workload'));
+        const response = await restored.forwardExisting(new Request('http://container/health'));
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('surviving workload');
+        expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 23 });
+        expect(persisted.has('monitoredExitGeneration')).toBe(false);
+        resolveRestoredExit();
+        await vi.waitFor(async () => expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 23 }));
+      } finally { schedule.mockRestore(); }
+    });
+
+    it.each([
+      { completion: 'resolved' as const, reason: 'unknown' },
+      { completion: 'exit-137' as const, reason: 'unknown' },
+      { completion: 'explicit-rollout' as const, reason: 'platform' },
+    ])('REQ-SESSION-025 AC1-2: $completion exit preserves observed incident without inventing an initiator', async ({ completion, reason }) => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await attachedMonitor(17);
+        seedExitIncident(f.kv, f.key, 17, 'monitor-incident-17');
+        expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+        if (completion === 'resolved') f.resolveExit();
+        else f.rejectExit(new Error(completion === 'explicit-rollout'
+          ? 'Runtime signalled the container to exit due to a new version rollout: 143'
+          : 'container exited with unexpected exit code: 137'));
+        await vi.waitFor(async () => expect(await f.kv.get(f.key, 'json')).toMatchObject({ status: 'stopped' }));
+        expect((await f.kv.get(f.key, 'json') as Record<string, unknown>).unreachableIncidentId).toBeUndefined();
+        expect(capture.entries()).toContainEqual(expect.objectContaining({ message: 'process_exit_confirmed', data: expect.objectContaining({
+          sessionId, lifecycleGeneration: 17, incidentId: 'monitor-incident-17', terminationIntentId: 'monitored-exit-17', reason,
+        }) }));
+      } finally { capture.restore(); }
+    });
+
+    it('REQ-SESSION-025 AC1: stale monitored-exit authority cannot emit confirmation for a replacement', async () => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await attachedMonitor(17);
+        f.kv._set(f.key, { id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 18 });
+        const { confirmMonitoredExit } = await import('../../container/container-lifecycle');
+        expect(await confirmMonitoredExit(mockCtx as any, mockEnv, owner, sessionId, 17)).toBe(false);
+        expect(await f.kv.get(f.key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 18 });
+        expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+      } finally { capture.restore(); }
+    });
+
     it('REQ-SESSION-024: an old scheduled generation cannot observe or signal the replacement', async () => {
       const { instance, kv, key, persisted } = await attachedMonitor(12);
       persisted.set('lifecycleGeneration', 13);
@@ -1577,7 +1842,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await vi.waitFor(() => expect(rejectExit).toBeDefined());
       rejectExit(new Error('network connection lost'));
       await vi.waitFor(() => expect((reconstructed as any).logger.warn).toHaveBeenCalledWith(
-        'Container monitor failed', { error: 'network connection lost' },
+        'Container monitor failed', { sessionId, lifecycleGeneration: 12, incidentId: null, errorClass: 'monitor_failed' },
       ));
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('running');
       expect(persisted.has('monitoredExitGeneration')).toBe(false);
@@ -1954,6 +2219,129 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       vi.spyOn(instance, 'stop').mockImplementation(async () => { mockContainerRuntime.running = false; });
       return { instance, storage, fetch, wire, started: () => started };
     }
+
+    it('REQ-SESSION-025 AC1-2: user Stop retains final-sync context and confirms only after native completion', async () => {
+      const capture = await captureLifecycleSerialization();
+      let resolveNative!: () => void;
+      try {
+        const kv = createMockKV();
+        const key = 'session:test-bucket:sess123';
+        kv._set(key, { id: 'sess123', userId: 'test-bucket', status: 'unreachable',
+          lifecycleGeneration: 7, unreachableIncidentId: 'stop-incident-7',
+          unreachableFirstObservedAt: '2026-01-01T00:00:00.000Z', unreachableDeadlineMs: 120_000 });
+        mockEnv.USAGE_DB = createMockSessionD1(kv);
+        mockEnv.CONTAINER = { idFromName: () => mockCtx.id };
+        const f = await destroyFixture();
+        let providerReached!: () => void;
+        const providerRequested = new Promise<void>(resolve => { providerReached = resolve; });
+        const nativeCompletion = new Promise<void>(resolve => { resolveNative = resolve; });
+        vi.spyOn(f.instance, 'superDestroy').mockImplementation(() => { providerReached(); return nativeCompletion; });
+        let drainObserved = false;
+        mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+          const request = new Request(input, init);
+          if (new URL(request.url).pathname !== '/internal/final-sync') return f.fetch(input, init);
+          expect(await f.storage.get('_sessionId')).toBeUndefined();
+          expect(await f.storage.get('bucketName')).toBeUndefined();
+          expect(await f.storage.get('containerAuthToken')).toBeUndefined();
+          expect(request.method).toBe('POST');
+          expect(request.headers.get('Authorization')).toBe('Bearer destroy-wire-token');
+          drainObserved = true;
+          return Response.json({ synced: true });
+        });
+        const stop = f.instance.stopSession({ bucket: 'test-bucket', sessionId: 'sess123', generation: 7 });
+        const settled = stop.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
+        try {
+          await providerRequested;
+          expect(drainObserved).toBe(true);
+          const stopping = await kv.get(key, 'json') as { terminationIntentId: string; status: string };
+          expect(stopping.status).toBe('stopping');
+          expect(stopping.terminationIntentId).toEqual(expect.any(String));
+          const context = { sessionId: 'sess123', lifecycleGeneration: 7,
+            incidentId: 'stop-incident-7', terminationIntentId: stopping.terminationIntentId };
+          const correlation = { ...context, reason: 'user' };
+          // Audit outcome reasons retain their existing meaning; initiator classification belongs to the transition log.
+          expect(await f.storage.get('finalSyncAudit')).toMatchObject({ ...context, outcome: 'completed', httpStatus: 200 });
+          expect(capture.entries()).toContainEqual(expect.objectContaining({
+            data: expect.objectContaining({ ...correlation, outcome: 'completed', httpStatus: 200 }),
+          }));
+          expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+          resolveNative();
+          expect(await settled).toEqual({ ok: true });
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 7 });
+          expect(capture.entries()).toContainEqual(expect.objectContaining({ message: 'process_exit_confirmed', data: expect.objectContaining(correlation) }));
+          expect(JSON.stringify(capture.lines)).not.toContain('destroy-wire-token');
+          expect(f.started()).toBe(false);
+        } finally { resolveNative(); await settled; }
+      } finally { capture.restore(); }
+    });
+
+    it('REQ-SESSION-025 AC1-2: direct destroy retains available context without inventing authenticated user provenance', async () => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await destroyFixture();
+        await f.instance.destroy();
+        expect(await f.storage.get('_sessionId')).toBeUndefined();
+        expect(await f.storage.get('finalSyncAudit')).toMatchObject({ sessionId: 'sess123', lifecycleGeneration: 7, outcome: 'completed', httpStatus: 200 });
+        expect(capture.entries()).toContainEqual(expect.objectContaining({ data: expect.objectContaining({
+          sessionId: 'sess123', lifecycleGeneration: 7, reason: 'unknown', outcome: 'completed',
+        }) }));
+        expect(mockContainerRuntime.running).toBe(false);
+        expect(f.started()).toBe(false);
+      } finally { capture.restore(); }
+    });
+
+    it.each(['host-reason', 'fetch-error', 'cleanup-error', 'stop-error', 'provider-error'] as const)(
+      'REQ-SESSION-025 AC4: teardown %s retains safe diagnostics and best-effort/exit authority', async stage => {
+        const capture = await captureLifecycleSerialization();
+        const sensitive = 'Bearer cf-sensitive-token transcript-fragment terminal-fragment /home/user/private/customer.txt';
+        try {
+          const f = await destroyFixture();
+          let nativeReached = false;
+          const stopSignals: Array<Parameters<typeof f.instance.stop>[0]> = [];
+          vi.spyOn(f.instance, 'superDestroy').mockImplementation(async () => {
+            nativeReached = true;
+            if (stage === 'provider-error') throw Error(sensitive);
+          });
+          if (stage === 'cleanup-error') {
+            mockStorage.delete.mockImplementation(async (key: string | string[]) => {
+              if (key === 'bucketName') throw Error(sensitive);
+              return f.storage.delete(key);
+            });
+          }
+          if (stage === 'stop-error') {
+            vi.spyOn(f.instance, 'stop').mockImplementation(async signal => { stopSignals.push(signal); throw Error(sensitive); });
+          }
+          let authenticatedDrain = false;
+          mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+            const request = new Request(input, init);
+            if (new URL(request.url).pathname !== '/internal/final-sync') return f.fetch(input, init);
+            expect(request.headers.get('Authorization')).toBe('Bearer destroy-wire-token');
+            authenticatedDrain = true;
+            if (stage === 'fetch-error') throw Error(sensitive);
+            return stage === 'host-reason' ? Response.json({ synced: false, reason: sensitive }, { status: 504 }) : Response.json({ synced: true });
+          });
+          if (stage === 'provider-error') {
+            await expect(f.instance.destroy()).rejects.toThrow(sensitive);
+            expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+          } else await expect(f.instance.destroy()).resolves.toBeUndefined();
+          expect(authenticatedDrain).toBe(true);
+          expect(nativeReached).toBe(true);
+          if (stage === 'cleanup-error') expect(await f.storage.get('bucketName')).toBe('test-bucket');
+          if (stage === 'stop-error') expect(stopSignals).toContain('SIGTERM');
+          const audit = await f.storage.get('finalSyncAudit');
+          const outcome = stage === 'host-reason' ? 'incomplete' : stage === 'fetch-error' ? 'errored' : 'completed';
+          expect(audit).toMatchObject({ sessionId: 'sess123', lifecycleGeneration: 7, outcome });
+          if (stage === 'host-reason') expect(audit).toMatchObject({ httpStatus: 504 });
+          expect(capture.entries()).toContainEqual(expect.objectContaining({ data: expect.objectContaining({
+            sessionId: 'sess123', lifecycleGeneration: 7, outcome,
+            ...(stage === 'host-reason' || stage === 'fetch-error' ? { errorClass: expect.any(String) } : {}),
+          }) }));
+          const serialized = JSON.stringify({ logs: capture.lines, audit });
+          for (const forbidden of ['cf-sensitive-token', 'transcript-fragment', 'terminal-fragment', '/home/user/private/customer.txt', 'destroy-wire-token']) expect(serialized).not.toContain(forbidden);
+          expect(f.started()).toBe(false);
+        } finally { capture.restore(); }
+      },
+    );
 
     it('REQ-SESSION-009 AC1: public destroy removes the forwarding credential and subsequent fetch stays unavailable without starting', async () => {
       const f = await destroyFixture();
