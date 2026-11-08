@@ -303,6 +303,7 @@ These are unexecuted manual checks, not deployment evidence. Use an authorized d
 | Check | Action | Observable pass/fail |
 |---|---|---|
 | Terminal interaction | On desktop, phone and tablet, open the terminal and execute the harmless command `printf 'mobile-ok\n'` through the selected agent's approved execution path. Enter enough harmless output to scroll backward and return to the bottom. | Controls and terminal content fit the viewport; command input, exact output and scrollback remain usable, with only necessary touch differences from desktop. Clipping, lost input/output or inaccessible scrollback fails. |
+| Cursor layers | In an authorized disposable Bash session, run the cursor commands below one at a time. Repeat visible/single-cursor observations in each supported agent's fullscreen views; inspect the rendered cursor-layer styles and compare with the palette described above. | One blinking bar remains visible in normal and alternate buffers, with no CSS hiding or duplicated ANSI cursor. Only the explicit hide command suppresses it; the final command restores it. Android's isolated IME caret stays a separate layer. An unavailable agent/view remains unverified. |
 | Android IME | Open input, compose a harmless test word using the Android keyboard, then cancel it without submission. Repeat while the viewport changes between keyboard-open and closed. | The native IME caret never escapes the terminal bounds; the compositor remains isolated. Record an out-of-bounds caret as failure, not as the terminal's intended cursor. |
 | Herdr focus and history | In Samsung Internet, scroll Pi history upward with the keyboard closed, then tap Pi input. Repeat taps with the keyboard open; scroll history upward again and tap a control. Finally close the keyboard, scroll Herdr and release. | A closed-keyboard tap opens input and reveals the latest output/prompt; an open-keyboard tap activates once without selection and preserves the scrolled viewport. Scrolling with the keyboard closed does not reopen it after release. |
 | Tap activation | In Herdr, try a stationary single-finger tap with small jitter, then movement, cancellation, long press and multi-touch against the same control. Repeat an ordinary stationary tap in a separate Classic session. | The Herdr tap activates exactly once; movement, cancellation, long press and multi-touch never activate it. Classic retains its ordinary tap behavior. Duplicate activation fails. |
@@ -310,6 +311,16 @@ These are unexecuted manual checks, not deployment evidence. Use an authorized d
 | IME composition | Open an idle terminal prompt and a second authorized view of that same terminal. Swipe-compose a harmless word without committing, then commit it without submitting the prompt; clear the test input afterward. | The second view receives no partial composition as terminal keystrokes; after commit it receives the completed word. Keep any local IME candidate display distinct from remote terminal echo. |
 | Input diagnostics | Open the terminal URL with `debug=1`. Tap, move and cancel a touch, then open/close the keyboard. Inspect the overlay; remove the opt-in afterward. | The overlay appears only after opt-in and shows ordering, final cancellation, touch origin/target, focus, move count and viewport/keyboard geometry. It retains at most twelve records and no terminal text. Missing fields or content leakage fails. |
 | Decorative context loss | On a fresh page with the decorative canvas active, use browser developer tools to run the snippet below. Repeat on another supported device class when available. | The decorative canvas retires and the app root's dark CSS surface remains visible; terminal interaction still works. A restored animation, blank application surface or lost terminal fails. No available loss extension means unverified, not passed. |
+
+Run these only in the disposable **Bash** terminal, not an agent prompt; they enter the alternate buffer, deliberately hide the cursor, then restore cursor visibility and the original buffer:
+
+```bash
+printf '\033[?1049hcursor-fixture\n'
+printf '\033[?25l'
+printf '\033[?25h\033[?1049l'
+```
+
+The decorative-context-loss check uses this browser-console snippet:
 
 ```javascript
 const canvas = document.querySelector('.splash-cursor-canvas');
@@ -319,7 +330,7 @@ if (!loss) throw new Error('Decorative context-loss check unavailable');
 loss.loseContext();
 ```
 
-Retain only nonsecret observations and stop on failed permission or ownership checks. These cases cover the manual portions of [REQ-MOB-001](../../sdd/spec/terminal.md#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-016](../../sdd/spec/terminal.md#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls), [REQ-MOB-023](../../sdd/spec/terminal.md#req-mob-023-opt-in-mobile-input-diagnostics) [REQ-MOB-018](../../sdd/spec/terminal.md#req-mob-018-decorative-webgl-canvas-retirement), [REQ-MOB-020](../../sdd/spec/terminal.md#req-mob-020-terminal-touch-activation) [REQ-MOB-022](../../sdd/spec/terminal.md#req-mob-022-herdr-mobile-input-focus-and-viewport) and [REQ-MOB-013](../../sdd/spec/terminal.md#req-mob-013-mobile-input-system-platform-compatibility); their automated cases remain separate.
+Retain only nonsecret observations and stop on failed permission or ownership checks. These cases cover the manual portions of [REQ-MOB-001](../../sdd/spec/terminal.md#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-016](../../sdd/spec/terminal.md#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls), [REQ-MOB-023](../../sdd/spec/terminal.md#req-mob-023-opt-in-mobile-input-diagnostics), [REQ-MOB-018](../../sdd/spec/terminal.md#req-mob-018-decorative-webgl-canvas-retirement), [REQ-MOB-020](../../sdd/spec/terminal.md#req-mob-020-terminal-touch-activation), [REQ-MOB-022](../../sdd/spec/terminal.md#req-mob-022-herdr-mobile-input-focus-and-viewport) [REQ-MOB-013](../../sdd/spec/terminal.md#req-mob-013-mobile-input-system-platform-compatibility) and [REQ-MOB-008](../../sdd/spec/terminal.md#req-mob-008-cursor-visible-for-all-supported-agents); their automated cases remain separate.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map

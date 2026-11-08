@@ -1711,7 +1711,7 @@ None.
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test ([useTerminal](../../web-ui/src/__tests__/hooks/useTerminal.test.ts))
+**Verification:** Automated: [Terminal cursor configuration](../../web-ui/src/__tests__/hooks/useTerminal.test.ts); Manual: [Cursor layers and visibility](../../documentation/lanes/terminal-and-ide.md#mobile-platform-checks)
 
 **Status:** Implemented
 
