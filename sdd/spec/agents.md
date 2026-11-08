@@ -1947,7 +1947,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Manual check
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2360,7 +2360,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state)
 
-**Verification:** Manual check
+**Verification:** Manual: [Import status acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 

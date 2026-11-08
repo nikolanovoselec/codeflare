@@ -1287,6 +1287,22 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 **GitHub corpus degradation.** When Import Mode cannot reach GitHub (non-GitHub remote, `gh auth status` failure, rate-limited, air-gapped), discovery falls back to working-tree + git-log evidence only. A one-line notice naming the reason is appended to the `sdd/spec/changes.md` import entry; triage Context fields reference whatever artifact refs are reachable.
 
+### SDD bootstrap acceptance
+
+**Scope:** [scaffolding](../../sdd/spec/agents.md#req-agent-033-sdd-init-scaffolding-and-canonical-render) and [Import-mode status assignment](../../sdd/spec/agents.md#req-agent-093-import-mode-tdd-status-assignment). This is an unexecuted qualification procedure, not a passing result.
+
+**Setup:** Use disposable local repositories without remotes, outside the working project. Record the agent, source revision and resulting files. These checks authorize no deployment, push, credential change or application build. Decline graph creation unless separately authorized.
+
+| Case | Action | Required observation |
+|---|---|---|
+| Greenfield | In an empty repository, request `/sdd init` for a Worker with a public health response. Supply the vision, request one change to the complete draft, then accept it. | One vision exchange and one full-draft review surface; the requested edit remains in that draft. No scaffold files appear before acceptance. Written requirements use the canonical fields, numbered ACs and separators; `sdd/spec/.review-queue.md` starts with `_Awaiting first finding._`. |
+| Live review queue | In a disposable scaffold copy, give one requirement Implemented status and an `@impl: missing.ts::missing` target, then run `/sdd clean` there. | The unresolved source target produces a live queue finding; the scaffold queue is not treated as a completed historical report. |
+| Package resolution | If that scaffold includes a package manifest, inspect the recorded version queries, peer constraints and lockfile operation. | Top-level versions come from current registry evidence; the Cloudflare cohort is compatible. npm lockfile resolution uses `--package-lock-only --ignore-scripts`; no full install, test runner or build occurs. Absence of a generated package manifest is not package-resolution evidence. |
+| Import without TDD | In a separate repository containing only `export const twice = n => n * 2;` as application source and no tests or SDD files, request Import Mode with `enforce_tdd: false`. | The clear implemented doubling behavior is derived from source, not invented scaffolding, and is marked Implemented. Record the selected TDD setting with the output. |
+| Import with TDD | Repeat that source-only fixture in a fresh repository with `enforce_tdd: true`. | Without REQ-referencing tests, the source-implemented requirement remains Partial; merely finding its implementation cannot promote it. |
+
+**Verify:** Inspect the actual generated documents and operation transcript for every applicable observation. Missing observations are unverified, not passes. Stop on premature writes, fabricated source behavior, wrong status, unresolved generated anchors or prohibited execution; retain the failing output for correction. Keep final Plan Mode entry separate from permission to implement the proposed application.
+
 <a id="troubleshooting"></a>
 ## Failure Diagnosis and Recovery
 
