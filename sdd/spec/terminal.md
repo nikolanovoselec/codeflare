@@ -1935,7 +1935,7 @@ None.
 
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-007](#req-mob-007-voice-input-via-web-speech-api)
 
-**Verification:** Automated test ([speech-input](../../web-ui/src/__tests__/lib/speech-input.test.ts))
+**Verification:** Automated: [Permission orchestration](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx), [speech permissions](../../web-ui/src/__tests__/lib/speech-input.test.ts); Manual: [Clipboard and composition](../../documentation/lanes/terminal-and-ide.md#mobile-platform-checks)
 
 **Status:** Implemented
 
