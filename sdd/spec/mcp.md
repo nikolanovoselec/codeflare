@@ -30,6 +30,7 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 **Constraints:**
 
 - Secrets stay Worker-only.
+- Hosted owner SSO, downstream OAuth, refresh/revocation, CIMD-only metadata reachability and platform-log confidentiality require separate evidence; synthetic fixtures alone do not certify them.
 - No shared/admin grants, Access-JWT substitution, cookie copying or new issuer/channel.
 - TLS remains verified.
 - Automatic recovery never creates initial/new-destination grants or undoes Disconnect.
@@ -42,7 +43,7 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 
 **Dependencies:** None.
 
-**Verification:** Synthetic OAuth/KV/route tests and managed CI; hosted owner SSO, downstream OAuth, refresh/revocation, CIMD-only metadata reachability and platform-log confidentiality require separate evidence.
+**Verification:** Automated: [Owner grant tests](../../src/__tests__/lib/mcp-portal-token.test.ts), [transport tests](../../src/__tests__/mcp-portal-interceptor.test.ts), [OAuth routes](../../src/__tests__/routes/mcp-oauth.test.ts), [security headers](../../src/__tests__/security/security-headers.test.ts), [app recovery](../../web-ui/src/__tests__/components/App.test.tsx), [recovery lifecycle](../../web-ui/src/__tests__/lib/mcp-portal-recovery.test.ts)
 
 **Status:** Implemented
 
@@ -69,7 +70,7 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 
 **Dependencies:** None.
 
-**Verification:** Administration API/UI tests and managed CI; saving is not authentication, deployment or hosted acceptance.
+**Verification:** Automated: [Portal validation](../../src/__tests__/routes/admin-mcp-portals.test.ts), [Environment projection](../../src/__tests__/routes/admin-configuration.test.ts), [grant binding](../../src/__tests__/lib/mcp-portal-token.test.ts), [Environment UI](../../web-ui/src/__tests__/components/admin/McpEnvironment.test.tsx), [registration UI](../../web-ui/src/__tests__/components/admin/McpPortalSettings.test.tsx)
 
 **Status:** Implemented
 
@@ -91,13 +92,15 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 6. Portal guidance requires approved-set bootstrap before selection, wrapper/inner-method distinction, live schemas, originating-portal methods, explicit partial coverage and readback before considering retries of uncertain writes. <!-- @impl: preseed/agents/pi/skills/mcp-portal-discovery/SKILL.md::Discover portal tools --> <!-- @impl: preseed/agents/pi/skills/mcp-portal-execution/SKILL.md::Execute portal workflows --> <!-- @manual: Bootstrap approved synthetic portals, activate exact search/execute wrappers, inspect live schemas and originating-portal results, report missing coverage, and read back an uncertain operation before considering retry. -->
 7. Managed portal connections disconnect after ten idle minutes without stopping active calls, retain cached discovery, and reconnect on the next authorized call. <!-- @impl: scripts/merge-pi-mcp-portals.mjs::mergePiMcpPortals --> <!-- @test: host/__tests__/pi-mcp-stock.test.js (REQ-AGENT-228: native ten-minute idle cleanup disconnects and the next proxy call reconnects) --> <!-- @test: host/__tests__/pi-mcp-stock.test.js (REQ-AGENT-228: idle cleanup protects an active portal call and closes only after completion) -->
 
+**Notes:** Progressive use and distinct CI, signed-delivery, local-reload and hosted acceptance checks are documented in [Model Context Protocol](../../documentation/lanes/mcp.md#delivery-and-acceptance-boundaries).
+
 **Constraints:** Availability never bypasses owner, tenant or Operator authorization. Builtin MCP remains disabled; pi-mcp-adapter is the sole MCP owner. Preserve unrelated user/project MCP and OAuth state. Deliver skills through existing seed/Curation.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-226](#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-227](#req-agent-227-instance-administration-of-mcp-portals)
 
-**Verification:** Startup/native-client and Settings tests plus native progressive-use inspection. CI, signed delivery, deliberate local reload and hosted acceptance are separate gates.
+**Verification:** Automated: [Startup configuration](../../host/__tests__/pi-mcp-portals.test.js), [native client](../../host/__tests__/pi-mcp-stock.test.js), [startup refresh](../../src/__tests__/container/container-env.test.ts), [connection UI](../../web-ui/src/__tests__/components/McpPortalsSection.test.tsx), [Settings modes](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx); Manual: [Progressive portal use](../../documentation/lanes/mcp.md#progressive-portal-use)
 
 **Status:** Implemented
 
@@ -117,13 +120,13 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 4. Upstream streams, cancellation, statuses and portal-issued downstream authorization context remain intact. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: stamps the trusted owner grant and preserves functional response streams and downstream URL context) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: response cancellation reaches the original upstream stream) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: rejects redirects without credential leakage and preserves actual upstream failure status) --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-AGENT-229 AC4: catch-all streams downstream authorization context and preserves cancellation) -->
 5. Credential maintenance never replays MCP requests after uncertain write outcomes. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC5: uncertain MCP writes are never replayed after response loss) --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-AGENT-229 AC5: catch-all never replays uncertain MCP writes or follows redirects) -->
 
-**Constraints:** TLS verification and strict egress remain enforced. No shared service/admin identity or agent-selected owner. GitHub upstream requires per-user authentication. Exposed write schemas are not authorization for arbitrary mutations.
+**Constraints:** TLS verification and strict egress remain enforced. No shared service/admin identity or agent-selected owner. GitHub upstream requires per-user authentication. Exposed write schemas are not authorization for arbitrary mutations. Hosted upstream/downstream authorization and revocation require separate evidence from synthetic boundary tests.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-226](#req-agent-226-worker-owned-mcp-portal-authorization)
 
-**Verification:** Synthetic boundary, startup, stream and no-replay tests; hosted upstream/downstream authorization and revocation require separate evidence.
+**Verification:** Automated: [Credential-isolated transport](../../src/__tests__/mcp-portal-interceptor.test.ts), [container interception](../../src/__tests__/container/mcp-portal-interception.test.ts), [strict egress](../../src/__tests__/egress-controller.test.ts)
 
 **Status:** Implemented
 
@@ -145,6 +148,8 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 6. Startup reconstructs recognizable generated consult and browser entries from current runtime inputs while preserving customized configuration. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217 AC6: actual startup regenerates proven managed consult and browser from fresh inputs (${origin})) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006: startup regenerates the image-owned browser endpoint and headers while preserving custom settings) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217 AC2/AC6/AC7: actual dual-file startup refreshes managed constructors and portals (enterprise=${enterprise})) -->
 7. Transformed originals are recoverable before replacement; completed native handoff archives the unchanged stock source before retiring its active filename, and failed writes preserve source data. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: one-time handoff retains active stock on ${failure}) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: native replacement failure leaves the active original and recovery bytes intact) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217 AC2/AC4/AC7: dual restored managed defaults retain native authority and retire exact obsolete source (${shape})) -->
 
+**Notes:** Distinct signed-delivery and hosted-handoff checks are documented in [Model Context Protocol](../../documentation/lanes/mcp.md#delivery-and-acceptance-boundaries).
+
 **Constraints:**
 
 - No bucket deletion/sync redesign; only successful native handoff excludes obsolete root `.pi/agent/mcp.json` from subsequent baseline/bisync; initial restore/failed preparation remain eligible. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: active native configuration and recovery objects remain baseline-sync eligible) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: failed native preparation blocks Pi shell merge without excluding restored files from baseline) -->
@@ -162,7 +167,7 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 
 **Dependencies:** [REQ-AGENT-069](agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)
 
-**Verification:** Guarded native/stock configuration and client-selection tests: [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js). Exact-head CI, signed delivery and deployed handoff acceptance remain distinct.
+**Verification:** Automated: [Migration behavior](../../host/__tests__/pi-mcp-adapter-config.test.js), [browser reconstruction](../../host/__tests__/entrypoint-browser-run-mcp.test.js), [client selection](../../host/__tests__/pi-settings-packages.test.js), [literal stdio environment](../../preseed/agents/pi/test/consult-proxy.test.mjs)
 
 **Status:** Implemented
 
