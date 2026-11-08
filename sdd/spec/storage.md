@@ -641,7 +641,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated cache and reconciliation tests
+**Verification:** Automated: [remote-curation-cache.test.ts](../../src/__tests__/lib/remote-curation-cache.test.ts), [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -667,7 +667,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated provenance and retirement tests
+**Verification:** Automated: [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -695,7 +695,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-projection), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-IDE-042](browser-ide.md#req-ide-042-additive-company-extension-reconciliation)
 
-**Verification:** Automated session-status, start-admission, dashboard, and disable tests
+**Verification:** Automated: [session-helpers.test.ts](../../src/__tests__/lib/session-helpers.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -726,7 +726,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-040](#req-stor-040-managed-release-discovery-freshness), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated session-status tests
+**Verification:** Automated: [managed-release-active.test.ts](../../src/__tests__/lib/managed-release-active.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [client.test.ts](../../web-ui/src/__tests__/api/client.test.ts)
 
 **Status:** Implemented
 
@@ -784,7 +784,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed), [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-151](agents.md#req-agent-151-bounded-managed-release-streaming)
 
-**Verification:** Automated streaming, reconciliation, and storage-route tests
+**Verification:** Automated: [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts), [r2-seed-mode.test.ts](../../src/__tests__/lib/r2-seed-mode.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -809,7 +809,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-026](#req-stor-026-managed-deployment-cache-identity), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated migration ordering, concurrency, retry, and deletion tests
+**Verification:** Automated: [r2-admin.test.ts](../../src/__tests__/lib/r2-admin.test.ts), [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -833,7 +833,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation)
 
-**Verification:** Automated cache identity tests
+**Verification:** Automated: [remote-curation-cache.test.ts](../../src/__tests__/lib/remote-curation-cache.test.ts)
 
 **Status:** Implemented
 
@@ -883,7 +883,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-SETUP-015](setup.md#req-setup-015-managed-resource-persistence-controls)
 
-**Verification:** Automated policy derivation, ordering, and digest tests
+**Verification:** Automated: [managed-r2-policy.test.ts](../../src/__tests__/lib/managed-r2-policy.test.ts)
 
 **Status:** Implemented
 
@@ -911,7 +911,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-028](#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-STOR-030](#req-stor-030-managed-resource-policy-loading), [REQ-STOR-032](#req-stor-032-exclusive-managed-resource-boundaries)
 
-**Verification:** Automated reconciliation-order, cleanup-bound, delete-response, mutable-transition, and stamping tests
+**Verification:** Automated: [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -935,7 +935,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-028](#req-stor-028-canonical-managed-resource-persistence-policy)
 
-**Verification:** Automated canonical-byte, identity-revalidation, and fresh-verification tests
+**Verification:** Automated: [managed-r2-policy.test.ts](../../src/__tests__/lib/managed-r2-policy.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts)
 
 **Status:** Implemented
 
@@ -965,7 +965,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-029](#req-stor-029-managed-resource-reconciliation), [REQ-STOR-030](#req-stor-030-managed-resource-policy-loading), [REQ-STOR-032](#req-stor-032-exclusive-managed-resource-boundaries)
 
-**Verification:** Automated restore-scope, identity, exact-path, root, mutable-transition, image-companion, and bisync-consumer tests
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-managed-curation.test.js](../../host/__tests__/entrypoint-managed-curation.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js)
 
 **Status:** Implemented
 
@@ -989,7 +989,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-028](#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-SETUP-015](setup.md#req-setup-015-managed-resource-persistence-controls)
 
-**Verification:** Automated root-boundary and category tests
+**Verification:** Automated: [managed-r2-policy.test.ts](../../src/__tests__/lib/managed-r2-policy.test.ts), [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -1048,7 +1048,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-projection), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume)
 
-**Verification:** Automated progress-helper and reconciliation-route tests
+**Verification:** Automated: [managed-reconcile-progress.test.ts](../../src/__tests__/lib/managed-reconcile-progress.test.ts), [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -1078,7 +1078,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume)
 
-**Verification:** Automated drift, cleanup, replacement, and publication tests
+**Verification:** Automated: [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -1105,7 +1105,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-projection), [REQ-STOR-034](#req-stor-034-observational-managed-reconciliation-progress-writes)
 
-**Verification:** Automated batch-status and progress-reader tests
+**Verification:** Automated: [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -1128,7 +1128,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)
 
-**Verification:** Automated session-store and settings-control tests
+**Verification:** Automated: [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -1151,7 +1151,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated startup-sync test
+**Verification:** Automated: [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js)
 
 **Status:** Implemented
 
@@ -1175,7 +1175,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume)
 
-**Verification:** Automated managed-reconciliation tests
+**Verification:** Automated: [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -1202,7 +1202,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-017](#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)
 
-**Verification:** Automated completed-transfer and isolated S3 tests.
+**Verification:** Automated: [Conflict cleanup](../../host/__tests__/rclone-conflict-cleanup.test.js), [S3 bisync](../../scripts/ci/rclone-bisync-s3.py), [transfer bookkeeping](../../scripts/ci/rclone-bookkeeping_test.go)
 
 **Status:** Implemented
 
@@ -1229,7 +1229,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui)
 
-**Verification:** Automated daemon, startup and authenticated HTTP tests.
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js), [sync-fanout.test.ts](../../src/__tests__/lib/sync-fanout.test.ts)
 
 **Status:** Implemented
 
@@ -1253,7 +1253,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-042](#req-stor-042-per-side-sync-change-tracking)
 
-**Verification:** Automated completed-transfer and isolated S3 tests.
+**Verification:** Automated: [S3 bisync](../../scripts/ci/rclone-bisync-s3.py), [transfer bookkeeping](../../scripts/ci/rclone-bookkeeping_test.go)
 
 **Status:** Implemented
 
@@ -1278,7 +1278,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-041](#req-stor-041-disk-space-recovery)
 
-**Verification:** Automated startup, UI and final-sync HTTP tests.
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js), [StorageBrowser.test.tsx](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx)
 
 **Status:** Implemented
 
@@ -1303,7 +1303,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume), [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization)
 
-**Verification:** Automated state, fallback, and conditional-cleanup tests.
+**Verification:** Automated: [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -1328,7 +1328,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** None.
 
-**Verification:** Automated resolver and startup-order tests.
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [entrypoint-managed-curation.test.js](../../host/__tests__/entrypoint-managed-curation.test.js)
 
 **Status:** Implemented
 
@@ -1353,7 +1353,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-031](#req-stor-031-managed-resource-container-sync), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
 
-**Verification:** Automated startup-order, baked lay-down, Pi relay, and Claude context tests.
+**Verification:** Automated: [entrypoint-context-mode.test.js](../../host/__tests__/entrypoint-context-mode.test.js), [entrypoint-managed-curation.test.js](../../host/__tests__/entrypoint-managed-curation.test.js)
 
 **Status:** Implemented
 
@@ -1377,7 +1377,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-046](#req-stor-046-managed-projection-identity-lifecycle), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
 
-**Verification:** Automated planning, streaming-write, and progress tests.
+**Verification:** Automated: [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -1400,7 +1400,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
 
-**Verification:** Automated ownership and fail-before-mutation tests.
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -1454,7 +1454,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-042](#req-stor-042-per-side-sync-change-tracking), [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)
 
-**Verification:** Automated compactor and entrypoint orchestration tests
+**Verification:** Automated: [entrypoint-session-capture-compaction.test.js](../../host/__tests__/entrypoint-session-capture-compaction.test.js), [session-capture-compaction.test.js](../../host/__tests__/session-capture-compaction.test.js)
 
 **Status:** Implemented
 
