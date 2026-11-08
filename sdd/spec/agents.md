@@ -958,10 +958,12 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. Pro mode delivers a strict superset of Standard mode's content — memory persistence, language rules, agent definitions, slash commands, skills, the spec/docs/tests discipline triad, and commit-attribution/PR-boundary review hooks. The per-content-category matrix lives in [documentation/preseed.md](../../documentation/lanes/preseed.md#session-modes). <!-- @manual -->
+1. Pro mode delivers a strict superset of Standard mode's content — memory persistence, language rules, agent definitions, slash commands, skills, the spec/docs/tests discipline triad, and commit-attribution/PR-boundary review hooks. <!-- @manual -->
 2. Pro mode enables persistent memory by including the user's Vault directory tree in the R2 sync filters; Standard mode excludes the Vault tree, so memory does not persist across container restarts. The legacy `.memory/` directory is no longer written. <!-- @manual -->
 3. Pro-mode hooks produce identical attribution, review, blocking, and memory behavior across direct and context-mode tool surfaces. <!-- @impl: entrypoint.sh::CONTEXT_MODE_MANIFEST --> <!-- @manual -->
 4. Pi agents remain fully functional whether or not context-mode is active: native Bash/Read/Grep/Find/Edit/Write plus graphify tools suffice alone. Agent definitions declare context-mode helpers under Pi-native names in frontmatter. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::commandText --> <!-- @manual -->
+
+**Notes:** The per-content-category matrix is documented in [Preseed](../../documentation/lanes/preseed.md#session-modes).
 
 **Constraints:**
 
