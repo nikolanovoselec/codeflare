@@ -36,7 +36,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)
 
-**Verification:** Automated test ([llm-interceptor](../../src/__tests__/llm-interceptor.test.ts))
+**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -65,7 +65,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)
 
-**Verification:** Automated test ([llm-interceptor](../../src/__tests__/llm-interceptor.test.ts))
+**Verification:** Automated: [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -91,7 +91,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)
 
-**Verification:** Automated test ([index](../../src/__tests__/container/index.test.ts))
+**Verification:** Automated: [enterprise-llm.test.ts](../../src/__tests__/container/enterprise-llm.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
@@ -1397,7 +1397,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 1. Trusted permitted human startup retains owner authentication and saved native provider, model and reasoning when the native source is selected. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (preserves the saved personal provider model and High when native is the permitted startup default) -->
 2. Pinned Pi exposes authenticated built-ins alongside unchanged sanctioned models. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-088 AC4: pinned Pi retains native authenticated providers alongside sanctioned models) -->
-3. Missing or malformed hints remain default off. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @manual -->
+3. Missing or malformed hints remain default off. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: missing false and malformed hints clear personal authentication) -->
 4. Warm internal configuration can emit or revoke independent permission and default-source hints for the next startup. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint) -->
 5. Permitted native startup removes a previous managed Gateway default without changing the sanctioned catalog. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (removes a previous Gateway startup pin when permitted native becomes the default) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-089: pinned Pi selects native) -->
 6. Permitted native startup without saved settings leaves native provider selection to Pi. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (does not create a Gateway startup pin when permitted native has no saved settings) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-089: pinned Pi selects native) -->

@@ -232,7 +232,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test ([Landing render tests](../../landing/src/__tests__/index-page.test.ts), [Scramble behavior tests](../../landing/src/__tests__/scramble.script.test.ts))
+**Verification:** Automated: [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts), [scramble.script.test.ts](../../landing/src/__tests__/scramble.script.test.ts)
 
 **Status:** Implemented
 

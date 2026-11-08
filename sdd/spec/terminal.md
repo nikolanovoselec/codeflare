@@ -120,7 +120,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/terminal-route-validate.test.ts))
+**Verification:** Automated: [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [terminal-mode.test.js](../../host/__tests__/terminal-mode.test.js), [terminal-native-pi-authority.test.ts](../../src/__tests__/routes/terminal-native-pi-authority.test.ts), [terminal-route-validate.test.ts](../../src/__tests__/routes/terminal-route-validate.test.ts), [terminal.test.ts](../../src/__tests__/routes/terminal.test.ts)
 
 **Status:** Implemented
 
@@ -178,7 +178,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test ([terminal](../../web-ui/src/__tests__/stores/terminal.test.ts), [connect-timeout test](../../web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts), [backoff test](../../web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts))
+**Verification:** Automated: [terminal-connect-timeout.test.ts](../../web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts), [terminal-reconnect-backoff.test.ts](../../web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts), [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 
@@ -234,7 +234,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-SESSION-012](session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state)
 
-**Verification:** Automated test ([terminal](../../web-ui/src/__tests__/stores/terminal.test.ts))
+**Verification:** Automated: [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 
@@ -508,7 +508,7 @@ None.
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-003](#req-term-003-automatic-websocket-reconnection-on-transient-failures)
 
-**Verification:** Automated test ([TerminalArea](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [Layout tests](../../web-ui/src/__tests__/components/Layout.test.tsx))
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 
@@ -710,7 +710,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** Automated test ([rejected forward closes retryably](../../src/__tests__/routes/terminal-ws.test.ts))
+**Verification:** Automated: [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts)
 
 **Status:** Implemented
 
@@ -735,7 +735,7 @@ None.
 
 **Dependencies:** [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** Automated test ([Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [URL detection tests](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts))
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [terminal-url-detection.test.ts](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts)
 
 **Status:** Implemented
 
@@ -766,7 +766,7 @@ None.
 
 **Dependencies:** [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** Automated test ([TerminalArea](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [Layout tests](../../web-ui/src/__tests__/components/Layout.test.tsx), [Resize authority test](../../host/__tests__/session-resize-authority.test.js))
+**Verification:** Automated: [session-resize-authority.test.js](../../host/__tests__/session-resize-authority.test.js), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 
@@ -823,7 +823,7 @@ None.
 
 **Dependencies:** [REQ-TERM-013](#req-term-013-multiview-selection-flow)
 
-**Verification:** Automated test ([SessionDropdown](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [Session switcher tests](../../web-ui/src/__tests__/components/SessionSwitcher.test.tsx))
+**Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionSwitcher.test.tsx](../../web-ui/src/__tests__/components/SessionSwitcher.test.tsx)
 
 **Status:** Implemented
 
@@ -1398,7 +1398,7 @@ None.
 
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices)
 
-**Verification:** Automated test ([Integration test](../../web-ui/src/__tests__/lib/mobile.test.ts))
+**Verification:** Automated: [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts), [touch-gestures.test.ts](../../web-ui/src/__tests__/lib/touch-gestures.test.ts)
 
 **Status:** Implemented
 
@@ -1452,7 +1452,7 @@ None.
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
 
-**Verification:** Automated test ([SettingsPanel](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx))
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts)
 
 **Status:** Implemented
 
@@ -1517,7 +1517,7 @@ None.
 
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test ([touch-gestures](../../web-ui/src/__tests__/lib/touch-gestures.test.ts))
+**Verification:** Automated: [touch-gestures.test.ts](../../web-ui/src/__tests__/lib/touch-gestures.test.ts)
 
 **Status:** Implemented
 
@@ -1651,7 +1651,7 @@ None.
 
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
 
-**Verification:** Automated test ([FloatingTerminalButtons](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx))
+**Verification:** Automated: [FloatingTerminalButtons.test.tsx](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx), [terminal-mobile-input.test.ts](../../web-ui/src/__tests__/lib/terminal-mobile-input.test.ts)
 
 **Status:** Implemented
 
@@ -1681,7 +1681,7 @@ None.
 
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices)
 
-**Verification:** Automated test ([speech-input](../../web-ui/src/__tests__/lib/speech-input.test.ts))
+**Verification:** Automated: [FloatingTerminalButtons.test.tsx](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx), [speech-input.test.ts](../../web-ui/src/__tests__/lib/speech-input.test.ts)
 
 **Status:** Implemented
 
@@ -1799,7 +1799,7 @@ None.
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-TERM-008](#req-term-008-write-batching-at-30fps)
 
-**Verification:** Automated test ([useTerminal](../../web-ui/src/__tests__/hooks/useTerminal.test.ts))
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [terminal-layout.test.ts](../../web-ui/src/__tests__/stores/terminal-layout.test.ts)
 
 **Status:** Implemented
 
@@ -1822,7 +1822,7 @@ None.
 
 **Dependencies:** [REQ-MOB-010](#req-mob-010-fitaddon-fit-calls-are-coordinated)
 
-**Verification:** Automated test ([useTerminal](../../web-ui/src/__tests__/hooks/useTerminal.test.ts))
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts)
 
 **Status:** Implemented
 
@@ -1851,7 +1851,7 @@ None.
 
 **Dependencies:** [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
 
-**Verification:** Automated test ([useTerminal](../../web-ui/src/__tests__/hooks/useTerminal.test.ts))
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts)
 
 **Status:** Implemented
 
@@ -1906,7 +1906,7 @@ None.
 
 **Dependencies:** [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions), [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling)
 
-**Verification:** Automated test ([Touch gesture tests](../../web-ui/src/__tests__/lib/touch-gestures.test.ts))
+**Verification:** Automated: [touch-gestures.test.ts](../../web-ui/src/__tests__/lib/touch-gestures.test.ts)
 
 **Status:** Implemented
 
@@ -1960,7 +1960,7 @@ None.
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
 
-**Verification:** Automated test ([Vault prewarm test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [Vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts))
+**Verification:** Automated: [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts)
 
 **Status:** Implemented
 
@@ -1988,7 +1988,7 @@ None.
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-009](#req-mob-009-visibility-return-recovers-keyboard-state)
 
-**Verification:** Automated test ([Mobile keyboard test](../../web-ui/src/__tests__/lib/mobile.test.ts), [useTerminal hook test](../../web-ui/src/__tests__/hooks/useTerminal.test.ts))
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts), [terminal-mobile-input.test.ts](../../web-ui/src/__tests__/lib/terminal-mobile-input.test.ts)
 
 **Status:** Implemented
 

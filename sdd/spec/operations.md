@@ -540,7 +540,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-stop-metered-container-resources), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
 
-**Verification:** Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [sleep-timer-defaults.test.ts](../../src/__tests__/lib/sleep-timer-defaults.test.ts), [session-sleep-timeout.test.ts](../../src/__tests__/routes/session-sleep-timeout.test.ts)
 
 **Status:** Implemented
 
@@ -889,7 +889,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated test ([suite-gates](../../src/__tests__/ci/suite-gates.test.ts))
+**Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
 
@@ -942,7 +942,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
+**Verification:** Automated: [ci-workflow-hardening.test.js](../../host/__tests__/ci-workflow-hardening.test.js), [deploy-requires-tests.test.js](../../host/__tests__/deploy-requires-tests.test.js)
 
 **Status:** Implemented
 

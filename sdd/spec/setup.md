@@ -54,7 +54,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/setup-ac-coverage.test.ts))
+**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -85,7 +85,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/setup-ac-coverage.test.ts))
+**Verification:** Automated: [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -144,7 +144,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/setup-ac-coverage.test.ts))
+**Verification:** Automated: [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [custom-domain.test.ts](../../src/__tests__/routes/setup/custom-domain.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -232,7 +232,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/setup-007-custom-domain-ac.test.ts))
+**Verification:** Automated: [cors-cache.test.ts](../../src/__tests__/lib/cors-cache.test.ts), [custom-domain.test.ts](../../src/__tests__/routes/setup/custom-domain.test.ts), [setup-007-custom-domain-ac.test.ts](../../src/__tests__/setup-007-custom-domain-ac.test.ts)
 
 **Status:** Implemented
 
@@ -260,7 +260,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth)
 
-**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
+**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts)
 
 **Status:** Implemented
 
@@ -288,7 +288,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test ([Integration test](../../web-ui/src/__tests__/components/SubscribePage.test.tsx))
+**Verification:** Automated: [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx)
 
 **Status:** Implemented
 
@@ -343,7 +343,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
+**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts)
 
 **Status:** Implemented
 
@@ -373,7 +373,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test ([setup-ac-coverage](../../src/__tests__/setup-ac-coverage.test.ts))
+**Verification:** Automated: [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -894,7 +894,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-008](#req-enterprise-008-enterprise-frontend-surface-suppression), [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** Automated test ([ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx))
+**Verification:** Automated: [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx)
 
 **Status:** Implemented
 
@@ -960,7 +960,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-OPS-040](operations.md#req-ops-040-selected-coding-agent-packaging)
 
-**Verification:** Automated test ([Setup persistence + validation](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [wizard store](../../web-ui/src/__tests__/stores/setup.test.ts))
+**Verification:** Automated: [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts)
 
 **Status:** Implemented
 

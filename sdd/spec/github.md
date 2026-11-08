@@ -51,7 +51,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)
 
-**Verification:** Automated test ([Unit test](../../src/__tests__/lib/github-token.test.ts))
+**Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts)
 
 **Status:** Implemented
 
@@ -199,7 +199,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/lib/clone-targets.test.ts))
+**Verification:** Automated: [workspace-repos.test.js](../../host/__tests__/workspace-repos.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [clone-targets.test.ts](../../src/__tests__/lib/clone-targets.test.ts), [github.test.ts](../../src/__tests__/routes/github.test.ts)
 
 **Status:** Implemented
 
@@ -231,7 +231,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](#req-github-014-clone-created-session-resume), [REQ-GITHUB-015](#req-github-015-workspace-repository-tracking), [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test ([Integration test](../../host/__tests__/git-clone.test.js))
+**Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -379,7 +379,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing)
 
-**Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx))
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
 
 **Status:** Implemented
 
@@ -406,7 +406,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Automated test ([Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx))
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
 
 **Status:** Implemented
 
@@ -468,7 +468,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states)
 
-**Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [Mobile test](../../web-ui/src/__tests__/lib/mobile.test.ts))
+**Verification:** Automated: [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts)
 
 **Status:** Implemented
 
@@ -494,7 +494,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Automated test ([Connect route test](../../src/__tests__/routes/github.test.ts))
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts)
 
 **Status:** Implemented
 

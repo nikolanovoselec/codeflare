@@ -61,7 +61,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude capture pipeline tests](../../host/__tests__/memory-capture-pipeline.test.js))
+**Verification:** Automated: [memory-capture-pipeline.test.js](../../host/__tests__/memory-capture-pipeline.test.js), [memory-iso-ts-script.test.js](../../host/__tests__/memory-iso-ts-script.test.js), [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -129,7 +129,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)
 
-**Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude hook cadence tests](../../host/__tests__/memory-capture-hook.test.js))
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [pi-capture-turn-boundary.test.js](../../host/__tests__/pi-capture-turn-boundary.test.js), [pi-transcript-agent.test.js](../../host/__tests__/pi-transcript-agent.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -223,7 +223,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-001](vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test ([Behavioral test](../../host/__tests__/entrypoint-rclone-filters.test.js))
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js)
 
 **Status:** Implemented
 
@@ -316,7 +316,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)
 
-**Verification:** Automated test ([vault-extract-merge](../../host/__tests__/vault-extract-merge.test.js))
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js), [vault-extract-merge.test.js](../../host/__tests__/vault-extract-merge.test.js)
 
 **Status:** Implemented
 
@@ -371,7 +371,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
 
-**Verification:** Automated test ([Claude memory hook tests](../../host/__tests__/memory-capture-hook.test.js))
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js)
 
 **Status:** Implemented
 
@@ -401,7 +401,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** Automated test ([Integration test](../../host/__tests__/entrypoint-hooks-merge.test.js))
+**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts)
 
 **Status:** Implemented
 
@@ -432,7 +432,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume)
 
-**Verification:** Automated test ([memory-capture-hook](../../host/__tests__/memory-capture-hook.test.js), [entrypoint hook merge](../../host/__tests__/entrypoint-hooks-merge.test.js))
+**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js)
 
 **Status:** Implemented
 
@@ -463,7 +463,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-020](#req-mem-020-capture-requests-are-re-delivered-under-a-bound)
 
-**Verification:** Automated test ([memory-capture-hook](../../host/__tests__/memory-capture-hook.test.js))
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [pi-memory-capture-recovery.test.js](../../host/__tests__/pi-memory-capture-recovery.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -537,7 +537,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-013](#req-mem-013-proactive-memory-injection-on-first-prompt)
 
-**Verification:** Automated tests ([post-compaction-recall](../../host/__tests__/post-compaction-recall.test.js), [pi-post-compaction-recall](../../src/__tests__/lib/pi-post-compaction-recall.test.ts))
+**Verification:** Automated: [memory-context-inject.test.js](../../host/__tests__/memory-context-inject.test.js), [post-compaction-recall.test.js](../../host/__tests__/post-compaction-recall.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [pi-post-compaction-recall.test.ts](../../src/__tests__/lib/pi-post-compaction-recall.test.ts)
 
 **Status:** Implemented
 
@@ -637,7 +637,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-014](#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever)
 
-**Verification:** Automated test ([Generated agent contract tests](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+**Verification:** Automated: [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -665,7 +665,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-016](#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
 
-**Verification:** Automated test ([Generated agent contract tests](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+**Verification:** Automated: [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -693,7 +693,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
 
-**Verification:** Automated test ([Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js))
+**Verification:** Automated: [pi-memory-graph-builder.test.js](../../host/__tests__/pi-memory-graph-builder.test.js)
 
 **Status:** Implemented
 
@@ -749,7 +749,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-023](#req-mem-023-cold-session-captures-compact-without-losing-memory)
 
-**Verification:** Automated test ([session-capture-compaction](../../host/__tests__/session-capture-compaction.test.js))
+**Verification:** Automated: [session-capture-compaction.test.js](../../host/__tests__/session-capture-compaction.test.js)
 
 **Status:** Implemented
 

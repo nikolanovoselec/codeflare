@@ -137,7 +137,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-011](#req-auth-011-auth-resolution-order)
 
-**Verification:** Automated test ([auth-gaps](../../src/__tests__/lib/auth-gaps.test.ts))
+**Verification:** Automated: [access.test.ts](../../src/__tests__/lib/access.test.ts), [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts), [service-token-auth.test.ts](../../src/__tests__/lib/service-token-auth.test.ts), [service-token-active-user.test.ts](../../src/__tests__/middleware/service-token-active-user.test.ts)
 
 **Status:** Implemented
 
@@ -164,7 +164,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test ([auth-saas](../../src/__tests__/middleware/auth-saas.test.ts))
+**Verification:** Automated: [auth-saas.test.ts](../../src/__tests__/middleware/auth-saas.test.ts)
 
 **Status:** Implemented
 
@@ -190,7 +190,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([access](../../src/__tests__/lib/access.test.ts))
+**Verification:** Automated: [access.test.ts](../../src/__tests__/lib/access.test.ts)
 
 **Status:** Implemented
 
@@ -305,7 +305,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-003](#req-auth-003-cf-access-mode-for-all-other-deployments)
 
-**Verification:** Automated test ([auth-gaps](../../src/__tests__/lib/auth-gaps.test.ts))
+**Verification:** Automated: [access.test.ts](../../src/__tests__/lib/access.test.ts), [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -332,7 +332,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes), [REQ-AUTH-010](#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test ([auth-gaps](../../src/__tests__/lib/auth-gaps.test.ts))
+**Verification:** Automated: [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -413,7 +413,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-008](#req-auth-008-session-cookie-auto-refresh)
 
-**Verification:** Automated test ([Layout](../../web-ui/src/__tests__/components/Layout.test.tsx))
+**Verification:** Automated: [fetch-helper-401-redirect.test.ts](../../web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [auth-022-resume-redirect.test.tsx](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -469,7 +469,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([Header](../../web-ui/src/__tests__/components/Header.test.tsx))
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx)
 
 **Status:** Implemented
 
@@ -584,7 +584,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-004](landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)
 
-**Verification:** Automated test ([Login page render tests](../../landing/src/__tests__/login-page.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts), [Wrangler-parsed asset routing test](../../host/__tests__/wrangler-static-assets.test.js))
+**Verification:** Automated: [wrangler-static-assets.test.js](../../host/__tests__/wrangler-static-assets.test.js), [login-page.test.ts](../../landing/src/__tests__/login-page.test.ts), [onboarding-login.test.ts](../../src/__tests__/routes/onboarding-login.test.ts)
 
 **Status:** Implemented
 
@@ -650,7 +650,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode)
 
-**Verification:** Automated test ([Resume-redirect component tests](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx), [fetch-helper 401-redirect tests](../../web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts), [asset-serving tests](../../src/__tests__/index.test.ts))
+**Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [fetch-helper-401-redirect.test.ts](../../web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts), [auth-022-resume-redirect.test.tsx](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx)
 
 **Status:** Implemented
 
@@ -685,7 +685,7 @@ None.
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes)
 
-**Verification:** Automated test ([enterprise-jit-provisioning](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts))
+**Verification:** Automated: [enterprise-jit-provisioning.test.ts](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts)
 
 **Status:** Implemented
 
@@ -744,7 +744,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-010](#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test ([access-security](../../src/__tests__/security/access-security.test.ts))
+**Verification:** Automated: [auth-config-fetch-dedup.test.ts](../../src/__tests__/lib/auth-config-fetch-dedup.test.ts), [access-security.test.ts](../../src/__tests__/security/access-security.test.ts)
 
 **Status:** Implemented
 

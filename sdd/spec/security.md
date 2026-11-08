@@ -79,7 +79,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-003](#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
 
-**Verification:** Automated test ([r2-admin](../../src/__tests__/lib/r2-admin.test.ts))
+**Verification:** Automated: [r2-admin.test.ts](../../src/__tests__/lib/r2-admin.test.ts)
 
 **Status:** Implemented
 
@@ -110,7 +110,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/lib/r2-admin.test.ts))
+**Verification:** Automated: [r2-admin.test.ts](../../src/__tests__/lib/r2-admin.test.ts)
 
 **Status:** Implemented
 
@@ -139,7 +139,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([kv-crypto-security](../../src/__tests__/security/kv-crypto-security.test.ts))
+**Verification:** Automated: [kv-crypto.test.ts](../../src/__tests__/lib/kv-crypto.test.ts), [kv-crypto-security.test.ts](../../src/__tests__/security/kv-crypto-security.test.ts)
 
 **Status:** Implemented
 
@@ -201,7 +201,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test ([kv-crypto-security](../../src/__tests__/security/kv-crypto-security.test.ts))
+**Verification:** Automated: [kv-crypto.test.ts](../../src/__tests__/lib/kv-crypto.test.ts), [kv-crypto-security.test.ts](../../src/__tests__/security/kv-crypto-security.test.ts)
 
 **Status:** Implemented
 
@@ -228,7 +228,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([rate-limit-security](../../src/__tests__/security/rate-limit-security.test.ts))
+**Verification:** Automated: [rate-limit-fallback.test.ts](../../src/__tests__/middleware/rate-limit-fallback.test.ts), [rate-limit.test.ts](../../src/__tests__/middleware/rate-limit.test.ts), [rate-limit-security.test.ts](../../src/__tests__/security/rate-limit-security.test.ts)
 
 **Status:** Implemented
 
@@ -262,7 +262,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([security-headers](../../src/__tests__/security/security-headers.test.ts))
+**Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [early-return-security.test.ts](../../src/__tests__/security/early-return-security.test.ts), [security-headers.test.ts](../../src/__tests__/security/security-headers.test.ts)
 
 **Status:** Implemented
 
@@ -320,7 +320,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([storage-security](../../src/__tests__/security/storage-security.test.ts))
+**Verification:** Automated: [storage-browse.test.ts](../../src/__tests__/routes/storage-browse.test.ts), [storage-security.test.ts](../../src/__tests__/security/storage-security.test.ts)
 
 **Status:** Implemented
 
@@ -382,7 +382,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/container/index.test.ts))
+**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
@@ -507,7 +507,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-009](#req-sec-009-input-validation-at-system-boundaries)
 
-**Verification:** Automated test ([storage-security](../../src/__tests__/security/storage-security.test.ts))
+**Verification:** Automated: [storage-security.test.ts](../../src/__tests__/security/storage-security.test.ts)
 
 **Status:** Implemented
 
@@ -532,7 +532,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test ([access-security](../../src/__tests__/security/access-security.test.ts))
+**Verification:** Automated: [access-security.test.ts](../../src/__tests__/security/access-security.test.ts)
 
 **Status:** Implemented
 
@@ -560,7 +560,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SUB-012](subscription.md#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/auth-subscribe.test.ts))
+**Verification:** Automated: [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts)
 
 **Status:** Implemented
 
@@ -647,7 +647,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure), [REQ-SEC-019](#req-sec-019-per-endpoint-rate-limit-policy)
 
-**Verification:** Automated test ([terminal-ws](../../src/__tests__/routes/terminal-ws.test.ts))
+**Verification:** Automated: [terminal-route-validate.test.ts](../../src/__tests__/routes/terminal-route-validate.test.ts), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts)
 
 **Status:** Implemented
 
@@ -671,7 +671,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
 
-**Verification:** Automated test ([redirect-with-headers](../../src/__tests__/redirect-with-headers.test.ts))
+**Verification:** Automated: [redirect-with-headers.test.ts](../../src/__tests__/redirect-with-headers.test.ts)
 
 **Status:** Implemented
 
@@ -703,7 +703,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](subscription.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression)
 
-**Verification:** Automated test ([enterprise-route-hardening](../../src/__tests__/routes/enterprise-route-hardening.test.ts))
+**Verification:** Automated: [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts)
 
 **Status:** Implemented
 

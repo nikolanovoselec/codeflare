@@ -2041,7 +2041,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-168](#req-agent-168-review-boundary-classification)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -2168,7 +2168,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [lane-classifier.test.js](../../host/__tests__/lane-classifier.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -2193,7 +2193,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -2335,7 +2335,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -2894,7 +2894,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -3132,7 +3132,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
 
-**Verification:** Automated test ([oauth-scopes](../../src/__tests__/lib/oauth-scopes.test.ts))
+**Verification:** Automated: [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
 
 **Status:** Implemented
 
@@ -3293,7 +3293,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Automated tests ([pi ci monitor](../../host/__tests__/pi-ci-monitor.test.js))
+**Verification:** Automated: [pi-ci-monitor.test.js](../../host/__tests__/pi-ci-monitor.test.js)
 
 **Status:** Implemented
 
@@ -3317,7 +3317,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-098](#req-agent-098-pi-review-triage-acknowledgement-barrier)
 
-**Verification:** Automated tests ([pi ci monitor](../../host/__tests__/pi-ci-monitor.test.js))
+**Verification:** Automated: [pi-ci-monitor.test.js](../../host/__tests__/pi-ci-monitor.test.js)
 
 **Status:** Implemented
 
@@ -3437,7 +3437,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -3463,7 +3463,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -4182,7 +4182,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -4212,7 +4212,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -4239,7 +4239,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -4355,7 +4355,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-105](#req-agent-105-review-lane-turn-economy)
 
-**Verification:** Automated tests ([lane evidence](../../host/__tests__/lane-evidence.test.js))
+**Verification:** Automated: [lane-evidence.test.js](../../host/__tests__/lane-evidence.test.js)
 
 **Status:** Implemented
 
@@ -4512,7 +4512,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog), [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows)
 
-**Verification:** Automated test ([Pi capability tests](../../src/__tests__/lib/pi-capabilities.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts), [Pi memory/Vault delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+**Verification:** Automated: [pi-capabilities.test.ts](../../src/__tests__/lib/pi-capabilities.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -4562,7 +4562,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-074](#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -4583,7 +4583,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-098](#req-agent-098-pi-review-triage-acknowledgement-barrier)
 
-**Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -4687,7 +4687,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-086](#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff)
 
-**Verification:** Automated tests ([run review lane](../../host/__tests__/run-review-lane.test.js))
+**Verification:** Automated: [run-review-lane.test.js](../../host/__tests__/run-review-lane.test.js)
 
 **Status:** Implemented
 
@@ -4750,7 +4750,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
 
-**Verification:** Automated test ([Review spawn gate tests](../../host/__tests__/enforce-review-spawn.test.js))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -4898,7 +4898,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
-**Verification:** Automated tests ([pi ci monitor](../../host/__tests__/pi-ci-monitor.test.js))
+**Verification:** Automated: [pi-ci-monitor.test.js](../../host/__tests__/pi-ci-monitor.test.js)
 
 **Status:** Implemented
 
@@ -5357,7 +5357,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -5717,7 +5717,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [operator-review-remote.test.ts](../../src/__tests__/lib/operator-review-remote.test.ts), [operator-review-selector.test.ts](../../src/__tests__/lib/operator-review-selector.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -5883,7 +5883,7 @@ None.
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-025](setup.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](agents.md#req-agent-002-agent-selection-at-session-creation)
 
-**Verification:** Automated test ([session-agent-allowlist](../../src/__tests__/routes/session-agent-allowlist.test.ts))
+**Verification:** Automated: [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [session-agent-allowlist.test.ts](../../src/__tests__/routes/session-agent-allowlist.test.ts), [user-profile-enterprise.test.ts](../../src/__tests__/routes/user-profile-enterprise.test.ts), [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [CreateSessionDialog.test.tsx](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx)
 
 **Status:** Implemented
 
