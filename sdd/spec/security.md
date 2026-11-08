@@ -616,7 +616,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure)
 
-**Verification:** Automated test ([cross-package-constants](../../src/__tests__/lib/cross-package-constants.test.ts))
+**Verification:** Automated: [WebSocket rate limit](../../src/__tests__/routes/terminal-ws.test.ts), [session admission](../../src/__tests__/routes/container-lifecycle.test.ts), [failure policy](../../src/__tests__/middleware/rate-limit-fallback.test.ts), [stress bypass](../../src/__tests__/middleware/rate-limit.test.ts)
 
 **Status:** Implemented
 

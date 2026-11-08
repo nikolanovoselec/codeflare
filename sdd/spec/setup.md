@@ -1062,7 +1062,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-040](models-and-routing.md#req-enterprise-040-enterprise-pi-check-lifecycle)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only.
+**Verification:** Automated: [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Implemented
 
@@ -1089,7 +1089,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-ENTERPRISE-038](models-and-routing.md#req-enterprise-038-enterprise-pi-selected-profile-verification)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx)
 
 **Status:** Planned
 
@@ -1128,7 +1128,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-043](models-and-routing.md#req-enterprise-043-enterprise-pi-verified-route-activation)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx)
 
 **Status:** Planned
 
@@ -1160,7 +1160,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-035](models-and-routing.md#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-036](#req-enterprise-036-enterprise-pi-custom-profile-draft-lifecycle)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only.
+**Verification:** Automated: [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx), [ReasoningProfileEditor.test.tsx](../../web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx), [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [pi-profile-presentation.test.ts](../../web-ui/src/__tests__/components/pi-profile-presentation.test.ts)
 
 **Status:** Implemented
 
@@ -1188,7 +1188,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only.
+**Verification:** Automated: [AiRoutingReview.test.tsx](../../web-ui/src/__tests__/components/AiRoutingReview.test.tsx)
 
 **Status:** Implemented
 
@@ -1215,7 +1215,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-047](models-and-routing.md#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](models-and-routing.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-053](models-and-routing.md#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Implemented
 
@@ -1243,7 +1243,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-048](models-and-routing.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-052](models-and-routing.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](models-and-routing.md#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](models-and-routing.md#req-enterprise-055-native-target-authority-and-save)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/routes/target-capability-discovery.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Planned
 
@@ -1270,7 +1270,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Planned
 
@@ -1295,7 +1295,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-ENTERPRISE-042](#req-enterprise-042-enterprise-pi-draft-connection-and-verification), [REQ-ENTERPRISE-063](#req-enterprise-063-ai-gateway-management-url-compatibility)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Implemented
 
@@ -1317,7 +1317,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-053](models-and-routing.md#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts)
 
 **Status:** Implemented
 
@@ -1341,7 +1341,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts)
 
 **Status:** Implemented
 
@@ -1369,7 +1369,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-042](#req-enterprise-042-enterprise-pi-draft-connection-and-verification)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [admin-configuration.test.ts](../../src/__tests__/routes/admin-configuration.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
 **Status:** Implemented
 
@@ -1394,7 +1394,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-056](#req-enterprise-056-native-target-disclosure-and-readiness)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [pi-profile-presentation.test.ts](../../web-ui/src/__tests__/components/pi-profile-presentation.test.ts)
 
 **Status:** Planned
 
@@ -1530,7 +1530,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [client.test.ts](../../web-ui/src/__tests__/api/client.test.ts), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx)
 
 **Status:** Implemented
 
@@ -1623,7 +1623,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution)
 
-**Verification:** Existing named behavioral tests; CI qualification remains separate.
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [EnvironmentAreaFields.test.tsx](../../web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx)
 
 **Status:** Implemented
 

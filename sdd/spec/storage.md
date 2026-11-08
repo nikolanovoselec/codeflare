@@ -51,7 +51,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([r2-config](../../src/__tests__/lib/r2-config.test.ts))
+**Verification:** Automated: [Owner identity](../../src/__tests__/lib/access.test.ts), [ownership claim](../../src/__tests__/container/index.test.ts), [bucket provisioning](../../src/__tests__/lib/r2-admin.test.ts), [R2 configuration](../../src/__tests__/lib/r2-config.test.ts)
 
 **Status:** Implemented
 
@@ -1713,7 +1713,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-011](#req-stor-011-sync-mode-controls-workspace-scope), [REQ-STOR-031](#req-stor-031-managed-resource-container-sync)
 
-**Verification:** Existing named behavioral tests; CI qualification remains separate.
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py)
 
 **Status:** Implemented
 

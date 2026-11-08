@@ -857,7 +857,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-AGENT-210](agents.md#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Existing named behavioral tests; CI qualification remains separate.
+**Verification:** Automated: [entrypoint-managed-curation.test.js](../../host/__tests__/entrypoint-managed-curation.test.js)
 
 **Status:** Implemented
 

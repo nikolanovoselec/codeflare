@@ -181,7 +181,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-044](setup.md#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -238,7 +238,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity), [REQ-ENTERPRISE-074](#req-enterprise-074-provider-native-bedrock-target-identity)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [bedrock-anthropic-native-adapter.test.ts](../../src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -367,7 +367,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
 
-**Verification:** Automated tests in the anchored discovery and Administration API suites above.
+**Verification:** Automated: [reasoning-discovery.test.ts](../../src/__tests__/lib/reasoning-discovery.test.ts), [admin-reasoning.test.ts](../../src/__tests__/routes/admin-reasoning.test.ts)
 
 **Status:** Implemented
 
@@ -423,7 +423,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration)
 
-**Verification:** Automated tests in the anchored discovery and Administration API suites above.
+**Verification:** Automated: [reasoning-discovery.test.ts](../../src/__tests__/lib/reasoning-discovery.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/lib/target-capability-discovery.test.ts), [admin-reasoning-discovery.test.ts](../../src/__tests__/routes/admin-reasoning-discovery.test.ts), [admin-reasoning.test.ts](../../src/__tests__/routes/admin-reasoning.test.ts), [ReasoningProfileEditor.test.tsx](../../web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx)
 
 **Status:** Implemented
 
@@ -450,7 +450,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration)
 
-**Verification:** Automated tests in the anchored discovery and Administration API suites above.
+**Verification:** Automated: [bedrock-capability-discovery.test.ts](../../src/__tests__/lib/bedrock-capability-discovery.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/lib/target-capability-discovery.test.ts), [target-capability-runtime.test.ts](../../src/__tests__/lib/target-capability-runtime.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/routes/target-capability-discovery.test.ts), [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx)
 
 **Status:** Implemented
 
@@ -613,7 +613,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-042](setup.md#req-enterprise-042-enterprise-pi-draft-connection-and-verification)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts), [admin-reasoning.test.ts](../../src/__tests__/routes/admin-reasoning.test.ts), [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
 **Status:** Planned
 
@@ -637,7 +637,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation), [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts), [reasoning-discovery.test.ts](../../src/__tests__/lib/reasoning-discovery.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
 **Status:** Implemented
 
@@ -704,7 +704,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-060](#req-enterprise-060-native-target-input-validation)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
 **Status:** Implemented
 
@@ -741,7 +741,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Planned
 
@@ -765,7 +765,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts)
 
 **Status:** Implemented
 
@@ -787,7 +787,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save), [REQ-ENTERPRISE-057](setup.md#req-enterprise-057-ai-gateway-connection-rotation)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
 **Status:** Implemented
 
@@ -813,7 +813,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Implemented
 
@@ -880,7 +880,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Planned
 
@@ -906,7 +906,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [reasoning-profiles.test.ts](../../src/__tests__/lib/reasoning-profiles.test.ts)
 
 **Status:** Implemented
 
@@ -930,7 +930,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only.
+**Verification:** Automated: [reasoning-profiles.test.ts](../../src/__tests__/lib/reasoning-profiles.test.ts), [admin-reasoning-discovery.test.ts](../../src/__tests__/routes/admin-reasoning-discovery.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
 **Status:** Implemented
 
@@ -968,7 +968,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [bedrock-capability-discovery.test.ts](../../src/__tests__/lib/bedrock-capability-discovery.test.ts), [reasoning-profiles.test.ts](../../src/__tests__/lib/reasoning-profiles.test.ts)
 
 **Status:** Implemented
 
@@ -994,7 +994,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-072](#req-enterprise-072-provider-native-bedrock-reasoning-profiles)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -1048,7 +1048,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-070](#req-enterprise-070-bedrock-dynamic-route-provider-default-profile)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only.
+**Verification:** Automated: [reasoning-discovery.test.ts](../../src/__tests__/lib/reasoning-discovery.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -1082,7 +1082,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-059](#req-enterprise-059-native-provider-wire-adaptation)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [bedrock-anthropic-native-adapter.test.ts](../../src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -1117,7 +1117,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-059](#req-enterprise-059-native-provider-wire-adaptation), [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [bedrock-anthropic-native-adapter.test.ts](../../src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -1144,7 +1144,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [bedrock-anthropic-native-adapter.test.ts](../../src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts), [bedrock-generic-contract.test.ts](../../src/__tests__/lib/bedrock-generic-contract.test.ts)
 
 **Status:** Implemented
 
@@ -1169,7 +1169,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [bedrock-anthropic-native-adapter.test.ts](../../src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -1193,7 +1193,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only.
+**Verification:** Automated: [target-capability-discovery.test.ts](../../src/__tests__/lib/target-capability-discovery.test.ts), [target-capability-runtime.test.ts](../../src/__tests__/lib/target-capability-runtime.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/routes/target-capability-discovery.test.ts)
 
 **Status:** Implemented
 
@@ -1218,7 +1218,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity), [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [bedrock-anthropic-native-adapter.test.ts](../../src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts)
 
 **Status:** Implemented
 
@@ -1261,7 +1261,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication), [REQ-ENTERPRISE-074](#req-enterprise-074-provider-native-bedrock-target-identity), [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation), [REQ-ENTERPRISE-079](#req-enterprise-079-provider-native-bedrock-replay-confidentiality)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [verify-bedrock-pi-prompt-cache.mjs](../../scripts/verify-bedrock-pi-prompt-cache.mjs), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [bedrock-anthropic-native-adapter.test.ts](../../src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts), [bedrock-capability-discovery.test.ts](../../src/__tests__/lib/bedrock-capability-discovery.test.ts), [bedrock-generic-contract.test.ts](../../src/__tests__/lib/bedrock-generic-contract.test.ts), [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/lib/target-capability-discovery.test.ts), [bedrock-generic-upgrade.test.ts](../../src/__tests__/routes/bedrock-generic-upgrade.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/routes/target-capability-discovery.test.ts)
 
 **Status:** Implemented
 
@@ -1355,7 +1355,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-049](#req-enterprise-049-unified-enterprise-model-authorization), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [entrypoint-enterprise-ca-copilot.test.js](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js), [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [enterprise-routing.test.mjs](../../preseed/agents/pi/test/enterprise-routing.test.mjs), [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts)
 
 **Status:** Planned
 

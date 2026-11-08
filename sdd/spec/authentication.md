@@ -360,7 +360,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/lib/email.test.ts))
+**Verification:** Automated: [Welcome ownership and login](../../src/__tests__/lib/access.test.ts), [email transport](../../src/__tests__/lib/email.test.ts)
 
 **Status:** Implemented
 

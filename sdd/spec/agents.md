@@ -477,7 +477,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
-**Verification:** Review-enforcement behavioral tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -501,7 +501,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-112](#req-agent-112-goal-pause-ownership-across-pr-heads)
 
-**Verification:** Review-enforcement behavioral tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -549,7 +549,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-112](#req-agent-112-goal-pause-ownership-across-pr-heads), [REQ-AGENT-113](#req-agent-113-review-owned-goal-release)
 
-**Verification:** Review-enforcement behavioral tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -645,7 +645,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-122](#req-agent-122-per-pr-review-checkpoints), [REQ-AGENT-168](#req-agent-168-review-boundary-classification), [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent)
 
-**Verification:** Automated Pi and Claude boundary behavior tests
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -676,7 +676,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-132](#req-agent-132-pr-delivery-and-existing-head-consent), [REQ-AGENT-168](#req-agent-168-review-boundary-classification)
 
-**Verification:** Automated Pi and Claude boundary behavior tests
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -700,7 +700,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization), [REQ-AGENT-132](#req-agent-132-pr-delivery-and-existing-head-consent), [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent)
 
-**Verification:** Automated Pi review-enforcement tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -5332,7 +5332,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
 
-**Verification:** Automated Pi review-enforcement tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
