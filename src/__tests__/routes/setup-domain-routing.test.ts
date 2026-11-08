@@ -212,7 +212,11 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
   // Helper: build URL-based mocks for custom domain flow (zone + subdomain + DNS lookup + DNS create + route)
   function customDomainFlowMocks(): Record<string, (url: string, init?: RequestInit) => Response> {
     return {
-      '/zones?name=': mockResponses.zoneLookup,
+      // Like Cloudflare, only the true zone (example.com) exists; a lookup for the full hostname finds nothing
+      '/zones?name=': (url: string) =>
+        url.endsWith('name=example.com')
+          ? mockResponses.zoneLookup()
+          : new Response(JSON.stringify({ success: true, result: [] }), { status: 200, headers: jsonHeaders }),
       '/workers/subdomain': mockResponses.subdomainLookup,
       // '~' prefix: includes-match so both .../dns_records and .../dns_records/{id} are handled
       '~/dns_records': (_url: string, init?: RequestInit) => {
