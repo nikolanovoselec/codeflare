@@ -1488,7 +1488,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. The lifecycle indicator is yellow only while backend lifecycle is `starting`, green while `running` after editor readiness, and gray when `stopped`. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
+1. The lifecycle indicator is yellow while backend lifecycle is `starting` or `stopping`, green while `running` after editor readiness, and gray when `stopped`. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
 2. Backend `unreachable` retains the editor object and shows a separate accessible connectivity/recovery notice without changing the running indicator to yellow. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
 3. D1 status failure retains the last ordered lifecycle and editor state and shows a distinct status-unavailable notice. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
 4. Recovery reconnects to the existing session without invoking Start. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
