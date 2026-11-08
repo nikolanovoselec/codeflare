@@ -4149,7 +4149,7 @@ Herdr live processes, pane history, sockets, logs, plugins, updater state, and u
 
 **Status:** Accepted (2026-08-29)
 
-**Context:** The [2026-08-28 design](../../sdd/spec/changes.md#2026-08-28) put a five-minute settled-turn timer in Pi. Herdr already publishes the semantic status that its UI renders, so retaining the Pi timer would leave two authorities for the same readiness decision ([REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness)).
+**Context:** The [2026-08-28 design](../../sdd/spec/changes-archive-2026-11.md#2026-08-28) put a five-minute settled-turn timer in Pi. Herdr already publishes the semantic status that its UI renders, so retaining the Pi timer would leave two authorities for the same readiness decision ([REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness)).
 
 **Decision:** Keep the validated input-required signal immediate. In Herdr mode, read every recognized Pi or Claude pane across tabs and splits through the pinned public socket API. Subscribe to each pane's `pane.agent_status_changed` event. After at least one pane was `working`, all panes becoming `idle` or `done` starts ten minutes. Any `working`, `blocked`, or `unknown` pane prevents completion; renewed work also cancels queued completion. Expiry emits one fixed completion only while every tracked pane remains ready ([REQ-TERM-029](../../sdd/spec/terminal.md#req-term-029-herdr-status-gated-terminal-completion)). <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay -->
 
