@@ -1188,8 +1188,8 @@ None.
 **Acceptance Criteria:**
 
 1. Failure to schedule required recovery, reconciliation, termination or confirmed-exit work is logged with generation and incident identity and propagates to its lifecycle caller.
-2. Failed authoritative mutations retain retryable ownership and cannot be converted into `stopped` or successful recovery.
-3. Retry work is bounded, duplicate-safe and non-billable.
+2. Failed authoritative mutations retain retryable ownership and cannot be converted into `stopped` or successful recovery. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/lib/session-repository.ts::recoverUnreachable --> <!-- @impl: src/lib/session-repository.ts::confirmStoppedOrObserved -->
+3. Retry work is bounded, duplicate-safe and non-billable. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/lib/session-repository.ts::markRecoveryForceStarted -->
 4. If lifecycle authority cannot be established, Start, Stop, Delete, migration and destructive reconciliation fail closed.
 
 **Constraints:** A D1 failure and a host-transport failure remain distinct conditions.
