@@ -21,6 +21,7 @@ const verification = (raw: unknown, profile = defaultProfile) => ({ schemaVersio
   canaryVersion: PI_WIRE_CANARY_VERSION, supportedLevels: profile.supportedLevels, scope: 'single-model' as const,
   checkedAt: '2026-09-13T16:00:00.000Z', capabilities: parseCapabilitySummary(raw) });
 
+// REQ-ENTERPRISE-095: Discovery capability evidence authority.
 describe('REQ-ENTERPRISE-035/043: independent evidence remains exact server-owned authority', () => {
   it('round-trips per-mapping evidence and authorizes verified tools without input cache evidence', () => {
     expect(parseCapabilitySummary(evidence)).toEqual(evidence);

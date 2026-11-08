@@ -390,22 +390,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 7. Failed checks distinguish provider refusal, unobserved cache reuse and an unexpected buffered response envelope from connection failure, without exposing provider content. <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-035: Advanced discovery explains $code and leaves the route unassignable) --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification) --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::reasoningCheckSummary --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (reports concrete %s failure without exposing raw data) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (reports incompatible %s with a clear diagnostic and no invented draft) -->
 **Constraints:**
 
-- Cache-fill refusal diagnostics retain measured write/read counters and the unattempted-read flag without granting cache permission or erasing completed tools/replay. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) -->
-
-- Buffered-envelope rejection retains HTTP status and transport rather than claiming a connection error. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification) -->
-
-- V2 capability summaries contain only `schemaVersion: 2` and `mappings`; rows contain exact `levels`, exercised `transport`, `tools`, `replay`, `reasoning`, `streaming` and `cache`. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary -->
-- Worker/browser share strict parsing; outer document schemas remain v1. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (round-trips per-mapping evidence and authorizes verified tools without input cache evidence) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (rejects malformed or extra evidence without restoring a grade (%j)) -->
-- V2 authority requires complete tools/replay and exact profile semantic-group/alias coverage with the correct mapped operation; duplicate, missing or extra rows/levels fail closed. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (binds evidence levels and transport to the actual immutable profile rather than trusting capability booleans) -->
-- Cache is optional. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-035/043: lets an administrator activate verified tools without cache reuse and save an Off preference through real receipt authority) -->
-- Strict legacy v1 decoding preserves original qualification and current adapter/canary rules; formerly ineligible evidence cannot gain authority from v2 policy or load/rebind. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::legacyCapabilityQualifies --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (retains legacy failed evidence for reading without upgrading it to current usable authority) -->
-- Optional cache misses/refusals do not erase valid tool/replay evidence or trigger buffered cache chasing. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility -->
-- Invalid fills never launch a paired read; fatal authentication, quota, server, framing, transport and timeout boundaries still withhold a fresh receipt. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: keeps a working streaming Dynamic path assignable without cache reuse or buffered cache chasing) -->
-- Streaming requires cold public deltas over time before EOF for that mapping/operation; Invoke or synthesized buffered SSE and Gateway HIT cannot establish it.
-- Buffered routes remain usable without an incremental claim.
-- No arbitrary native protocol, URL, header, model substitution or transport cross-product is introduced.
-- Failed stages retain sanitized diagnostics; stale draft/inventory evidence cannot authorize Save.
-- The following matching/selection constraints apply to the retained Advanced workflow. It remains deterministic, sanitized, non-assigning and non-activating under [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence); normal Discover instead adopts a qualified draft automatically and still requires reviewed Save.
+- Advanced remains deterministic, sanitized, non-assigning and non-activating under [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence); normal Discover instead adopts a qualified draft automatically and still requires reviewed Save.
 - Results do not identify the backend model family or prove increasing reasoning effort; compatibility and Pi tool/replay observations are not reasoning-strength measurements.
 - The finite built-in protocol bank bounds route-only probes.
 - Saved custom revisions reuse those observations without additional paid probes.
@@ -421,9 +406,66 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration)
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-095](#req-enterprise-095-discovery-capability-evidence-authority), [REQ-ENTERPRISE-096](#req-enterprise-096-discovery-probe-qualification-boundaries)
 
 **Verification:** Automated: [reasoning-discovery.test.ts](../../src/__tests__/lib/reasoning-discovery.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/lib/target-capability-discovery.test.ts), [admin-reasoning-discovery.test.ts](../../src/__tests__/routes/admin-reasoning-discovery.test.ts), [admin-reasoning.test.ts](../../src/__tests__/routes/admin-reasoning.test.ts), [ReasoningProfileEditor.test.tsx](../../web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-095: Discovery capability evidence authority
+
+**Intent:** Capability proofs retain closed, versioned mapping identity without upgrading incomplete or legacy evidence.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Worker/browser share strict parsing; outer document schemas remain v1. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (round-trips per-mapping evidence and authorizes verified tools without input cache evidence) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (rejects malformed or extra evidence without restoring a grade (%j)) -->
+2. V2 authority requires complete tools/replay and exact profile semantic-group/alias coverage with the correct mapped operation; duplicate, missing or extra rows/levels fail closed. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (binds evidence levels and transport to the actual immutable profile rather than trusting capability booleans) -->
+3. Cache is optional. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-035/043: lets an administrator activate verified tools without cache reuse and save an Off preference through real receipt authority) -->
+4. Strict legacy v1 decoding preserves original qualification and current adapter/canary rules; formerly ineligible evidence cannot gain authority from v2 policy or load/rebind. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::legacyCapabilityQualifies --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (retains legacy failed evidence for reading without upgrading it to current usable authority) -->
+
+**Constraints:**
+
+- V2 capability summaries contain only `schemaVersion: 2` and `mappings`; rows contain exact `levels`, exercised `transport`, `tools`, `replay`, `reasoning`, `streaming` and `cache`. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
+
+**Verification:** Automated: [independent-capability-authority.test.ts](../../src/__tests__/lib/independent-capability-authority.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/routes/target-capability-discovery.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-096: Discovery probe qualification boundaries
+
+**Intent:** Cache and transport observations remain bounded evidence rather than inferred capability or permission.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Cache-fill refusal diagnostics retain measured write/read counters and the unattempted-read flag without granting cache permission or erasing completed tools/replay. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) -->
+2. Buffered-envelope rejection retains HTTP status and transport rather than claiming a connection error. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification) -->
+3. Invalid fills never launch a paired read; fatal authentication, quota, server, framing, transport and timeout boundaries still withhold a fresh receipt. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: keeps a working streaming Dynamic path assignable without cache reuse or buffered cache chasing) -->
+
+**Constraints:**
+
+- Optional cache misses/refusals do not erase valid tool/replay evidence or trigger buffered cache chasing. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility -->
+- Streaming requires cold public deltas over time before EOF for that mapping/operation; Invoke or synthesized buffered SSE and Gateway HIT cannot establish it.
+- Buffered routes remain usable without an incremental claim.
+- No arbitrary native protocol, URL, header, model substitution or transport cross-product is introduced.
+- Failed stages retain sanitized diagnostics; stale draft/inventory evidence cannot authorize Save.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-095](#req-enterprise-095-discovery-capability-evidence-authority)
+
+**Verification:** Automated: [bedrock-capability-discovery.test.ts](../../src/__tests__/lib/bedrock-capability-discovery.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/lib/target-capability-discovery.test.ts)
 
 **Status:** Implemented
 
@@ -444,11 +486,11 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Constraints:**
 
-- All Constraints of [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection) apply unchanged here; matching/selection restrictions remain Advanced-only, while normal Discover adopts a qualified draft automatically and still requires reviewed Save. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) --> <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (round-trips per-mapping evidence and authorizes verified tools without input cache evidence) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (rejects malformed or extra evidence without restoring a grade (%j)) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (binds evidence levels and transport to the actual immutable profile rather than trusting capability booleans) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-035/043: lets an administrator activate verified tools without cache reuse and save an Off preference through real receipt authority) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::legacyCapabilityQualifies --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (retains legacy failed evidence for reading without upgrading it to current usable authority) --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: keeps a working streaming Dynamic path assignable without cache reuse or buffered cache chasing) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-035: offers completed matches with a rate-limit notice without retrying) -->
+- Shared evidence follows [REQ-ENTERPRISE-095](#req-enterprise-095-discovery-capability-evidence-authority) and [REQ-ENTERPRISE-096](#req-enterprise-096-discovery-probe-qualification-boundaries); [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection) matching/selection restrictions remain Advanced-only, while normal Discover adopts a qualified draft automatically and still requires reviewed Save. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) --> <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (round-trips per-mapping evidence and authorizes verified tools without input cache evidence) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (rejects malformed or extra evidence without restoring a grade (%j)) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (binds evidence levels and transport to the actual immutable profile rather than trusting capability booleans) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-035/043: lets an administrator activate verified tools without cache reuse and save an Off preference through real receipt authority) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::legacyCapabilityQualifies --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (retains legacy failed evidence for reading without upgrading it to current usable authority) --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: keeps a working streaming Dynamic path assignable without cache reuse or buffered cache chasing) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-035: offers completed matches with a rate-limit notice without retrying) -->
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration)
+**Dependencies:** [REQ-ENTERPRISE-095](#req-enterprise-095-discovery-capability-evidence-authority), [REQ-ENTERPRISE-096](#req-enterprise-096-discovery-probe-qualification-boundaries), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration)
 
 **Verification:** Automated: [bedrock-capability-discovery.test.ts](../../src/__tests__/lib/bedrock-capability-discovery.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/lib/target-capability-discovery.test.ts), [target-capability-runtime.test.ts](../../src/__tests__/lib/target-capability-runtime.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/routes/target-capability-discovery.test.ts), [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx)
 

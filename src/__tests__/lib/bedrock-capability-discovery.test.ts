@@ -154,6 +154,7 @@ function expectNativeCachePair(fill: any, read: any): void {
   expect(readMessages[0].content[0].text).not.toBe(fillMessages[0].content[0].text);
 }
 
+// REQ-ENTERPRISE-096: Discovery probe qualification boundaries.
 describe('REQ-ENTERPRISE-074: target-bound capability discovery', () => {
   it.each([
     { transport: 'aig-bedrock-anthropic-auto', rejected: [] },

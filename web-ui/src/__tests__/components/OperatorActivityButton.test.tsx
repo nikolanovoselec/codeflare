@@ -24,6 +24,7 @@ const active = { activityId: 'activity-1', operatorId: 'reviewer', executionStat
   cleanupStatus: 'pending' as const, collectionStatus: 'unavailable' as const,
   attention: false, sessionId: 'session-1', source: 'Repository dispatch', updatedAt: new Date().toISOString() };
 
+// REQ-OPERATOR-105: Dispatcher inference context.
 describe('REQ-OPERATOR-027: operator activity header control', () => {
   it('REQ-OPERATOR-007: shows provider-default in the existing run dropdown without Off or Medium', async () => {
     listMock.mockResolvedValue({ items: [active] });

@@ -147,6 +147,7 @@ describe('REQ-OPERATOR-047: closed protected refusal contract', () => {
 
 });
 
+// REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-063: reservation denial private wire', () => {
   const sourceUrl = 'https://api.github.com/repos/another/service';
   const inference = (operationId: string) => genericWire('inference', { operationId,
@@ -342,6 +343,7 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
     }, { repositoryOnly: true, operationLimit: 128 }));
 });
 
+// REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', () => {
   it('exposes the configured API origin only to repository-only Loader code', async () => {
     for (const repositoryOnly of [false, true]) await fixture(async f => {
@@ -1135,6 +1137,7 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
   }, options));
 });
 
+// REQ-OPERATOR-103, REQ-OPERATOR-106: Extracted operation accounting and observation recovery.
 describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
   const accountingRetryPolicy = { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 2 };
   const inference = (text = 'PRIVATE_INFERENCE_PROMPT') => genericWire('inference', { operationId: 'logical-inference',
@@ -1431,6 +1434,7 @@ describe('REQ-OPERATOR-081: host construction source boundary', () => {
   }, { repositoryOnly: true }));
 });
 
+// REQ-OPERATOR-101: Operator budget policy.
 describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effects', () => {
   it.each([true, false])('REQ-OPERATOR-079: the real Tail entrypoint honors logging=%s without forwarding private child records', async loggingEnabled => {
     const records: string[] = [];
@@ -3474,6 +3478,7 @@ describe('REQ-OPERATOR-047: package-selected research under managed parent autho
 });
 
 
+// REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () => {
   it.each([undefined, 131072])('REQ-OPERATOR-047: exposes source allowance %s only to repository Loader', async sourceResponseBytes => {
     for (const repositoryOnly of [false, true]) await fixture(async f => {

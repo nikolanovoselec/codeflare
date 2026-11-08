@@ -80,6 +80,7 @@ const approvedDefaults: Record<DispatcherCapacityKey, number> = {
 };
 const capacityCases = dispatcherCapacityKeys.map(key => ({ key, ...dispatcherCapacityFields[key], default: approvedDefaults[key] }));
 
+// REQ-OPERATOR-101: Operator budget policy.
 describe('Dispatcher operator-owned capacities', () => {
   if (partition === 'controls') it.each(capacityCases)('REQ-OPERATOR-045/049: $label exposes accessible help/default/reset and persists across reopening', async field => {
     await open();

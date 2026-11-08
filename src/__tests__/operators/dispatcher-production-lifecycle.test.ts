@@ -534,6 +534,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
 
 // Intentional intent4 admission/progress wire contracts; the child seam is mocked here.
 // Real generated-class SDK/effect/eviction proof remains in the preserved native suite.
+// REQ-OPERATOR-104, REQ-OPERATOR-106: Extracted cancellation and observation recovery.
 describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
   type Context = { scope: string; generation: number; deadline: string; releaseDigest: string;
     authorityDigest: string; submissionId: string; phase: { kind: string; index?: number; target?: { pullRequest: number; headSha: string } };
@@ -2949,6 +2950,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
   });
 });
 /** Parent HTTP/Activity contracts only; generated Flue lifecycle is qualified in Dispatcher CI. */
+// REQ-OPERATOR-102, REQ-OPERATOR-104, REQ-OPERATOR-106: Extracted profile, retirement and recovery boundaries.
 describe('normal installed Dispatcher control', () => {
   const options = { normalHosting: true, repositoryOnly: true };
   const source = { operationId: 'normal-read', url: 'https://api.github.com/repos/another/service' };
@@ -4080,6 +4082,7 @@ describe('normal installed Dispatcher control', () => {
     }, options));
 });
 /** Approved raw-log batch: real parent authorization/SQLite, synthetic external owner port only. */
+// REQ-OPERATOR-102: Native Dispatcher profile authority.
 describe('protected raw parent execution evidence', () => {
   const options = { normalHosting: true, repositoryOnly: true };
   const captureRaw = () => {

@@ -390,6 +390,7 @@ describe('REQ-OPERATOR-007/047: Dispatcher installation Gateway selection', () =
 });
 
 // Requirements: 007 AC4/5/6; 047 AC1/2/3/5; 048 AC2/5/6 + native/default constraints; 058 AC1.
+// REQ-OPERATOR-100, REQ-OPERATOR-102, REQ-OPERATOR-105: Extracted owner authentication and inference contracts.
 describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contracts', () => {
   it('pins the saved built-in logical profile with zero Host catalog and no source-session descriptor', () => lane(async (f, store) => {
     await admitted(f);
@@ -1332,6 +1333,7 @@ describe('REQ-OPERATOR-057: trusted native authentication evidence', () => {
   });
 });
 
+// REQ-OPERATOR-102: Native Dispatcher profile authority.
 describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent model execution', () => {
   it.each([401, 429, 503])('native custom API forwards SDK-prepared bytes and original HTTP%i failure without account credential injection', status => lane(async f => {
     await admitted(f);
@@ -1830,6 +1832,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
   }));
 });
 
+// REQ-OPERATOR-102: Native Dispatcher profile authority.
 describe('REQ-OPERATOR-007/047/048: read-only credential non-retention', () => {
   it('SDK private files/auth never enter journal, jobs or exports; raw failures retain nonsecret detail only', () => lane(async (f, store) => {
     const output: unknown[][] = [];

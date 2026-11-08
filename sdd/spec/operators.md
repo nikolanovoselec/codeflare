@@ -143,20 +143,16 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 6. Normal Dispatcher Native reasoning follows owner R2 exact-model → global → provider-default null independently of Gateway reasoning configuration; Conductor retains installation override → saved model → saved global → Medium precedence. <!-- @impl: src/operators/dispatcher-sdk-storage.ts::readDispatcherSdkFiles --> <!-- @impl: src/operators/operator-runtime-capability.ts::prepareDispatcherNative --> <!-- @impl: src/operators/orchestrator.ts::prepareOperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (inherits exact-model R2 Off instead of global High or legacy installation Low without changing saved preferences) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007: normal Native admits saved R2 %s independently of Gateway Low) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: normal Native retains $scope $check authorization) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-007/048: generic Dispatcher bootstrap denies saved High despite approved legacy installation Low) --> <!-- @test: src/__tests__/operators/generic-profile-admission.test.ts (admits matching saved OpenAI/model at installation Low without changing saved global/model High) --> <!-- @test: src/__tests__/operators/generic-profile-admission.test.ts (refuses an explicit conflicting $name without admission, substitution or saved-profile writes) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (shows effective native reasoning origin $source without changing admitted inference identity) -->
 7. Unsupported Off is rejected rather than clamped. <!-- @impl: host/src/operator-inference.ts::ownerInference --> <!-- @test: host/__tests__/operator-inference-raw.test.js (REQ-OPERATOR-007: unsupported saved ${kind} retains raw selection evidence but remains 409 without substitution) -->
 
+**Notes:** Hosted Native/Gateway qualification remains unverified; prior deployment or Host-dependent coverage does not establish it ([verification boundaries](../../documentation/lanes/operators.md#verification-boundaries)). Configured-service mechanics are documented at [trusted Dispatcher hosting](../../documentation/lanes/operators.md#normal-dispatcher-hosting).
+
 **Constraints:**
 
-- Managed selection retains the existing verified-catalog policy.
 - Legacy Dispatcher installation reasoning overrides are inert for new admissions and never grant approval.
-- Dispatcher uses the owner’s R2 provider/model and selected `auth.json` credential, with SDK-owned OAuth resolution/renewal and only derived authentication crossing the private boundary. <!-- @impl: src/operators/dispatcher-sdk-storage.ts::handleDispatcherSdkCredentials --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-007: ordinary Wrangler bundle OAuth delivery) -->
-- Dispatcher excludes coding-agent runtime, extensions, `models.json`, commands and App credential mutation; public SDK resolution alone maintains the selected owner OAuth credential ([boundary](../../documentation/lanes/operators.md#dispatcher-oauth-maintenance-and-phase-projection-boundary)).
-- SDK renewal serializes per provider, re-reads under lock, persists complete credentials with whole-file ETag CAS, preserves unrelated entries and refuses conflicts without refresh retry or superseded auth. <!-- @impl: src/operators/dispatcher-sdk-storage.ts::handleDispatcherSdkCredentials --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (successive credential requests cross SDK freshness and persist the full renewed credential (SSE: %s)) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (concurrent renewal reads again under metadata serialization and shares one rotation) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (concurrent %s wins CAS without refresh retry or superseded auth) -->
-- Current owner/selection, execution/generation, original deadline and encryption state fence credential writes/returns; AD91 checks are not migration exclusion and started refresh grants no late authority ([qualification](../../documentation/lanes/operators.md#dispatcher-oauth-maintenance-and-phase-projection-boundary)). <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (%s OAuth resolves within the existing 30s credential budget under authority and R2 latency) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (revocation during OAuth refresh under boundary latency releases no auth or persisted rotation) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (revocation after R2 headers but before body completion releases no credentials) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (concurrent whole-file CAS under boundary latency preserves the winning credential file and releases no auth) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (%s fence during started SDK refresh grants no late write or auth) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (%s changes during SDK refresh fence persistence and return) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (caller cancellation cannot authorize persistence when a started SDK exchange finishes late) -->
 - Existing non-Dispatcher Pi and Conductor behavior is unchanged.
 - For existing non-Dispatcher Pi execution, no application allowlist, built-in-only lookup or provider-family substitution narrows the configured runtime.
 - Source approval neither authorizes another owner/installation nor relaxes Conductor’s restricted factory.
 - Native-disabled Dispatcher uses its installation-selected Gateway route/reasoning pair without user-default inheritance, Pi configuration or a user session, subject to every policy without substitution. <!-- @impl: src/operators/dispatcher-owner-inference.ts::dispatcherSdkOwnerContext --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: Dispatcher installation Gateway selection) -->
 - Managed normal hosting keeps verified route eligibility and provider-default reasoning distinct from Off; non-inference jobs require no SDK profile. <!-- @impl: src/operators/dispatcher-owner-inference.ts::discoverDispatcherOwnerProfile --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-007/048: normal managed lifecycle retains verified routes without personal/native approvals) --> <!-- @test: host/__tests__/operator-inference.test.js (REQ-OPERATOR-007: managed provider-default remains null and is not forced to Off) -->
-- Configured-service mechanics belong to [trusted Dispatcher hosting](../../documentation/lanes/operators.md#normal-dispatcher-hosting).
 - Child input cannot choose or override trusted routing.
 - Child input cannot choose or override trusted reasoning.
 - Child input cannot choose or override trusted attribution.
@@ -165,9 +161,37 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
+**Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception), [REQ-OPERATOR-100](#req-operator-100-owner-credential-renewal-boundary)
 
 **Verification:** Selection and interceptor behavior is covered by adjacent tests; Dispatcher-only R2 reasoning inheritance, the single Gateway UI/atomic explicit approval-save and collapsed Advanced regressions are authored together, with combined current-head CI pending. No deployed acceptance is claimed for this slice. Reviewed Root `86f52d8b` passed exact-head CI `41301371958` and Enterprise Integration deployment, but fresh Native Activity `d47cf396` fenced `settlement-failed`; neither deployment nor older Host-dependent coverage qualifies the required hosted Native/Gateway pair.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-100: Owner credential renewal boundary
+
+**Intent:** Dispatcher obtains owner-bound SDK request authentication without exposing or overwriting credential authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Dispatcher uses the owner’s R2 provider/model and selected `auth.json` credential, with SDK-owned OAuth resolution/renewal and only derived authentication crossing the private boundary. <!-- @impl: src/operators/dispatcher-sdk-storage.ts::handleDispatcherSdkCredentials --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-007: ordinary Wrangler bundle OAuth delivery) -->
+2. SDK renewal serializes per provider, re-reads under lock, persists complete credentials with whole-file ETag CAS, preserves unrelated entries and refuses conflicts without refresh retry or superseded auth. <!-- @impl: src/operators/dispatcher-sdk-storage.ts::handleDispatcherSdkCredentials --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (successive credential requests cross SDK freshness and persist the full renewed credential (SSE: %s)) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (concurrent renewal reads again under metadata serialization and shares one rotation) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (concurrent %s wins CAS without refresh retry or superseded auth) -->
+
+**Notes:** Hosted Native/Gateway qualification remains unverified; prior deployment or Host-dependent coverage does not establish it ([verification boundaries](../../documentation/lanes/operators.md#verification-boundaries)). Configured-service mechanics are documented at [trusted Dispatcher hosting](../../documentation/lanes/operators.md#normal-dispatcher-hosting).
+
+**Constraints:**
+
+- Dispatcher excludes coding-agent runtime, extensions, `models.json`, commands and App credential mutation; public SDK resolution alone maintains the selected owner OAuth credential ([boundary](../../documentation/lanes/operators.md#dispatcher-oauth-maintenance-and-phase-projection-boundary)).
+- Current owner/selection, execution/generation, original deadline and encryption state fence credential writes/returns; AD91 checks are not migration exclusion and started refresh grants no late authority ([qualification](../../documentation/lanes/operators.md#dispatcher-oauth-maintenance-and-phase-projection-boundary)). <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (%s OAuth resolves within the existing 30s credential budget under authority and R2 latency) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (revocation during OAuth refresh under boundary latency releases no auth or persisted rotation) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (revocation after R2 headers but before body completion releases no credentials) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (concurrent whole-file CAS under boundary latency preserves the winning credential file and releases no auth) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (%s fence during started SDK refresh grants no late write or auth) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (%s changes during SDK refresh fence persistence and return) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (caller cancellation cannot authorize persistence when a started SDK exchange finishes late) -->
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
+
+**Verification:** Automated: [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts)
 
 **Status:** Planned
 
@@ -535,23 +559,47 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - Human-context diagnostics: closed stage/reason labels, optional numeric HTTP status; exclude credentials/claims/identifiers/bodies/URLs/exception-text. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: denied live identity reports only closed diagnostic outcomes, never credentials or identity data) --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: distinguishes missing credential/configuration, invalid JWT and mismatched verified principal without revealing them) -->
 - Public human-context denials remain generic. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: distinguishes missing credential/configuration, invalid JWT and mismatched verified principal without revealing them) -->
 
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations), [REQ-OPERATOR-101](#req-operator-101-operator-budget-policy)
+
+**Verification:** Automated test: Access/management and real identity/source regression passed host CI; live sourceHTTP200 was observed in47aa5357. Configurable response-ceiling tests and complete live acceptance remain pending.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPERATOR-101: Operator budget policy
+
+**Intent:** Operator budgets preserve independent settings, admitted limits and bounded retries within Environment ceilings.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Dispatcher capacities follow the [admitted defaults](#dispatcher-capacity-defaults); operator-only positive safe integers, with no installation or caller override. <!-- @impl: src/operators/dispatcher-capacity-limits.ts::dispatcherCapacities --> <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: capacity %s is operator-only revision-fenced and preserves independent settings) -->
+2. Dispatcher `submissionAttemptLimit`: operator-only positive safe integer, default1024 including the initial SDK submission;1 disables SDK retries; no installation or model override. <!-- @impl: src/operators/dispatcher-submission-limits.ts::submissionAttemptLimit --> <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator submission attempt limit with revision fencing and unchanged installation policy) -->
+3. Dispatcher `inferenceAttemptLimit`: operator-only positive safe integer, default4 including the initial attempt;1 disables retries; no installation override. <!-- @impl: src/operators/dispatcher-inference-limits.ts::inferenceAttemptLimit --> <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator inference attempt limit with revision fencing and unchanged installation policy) -->
+4. Dispatcher `operationLimit`: operator-only, default 1024, positive safe integer. <!-- @impl: src/operators/dispatcher-operation-limits.ts::dispatcherOperationLimit --> <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator operation limit with revision fencing and unchanged installation policy) -->
+5. Omitted budget edits preserve saved values. <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045: operator inference bytes default without being added on an unrelated save) -->
+6. Budget no-ops retain revisions/enablement. <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator inference bytes with revision fencing and unchanged installation policy) -->
+7. Originally admitted policy selects inference bytes, operation capacity and every configured capacity; later edits cannot widen them. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: operator inference bytes enforce exact UTF-8 request boundaries) -->
+
+**Notes:** Configuration response-ceiling and complete live acceptance remain unverified; the qualification boundary is documented at [Operator Interface](../../documentation/lanes/operators.md#verification-boundaries).
+
+**Constraints:**
+
 - Absent `sourceResponseBytes`: 1048576; installation ≤ operator ≤ Environment; no inheritance/clamp.
-- Dispatcher capacities follow the [admitted defaults](#dispatcher-capacity-defaults); operator-only positive safe integers, with no installation or caller override. <!-- @impl: src/operators/dispatcher-capacity-limits.ts::dispatcherCapacities --> <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: capacity %s is operator-only revision-fenced and preserves independent settings) -->
 - Token default ≤ token maximum; retry base ≤ retry cap; GitHub page size ≤100. <!-- @impl: src/operators/dispatcher-capacity-limits.ts::validDispatcherCapacities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: rejects incompatible capacity pairs without mutating current policy) -->
 - Dispatcher `inferenceRequestBytes`: operator-only request/response byte limit, default 1048576, positive safe integer; existing stored field and API remain compatible. <!-- @impl: src/operators/dispatcher-inference-limits.ts::inferenceRequestBytes --> <!-- @impl: src/operators/registry.ts::setManagementCapabilities -->
-- Dispatcher `submissionAttemptLimit`: operator-only positive safe integer, default1024 including the initial SDK submission;1 disables SDK retries; no installation or model override. <!-- @impl: src/operators/dispatcher-submission-limits.ts::submissionAttemptLimit --> <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator submission attempt limit with revision fencing and unchanged installation policy) -->
-- Dispatcher `inferenceAttemptLimit`: operator-only positive safe integer, default4 including the initial attempt;1 disables retries; no installation override. <!-- @impl: src/operators/dispatcher-inference-limits.ts::inferenceAttemptLimit --> <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator inference attempt limit with revision fencing and unchanged installation policy) -->
-- Dispatcher `operationLimit`: operator-only, default 1024, positive safe integer. <!-- @impl: src/operators/dispatcher-operation-limits.ts::dispatcherOperationLimit --> <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator operation limit with revision fencing and unchanged installation policy) -->
-- Omitted budget edits preserve saved values. <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045: operator inference bytes default without being added on an unrelated save) -->
-- Budget no-ops retain revisions/enablement. <!-- @impl: src/operators/registry.ts::setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator inference bytes with revision fencing and unchanged installation policy) -->
-- Originally admitted policy selects inference bytes, operation capacity and every configured capacity; later edits cannot widen them. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: operator inference bytes enforce exact UTF-8 request boundaries) -->
 - Edits disable installations, preserving pins/scope/grants/policies; out-of-ceiling policies cannot enable/admit.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Automated test: Access/management and real identity/source regression passed host CI; live sourceHTTP200 was observed in47aa5357. Configurable response-ceiling tests and complete live acceptance remain pending.
+**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [operator-access.test.ts](../../src/__tests__/operators/operator-access.test.ts), [operator-source-response-suite.tsx](../../web-ui/src/__tests__/operators/operator-source-response-suite.tsx)
 
 **Status:** Implemented
 
@@ -780,15 +828,6 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Constraints:**
 
-- Native-enabled Dispatcher uses only the execution owner’s saved R2 provider, default model and SDK-resolved authentication with normal Flue inference, without a Pi runtime or live user Host context.
-- Existing non-Dispatcher Pi model execution uses genuine in-memory SDK context, without a second agent loop or persisted conversation. <!-- @impl: host/src/operator-inference.ts::ownerInference --> <!-- @test: host/__tests__/operator-inference.test.js (REQ-OPERATOR-007: AC4/5 virtual logical profile remains pinned while public SDK routes each request to its physical model) -->
-- Owner, cwd and agent configuration paths are server-derived. <!-- @impl: src/operators/dispatcher-owner-inference.ts::OperatorOwnerInferenceAuthority --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-003/047: production parent context is bound to the live owner source and cannot be borrowed by a foreign container) -->
-- Existing non-Dispatcher Pi custom/virtual models and credential commands retain their existing boundaries; Dispatcher does not load them or accept caller-supplied credentials.
-- Governance and current-authority checks surround bounded cancellable profile reads. <!-- @impl: src/operators/dispatcher-owner-inference.ts::discoverDispatcherOwnerProfile --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-003/007/047: trusted %s uses public profile HTTP or legacy inference RPC with parent-owned correlation) -->
-- Selected model and reasoning remain pinned across reconstruction.
-- Credentials and credential fingerprints never persist in Activity state, jobs, messages, journals, diagnostics or exported evidence. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (vendor credential echoes cannot enter the durable SDK response journal or exported evidence) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (SDK private files/auth never enter journal, jobs or exports; raw failures retain nonsecret detail only) -->
-- Dispatcher returns only request authentication resolved from the selected saved credential through the owner-authorized private capability. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (returns only saved provider/model/reasoning and selected OAuth access token through fixed read-only DTOs) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: preserves SDK $provider OAuth request metadata without flattening or credential mutation) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: preserves SDK-resolved API-key request environment without mutation or ambient fallback) -->
-- Caller listing, leases, login, refresh and writes remain denied; Root alone maintains owner credentials, returns only SDK-derived request authentication, and retains fixed SDK auth errors rather than raw causes ([boundary](../../documentation/lanes/operators.md#dispatcher-oauth-maintenance-and-phase-projection-boundary)). <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (rejected renewal with secret echoes has closed evidence and preserves saved auth) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (denies abandoned credential %s operations without R2 access or persistence) -->
 - Account Gateway credentials remain Root-only, including for Flue-owned SDK inference. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (managed Gateway credential %s echoes remain Root-only through durable response reconciliation) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (managed SDK HTTP reuses the real operator-aware Gateway interceptor while its account token remains Root-only) -->
 - Flue receives saved provider/model selection, selected SDK request auth and platform provisioning; required auth headers, endpoint and provider environment stay request-local, without loading Pi resources or extensions.
 - Normal Flue provider APIs own vendor payload construction, streaming and completion parsing.
@@ -799,17 +838,74 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - The public fetch hook delegates HTTP without caller fetch/auth/environment overrides.
 - The HTTP hook makes no WebSocket transport claim.
 - No transport fallback is invented.
-- Profile admission only narrows verified human authority.
-- Original operator policy supplies finite capacity, default 1024. <!-- @impl: src/operators/dispatcher-operation-limits.ts::dispatcherOperationLimit --> <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: admitted %i-operation budget denies fresh work at its exact boundary) -->
-- Distinct reservations consume entries; completed retries reuse them. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @impl: src/operators/activity.ts::loadDispatcherJournal --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: default 1024 journal counts distinct reads and inference while cached operations reuse slots) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: legacy aggregate recovery preserves counts cached receipts conflicts and %s mutation ordering across reload) -->
-- Each inference attempt consumes capacity before dispatch; duplicates/cache replay add no charge, and lost allocation acknowledgements reuse retained reservations. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: a lost successor-allocation acknowledgement reuses its durable allowance) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: the shared operation budget denies a successor even with inference attempts remaining) -->
-- Receipt and resolution calls consume no entries. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (projects actual journal consumption on receipts without charging cached receipt observations) -->
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
+**Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations), [REQ-OPERATOR-102](#req-operator-102-native-dispatcher-profile-authority), [REQ-OPERATOR-103](#req-operator-103-dispatcher-operation-accounting)
 
 **Verification:** Historical host tests; new inference-attempt accounting and composed native recovery coverage awaits exact-head CI. The #109 Activity/Egress tokenless-native, serial-token, raw replay/canonical-wire, uncertainty, cached-expiry/auth-stop and zstd cases are authored but unexecuted; codec availability and behavior remain CI gates. Live research, judgments, effects, settlement/collection and physical cleanup remain separate gates.
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-102: Native Dispatcher profile authority
+
+**Intent:** Native Dispatcher profile reads preserve the execution owner and credential boundaries without starting a Pi runtime.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Existing non-Dispatcher Pi model execution uses genuine in-memory SDK context, without a second agent loop or persisted conversation. <!-- @impl: host/src/operator-inference.ts::ownerInference --> <!-- @test: host/__tests__/operator-inference.test.js (REQ-OPERATOR-007: AC4/5 virtual logical profile remains pinned while public SDK routes each request to its physical model) -->
+2. Owner, cwd and agent configuration paths are server-derived. <!-- @impl: src/operators/dispatcher-owner-inference.ts::OperatorOwnerInferenceAuthority --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-003/047: production parent context is bound to the live owner source and cannot be borrowed by a foreign container) -->
+3. Governance and current-authority checks surround bounded cancellable profile reads. <!-- @impl: src/operators/dispatcher-owner-inference.ts::discoverDispatcherOwnerProfile --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-003/007/047: trusted %s uses public profile HTTP or legacy inference RPC with parent-owned correlation) -->
+
+**Notes:** Native transport and codec evidence requires current-head CI; live research, judgments, effects, settlement, collection and physical cleanup remain unverified. The boundary is documented at [verification boundaries](../../documentation/lanes/operators.md#verification-boundaries).
+
+**Constraints:**
+
+- Native-enabled Dispatcher uses only the execution owner’s saved R2 provider, default model and SDK-resolved authentication with normal Flue inference, without a Pi runtime or live user Host context.
+- Existing non-Dispatcher Pi custom/virtual models and credential commands retain their existing boundaries; Dispatcher does not load them or accept caller-supplied credentials.
+- Selected model and reasoning remain pinned across reconstruction.
+- Credentials and credential fingerprints never persist in Activity state, jobs, messages, journals, diagnostics or exported evidence. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (vendor credential echoes cannot enter the durable SDK response journal or exported evidence) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (SDK private files/auth never enter journal, jobs or exports; raw failures retain nonsecret detail only) -->
+- Dispatcher returns only request authentication resolved from the selected saved credential through the owner-authorized private capability. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (returns only saved provider/model/reasoning and selected OAuth access token through fixed read-only DTOs) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: preserves SDK $provider OAuth request metadata without flattening or credential mutation) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: preserves SDK-resolved API-key request environment without mutation or ambient fallback) -->
+- Caller listing, leases, login, refresh and writes remain denied; Root alone maintains owner credentials, returns only SDK-derived request authentication, and retains fixed SDK auth errors rather than raw causes ([boundary](../../documentation/lanes/operators.md#dispatcher-oauth-maintenance-and-phase-projection-boundary)). <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (rejected renewal with secret echoes has closed evidence and preserves saved auth) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (denies abandoned credential %s operations without R2 access or persistence) -->
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-007](#req-operator-007-operator-aware-inference-selection)
+
+**Verification:** Automated: [operator-inference.test.js](../../host/__tests__/operator-inference.test.js), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts)
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-103: Dispatcher operation accounting
+
+**Intent:** Operation reservations remain finite, durable and charged once across replay and reconciliation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Original operator policy supplies finite capacity, default 1024. <!-- @impl: src/operators/dispatcher-operation-limits.ts::dispatcherOperationLimit --> <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: admitted %i-operation budget denies fresh work at its exact boundary) -->
+2. Distinct reservations consume entries; completed retries reuse them. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @impl: src/operators/activity.ts::loadDispatcherJournal --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: default 1024 journal counts distinct reads and inference while cached operations reuse slots) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: legacy aggregate recovery preserves counts cached receipts conflicts and %s mutation ordering across reload) -->
+3. Each inference attempt consumes capacity before dispatch; duplicates/cache replay add no charge, and lost allocation acknowledgements reuse retained reservations. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: a lost successor-allocation acknowledgement reuses its durable allowance) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: the shared operation budget denies a successor even with inference attempts remaining) -->
+4. Receipt and resolution calls consume no entries. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (projects actual journal consumption on receipts without charging cached receipt observations) -->
+
+**Notes:** Native transport and codec evidence requires current-head CI; live research, judgments, effects, settlement, collection and physical cleanup remain unverified. The boundary is documented at [verification boundaries](../../documentation/lanes/operators.md#verification-boundaries).
+
+**Constraints:**
+
+- Profile admission only narrows verified human authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-101](#req-operator-101-operator-budget-policy)
+
+**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts)
 
 **Status:** Planned
 
@@ -836,18 +932,6 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Constraints:**
 
-- Cancellation uses public Flue abort and observes the original submission without replacement work.
-- SDK state is retained.
-- Abort intent is not settlement, collection or bookkeeping release.
-- Retained installation revisions authorize only already-fenced original aborts; retired credentials grant no new run, observation or effect. <!-- @impl: src/operators/activity.ts::dispatcherAbortAuthority --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: receiver authorization retains original fenced abort after live connection rotation but cannot fence or start work) -->
-- Historical cleanup finishes only exact already-cancel-requested original intent4 leases after bookkeeping release/failed retirement; no new generation, facet reacquisition or authority renewal. <!-- @impl: src/operators/activity.ts::cancelDrive --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-017: AC4 intent4 cancellation does not restart its retired owned runtime) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: retirement cleanup finishes an already released cancelled generation without new authority) -->
-- Pending intent4 preparation cannot create runtimes after original-generation retirement. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-017: AC4 pending intent4 preparation cannot recreate an owned runtime after cancellation) -->
-- Abort failures propagate. <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: failed owned-child retirement cannot reopen fenced work) -->
-- Historical unknown/completed/failed/waiting drives gain no cleanup retry.
-- Normal jobs permit only explicit abort of an already-fenced exact original address/receipt, including across installation rotation or disablement. <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: receiver authorization retains original fenced abort after live connection rotation but cannot fence or start work) -->
-- Dispatcher wires only the execution owner’s saved R2 provider, default model and selected authentication token into normal Flue inference, without a running user session or container. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (pins the saved built-in logical profile with zero Host catalog and no source-session descriptor) -->
-- The installed App wire carries only the saved reasoning preference under [REQ-OPERATOR-007](#req-operator-007-operator-aware-inference-selection), never synthetic Medium/Off or widened source/reasoning approval. <!-- @impl: src/operators/dispatcher-sdk-storage.ts::readDispatcherSdkFiles --> <!-- @impl: src/operators/dispatcher-owner-inference.ts::dispatcherSdkOwnerContext --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (provider-default owner R2 discovery ignores legacy installation Low without relabelling its receipt) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007: normal Native admits saved R2 %s independently of Gateway Low) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: normal Native retains $scope $check authorization) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (caller High cannot replace admitted native reasoning (provider-default: %s)) -->
-- An approved provider-default selection stays null rather than being replaced with Off or Medium. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (admits normal native provider-default when approved without inventing an explicit reasoning level) --> <!-- @test: web-ui/src/__tests__/api/operator-activities-native.test.ts (preserves admitted normal Dispatcher provider-default without converting it to Off or Medium) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (shows normal Dispatcher provider-default without crashing or advertising Off or Medium) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-007: shows provider-default in the existing run dropdown without Off or Medium) -->
 - Flue lifecycle, scheduling and recovery remain SDK-owned.
 - No private attachment, callback wrapper, alarm forwarding, synthetic context or replacement scheduler is introduced.
 - Historical SDK and schedule rows remain byte-for-byte retained without replay, migration or relabelling.
@@ -858,21 +942,105 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - A version tuple proves neither runtime qualification nor deployment readiness.
 - The installed application is trusted, without per-run capability bindings or sibling-run sandboxing.
 - Pi resolution follows [REQ-OPERATOR-007](#req-operator-007-operator-aware-inference-selection); credentials never enter job inputs, model messages, durable SDK records or exported diagnostics.
-- Cold keyed admission reuses only its persisted original wire through reconciliation; historical unkeyed uncertainty fences. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: AC2 cold) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-017: AC4 cold historical unkeyed) -->
-- Ordinary owner entries and alarms recover nonblocking; diagnostics-only lifecycle startup does not initiate recovery. Child callbacks never await reconciliation. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: AC2 cold before-POST uncertainty admits original-generation discovery with unchanged input release and human expiry) -->
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-015](#req-operator-015-isolated-approved-worker-loading), [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-104](#req-operator-104-dispatcher-cancellation-and-retirement), [REQ-OPERATOR-105](#req-operator-105-dispatcher-inference-context), [REQ-OPERATOR-106](#req-operator-106-dispatcher-observation-recovery)
+
+**Verification:** The zero-send permit retirement and Root journal diagnosis repair has authored behavioral coverage only; no local execution, exact-head CI, deployment or fresh hosted acceptance is claimed. Historical unknown Activities and their operations remain unchanged. The bounded public-SDK OAuth lifecycle and optional phase-projection wire repairs have authored behavioral coverage only; exact-head CI and separately authorized hosted acceptance remain pending. Working user credential evidence is preserved; neither the earlier provider rejection nor this lifecycle bug proves the historical rejection cause. Session-independent configured-service wiring is implemented and has normal-host HTTP/R2 CI coverage; prior Host-dependent CI is not qualification of this contract. Hosted successful inference remains unverified: the fresh configured native request reached its provider but received an authentication rejection. The bounded status correction requires exact-head CI and review before deployment; authored regressions alone are not acceptance. Existing Loader, production, result and compiler cases verify pinned loading, original-generation keyed recovery, serial settlement, bounded final collection, cancellation/retirement and capability fences. The #109 Activity/Egress application-boundary cases linked above are authored but unexecuted; no SDK qualification or hosted acceptance is claimed. Native fixtures cover only their selected artifact: 2 current v0.1.24/Flue2.2.2 cases plus38 historical2.1.0 controls across three file-owned runtimes, pending exact-head CI; the separate Node population remains61. The connection-loss ordinary/supplemental, committed-reset, duplicate-inference, precommit-reset/incomplete/native-error table, saved-submission-limit1/17, recovered-attempt-limit and one-attempt persistent-interruption workloads are retired, not passing evidence. Hosted original-phase recovery, sequential actual outcomes, collection/recollection, SDK release and independent physical cessation remain unverified. See the [delivery and retirement qualifications](../../documentation/lanes/operators.md#verification-boundaries); retired workloads remain prohibited and deletion proves neither default-budget behavior nor recovery. <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection) -->
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-104: Dispatcher cancellation and retirement
+
+**Intent:** Cancellation preserves original fenced work and cannot recreate retired execution.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Retained installation revisions authorize only already-fenced original aborts; retired credentials grant no new run, observation or effect. <!-- @impl: src/operators/activity.ts::dispatcherAbortAuthority --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: receiver authorization retains original fenced abort after live connection rotation but cannot fence or start work) -->
+2. Historical cleanup finishes only exact already-cancel-requested original intent4 leases after bookkeeping release/failed retirement; no new generation, facet reacquisition or authority renewal. <!-- @impl: src/operators/activity.ts::cancelDrive --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-017: AC4 intent4 cancellation does not restart its retired owned runtime) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: retirement cleanup finishes an already released cancelled generation without new authority) -->
+3. Pending intent4 preparation cannot create runtimes after original-generation retirement. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-017: AC4 pending intent4 preparation cannot recreate an owned runtime after cancellation) -->
+
+**Notes:** Host-dependent CI is not normal-host qualification; hosted Native inference, original-phase recovery, sequential outcomes, collection/recollection, SDK release and physical cessation remain unverified. CI and prohibited retired-workload boundaries are documented at [verification boundaries](../../documentation/lanes/operators.md#verification-boundaries).
+
+**Constraints:**
+
+- Cancellation uses public Flue abort and observes the original submission without replacement work.
+- SDK state is retained.
+- Abort intent is not settlement, collection or bookkeeping release.
+- Abort failures propagate. <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: failed owned-child retirement cannot reopen fenced work) -->
+- Historical unknown/completed/failed/waiting drives gain no cleanup retry.
+- Normal jobs permit only explicit abort of an already-fenced exact original address/receipt, including across installation rotation or disablement. <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: receiver authorization retains original fenced abort after live connection rotation but cannot fence or start work) -->
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations)
+
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-105: Dispatcher inference context
+
+**Intent:** Normal Dispatcher inference preserves the approved owner selection and reasoning preference.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The installed App wire carries only the saved reasoning preference under [REQ-OPERATOR-007](#req-operator-007-operator-aware-inference-selection), never synthetic Medium/Off or widened source/reasoning approval. <!-- @impl: src/operators/dispatcher-sdk-storage.ts::readDispatcherSdkFiles --> <!-- @impl: src/operators/dispatcher-owner-inference.ts::dispatcherSdkOwnerContext --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (provider-default owner R2 discovery ignores legacy installation Low without relabelling its receipt) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007: normal Native admits saved R2 %s independently of Gateway Low) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: normal Native retains $scope $check authorization) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (caller High cannot replace admitted native reasoning (provider-default: %s)) -->
+
+**Notes:** Host-dependent CI is not normal-host qualification; hosted Native inference, original-phase recovery, sequential outcomes, collection/recollection, SDK release and physical cessation remain unverified. CI and prohibited retired-workload boundaries are documented at [verification boundaries](../../documentation/lanes/operators.md#verification-boundaries).
+
+**Constraints:**
+
+- Dispatcher wires only the execution owner’s saved R2 provider, default model and selected authentication token into normal Flue inference, without a running user session or container. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (pins the saved built-in logical profile with zero Host catalog and no source-session descriptor) -->
+- An approved provider-default selection stays null rather than being replaced with Off or Medium. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (admits normal native provider-default when approved without inventing an explicit reasoning level) --> <!-- @test: web-ui/src/__tests__/api/operator-activities-native.test.ts (preserves admitted normal Dispatcher provider-default without converting it to Off or Medium) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (shows normal Dispatcher provider-default without crashing or advertising Off or Medium) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-007: shows provider-default in the existing run dropdown without Off or Medium) -->
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-007](#req-operator-007-operator-aware-inference-selection)
+
+**Verification:** Automated: [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [operator-activities-native.test.ts](../../web-ui/src/__tests__/api/operator-activities-native.test.ts), [OperatorActivityButton.test.tsx](../../web-ui/src/__tests__/components/OperatorActivityButton.test.tsx), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-106: Dispatcher observation recovery
+
+**Intent:** Only eligible original work recovers from observation failures without renewed authority or replayed effects.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Cold keyed admission reuses only its persisted original wire through reconciliation; historical unkeyed uncertainty fences. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: AC2 cold) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-017: AC4 cold historical unkeyed) -->
+2. Ordinary owner entries and alarms recover nonblocking; diagnostics-only lifecycle startup does not initiate recovery. Child callbacks never await reconciliation. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: AC2 cold before-POST uncertainty admits original-generation discovery with unchanged input release and human expiry) -->
+3. Unavailable reads retain the same admitted submission/phase/cursor/pins/deadline after current-authority/shared-fence checks. <!-- @impl: src/operators/activity.ts::reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (failed PR1 advances only after its exact SDK settlement; PR2 supplies actual complete data and immutable final collection) -->
+4. Only future parent-stamped admissions/leases recover; historical admissions/unversioned operations/terminal unknown Activities remain strict. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: historical admissions retain their original cached error bytes despite the new default policy) -->
+
+**Notes:** Host-dependent CI is not normal-host qualification; hosted Native inference, original-phase recovery, sequential outcomes, collection/recollection, SDK release and physical cessation remain unverified. CI and prohibited retired-workload boundaries are documented at [verification boundaries](../../documentation/lanes/operators.md#verification-boundaries).
+
+**Constraints:**
+
 - Collection never resubmits; historical unknown-effect fences remain.
-- Unavailable reads retain the same admitted submission/phase/cursor/pins/deadline after current-authority/shared-fence checks. <!-- @impl: src/operators/activity.ts::reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (failed PR1 advances only after its exact SDK settlement; PR2 supplies actual complete data and immutable final collection) -->
 - Normal-host HTTP 5xx reads retain the original receipt under those same authority checks. <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: transient read HTTP%i retains original receipt and authority until exact settlement) -->
 - Other read control rejections and successful-response integrity failures remain terminal. <!-- @impl: src/operators/activity.ts::reconcileDispatcherLease -->
 - Historical read HTTP failures remain terminal. <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: %s status observation cannot keep original work alive) -->
-- Only future parent-stamped admissions/leases recover; historical admissions/unversioned operations/terminal unknown Activities remain strict. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: historical admissions retain their original cached error bytes despite the new default policy) -->
 - Inference retains the [original attempt, ownership, classification, delay and unknown-effect constraints](../../documentation/lanes/operators.md#dispatcher-inference-recovery-constraints).
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-015](#req-operator-015-isolated-approved-worker-loading), [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission)
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-103](#req-operator-103-dispatcher-operation-accounting)
 
-**Verification:** The zero-send permit retirement and Root journal diagnosis repair has authored behavioral coverage only; no local execution, exact-head CI, deployment or fresh hosted acceptance is claimed. Historical unknown Activities and their operations remain unchanged. The bounded public-SDK OAuth lifecycle and optional phase-projection wire repairs have authored behavioral coverage only; exact-head CI and separately authorized hosted acceptance remain pending. Working user credential evidence is preserved; neither the earlier provider rejection nor this lifecycle bug proves the historical rejection cause. Session-independent configured-service wiring is implemented and has normal-host HTTP/R2 CI coverage; prior Host-dependent CI is not qualification of this contract. Hosted successful inference remains unverified: the fresh configured native request reached its provider but received an authentication rejection. The bounded status correction requires exact-head CI and review before deployment; authored regressions alone are not acceptance. Existing Loader, production, result and compiler cases verify pinned loading, original-generation keyed recovery, serial settlement, bounded final collection, cancellation/retirement and capability fences. The #109 Activity/Egress application-boundary cases linked above are authored but unexecuted; no SDK qualification or hosted acceptance is claimed. Native fixtures cover only their selected artifact: 2 current v0.1.24/Flue2.2.2 cases plus38 historical2.1.0 controls across three file-owned runtimes, pending exact-head CI; the separate Node population remains61. The connection-loss ordinary/supplemental, committed-reset, duplicate-inference, precommit-reset/incomplete/native-error table, saved-submission-limit1/17, recovered-attempt-limit and one-attempt persistent-interruption workloads are retired, not passing evidence. Hosted original-phase recovery, sequential actual outcomes, collection/recollection, SDK release and independent physical cessation remain unverified. See the [delivery and retirement qualifications](../../documentation/lanes/operators.md#verification-boundaries); retired workloads remain prohibited and deletion proves neither default-budget behavior nor recovery. <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection) -->
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts)
 
 **Status:** Planned
 

@@ -48,6 +48,7 @@ function coldIncrementalResponse(body: any, cache = 'MISS'): Response {
     'cf-aig-provider': 'synthetic-provider', 'cf-aig-model': 'never-listed-model-2099' } });
 }
 
+// REQ-ENTERPRISE-096: Discovery probe qualification boundaries.
 describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
   it('REQ-ENTERPRISE-035: keeps a working streaming Dynamic path assignable without cache reuse or buffered cache chasing', async () => {
     const bodies: any[] = [];

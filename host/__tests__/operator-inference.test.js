@@ -65,6 +65,7 @@ test('REQ-OPERATOR-007: AC2/3 discovered native provider receives exact transcri
   privateResponse(f, response);
 });
 
+// REQ-OPERATOR-102: Native Dispatcher profile authority.
 test('REQ-OPERATOR-007: AC4/5 virtual logical profile remains pinned while public SDK routes each request to its physical model', async t => {
   const f = await fixture(t, { virtual: true });
   const admitted = await admit(f);

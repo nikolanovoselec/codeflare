@@ -33,6 +33,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+// REQ-OPERATOR-105: Dispatcher inference context.
 describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
   it.each(['openai', 'anthropic', 'xai', 'kimi-coding'])('REQ-OPERATOR-057 AC5: management explains missing %s credentials without generic attention', async provider => {
     const missing = { ...summary, executionStatus: 'unknown', attention: true,
