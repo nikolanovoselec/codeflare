@@ -882,7 +882,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated test
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [entrypoint-tab-autostart.test.js](../../host/__tests__/entrypoint-tab-autostart.test.js), [pi-classic-session-binding.test.ts](../../src/__tests__/lib/pi-classic-session-binding.test.ts)
 
 **Status:** Implemented
 
@@ -1091,7 +1091,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-008](#req-agent-008-preseed-deployed-to-container-on-start)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-enforce-ctx-mode-dedup.test.js](../../host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js), [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js)
 
 **Status:** Implemented
 
@@ -1244,7 +1244,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-012](#req-agent-012-fast-cli-start-configurable), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-pi-warmup-guard.test.js](../../host/__tests__/entrypoint-pi-warmup-guard.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js)
 
 **Status:** Implemented
 
@@ -1694,7 +1694,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-graphify-hooks.test.js](../../host/__tests__/entrypoint-graphify-hooks.test.js)
 
 **Status:** Implemented
 
@@ -2217,7 +2217,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Automated test
+**Verification:** Automated: [lane-classifier.test.js](../../host/__tests__/lane-classifier.test.js)
 
 **Status:** Implemented
 
@@ -2918,7 +2918,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection)
 
-**Verification:** Automated test
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [operator-review-selector.test.ts](../../src/__tests__/lib/operator-review-selector.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -3069,7 +3069,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container)
 
-**Verification:** Automated test
+**Verification:** Automated: [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [cloudflare-oauth.test.ts](../../src/__tests__/routes/cloudflare-oauth.test.ts)
 
 **Status:** Implemented
 
@@ -5826,7 +5826,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated tests
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
 
 **Status:** Implemented
 

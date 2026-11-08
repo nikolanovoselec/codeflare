@@ -1593,7 +1593,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-021](#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)
 
-**Verification:** Automated test
+**Verification:** Automated: [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts)
 
 **Status:** Implemented
 

@@ -3050,7 +3050,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
 
-**Verification:** Automated test
+**Verification:** Automated: [egress-controller.test.ts](../../src/__tests__/egress-controller.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts)
 
 **Status:** Planned
 
@@ -3085,7 +3085,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-081](#req-operator-081-retained-dispatcher-causal-evidence), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback)
 
-**Verification:** Automated test
+**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts)
 
 **Status:** Planned
 
@@ -3117,7 +3117,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics), [REQ-OPERATOR-081](#req-operator-081-retained-dispatcher-causal-evidence)
 
-**Verification:** Automated test
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts)
 
 **Status:** Planned
 

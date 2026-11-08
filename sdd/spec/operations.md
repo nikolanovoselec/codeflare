@@ -513,7 +513,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-stop-metered-container-resources)
 
-**Verification:** Automated test
+**Verification:** Automated: [lifecycle.test.ts](../../src/__tests__/container/lifecycle.test.ts)
 
 **Status:** Implemented
 

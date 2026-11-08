@@ -82,7 +82,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-AGENT-010](agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-079](agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog)
 
-**Verification:** Automated test
+**Verification:** Automated: [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
 
 **Status:** Implemented
 
@@ -357,7 +357,7 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Dependencies:** [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)
 
-**Verification:** Automated test
+**Verification:** Automated: [browser-run-core.test.ts](../../src/__tests__/lib/browser-run-core.test.ts)
 
 **Status:** Implemented
 

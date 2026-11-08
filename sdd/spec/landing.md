@@ -79,7 +79,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [splash.script.test.ts](../../landing/src/__tests__/splash.script.test.ts)
 
 **Status:** Implemented
 
@@ -167,7 +167,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-003](#req-landing-003-landing-social-share-and-search-metadata)
 
-**Verification:** Automated test
+**Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [seo.test.ts](../../src/__tests__/lib/seo.test.ts)
 
 **Status:** Implemented
 
@@ -299,7 +299,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel)
 
-**Verification:** Automated test
+**Verification:** Automated: [execution-reel.script.test.ts](../../landing/src/__tests__/execution-reel.script.test.ts)
 
 **Status:** Implemented
 
@@ -410,7 +410,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel)
 
-**Verification:** Automated test
+**Verification:** Automated: [components.test.ts](../../landing/src/__tests__/components.test.ts), [execution-reel.script.test.ts](../../landing/src/__tests__/execution-reel.script.test.ts), [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts)
 
 **Status:** Implemented
 

@@ -129,7 +129,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test
+**Verification:** Automated: [vault-monitor-hook-behavior.test.js](../../host/__tests__/vault-monitor-hook-behavior.test.js), [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [vault-manifest-detection.test.ts](../../src/__tests__/lib/vault-manifest-detection.test.ts)
 
 **Status:** Implemented
 

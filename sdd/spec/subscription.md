@@ -526,7 +526,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** Automated: [contact-team.test.ts](../../src/__tests__/routes/contact-team.test.ts), [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx)
 
 **Status:** Implemented
 
