@@ -62,7 +62,9 @@ describe('REQ-SESSION-030: guarded exact clean-slate cutover', () => {
     const input = { ownerKey: 'owner-a', sessionId: 'session01', name: 'Terminal',
       createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z',
       workspace: 'terminal' as const, terminalMode: 'classic' as const };
-    const stopped = await repository.create(input);
+    await repository.create(input);
+    const stopped = await repository.getSession(input.ownerKey, input.sessionId);
+    expect(stopped).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 0 });
     // Fixture arrangement only; admission is exercised through production methods.
     await db.prepare("UPDATE session_cutover SET state='pending' WHERE id=1").run();
     await expect(repository.create({ ...input, sessionId: 'session02' })).rejects.toThrow('Session admission is closed');

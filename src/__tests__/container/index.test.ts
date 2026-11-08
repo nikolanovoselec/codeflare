@@ -1900,31 +1900,37 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         ['lifecycleGeneration', 7], ['observationSequence', 6],
         ['containerAuthToken', 'destroy-wire-token'],
       ] : []);
-      mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
-      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, structuredClone(value)); });
-      mockStorage.delete.mockImplementation(async (key: string | string[]) => {
-        for (const item of typeof key === 'string' ? [key] : key) stored.delete(item);
-      });
+      const storage = {
+        get: async (key: string) => stored.get(key),
+        put: async (key: string, value: unknown) => { stored.set(key, structuredClone(value)); },
+        delete: async (key: string | string[]) => {
+          for (const item of typeof key === 'string' ? [key] : key) stored.delete(item);
+        },
+      };
+      mockStorage.get.mockImplementation(storage.get);
+      mockStorage.put.mockImplementation(storage.put);
+      mockStorage.delete.mockImplementation(storage.delete);
       let ready = Promise.resolve();
       mockCtx.blockConcurrencyWhile.mockImplementation((work: () => Promise<void>) => {
         ready = work();
         return ready;
       });
       const wire: Array<{ path: string; method: string; authorization: string | null }> = [];
-      mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+      const fetch = async (input: string | Request, init?: RequestInit) => {
         const request = new Request(input, init);
         const path = new URL(request.url).pathname;
         wire.push({ path, method: request.method, authorization: request.headers.get('Authorization') });
         return Response.json(path === '/internal/agent-events/drain'
           ? { hostNow: Date.now(), events: [] } : { synced: true });
-      });
+      };
+      mockTcpPortFetch.mockImplementation(fetch);
       mockContainerRuntime.running = true;
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await ready;
       let started = false;
       mockContainerRuntime.start.mockImplementation(() => { started = true; });
       vi.spyOn(instance, 'stop').mockImplementation(async () => { mockContainerRuntime.running = false; });
-      return { instance, wire, started: () => started };
+      return { instance, storage, fetch, wire, started: () => started };
     }
 
     it('REQ-SESSION-009 AC1: public destroy removes the forwarding credential and subsequent fetch stays unavailable without starting', async () => {
@@ -1938,8 +1944,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(await response.json()).toEqual({ error: 'Container not running' });
       const bucket = await f.instance.fetch(new Request('http://container/_internal/getBucketName'));
       expect(await bucket.json()).toEqual({ bucketName: null });
-      expect(await mockCtx.storage.get('containerAuthToken')).toBeUndefined();
-      expect(await mockCtx.storage.get('_sessionId')).toBeUndefined();
+      expect(await f.storage.get('containerAuthToken')).toBeUndefined();
+      expect(await f.storage.get('_sessionId')).toBeUndefined();
       expect(f.started()).toBe(false);
     });
 
@@ -1967,7 +1973,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(await f.instance.listSchedules('collectMetrics')).toEqual([]);
       expect(f.wire).toEqual(wireBefore);
       expect(effects).toEqual([]);
-      expect(await mockCtx.storage.get('observationSequence')).toBe(6);
+      expect(await f.storage.get('observationSequence')).toBe(6);
     });
 
     it('REQ-SESSION-011 AC1 / REQ-SESSION-019 AC1: authenticated final-sync completion precedes SIGTERM even with a transient false running flag', async () => {
@@ -2001,7 +2007,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       complete(Response.json({ synced: true }));
       await completion;
       expect(order).toEqual(['authenticated-final-sync', 'sync-completed', 'SIGTERM']);
-      expect(await mockCtx.storage.get('finalSyncAudit')).toEqual(expect.objectContaining({ outcome: 'completed', httpStatus: 200 }));
+      expect(await f.storage.get('finalSyncAudit')).toEqual(expect.objectContaining({ outcome: 'completed', httpStatus: 200 }));
     });
 
     it('REQ-SESSION-019 AC1: missing token emits no outgoing request and leaves a readable bounded teardown audit', async () => {
@@ -2009,7 +2015,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const entered = Date.now();
       await expect(f.instance.destroy()).resolves.toBeUndefined();
       expect(f.wire).toEqual([]);
-      const audit = await mockCtx.storage.get('finalSyncAudit') as { at: number; outcome: string; reason: string; running: boolean };
+      const audit = await f.storage.get('finalSyncAudit') as { at: number; outcome: string; reason: string; running: boolean };
       expect(audit).toEqual({ outcome: 'errored', reason: 'missing-auth-token', at: expect.any(Number), running: true });
       expect(audit.at).toBeGreaterThanOrEqual(entered);
       expect(audit.at).toBeLessThanOrEqual(entered + 135_000);
@@ -2025,9 +2031,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           let reached!: () => void;
           const stalled = new Promise<void>(resolve => { reached = resolve; });
           const hang = <T,>(): Promise<T> => { reached(); return new Promise<T>(() => {}); };
-          const put = mockStorage.put.getMockImplementation()!;
-          const get = mockStorage.get.getMockImplementation()!;
-          const fetch = mockTcpPortFetch.getMockImplementation()!;
+          const { put, get } = f.storage;
+          const { fetch } = f;
           if (stage === 'storage-fence' || stage === 'audit-write') {
             mockStorage.put.mockImplementation(async (key: string, value: unknown) =>
               key === (stage === 'storage-fence' ? 'shutdownRequested' : 'finalSyncAudit') ? hang<void>() : put(key, value));
