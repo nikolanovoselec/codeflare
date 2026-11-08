@@ -1626,7 +1626,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 6. Synchronization seals exact declared outputs and requires independent verification before completion. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
 7. Storage inspection is owner-scoped, canonical-path bounded and read-only. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
 
-**Notes:** The parent checks initialization only when claimed packets exist; complete-checkpoint matching for every initialization remains unmet. Deployed owned-session evidence is also incomplete.
+**Notes:** The parent checks initialization only when claimed packets exist; complete-checkpoint matching for every initialization remains unmet. Deployed protected-Action and owned-session restore acceptance remain unverified.
 
 **Constraints:**
 
@@ -1638,7 +1638,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle)
 
-**Verification:** Automated test: Adjacent capability, attachment and owned-session tests cover the delivered generic boundary. The claimed packet path and compiled Conductor fixture are candidates pending exact-head CI; no deployed protected Action or live restore receipt is proven.
+**Verification:** Automated: [Conductor capability](../../src/__tests__/operators/conductor-capability.test.ts), [attachment ownership](../../src/__tests__/operators/attachments.test.ts), [approved packet storage](../../src/__tests__/operators/approved-packet-storage.test.ts), [claimed packet restoration](../../src/__tests__/operators/conductor-production-packet.test.ts)
 
 **Status:** Partial
 
