@@ -381,10 +381,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
-- Unknown future files inside an admitted durable namespace remain eligible; detecting every novel cache there is not guaranteed. An exclusion does not authorize deletion or classify user content as disposable.
-- Administration's single Data governance policy selector applies to new or restarted sessions. The existing workspace toggle remains independent; no per-file enrollment, second settings surface or additional scheduler is introduced.
-- Sync configuration uses filter rules with explicit precedence (not order-sensitive include/exclude lists) so the active scope is unambiguous when multiple rules match.
-- The Container API surface currently exposes only the binary workspace-sync toggle (full or none); the metadata scope is reachable only by direct sync-mode configuration.
+- Unknown future files inside admitted durable namespaces remain eligible; detecting every novel cache is not guaranteed.
+- Exclusion authorizes neither deletion nor classifying user content as disposable.
+- Administration’s single Data governance selector applies to new/restarted sessions; workspace toggle remains independent; no per-file enrollment/second settings surface/additional scheduler.
+- Sync filters have explicit precedence, not order-sensitive include/exclude lists, so overlapping scope is unambiguous.
+- Container API remains binary workspace sync (full/none); metadata scope is direct-configuration-only.
 
 **Priority:** P1
 

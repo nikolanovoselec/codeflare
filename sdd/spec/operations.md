@@ -139,17 +139,16 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Constraints:**
 
-- Quality checks do not run in the 1-vCPU development container; they run on CI runners.
-- The CI runner label is configurable across all workflows.
-- On GitHub-hosted Ubuntu, installing host sandbox packages uses the runner's official Ubuntu package sources, not unrelated third-party apt repositories; unavailable required sources or packages fail the host lane.
-- Custom-runner package-source policy remains unchanged and the real bubblewrap/AppArmor sandbox probe still runs. <!-- @impl: scripts/ci/install-approved-packet-packages.sh::apt_options --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
-- Lanes run in parallel and are gated by a path filter; manual dispatch runs every lane.
-- The Flue native cases run in three isolated processes with complete, non-overlapping case ownership; each executed case retains its fresh workerd and original assertions/deadlines. <!-- @test: src/__tests__/ci/flue-case-shard.test.ts (REQ-OPS-003: parallel Flue case ownership) --> <!-- @impl: src/__tests__/operators/fixtures/flue-case-shard.ts::createFlueCaseShard -->
-- Pull requests use Dependency Review; their reviewed tree remains the dependency-security evidence for the squash result on `main`, while registry audits run only on explicit full dispatches.
-- If GitHub cannot generate the diff, the fallback verifies the exact local base/head commits and selects every lane. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
-- The `summary` job publishes the required `test` status, failing for failed or cancelled lanes and passing skipped lanes.
-- The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the report and reconciliation gates in [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) — not serialization — are what keep the result trustworthy.
-- Coverage-threshold evidence is gated separately in [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence); backend and frontend coverage run only when their path filter is affected or the workflow is a full run.
+- Quality runs on CI, never the 1-vCPU development container; runner labels remain configurable across workflows.
+- Hosted Ubuntu sandbox packages use official Ubuntu sources only; unavailable required sources/packages fail the host lane. <!-- @impl: scripts/ci/install-approved-packet-packages.sh::apt_options --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
+- Custom-runner policy and real bubblewrap/AppArmor probe stay unchanged.
+- Path-filtered lanes run in parallel; manual dispatch runs all.
+- Diff fallback verifies exact local base/head commits and selects all lanes. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
+- Flue native cases use three isolated processes with complete non-overlapping ownership, fresh workerd/case and original assertions/deadlines. <!-- @test: src/__tests__/ci/flue-case-shard.test.ts (REQ-OPS-003: parallel Flue case ownership) --> <!-- @impl: src/__tests__/operators/fixtures/flue-case-shard.ts::createFlueCaseShard -->
+- PR Dependency Review covers the reviewed tree/main squash; registry audits run only on explicit full dispatch.
+- `summary` publishes required `test`: failed/cancelled lanes fail; skipped lanes pass.
+- Workers-pool concurrency stays; [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) report/reconciliation gates govern teardown-bug trustworthiness, not serialization.
+- [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence) separately gates coverage evidence; backend/frontend coverage runs only for affected paths or full runs.
 
 **Priority:** P0
 

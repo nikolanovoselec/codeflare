@@ -444,34 +444,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Constraints:**
 
-- Cache-fill refusal diagnostics retain measured write/read counters and the unattempted-read flag without granting cache permission or erasing completed tools/replay. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) -->
-
-- Buffered-envelope rejection retains HTTP status and transport rather than claiming a connection error. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification) -->
-
-- V2 capability summaries contain only `schemaVersion: 2` and `mappings`; rows contain exact `levels`, exercised `transport`, `tools`, `replay`, `reasoning`, `streaming` and `cache`. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary -->
-- Worker/browser share strict parsing; outer document schemas remain v1. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (round-trips per-mapping evidence and authorizes verified tools without input cache evidence) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (rejects malformed or extra evidence without restoring a grade (%j)) -->
-- V2 authority requires complete tools/replay and exact profile semantic-group/alias coverage with the correct mapped operation; duplicate, missing or extra rows/levels fail closed. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (binds evidence levels and transport to the actual immutable profile rather than trusting capability booleans) -->
-- Cache is optional. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-035/043: lets an administrator activate verified tools without cache reuse and save an Off preference through real receipt authority) -->
-- Strict legacy v1 decoding preserves original qualification and current adapter/canary rules; formerly ineligible evidence cannot gain authority from v2 policy or load/rebind. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::legacyCapabilityQualifies --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (retains legacy failed evidence for reading without upgrading it to current usable authority) -->
-- Optional cache misses/refusals do not erase valid tool/replay evidence or trigger buffered cache chasing. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility -->
-- Invalid fills never launch a paired read; fatal authentication, quota, server, framing, transport and timeout boundaries still withhold a fresh receipt. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: keeps a working streaming Dynamic path assignable without cache reuse or buffered cache chasing) -->
-- Streaming requires cold public deltas over time before EOF for that mapping/operation; Invoke or synthesized buffered SSE and Gateway HIT cannot establish it.
-- Buffered routes remain usable without an incremental claim.
-- No arbitrary native protocol, URL, header, model substitution or transport cross-product is introduced.
-- Failed stages retain sanitized diagnostics; stale draft/inventory evidence cannot authorize Save.
-- The following matching/selection constraints apply to the retained Advanced workflow. It remains deterministic, sanitized, non-assigning and non-activating under [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence); normal Discover instead adopts a qualified draft automatically and still requires reviewed Save.
-- Results do not identify the backend model family or prove increasing reasoning effort; compatibility and Pi tool/replay observations are not reasoning-strength measurements.
-- The finite built-in protocol bank bounds route-only probes.
-- Saved custom revisions reuse those observations without additional paid probes.
-- Unknown request properties are not inferred.
-- Selected-profile verification remains a separate explicit check.
-- Candidate-specific request rejection stops that candidate without retry.
-- Complete existing-profile matches precede partial candidate drafts.
-- Rate limiting never triggers automatic retries or custom-draft creation.
-- Completed matches require explicit selection followed by live verification or administrator confirmation before activation.
-- Other fatal failures suppress recommendations and drafts.
-- Retained matches show a notice that remaining checks stopped on rate limiting. <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-035: offers completed matches with a rate-limit notice without retrying) -->
-- Partial drafts require one unambiguous maximal mapping, never a union of contradictory protocols.
+- All Constraints of [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection) apply unchanged here; matching/selection restrictions remain Advanced-only, while normal Discover adopts a qualified draft automatically and still requires reviewed Save. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) --> <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (round-trips per-mapping evidence and authorizes verified tools without input cache evidence) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (rejects malformed or extra evidence without restoring a grade (%j)) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (binds evidence levels and transport to the actual immutable profile rather than trusting capability booleans) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-035/043: lets an administrator activate verified tools without cache reuse and save an Off preference through real receipt authority) --> <!-- @impl: src/lib/ai-capability-discovery/contract.ts::legacyCapabilityQualifies --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (retains legacy failed evidence for reading without upgrading it to current usable authority) --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: keeps a working streaming Dynamic path assignable without cache reuse or buffered cache chasing) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-035: offers completed matches with a rate-limit notice without retrying) -->
 
 **Priority:** P1
 
@@ -531,14 +504,11 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 **Constraints:**
 
 - Selected-profile verdicts stay visible outside Technical check details. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-038: Advanced verification updates the same visible result without requiring the disclosure to stay open) -->
-
-- Inventory reads never mutate assignments or start paid checks.
-- Verification changes only the draft until Save confirmation.
+- Inventory reads never mutate assignments or start paid checks; verification changes only the draft until Save confirmation.
 - Save requires server-recomputed warning confirmation at the same `baseRevision`.
-- Compatibility does not prove increasing reasoning effort.
-- Off-disabled evidence remains separate from tool success. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckOverview --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (does not equate a Pi tool pass with verified Off or reasoning configuration) -->
+- Compatibility does not prove increasing reasoning effort; Off-disabled evidence stays separate from tool success. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckOverview --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (does not equate a Pi tool pass with verified Off or reasoning configuration) -->
 - Candidate diagnostics remain scoped to their candidate, never another matched profile. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckDetails --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (keeps Gemma Off failures scoped to Gemma instead of coloring the matched GPT profile) -->
-- This retained selected-profile check introduces no runtime/Gateway/credential change. New compatibility-wire behavior and its separate budget belong to the dedicated component in [REQ-ENTERPRISE-094](#req-enterprise-094-automatic-protocol-discovery-campaigns).
+- This retained check changes no runtime, Gateway or credential behavior; new compatibility-wire behavior and its separate budget belong to [REQ-ENTERPRISE-094](#req-enterprise-094-automatic-protocol-discovery-campaigns).
 
 **Priority:** P1
 

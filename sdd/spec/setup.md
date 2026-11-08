@@ -918,14 +918,13 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Constraints:**
 
-- The secret token uses encrypted kv-crypto storage matching [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), masked prefill and blank-update preservation; clients never receive it. The non-secret URL is stored plain.
-- URL and token resolve independently with wizard KV before deploy secrets, allowing mixed sources only when the corresponding saved value is absent ([REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC1).
-- Unreadable saved credentials deny inference (AC3).
-- The token never enters the container, as required by [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC4.
-- Grouping fields into `SetupSection`s preserves every field, store binding, and conditional gate; only visual grouping changes.
-- `SetupSection` is a reusable structure-only component with no copy.
-- Routine Administration reads and validates the same effective URL and token through [REQ-SETUP-017](setup.md#req-setup-017-mode-aware-administration-configuration-read); no Worker-binding or unauthenticated transport is added.
-- The effective token carries Workers AI, AI Gateway Run, and AI Gateway Read so authenticated Administration can discover the gateway-owned Dynamic Route catalog without exposing the credential or duplicating route handles.
+- Token storage uses encrypted kv-crypto under [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), masked prefill and blank-update preservation; clients never receive it.
+- Nonsecret URL stays plain.
+- URL/token resolve independently: wizard KV before deploy secrets; mixed sources only when the corresponding saved value is absent ([REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC1).
+- Unreadable saved credentials deny inference (AC3); token never enters containers ([REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC4).
+- `SetupSection` grouping preserves every field/store binding/conditional gate; it is reusable, structure-only and copy-free; only visual grouping changes.
+- Routine Administration reads/validates the same effective URL/token through [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), without new Worker bindings/unauthenticated transport.
+- Effective token requires Workers AI, AI Gateway Run and AI Gateway Read for authenticated gateway-owned Dynamic catalog discovery without credential exposure or duplicate route handles.
 
 **Priority:** P2
 
@@ -985,18 +984,16 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Constraints:**
 
-- Prune absent Dynamic assignments, contexts, defaults and policies; retain shared revisions/receipts and valid independent source/permission preferences. Native-looking names remain Dynamic without a saved Native owner. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/live-routing-reconciliation.ts::prepareSavedRoutingReconciliation --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
-
-- Use existing admission/revision ownership. Revision, connection, Setup or ownership drift aborts writes; applied cleanup advances revision and invalidates previews. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
-
-- Accept `data.page`/`data.per_page` without mandatory totals; collect complete inventories within ten pages/1,000 routes. <!-- @impl: src/lib/ai-gateway-management.ts::listDynamicRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)) -->
-- Failed pages, pagination drift, duplicates or exhausted bounds never authorize deletion. <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)) -->
-- Only `POST /catalog {reconcileSaved:true,baseRevision}` reconciles complete saved-Gateway inventories. GET, ordinary POST and overlays are read-only; reject reconciliation overlays and deletion lists. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
-
-- Gateway-owned routes/backends cannot be forced or inferred.
-- Manual assignment needs no discovery.
-- UI checks never retry or escalate automatically.
-- Advanced discovery retains 32–16,384 tokens (default 4,096), independently of target discovery.
+- Prune absent Dynamic assignments/contexts/defaults/policies; retain shared revisions/receipts and valid independent source/permission preferences. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/live-routing-reconciliation.ts::prepareSavedRoutingReconciliation --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+- Native-looking names stay Dynamic without a saved Native owner.
+- Existing admission/revision ownership applies; revision/connection/Setup/ownership drift aborts writes. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
+- Applied cleanup advances revision/invalidates previews.
+- Accept `data.page`/`data.per_page` without mandatory totals; complete inventories cap at ten pages/1,000 routes. <!-- @impl: src/lib/ai-gateway-management.ts::listDynamicRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)) -->
+- Failed pages/pagination drift/duplicates/exhausted bounds never authorize deletion. <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)) -->
+- Only `POST /catalog {reconcileSaved:true,baseRevision}` reconciles complete saved-Gateway inventories; GET/ordinary POST/overlays stay read-only. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
+- Reject reconciliation overlays/deletion lists.
+- Never force/infer Gateway-owned routes/backends; manual assignment needs no discovery; UI checks never automatically retry/escalate.
+- Advanced discovery retains 32–16,384 tokens, default 4,096, independently of target discovery.
 
 **Priority:** P1
 
@@ -1051,14 +1048,15 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Constraints:**
 
-- The incumbent Administration tokens, responsive layout and accessible controls remain authoritative.
-- Discover and Advanced verification share one visible Check result above a single Advanced: choose a profile disclosure. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-038: Advanced verification updates the same visible result without requiring the disclosure to stay open) -->
-- Tool calling, Reasoning, Streaming and Input caching remain visible as four independently labelled outcomes, including partial results and per-level Native differences; no current grade is shown. Technical attempts/diagnostics start collapsed while Review changes → Confirm Save → next normal session guidance remains visible. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: Discover leaves one visible result and the review/save next step outside optional profile controls) --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: %s mixed evidence keeps four independent capability outcomes visible with details collapsed) --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: legacy grades never appear in the result or expanded attempt history) -->
+- Existing Administration tokens/responsive layout/accessibility remain authoritative.
+- Discover/Advanced verification share one visible Check result above one Advanced: choose a profile disclosure. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-038: Advanced verification updates the same visible result without requiring the disclosure to stay open) -->
+- Keep Tool calling, Reasoning, Streaming and Input caching independently labelled, including partial/per-level Native outcomes; no current grade. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: Discover leaves one visible result and the review/save next step outside optional profile controls) --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: %s mixed evidence keeps four independent capability outcomes visible with details collapsed) --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: legacy grades never appear in the result or expanded attempt history) -->
+- Technical attempts/diagnostics start collapsed; Review changes → Confirm Save → next normal session guidance stays visible.
 - Non-Bedrock Native profile controls start expanded. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: non-Bedrock Native keeps its consolidated Advanced controls open and publishes verification outside them) -->
-- Mobile layout keeps fields, identifiers, results and 44px actions within the viewport. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @manual: Check single-column mobile fields, wrapped model identifiers, visible result/next step, and 44px action targets without horizontal overflow. -->
-- Section and route navigation must not discard drafts or start paid checks.
-- Mapping and verification use one compact indeterminate progress indicator at the active route, without repeated headings, explanatory paragraphs, or duplicate bottom-of-form status. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: verification progress is visible beside the route without a bottom duplicate) -->
-- A finished mapping error does not lock profile selection; choosing another profile dismisses the old result. <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: mapping failure unlocks profile selection and keeps progress local) -->
+- Mobile fields/identifiers/results/44px actions fit the viewport. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @manual: Check single-column mobile fields, wrapped model identifiers, visible result/next step, and 44px action targets without horizontal overflow. -->
+- Navigation never discards drafts or starts paid checks.
+- Mapping/verification uses one compact indeterminate active-route indicator, without repeated headings/explanatory paragraphs/duplicate bottom status. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: verification progress is visible beside the route without a bottom duplicate) -->
+- Finished mapping errors never lock profile selection; choosing another profile dismisses the old result. <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: mapping failure unlocks profile selection and keeps progress local) -->
 
 **Priority:** P1
 
@@ -1181,9 +1179,10 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Constraints:**
 
-- Secret values never appear in summaries; technical identifiers remain in a disclosure. Existing redaction applies to Native labels; missing/deleted names remain honestly unavailable, never fabricated or sourced from browser-only values. Opaque policy payload IDs are unchanged. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingSummary --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-046: resolves $section allowed and default native routes from authoritative $source labels, not submitted values (saved: $saved)) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-046: labels changed route sections Dynamic routes and Native routes (saved: %s)) -->
-- Confirmation preserves the reviewed values, warning codes, and baseRevision.
-- Reviewed Environment execution keeps per-task running and succeeded statuses visible outside Technical details, using the existing configuration-run stream and status styling. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-041: streams visible task progress outside technical details) -->
+- Summaries never expose secrets; technical identifiers stay in a disclosure.
+- Native labels retain existing redaction; missing/deleted names stay honestly unavailable, never fabricated or sourced from browser-only values; opaque policy IDs stay unchanged. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingSummary --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-046: resolves $section allowed and default native routes from authoritative $source labels, not submitted values (saved: $saved)) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-046: labels changed route sections Dynamic routes and Native routes (saved: %s)) -->
+- Confirmation preserves reviewed values/warning codes/`baseRevision`.
+- Reviewed Environment execution keeps per-task running/succeeded statuses visible outside Technical details using existing configuration-run stream/status styling. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-041: streams visible task progress outside technical details) -->
 
 **Priority:** P1
 

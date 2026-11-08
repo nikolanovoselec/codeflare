@@ -351,9 +351,9 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Constraints:**
 
-- Snapshot durability follows the existing 15-minute bisync cadence, explicit Sync trigger, and final-sync boundary; abrupt loss may discard changes newer than the last successful sync.
-- `session-history.json` remains excluded because terminal output may contain prompts, credentials, tokens, and command output.
-- Recovery uses Herdr v0.8.2's official snapshot format; Codeflare defines no parallel snapshot schema.
+- Snapshot durability follows existing 15-minute bisync, explicit Sync and final-sync boundaries; abrupt loss may discard changes since the last successful sync.
+- `session-history.json` stays excluded: terminal output may contain prompts/credentials/tokens/command output.
+- Recovery uses Herdr v0.8.2’s official snapshot format; Codeflare defines no parallel schema.
 
 **Priority:** P0
 

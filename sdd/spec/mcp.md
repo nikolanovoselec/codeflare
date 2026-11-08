@@ -147,19 +147,16 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 
 **Constraints:**
 
-- No bucket deletion or sync redesign.
-- Only successful native handoff excludes the obsolete root `.pi/agent/mcp.json` from subsequent baseline/bisync; initial restore and failed preparation retain its eligibility. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: active native configuration and recovery objects remain baseline-sync eligible) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: failed native preparation blocks Pi shell merge without excluding restored files from baseline) -->
-- Installed packages are not selection evidence.
-- Exact managed exclusions of `mcp-portal-oauth.ts`, `review-enforcement.ts` and `operator-review-remote.ts` are selection-neutral; other unsupported filters fail closed without preparing files.
-- Native lifecycle settings remain native; managed timeout preparation follows [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
-- Registration does not choose a settings winner or disable either client.
-- Managed startup selects the native adapter; explicitly selected stock-only load retains its existing guarded handoff.
-- Transformed custom originals remain recoverable before replacement.
-- Positively selected stock-only managed load decodes selected legacy stdio `!!` by one `!`, never a valid destination's literal environment. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=${legacy}, regenerate=${regenerate})) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: generated native provider environment escapes a literal leading exclamation mark) -->
-- Selected legacy commands/interpolation fail closed without evaluation before writes, preserving originals and content-free diagnostics; unselected expressions cannot block a valid destination. <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: rejected legacy env produces a content-free managed-load diagnostic) -->
-
-- Native conversion escapes literal leading bangs rather than evaluating stock values as secret commands; unsupported expressions fail closed. Native request timeout resets on progress; idle disconnect and remote provider retention are independent.
-- Managed constructors and Claude behavior remain governed by [REQ-AGENT-069](agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
+- No bucket deletion/sync redesign; only successful native handoff excludes obsolete root `.pi/agent/mcp.json` from subsequent baseline/bisync; initial restore/failed preparation remain eligible. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: active native configuration and recovery objects remain baseline-sync eligible) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: failed native preparation blocks Pi shell merge without excluding restored files from baseline) -->
+- Packages do not prove selection.
+- Exact managed exclusions `mcp-portal-oauth.ts`, `review-enforcement.ts`, `operator-review-remote.ts` are selection-neutral; other unsupported filters fail closed before preparation.
+- Registration chooses no settings winner and disables neither client; managed startup selects the native adapter, explicit stock-only retains guarded handoff.
+- Preserve transformed custom originals before replacement.
+- Positively selected stock-only managed load decodes selected legacy stdio `!!` by one `!`, never valid-destination literal environment. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=${legacy}, regenerate=${regenerate})) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: generated native provider environment escapes a literal leading exclamation mark) -->
+- Reject selected legacy commands/interpolation before evaluation/writes, preserving originals/content-free diagnostics; unselected expressions cannot block valid destinations. <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: rejected legacy env produces a content-free managed-load diagnostic) -->
+- Native conversion escapes literal leading bangs, never evaluating stock values as secret commands; unsupported expressions fail closed.
+- Native lifecycle settings remain native; progress resets request timeout, independently of idle disconnect/provider retention.
+- Managed timeouts follow [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile); constructors/Claude follow [REQ-AGENT-069](agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
 
 **Priority:** P1
 

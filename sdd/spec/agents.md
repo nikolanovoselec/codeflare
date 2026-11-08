@@ -2468,9 +2468,10 @@ None.
 
 **Constraints:**
 
-- Update states reuse existing dashboard polling and add no independent poller.
+- Update states reuse existing dashboard polling; no independent poller.
 - Failed-upgrade recovery follows [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release) AC6.
-- Pending updates, including an unavailable compatible seed, retain “Update pending” in both creation controls without a separate blocked/recovery panel. Existing session ownership still defers reconciliation until the last owner stops. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: preserves the existing pending state without a separate recovery panel (%s)) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175: the existing pending control advances through managed updating to ready) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: runtime incompatibility preserves the existing pending control) -->
+- Pending updates, including unavailable compatible seeds, show “Update pending” in both creation controls without a separate blocked/recovery panel. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: preserves the existing pending state without a separate recovery panel (%s)) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175: the existing pending control advances through managed updating to ready) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: runtime incompatibility preserves the existing pending control) -->
+- Existing session ownership defers reconciliation until the last owner stops.
 
 **Priority:** P1
 
@@ -2941,10 +2942,11 @@ None.
 
 **Constraints:**
 
-- Open TUI alone owns terminal renderers; RPC, print and background sessions do not run its terminal handlers, project probes or settings overlay.
+- Open TUI alone owns terminal renderers; RPC, print and background sessions run no terminal handlers, project probes or settings overlay.
 - Cosmetic metadata/configuration failures must not block agent execution.
 - Unsafe or malformed Open TUI configuration stays unchanged and skips native activation with a content-free warning.
-- Entrypoint alone enforces owned startup preferences; the terminal adapter validates configuration without writing it. Native context/model rendering remains upstream-owned.
+- Entrypoint alone enforces owned startup preferences; the terminal adapter validates configuration without writing it.
+- Native context/model rendering remains upstream-owned.
 
 **Priority:** P2
 
@@ -3090,16 +3092,13 @@ None.
 
 **Constraints:**
 
-- OAuth registration remains non-enterprise-only and placeholder-guarded.
-- Caller precedence applies across OAuth, PAT/plain and Enterprise.
-- PAT/plain sessions retain their transparent transport.
-- Managed OAuth identity uses only the bound session bucket, never request-supplied identity.
-- Explicit caller credentials bypass managed lookup, refresh and fallback.
-- Gateway provider `Authorization` is never selected or rewritten as Cloudflare authentication.
-- The AI Gateway host lives only in `INTERCEPTED_CF_OAUTH_HOSTS` (never the enterprise browser list), so enterprise never intercepts its own `LlmInterceptor` gateway rewrites.
-- `CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER` must stay distinct from `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER` — the placeholder value is itself the DO's OAuth-mode wiring signal.
-- The GitHub interceptor is not touched — non-enterprise git stays direct (GitHub tokens are long-lived); `api.cloudflare.com` and `gateway.ai.cloudflare.com` are the only hosts newly intercepted (OAuth-mode only).
-- The AC6 CA-trust is an isolated `entrypoint.sh` sibling of the enterprise CA-trust: distinct `CF_OAUTH_CA_SRC` var + `# cf-ca-trust` sentinel, gated `ENTERPRISE_MODE != active` && CA-present; a no-interception deploy is byte-identical to before.
+- OAuth registration is non-enterprise-only and placeholder-guarded; caller precedence spans OAuth, PAT/plain and Enterprise.
+- GitHub interception stays untouched; PAT/plain transport and non-enterprise direct GitHub remain unchanged (GitHub tokens are long-lived); only `api.cloudflare.com` and `gateway.ai.cloudflare.com` gain OAuth-only interception.
+- Managed OAuth uses only the bound session bucket, never request identity; explicit caller credentials bypass managed lookup, refresh and fallback.
+- Gateway provider `Authorization` is never Cloudflare authentication or rewritten as such.
+- AI Gateway belongs only to `INTERCEPTED_CF_OAUTH_HOSTS`, never the enterprise browser list; Enterprise cannot re-intercept `LlmInterceptor` rewrites.
+- `CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER` stays distinct from `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER`; the OAuth placeholder is the DO’s OAuth-mode wiring signal.
+- OAuth CA trust remains an isolated `entrypoint.sh` enterprise-trust sibling: distinct `CF_OAUTH_CA_SRC`, `# cf-ca-trust` sentinel, `ENTERPRISE_MODE != active` and CA-present gates; no-interception deployments remain byte-identical.
 
 **Priority:** P1
 
@@ -4497,24 +4496,16 @@ None.
 
 **Constraints:**
 
-- Activation uses Pi's public API additively.
-- Groups, reset, Goal/Plan/Inline, and context-mode ownership remain unchanged.
-- Exact tool `name` takes precedence over `query`. <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (keeps name precedence, activation groups and idempotence after metadata observation) -->
-- Optional `tool:`/`skill:` prefixes are case-insensitive.
-- Exact eligible names outrank other matches.
-- Whole-token ranking requires two-thirds coverage, a name/purpose hit, score at least 6, and 75% of each kind's best score.
-- No weak-match padding.
-- Metadata refreshes before agent start and clears on session start.
-- Without snapshots, skill-only lookup reports unavailable metadata; tool search remains available.
-- Search preserves prompts, messages, and active tools.
-- No discovery body reads, directory scans, or server connections.
-- Versioned policy reads are bounded to 1 MiB and fail closed.
-- Structured matches retain kind, name, description, and skill-only filePath.
-- Skill paths are JSON-quoted.
+- Activation uses Pi’s public API additively; groups/reset/Goal/Plan/Inline and context-mode ownership stay unchanged.
+- Exact tool `name` precedes `query`; prefixes `tool:`/`skill:` are case-insensitive; exact eligible names rank first. <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (keeps name precedence, activation groups and idempotence after metadata observation) -->
+- Whole-token ranking requires two-thirds coverage, a name/purpose hit, score ≥6 and ≥75% of each kind’s best; no weak padding.
+- Refresh metadata before agent start; clear on session start.
+- Without snapshots, skill-only lookup reports unavailable; tool search remains available.
+- Search preserves prompts/messages/active tools; no body reads, directory scans or server connections.
+- Versioned policy reads cap at 1 MiB, failing closed.
+- Matches retain kind/name/description and skill-only filePath; JSON-quote paths.
 - Purposes cap at 100 code points; identities/paths survive the 600-point target.
-- Pi owns native-read context.
-- Context-mode remains unmodified.
-- Review/CI/memory/Vault requests remain unchanged and exactly once.
+- Pi owns native-read context; context-mode stays unmodified; review/CI/memory/Vault requests remain unchanged and exactly once.
 
 **Priority:** P1
 
@@ -5389,21 +5380,14 @@ None.
 
 **Constraints:**
 
-- Use native SYSTEM/AGENTS instructions, progressive disclosure and invocation metadata.
-- No custom skill executor, hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged mode canary.
-- Discovery uses existing capability and generated policy under [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog).
-- Constitution, eager Git/review/startup/resume safeguards, local-execution gates, Vault guidance and package catalogs remain unchanged.
-- Cap excludes tool schemas/project context; includes owned system/global, winning visible-catalog and isolated-working-directory text/framing.
-- Project context remains additive, byte-unaltered and separately reported.
-- Policy retains original eligibility, false entries and skill files, without descriptions.
-- Guards preserve replaced hard-policy boundaries.
-- Shared fallback changes require matching curation bytes and protected verification.
-- Alignment includes new paths/native Impeccable source.
-- Forbidden context-mode/Pi npm paths remain image-owned, outside managed documents/retirements.
-- Retirements retain provenance; ordinary removals cannot enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
-- Alignment preserves pins, runtime selections, signing history, tenant authorization and ownership guards.
-- No automatic content sync/private reverse-sync.
-- Builds/tests/installation/resource-loader integration/prompt verification remain CI-owned.
+- Native SYSTEM/AGENTS instructions, progressive disclosure and invocation metadata; no custom skill executor/hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged-mode canary.
+- Discovery uses existing capability/generated policy under [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog); Constitution, eager Git/review/startup/resume safeguards, local-execution gates, Vault guidance and package catalogs stay unchanged.
+- Cap excludes tool schemas/project context; includes owned system/global, winning visible catalog and isolated-working-directory text/framing.
+- Project context: additive, byte-unaltered, separately reported.
+- Policy retains original eligibility, false entries and skill files without descriptions; guards preserve replaced hard-policy boundaries.
+- Shared fallback changes require curation-byte equality/protected verification; align new paths/native Impeccable source, preserving pins/runtime selections/signing history/tenant authorization/ownership guards.
+- Forbidden context-mode/Pi npm paths stay image-owned, outside managed documents/retirements; retirements retain provenance and ordinary removals cannot enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- CI owns builds/tests/installation/resource-loader integration/prompt verification; no automatic content sync/private reverse-sync.
 
 **Priority:** P1
 

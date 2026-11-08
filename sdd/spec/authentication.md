@@ -578,7 +578,7 @@ None.
 
 **Constraints:**
 
-- The `/login` rewrite only executes because Cloudflare Assets runs the Worker before every request (`run_worker_first = true` in `wrangler.toml`).
+- Cloudflare Assets must run the Worker before every request (`run_worker_first = true` in `wrangler.toml`) for the `/login` rewrite.
 
 **Priority:** P1
 
