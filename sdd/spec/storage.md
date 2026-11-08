@@ -746,6 +746,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. A failed background managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC4: a failed ancillary-status call does not consume the managed-release check window) -->
 5. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC5: status refresh caches failed compatible discovery for five minutes) -->
 
+**Notes:** The compatible-background-discovery correction still requires behavioral execution qualification.
+
 **Constraints:**
 
 - Background refresh and explicit fresh-required validation share [REQ-AGENT-154](agents.md#req-agent-154-build-compatible-managed-release-discovery)'s ten-page, 1,000-record compatible-history traversal past newer incompatible releases. <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
@@ -756,7 +758,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated resolver and session-polling tests; the compatible-background-discovery correction is pending behavioral RED/GREEN verification.
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Planned
 
@@ -1479,7 +1481,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-011](#req-stor-011-sync-mode-controls-workspace-scope)
 
-**Verification:** Real rclone filter fixtures across six mode combinations and the existing S3 restore/bisync fixture.
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [rclone-bisync-s3.py](../../scripts/ci/rclone-bisync-s3.py)
 
 **Status:** Implemented
 
@@ -1540,7 +1542,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test ([REPLACE copy + idempotent/oversized skip](../../src/__tests__/lib/r2-migration.test.ts) (AC1-2), [state machine + reconcile decision](../../src/__tests__/lib/r2-migration.test.ts) + [chunk-advance wiring](../../src/__tests__/routes/session-batch-status.test.ts) (AC3), [chunked scan driver (list/slice, timeout, cursor, deadline, lease release)](../../src/__tests__/lib/r2-migration.test.ts) (AC4-5), [migrate→verify transition + progress %](../../src/__tests__/lib/r2-migration.test.ts) + [batch-status wiring](../../src/__tests__/routes/session-batch-status.test.ts) (AC6-7), [session-start lazy-create path](../../src/__tests__/lib/r2-migration.test.ts) + [ensureBucketAndSeed](../../src/__tests__/routes/container-lifecycle-helpers.test.ts) (Constraints))
+**Verification:** Automated: [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts)
 
 **Status:** Implemented
 
@@ -1676,7 +1678,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 5. Repeated cleanup with no matches preserves ordinary files unchanged. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC5: empty repeats preserve ordinary files) -->
 6. Remote cleanup uses the remaining startup/baseline attempt deadline and the existing network-timeout bound for ordinary cycles. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: startup and baseline share their existing transfer deadline with cleanup) --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: a stalled remote cleanup obeys its remaining deadline) --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: ordinary cleanup uses the existing thirty-second network bound) -->
 
+**Notes:** Activation of the revised cleanup helper remains unverified.
+
 **Constraints:**
+
 - Use only the configured user sync roots and existing rclone credentials.
 - Restricted Operator upload roots remain outside cleanup scope.
 - No global binary wrapper, timer, UI, secret store or merge/archive workflow is introduced.
@@ -1686,7 +1691,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** None.
 
-**Verification:** Isolated composed sync/local-backend behavior, deadline and failure tests. Historical current-user cleanup receipts do not establish activation of the revised runtime helper.
+**Verification:** Automated: [rclone-conflict-cleanup.test.js](../../host/__tests__/rclone-conflict-cleanup.test.js)
 
 **Status:** Implemented
 
