@@ -2350,7 +2350,7 @@ None.
 **Acceptance Criteria:**
 
 1. Import Mode with `enforce_tdd: false` marks source-implemented CLEAR requirements Implemented. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
-2. Import Mode with `enforce_tdd: true` marks requirements without REQ-referencing tests Partial. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
+2. Import Mode with `enforce_tdd: true` marks requirements Partial when their non-manual criteria lack required REQ-referencing tests; legitimate manual verification does not trigger demotion. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
 
 **Constraints:**
 

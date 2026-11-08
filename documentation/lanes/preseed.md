@@ -1191,7 +1191,7 @@ ignore/merge wiring rather than leaving them as local-only files.
   - Import Mode defaults `enforce_tdd: false`; CLEAR REQs whose source implements the AC land as `Status: Implemented` unconditionally.
   - The code-only default avoids demoting everything to `Partial` only because imported code predates REQ-ID test conventions.
   - When `enforce_tdd: false`, each domain file receives a `_Verification: code-only (no automated coverage)._` footnote; per-REQ `Notes:` fields do not carry this signal.
-  - Switch to `enforce_tdd: true` manually in `sdd/config.yml` once REQ-ID references have been added to test names.
+  - Switch to `enforce_tdd: true` manually in `sdd/config.yml` once required non-manual coverage carries REQ-ID references. Legitimate manual verification supports Implemented status without automation or a TDD opt-out; manual markers and procedure links are methods, not passing receipts.
 - **Resume** - `sdd/` exists and `sdd/.init-triage.md` has at least one `**Status:** open` item.
   - The agent surfaces one item at a time with refreshed Context.
   - Five decisions are available: `accept`, `correct`, `lost`, `skip`, and `quit`.

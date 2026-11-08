@@ -33,20 +33,22 @@ Returns findings array + auto-fix actions. Every finding names REQ, AC, anchor, 
 
 ## Per-AC manual-verification markers (`@manual`)
 
-An AC whose behaviour genuinely cannot be verified by an automated test carries an inline marker at the end of the bullet, in the same comment-grammar family as the anchors:
+An AC legitimately verified manually carries an inline marker at the end of the bullet, in the same comment-grammar family as the anchors:
 
 ```
 <!--\s*@manual(?::\s*(.+?))?\s*-->
 ```
 
-Capture group: optional `<procedure>` — dedicated manual-verification guidance for that AC. A bare `<!-- @manual -->` marks the AC as manually verified with no bespoke procedure; do not pad it with filler prose. The complete set of manual REQ+AC combinations in a project is exactly `grep -rn '@manual' sdd/`.
+Capture group: optional `<procedure>` — dedicated manual-verification guidance for that AC. A bare `<!-- @manual -->` declares the manual method, not completed execution; its Verification field names the concrete procedure. Do not pad the marker with filler prose. The complete set of manual REQ+AC combinations in a project is exactly `grep -rn '@manual' sdd/`.
+
+Legitimate manual verification is sufficient for implemented behaviour; all-manual and mixed REQs may be `Implemented`. Do not demote a REQ merely for manual coverage or missing automation on manual ACs. Missing/broken guidance is a verification finding, not proof of missing implementation; never invent passing evidence.
 
 Marker semantics (per-AC — there is NO REQ-level exemption):
 
 - An AC carrying `@manual` is exempt from the `@impl` and `@test` anchor **requirements** (`ac-missing-source-anchor`, `ac-missing-test-anchor` do not fire on it).
 - Anchors PRESENT on a `@manual` AC are still validated as supplemental evidence — a broken anchor is still `spec-anchor-orphaned`/`spec-test-anchor-orphaned`. `@manual` lifts the requirement, never the truth of what is written.
 - **Verification-field coherence:** enforce `spec-enforce` § REQ rendering template's strict linked-method grammar, not arbitrary prose or merely a category word. Non-manual ACs require Automated (or the linked Code-only method when `enforce_tdd: false`); manual ACs require Manual; mixed REQs list their non-manual method first, then Manual. All-manual REQs use Manual even when supplemental test anchors exist. Resolve every automated target to real eligible covering tests and every manual target to a named procedure with concrete actions/pass-fail outcomes. Method/marker disagreement is MEDIUM `verification-field-marker-drift`; malformed fields are MEDIUM `verification-field-format`; missing/non-covering targets are HIGH `verification-target-invalid`. Auto-fix only from independently established methods/targets, preserving every genuine acceptance obligation in its owner; never fabricate links, turn gaps into manual exemptions or promote Status from field formatting. Dependencies use only exact prerequisite REQ/CON links or `None.` under the same canonical field contract.
-- Retrofitting an anchor onto a `@manual` AC (and deleting the marker) is the standard coverage-improvement path for `/sdd clean`; the reverse (adding `@manual` to dodge a failing anchor check) is a truth violation — `finding-downgraded-to-skip` HIGH.
+- Replace a manual method only when equivalent automated behavioural coverage is independently established; automation is not required to retain `Implemented`. Adding `@manual` merely to dodge a failing anchor check is a truth violation — `finding-downgraded-to-skip` HIGH.
 
 ## CQ-1 — REQ-test truth-check
 
@@ -83,7 +85,7 @@ Three outcomes:
 
 ## CQ-TEST — Test-anchor coverage (gated by `enforce_tdd`)
 
-Every `Implemented` REQ must have at least one test file referencing its REQ ID. **This pass is gated by `enforce_tdd: true`** (default). When `enforce_tdd: false`, the pass writes informational entries to `sdd/spec/.review-queue.md` (nested) or `sdd/.review-needed.md` (flat-legacy) under a `## Coverage gaps` section but never mutates Status.
+An `Implemented` REQ with non-manual ACs must have the required automated coverage; all-manual REQs use legitimate manual verification without a test-file requirement. **This pass is gated by `enforce_tdd: true`** (default). When `enforce_tdd: false`, the pass writes informational entries to `sdd/spec/.review-queue.md` (nested) or `sdd/.review-needed.md` (flat-legacy) under a `## Coverage gaps` section but never mutates Status.
 
 **Test discovery** uses `test_globs` from `sdd/spec/config.yml` (or `sdd/config.yml` flat). Defaults cover vitest/jest, pytest, go test, rspec, cypress, playwright.
 
@@ -92,7 +94,7 @@ Every `Implemented` REQ must have at least one test file referencing its REQ ID.
 When `enforce_tdd: true`:
 
 1. **Auto-demote**: `Implemented` REQ with no test reference: `Partial` with Notes. Changelog entry. Exemptions: REQs where every AC carries `@manual` (nothing automated to verify), and REQs satisfying CQ-1's anchor-parity path (resolving per-AC `@test` anchors are stronger evidence than the ID grep).
-2. **Source-vs-test coverage**: `Planned`/`Partial` REQ with source but no test: HIGH; auto-promote `Planned` to `Partial` with explanatory Notes.
+2. **Source-vs-test coverage**: `Planned`/`Partial` REQ with source but no required automated coverage for its non-manual ACs: HIGH; auto-promote `Planned` to `Partial` with explanatory Notes.
 3. **Test quality heuristics**: AC count vs test count, tautology / empty-body / skip patterns. Quality findings produce no changelog entry.
 
 When `enforce_tdd: false`:

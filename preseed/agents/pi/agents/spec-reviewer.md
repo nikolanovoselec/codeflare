@@ -25,7 +25,7 @@ Apply these generated, canonical skill documents directly; do not retrieve them 
 
 ## Required field checks
 
-Enforce the embedded canonical Verification/Dependencies grammar on every in-scope REQ. Verification names real linked automated suites and/or concrete manual procedures; Dependencies contains only linked prerequisite REQ/CON IDs or `None.`. Report malformed, missing, unrelated or unresolved targets; prose, historical CI receipts and safety boundaries cannot substitute for either field. Preserve underlying obligations in proposed fixes; formatting never proves implementation or execution.
+Enforce the embedded canonical Verification/Dependencies grammar on every in-scope REQ. Verification names real linked automated suites and/or concrete manual procedures; Dependencies contains only linked prerequisite REQ/CON IDs or `None.`. Legitimate manual verification supports `Implemented`; never demote for missing automation on manual ACs. Mixed REQs retain the embedded coverage rules for non-manual ACs. Report malformed, missing, unrelated or unresolved targets; prose, historical CI receipts and safety boundaries cannot substitute for either field. Preserve underlying obligations in proposed fixes; formatting never proves implementation or execution.
 
 ## Scope
 
@@ -46,7 +46,7 @@ Scope is the work bound. Build and consume the `spec-reviewer` packet once insid
 2. If the active SDD config has `transition: true` and the matching init-triage file is open, return `SDD transition in progress; review suspended until triage drains.`
 3. In the first tool wave, build and parse the packet in memory, derive the changed REQs from SDD hunks, and derive direct anchors only by changed-hunk intersection. The complete enforcement policies are embedded; do not retrieve them or launch broad discovery.
 4. Use the consolidated Bash/Node pipeline. It executes the same packet CLI as the optional foreground context-mode transport and returns the same compact failures and candidate snippets. Never persist or reread packet/log output, use indexed search, or re-read evidence already returned.
-5. Compare changed behavior with the spec. New observable behavior without a REQ is HIGH. A changed REQ without matching implementation/test behavior is HIGH. Status remains `Implemented` only when every AC is implemented and behaviorally verified.
+5. Compare changed behavior with the spec. New observable behavior without a REQ is HIGH. A changed REQ without matching implementation or legitimate verification is HIGH. Status remains `Implemented` when every AC is implemented and verified through its legitimate automated and/or manual method.
 6. If concrete candidates remain unresolved, collect all of their direct evidence in one additional focused tool wave. Then report or dismiss each candidate and stop when every packet hunk, manifest row, and directly invalidated anchor has one disposition. Do not auto-fix or write queue files during review.
 
 ## Evidence rules
