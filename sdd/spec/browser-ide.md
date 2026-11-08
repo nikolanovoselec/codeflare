@@ -1150,7 +1150,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-024](#req-ide-024-codeflare-browser-ide-welcome)
 
-**Verification:** Automated launch, complete-image product-metadata, activation, welcome-extension, and package tests.
+**Verification:** Automated: [entrypoint-openvscode.test.js](../../host/__tests__/entrypoint-openvscode.test.js), [activation.test.ts](../../openvscode/agent-sidebar/test/activation.test.ts), [packaging.test.ts](../../openvscode/agent-sidebar/test/packaging.test.ts), [welcome-extension.test.ts](../../openvscode/agent-sidebar/test/welcome-extension.test.ts)
 
 **Status:** Implemented
 
@@ -1173,7 +1173,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-009](#req-ide-009-frictionless-workspace-open-for-every-ide-agent), [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](#req-ide-037-lazy-extension-restoration)
 
-**Verification:** Automated managed-settings and profile-preparation tests.
+**Verification:** Automated: [managed-settings.test.mjs](../../openvscode/claude/test/managed-settings.test.mjs), [prepare-sidebar-config.test.mjs](../../openvscode/claude/test/prepare-sidebar-config.test.mjs)
 
 **Status:** Implemented
 
@@ -1228,7 +1228,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions), [REQ-IDE-037](#req-ide-037-lazy-extension-restoration), [REQ-IDE-040](#req-ide-040-user-extension-allowance-policy), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-STOR-020](storage.md#req-stor-020-managed-environment-reconciliation), [REQ-STOR-024](storage.md#req-stor-024-managed-release-application)
 
-**Verification:** Automated managed-settings, restore, capture, removal, and disable tests
+**Verification:** Automated: [browser-ide-extensions.test.js](../../host/__tests__/browser-ide-extensions.test.js), [extension-persistence.test.ts](../../openvscode/agent-sidebar/test/extension-persistence.test.ts), [managed-settings.test.mjs](../../openvscode/claude/test/managed-settings.test.mjs)
 
 **Status:** Implemented
 
@@ -1281,7 +1281,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-042](#req-ide-042-additive-company-extension-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated exact-package acquisition and verification tests
+**Verification:** Automated: [agent-seed-release.test.js](../../host/__tests__/agent-seed-release.test.js), [extension-persistence.test.ts](../../openvscode/agent-sidebar/test/extension-persistence.test.ts)
 
 **Status:** Implemented
 
@@ -1309,7 +1309,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-042](#req-ide-042-additive-company-extension-reconciliation), [REQ-IDE-044](#req-ide-044-exact-company-vsix-verification)
 
-**Verification:** Automated readiness, fallback, concurrency, and failure-isolation tests
+**Verification:** Automated: [extension-persistence.test.ts](../../openvscode/agent-sidebar/test/extension-persistence.test.ts), [welcome-extension.test.ts](../../openvscode/agent-sidebar/test/welcome-extension.test.ts)
 
 **Status:** Implemented
 
@@ -1333,7 +1333,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-044](#req-ide-044-exact-company-vsix-verification)
 
-**Verification:** Automated temporary-package installation tests
+**Verification:** Automated: [extension-persistence.test.ts](../../openvscode/agent-sidebar/test/extension-persistence.test.ts)
 
 **Status:** Implemented
 
@@ -1359,7 +1359,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-TERM-005](terminal.md#req-term-005-tab-1-auto-starts-the-configured-agent)
 
-**Verification:** Automated managed-settings contract test
+**Verification:** Automated: [welcome-extension.test.ts](../../openvscode/agent-sidebar/test/welcome-extension.test.ts), [managed-settings.test.mjs](../../openvscode/claude/test/managed-settings.test.mjs)
 
 **Status:** Implemented
 

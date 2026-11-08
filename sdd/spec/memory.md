@@ -162,7 +162,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume)
 
-**Verification:** Automated Pi extraction lifecycle tests
+**Verification:** Automated: [pi-transcript-cadence-integration.test.js](../../host/__tests__/pi-transcript-cadence-integration.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -193,7 +193,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-025](#req-mem-025-pi-capture-follows-transcript-epochs)
 
-**Verification:** Automated Pi extraction lifecycle and Claude hook cadence tests
+**Verification:** Automated: [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -569,7 +569,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-019](#req-mem-019-post-compaction-recall-of-recent-session-extracts)
 
-**Verification:** Automated Claude and Pi post-compaction recall tests
+**Verification:** Automated: [post-compaction-recall.test.js](../../host/__tests__/post-compaction-recall.test.js), [pi-post-compaction-recall.test.ts](../../src/__tests__/lib/pi-post-compaction-recall.test.ts)
 
 **Status:** Implemented
 

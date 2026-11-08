@@ -597,7 +597,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** Automated container, route, and Settings tests
+**Verification:** Automated: [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [llm-keys.test.ts](../../src/__tests__/routes/llm-keys.test.ts), [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx)
 
 **Status:** Implemented
 
@@ -621,7 +621,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-132](#req-agent-132-pr-delivery-and-existing-head-consent), [REQ-AGENT-122](#req-agent-122-per-pr-review-checkpoints)
 
-**Verification:** Automated Claude Stop-hook behavior tests
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -727,7 +727,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent)
 
-**Verification:** Automated Pi and Claude review-enforcement tests
+**Verification:** Automated: [review-completion-state.test.ts](../../src/__tests__/lib/review-completion-state.test.ts)
 
 **Status:** Implemented
 
@@ -789,7 +789,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-OPS-040](operations.md#req-ops-040-selected-coding-agent-packaging), [REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)
 
-**Verification:** Automated API, profile, preference, and persisted-session tests
+**Verification:** Automated: [lifecycle.test.ts](../../src/__tests__/routes/container/lifecycle.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [session-agent-allowlist.test.ts](../../src/__tests__/routes/session-agent-allowlist.test.ts), [user-profile-enterprise.test.ts](../../src/__tests__/routes/user-profile-enterprise.test.ts)
 
 **Status:** Implemented
 
@@ -819,7 +819,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-123](#req-agent-123-installed-agent-runtime-availability), [REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)
 
-**Verification:** Automated pre-hydration, resolved-set, and legacy-profile UI tests
+**Verification:** Automated: [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [CreateSessionDialog.test.tsx](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx), [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx)
 
 **Status:** Implemented
 
@@ -2477,7 +2477,7 @@ None.
 
 **Dependencies:** [REQ-STOR-022](storage.md#req-stor-022-managed-reconciliation-admission)
 
-**Verification:** Automated dashboard and session-menu component tests
+**Verification:** Automated: [storage.test.ts](../../web-ui/src/__tests__/api/storage.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -4034,7 +4034,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions)
 
-**Verification:** Automated capability-filtering tests
+**Verification:** Automated: [pi-tool-exposure-finalizer.test.js](../../host/__tests__/pi-tool-exposure-finalizer.test.js), [pi-capabilities.test.ts](../../src/__tests__/lib/pi-capabilities.test.ts)
 
 **Status:** Implemented
 
@@ -4100,7 +4100,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Automated package-assembly and settings tests
+**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [pi-smart-compact-config.test.ts](../../src/__tests__/lib/pi-smart-compact-config.test.ts)
 
 **Status:** Implemented
 
@@ -4131,7 +4131,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-222](#req-agent-222-pi-smart-compact-defaults)
 
-**Verification:** Automated settings and R2 round-trip tests
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [pi-smart-compact-config.test.ts](../../src/__tests__/lib/pi-smart-compact-config.test.ts)
 
 **Status:** Implemented
 
@@ -5066,7 +5066,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-149](#req-agent-149-shared-compiler-cli-compatibility), [REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)
 
-**Verification:** Automated compiler and release-contract tests
+**Verification:** Automated: [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js), [agent-seed-release.test.js](../../host/__tests__/agent-seed-release.test.js), [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -5118,7 +5118,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Automated shared-compiler compatibility test
+**Verification:** Automated: [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js)
 
 **Status:** Implemented
 
@@ -5145,7 +5145,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated Worker release-verification tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -5202,7 +5202,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-154](#req-agent-154-build-compatible-managed-release-discovery)
 
-**Verification:** Automated Worker snapshot and session-start tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts)
 
 **Status:** Implemented
 
@@ -5225,7 +5225,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Automated package-assembly test
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js)
 
 **Status:** Implemented
 
@@ -5247,7 +5247,7 @@ None.
 
 **Dependencies:** [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
 
-**Verification:** Automated launcher test
+**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js)
 
 **Status:** Implemented
 
@@ -5479,7 +5479,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Automated behavioral test
+**Verification:** Automated: [impeccable-engine-source.py](../../scripts/ci/impeccable-engine-source.py), [impeccable-engine.py](../../scripts/ci/impeccable-engine.py)
 
 **Status:** Implemented
 
@@ -5637,7 +5637,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
 
-**Verification:** Automated Worker streaming tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -5664,7 +5664,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection)
 
-**Verification:** Automated Pi and Claude boundary classification tests
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -5689,7 +5689,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization), [REQ-AGENT-168](#req-agent-168-review-boundary-classification)
 
-**Verification:** Automated Pi and Claude clone-consent tests
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [operator-review-remote.test.ts](../../src/__tests__/lib/operator-review-remote.test.ts), [operator-review-selector.test.ts](../../src/__tests__/lib/operator-review-selector.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -5742,7 +5742,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated review-enforcement tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -5800,7 +5800,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-STOR-037](storage.md#req-stor-037-page-local-managed-seed-action-coordination)
 
-**Verification:** Automated component and store tests
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
