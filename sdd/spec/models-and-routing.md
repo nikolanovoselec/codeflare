@@ -573,8 +573,10 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 - Both live and administrator-confirmed receipts bind the exact profile revision, gateway credential context, inventory, any supplied provenance, and compatibility contract version.
 - Administrator confirmation retains its distinct method through browser response validation and persistence, never becoming live-check evidence. <!-- @impl: web-ui/src/lib/schemas.ts::ReasoningRouteVerificationSchema --> <!-- @test: web-ui/src/__tests__/api/reasoning-client.test.ts (REQ-ENTERPRISE-043: retains %s authority through real discovery and inventory response parsing) -->
-- Dynamic and Native temporary Save receipts must remain valid for at least one hour; bounded retention is 30 days on immutable unique KV keys. Future-dated/expired receipts fail closed. Saved authority does not expire with receipts; private replay retention is independent. <!-- @impl: src/lib/reasoning-verification.ts::issueRouteCheck --> <!-- @impl: src/lib/reasoning-verification.ts::readRouteCheck --> <!-- @impl: src/lib/native-ai-targets.ts::issueNativeTargetCheck --> <!-- @impl: src/lib/native-ai-targets.ts::readNativeTargetCheck --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (uses unique immutable receipt keys with a bounded TTL and never rewrites an earlier check) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-043: Confirm Save retains exact Dynamic and Native authority after %i milliseconds of configuration) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-043: receipt readers still reject outside the bounded lifetime (%i milliseconds)) -->
-- Generated namespaces, missing evidence and browser-supplied administrator methods grant no authority. Incomplete automated replay remains insufficient; only explicit server-issued administrator confirmation establishes the separate assessment basis. <!-- @impl: src/lib/reasoning-verification.ts::verificationMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (REQ-ENTERPRISE-043: incomplete automated replay cannot replace executable evidence) -->
+- Dynamic and Native temporary Save receipts must remain valid for at least one hour; bounded retention is 30 days on immutable unique KV keys. <!-- @impl: src/lib/reasoning-verification.ts::issueRouteCheck --> <!-- @impl: src/lib/reasoning-verification.ts::readRouteCheck --> <!-- @impl: src/lib/native-ai-targets.ts::issueNativeTargetCheck --> <!-- @impl: src/lib/native-ai-targets.ts::readNativeTargetCheck --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (uses unique immutable receipt keys with a bounded TTL and never rewrites an earlier check) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-043: Confirm Save retains exact Dynamic and Native authority after %i milliseconds of configuration) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-043: receipt readers still reject outside the bounded lifetime (%i milliseconds)) -->
+- Future-dated/expired receipts fail closed.
+- Saved authority does not expire with receipts; private replay retention is independent.
+- Generated namespaces, missing evidence and browser-supplied administrator methods grant no authority. <!-- @impl: src/lib/reasoning-verification.ts::verificationMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (REQ-ENTERPRISE-043: incomplete automated replay cannot replace executable evidence) -->
 - Runtime performs no management polling or branch forcing.
 - Observed-path authority is not per-leg or whole-route certification.
 - Legacy Setup cannot inject verification authority.
@@ -658,18 +660,19 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Constraints:**
 
-- Native failure parsing retains only validated diagnostics and the sanitized explanation, never raw provider bodies, signed replay or a successful receipt. <!-- @impl: web-ui/src/api/client.ts::checkNativeTarget --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-ENTERPRISE-075: retains sanitized Native cache-refusal evidence through API parsing) -->
+- Native failures retain only validated diagnostics and sanitized explanations, never raw provider bodies, signed replay or successful receipts. <!-- @impl: web-ui/src/api/client.ts::checkNativeTarget --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-ENTERPRISE-075: retains sanitized Native cache-refusal evidence through API parsing) -->
 
-- Administration performs no provider fallback or paid retry.
+- Administration prohibits provider fallback or paid retries.
 - Other native protocols retain Advanced flows until deliberately extended.
-- Advanced listing offers the reusable Provider-default template without certifying model capability; it does not make Provider default the first normal native probe.
-- Native discovery uses at most 34 calls: six five-call forms plus at most four Provider-default fallback calls, with one shared submission counter/deadline, no alias probes and no transport cross-product. <!-- @impl: src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-074: discovers selectable native forms on an unknown model with exact replay and $transport dispatch) -->
-- Advanced generated-Native verification uses the same bounded per-semantic runner, without repeating the campaign or exceeding inner probe limits. <!-- @impl: src/lib/ai-capability-discovery/index.ts::verifyNativeCapabilityProfile --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: re-verifies only selected Native mappings with exact receipt authority (failed replay: %s)) -->
-- The shared normal UI discloses 40 submissions/10 minutes overall, 2,048 output tokens each and 90 seconds per request. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCapabilityDiscovery --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (selects a future Bedrock model and adopts its reusable native contract in one Discover action) -->
-- Server receipts, not UI adoption or profile names, authorize Save and runtime.
-- Discovery does not persist activation; incomplete tools/replay and fatal campaign failures never enable targets. Optional cache failure grants no cache permission and does not erase completed lifecycle evidence.
-- Historical documents remain readable, and unchanged stale targets may stay disabled.
-- Historical Advanced verification retains its existing evidence semantics.
+- Advanced's reusable Provider-default listing neither certifies models nor selects the first normal native probe.
+- Native discovery: ≤34 calls across six five-call forms and ≤4 Provider-default fallbacks; shared submission counter/deadline, no alias probes/transport cross-product. <!-- @impl: src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-074: discovers selectable native forms on an unknown model with exact replay and $transport dispatch) -->
+- Advanced generated-Native verification reuses the bounded per-semantic runner without repeated campaigns or inner-limit overruns. <!-- @impl: src/lib/ai-capability-discovery/index.ts::verifyNativeCapabilityProfile --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: re-verifies only selected Native mappings with exact receipt authority (failed replay: %s)) -->
+- Shared normal UI discloses 40 submissions/10 minutes overall, 2,048 output tokens/request, 90 seconds/request. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCapabilityDiscovery --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (selects a future Bedrock model and adopts its reusable native contract in one Discover action) -->
+- Save/runtime requires server receipts, not UI adoption/names.
+- Discovery cannot persist activation; incomplete tools/replay or fatal campaign failures cannot enable targets.
+- Optional cache failure neither authorizes caching nor erases completed lifecycle evidence.
+- Historical documents stay readable; unchanged stale targets may remain disabled.
+- Historical Advanced evidence semantics remain unchanged.
 
 **Priority:** P1
 
