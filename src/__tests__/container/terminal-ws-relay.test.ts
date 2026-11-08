@@ -55,6 +55,8 @@ type ContainerSide = {
   readonly raiseError: () => Promise<void>;
   readonly reportAbnormalClose: () => Promise<void>;
   readonly deliverOnHandedOverSocket: (data: string) => Promise<void>;
+  readonly pendingTimers: () => Promise<number>;
+  readonly advanceClock: (milliseconds: number) => Promise<void>;
   readonly received: unknown[];
   readonly closes: { code: number; reason: string }[];
 };
@@ -174,6 +176,18 @@ async function upgrade(options: {
         reportAbnormalClose: () => inDurableObject(() => {
           if (!containerOwnClientFacingEnd) throw new Error('the container handed over no socket');
           containerOwnClientFacingEnd.dispatchEvent(new CloseEvent('close', { code: 1006, reason: '' }));
+        }),
+        // Timers armed by the relay fire in the Durable Object's I/O context, so
+        // the fake clock must be advanced from inside that same context.
+        // Counts fake timers still pending, read inside the Durable Object context
+        // where the relay arms its interval.
+        pendingTimers: async () => {
+          let count = -1;
+          await runInDurableObject<NativeDurableObject, void>(nativeObjectStub, async () => { count = vi.getTimerCount(); });
+          return count;
+        },
+        advanceClock: milliseconds => runInDurableObject<NativeDurableObject, void>(nativeObjectStub, async () => {
+          await vi.advanceTimersByTimeAsync(milliseconds);
         }),
         received,
         closes,
@@ -319,5 +333,103 @@ describe('terminal and IDE WebSocket relay owned by the Container Durable Object
     expect(response.webSocket).toBeNull();
     expect(fixture.wasStarted()).toBe(false);
     expect(fixture.lifecycleGeneration()).toBe(7);
+  });
+  describe('keepalive while a relay is open', () => {
+    const HEARTBEAT_FRAME = '{"type":"heartbeat"}';
+    const HEARTBEAT_INTERVAL_MS = 15_000;
+
+    const withFakeClock = async (body: () => Promise<void>): Promise<void> => {
+      vi.useFakeTimers();
+      try {
+        await body();
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+    const heartbeatsAt = (frames: unknown[]): number => frames.filter(frame => frame === HEARTBEAT_FRAME).length;
+
+    it('a /terminal relay sends the heartbeat frame to the container every 15 seconds and never to the client', () =>
+      withFakeClock(() => withRelay({}, async relay => {
+        const atClient = recordEvents(relay.client);
+
+        await relay.container.advanceClock(HEARTBEAT_INTERVAL_MS - 1);
+        expect(heartbeatsAt(relay.container.received), 'no heartbeat is due before 15 000 ms').toBe(0);
+
+        await relay.container.advanceClock(1);
+        expect(
+          heartbeatsAt(relay.container.received),
+          'WHAT: no {"type":"heartbeat"} frame reached the container end after 15 000 ms. WHY: a relay without periodic traffic is closed by the platform 20 ms after each 60 s alarm, so the terminal reconnects every minute. HOW: while the relay is open, send the heartbeat text frame to the container end every 15 000 ms.',
+        ).toBe(1);
+
+        await relay.container.advanceClock(2 * HEARTBEAT_INTERVAL_MS);
+        expect(heartbeatsAt(relay.container.received), 'one heartbeat per 15 000 ms').toBe(3);
+        expect(heartbeatsAt(atClient.messages), 'the browser client must never receive the heartbeat').toBe(0);
+        expect(atClient.closes).toEqual([]);
+      })));
+
+    const NO_LEAKED_TIMER =
+      'WHAT: the relay interval timer is still pending after the relay ended. WHY: a timer that outlives the relay keeps the Durable Object busy and sends into a dead socket forever. HOW: clear the interval on close and on error of both relay ends.';
+
+    const expectRelayEndedCleanly = async (relay: RelayFixture, heartbeatsBeforeEnd: number): Promise<void> => {
+      await relay.container.advanceClock(3 * HEARTBEAT_INTERVAL_MS);
+      expect(heartbeatsAt(relay.container.received), 'heartbeats must stop once the relay is closed').toBe(heartbeatsBeforeEnd);
+      expect(await relay.container.pendingTimers(), NO_LEAKED_TIMER).toBe(0);
+    };
+
+    it('the relay interval timer is pending while a /terminal relay is open', () =>
+      withFakeClock(() => withRelay({}, async relay => {
+        expect(await relay.container.pendingTimers(), 'the keepalive interval must be armed while the relay is open').toBe(1);
+      })));
+
+    it('no heartbeat is sent and no timer is left after the client closes the relay', () =>
+      withFakeClock(() => withRelay({}, async relay => {
+        await relay.container.advanceClock(HEARTBEAT_INTERVAL_MS);
+        const beforeClose = heartbeatsAt(relay.container.received);
+
+        relay.client.close(1000, 'bye');
+        await relay.container.advanceClock(0);
+        await eventually(() => relay.container.closes[0], 'container end must be closed after the client closes');
+
+        await expectRelayEndedCleanly(relay, beforeClose);
+      })));
+
+    it('no heartbeat is sent and no timer is left after the container closes the relay', () =>
+      withFakeClock(() => withRelay({}, async relay => {
+        const seen = recordEvents(relay.client);
+        await relay.container.advanceClock(HEARTBEAT_INTERVAL_MS);
+        const beforeClose = heartbeatsAt(relay.container.received);
+
+        await relay.container.close(1000);
+        await relay.container.advanceClock(0);
+        await eventually(() => seen.closes[0], 'client must see the container close');
+
+        await expectRelayEndedCleanly(relay, beforeClose);
+        expect(seen.closes).toHaveLength(1);
+      })));
+
+    it('no heartbeat is sent and no timer is left after the container socket errors', () =>
+      withFakeClock(() => withRelay({}, async relay => {
+        const seen = recordEvents(relay.client);
+        await relay.container.advanceClock(HEARTBEAT_INTERVAL_MS);
+        const beforeError = heartbeatsAt(relay.container.received);
+
+        await relay.container.raiseError();
+        await relay.container.advanceClock(0);
+        await eventually(() => seen.closes[0], 'client must see the close after the container socket error');
+
+        await expectRelayEndedCleanly(relay, beforeError);
+        expect(seen.closes[0].code).toBe(1011);
+      })));
+
+    it('IDE case: a /api/vscode relay never sends the heartbeat frame to the IDE container end', () =>
+      withFakeClock(() => withRelay({ path: '/api/vscode/abcdef1234567890/ws' }, async relay => {
+        const atClient = recordEvents(relay.client);
+        await relay.container.advanceClock(3 * HEARTBEAT_INTERVAL_MS);
+        expect(
+          heartbeatsAt(relay.container.received),
+          'WHAT: an injected heartbeat text frame reached the IDE server. WHY: the IDE protocol is not known to ignore it and could corrupt the session. HOW: send the heartbeat on the /terminal relay only.',
+        ).toBe(0);
+        expect(heartbeatsAt(atClient.messages)).toBe(0);
+      })));
   });
 });

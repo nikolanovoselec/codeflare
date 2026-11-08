@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-08
 
-- Relay terminal and IDE WebSocket upgrades through the Container Durable Object with accepted ends instead of passing the private-port socket through, so established sessions survive Durable Object alarm boundaries. The relay never starts a runtime and forwards messages, close code/reason and errors (as 1011) ([REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention)).
+- Relay terminal and IDE WebSocket upgrades through the Container Durable Object with accepted ends instead of passing the private-port socket through, so established sessions survive Durable Object alarm boundaries. The relay never starts a runtime and forwards messages, close code/reason and errors (as 1011); a terminal relay also sends a 15 s heartbeat frame to the container end only, so the object keeps pending work across alarm boundaries ([REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention)).
 
 - Keep execution permissions independent of deployment CPU, memory or storage: builds and ordinary test runners remain CI-only; the existing tuned managed wrapper remains the sole local-test route with unchanged functionality. Deployment resource profiles and their allocations remain configurable and unchanged ([REQ-AGENT-052](agents.md#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening), [REQ-OPS-007](operations.md#req-ops-007-container-specs-configurable-per-environment)).
 

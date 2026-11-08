@@ -88,6 +88,7 @@ import {
 export { validateBucketNameInput };
 
 const SESSION_ID_KEY = '_sessionId';
+const TERMINAL_KEEPALIVE_MS = 15_000;
 
 /**
  * container - Container Durable Object for user workspaces
@@ -822,7 +823,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    * object owns the relay (same pattern as the Containers SDK, not imported
    * because that path would start the container).
    */
-  private relayWebSocket(containerResponse: Response): Response {
+  private relayWebSocket(containerResponse: Response, options: { terminalKeepalive: boolean }): Response {
     const containerWs = containerResponse.webSocket;
     if (!containerWs) return containerResponse;
     containerWs.accept();
@@ -848,12 +849,33 @@ export class container extends Container<Env> implements ContainerEnvState {
       }
     };
 
+    let keepalive: ReturnType<typeof setInterval> | undefined;
+    const stopKeepalive = (): void => {
+      if (keepalive === undefined) return;
+      clearInterval(keepalive);
+      keepalive = undefined;
+    };
+    if (options.terminalKeepalive) {
+      // Pending work from the heartbeat keeps the object alive across alarm boundaries.
+      keepalive = setInterval(() => {
+        try {
+          containerWs.send(JSON.stringify({ type: 'heartbeat' }));
+        } catch {
+          // Container end closed; its close event stops this timer.
+        }
+      }, TERMINAL_KEEPALIVE_MS);
+    }
+
     containerWs.addEventListener('message', event => { void forward(server, event.data); });
     server.addEventListener('message', event => { void forward(containerWs, event.data); });
     containerWs.addEventListener('close', event => closeQuietly(server, sendableCode(event.code), event.reason));
     server.addEventListener('close', event => closeQuietly(containerWs, sendableCode(event.code), event.reason));
     containerWs.addEventListener('error', () => closeQuietly(server, 1011, 'container-socket-error'));
     server.addEventListener('error', () => closeQuietly(containerWs, 1011, 'client-socket-error'));
+    for (const socket of [containerWs, server]) {
+      socket.addEventListener('close', stopKeepalive);
+      socket.addEventListener('error', stopKeepalive);
+    }
 
     return new Response(null, { status: 101, webSocket: client, headers: containerResponse.headers });
   }
@@ -873,7 +895,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     if ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
         request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       const forwarded = await this.forwardExisting(request);
-      return forwarded.webSocket ? this.relayWebSocket(forwarded) : forwarded;
+      return forwarded.webSocket ? this.relayWebSocket(forwarded, { terminalKeepalive: pathname === '/terminal' }) : forwarded;
     }
     const internal = dispatchInternalRoute(this.host, request);
     if (internal) return internal;
