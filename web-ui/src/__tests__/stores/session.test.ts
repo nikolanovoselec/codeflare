@@ -1000,14 +1000,21 @@ describe('Session Store', () => {
         managedReleaseStatus: 'current',
       } as never);
       await sessionStore.loadSessions();
-      mockGetSessionAncillaryStatus.mockClear();
+      vi.setSystemTime(Date.now() + 5 * 60 * 1000);
       mockGetSessionAncillaryStatus.mockRejectedValueOnce(new Error('ancillary-status unavailable'));
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.maxSessions).toBe(3);
+      expect(sessionStore.managedReleaseStatus).toBe('current');
 
-      await sessionStore.refreshSessionStatuses(true);
-      await sessionStore.refreshSessionStatuses(true);
-
-      expect(mockGetSessionAncillaryStatus).toHaveBeenNthCalledWith(1);
-      expect(mockGetSessionAncillaryStatus).toHaveBeenNthCalledWith(2);
+      mockGetSessionAncillaryStatus.mockResolvedValueOnce({
+        maxSessions: 7,
+        managedReleaseStatus: 'update_pending',
+        preseedNeedsUpgrade: true,
+      } as never);
+      // No force flag or further time advance: failed checks cannot spend the window.
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.maxSessions).toBe(7);
+      expect(sessionStore.managedReleaseStatus).toBe('update_pending');
     });
 
     it('REQ-STOR-040 AC3: retries the managed-release check after the initial batch request fails', async () => {
