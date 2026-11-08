@@ -779,7 +779,7 @@ Task #114 excludes both Browser namespaces in the existing selector after [21 ob
 
 **Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-026](#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
 
-**Verification:** Automated test ([controller-egress resolver/transport/SSRF/account-scoped](../../src/__tests__/lib/controller-egress.test.ts), [EgressController transparent proxy + fail-closed + account-scoped passthrough + WebSocket](../../src/__tests__/egress-controller.test.ts), [container catch-all wiring + account-id prop](../../src/__tests__/container/index.test.ts), and [container env vars placeholder R2 key](../../src/__tests__/container/container-env.test.ts).)
+**Verification:** Automated: [controller-egress.test.ts](../../src/__tests__/lib/controller-egress.test.ts), [egress-controller.test.ts](../../src/__tests__/egress-controller.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 
@@ -895,7 +895,7 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 
 **Dependencies:** [REQ-STOR-028](storage.md#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-STOR-032](storage.md#req-stor-032-exclusive-managed-resource-boundaries)
 
-**Verification:** Automated addressing, mutation-form, canonical-key, multi-delete, and adjacent-path tests
+**Verification:** Automated: [managed-r2-request.test.ts](../../src/__tests__/lib/managed-r2-request.test.ts)
 
 **Status:** Implemented
 
@@ -922,7 +922,7 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 
 **Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-026](#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority), [REQ-ENTERPRISE-027](#req-enterprise-027-managed-resource-admission-and-transport), [REQ-ENTERPRISE-028](#req-enterprise-028-managed-resource-request-classification), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
 
-**Verification:** Automated scoped-policy-read, scoped-forwarding, policy-failure, protected-denial, and privacy-safe logging tests
+**Verification:** Automated: [egress-controller.test.ts](../../src/__tests__/egress-controller.test.ts)
 
 **Status:** Implemented
 

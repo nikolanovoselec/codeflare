@@ -706,7 +706,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
 
-**Verification:** Automated test ([Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [key recoverability test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx))
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-local-readiness.test.ts](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [VaultButton.test.tsx](../../web-ui/src/__tests__/components/VaultButton.test.tsx)
 
 **Status:** Implemented
 

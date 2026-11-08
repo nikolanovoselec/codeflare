@@ -60,7 +60,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-011](#req-operator-011-serialized-operator-admission)
 
-**Verification:** Automated test: Protected execution-context behavior is covered by the adjacent tests.
+**Verification:** Automated: [execution-context.test.ts](../../src/__tests__/operators/execution-context.test.ts)
 
 **Status:** Implemented
 
@@ -243,7 +243,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization)
 
-**Verification:** Automated test: Configuration preview, apply, reload and UI behavior are covered by the adjacent tests.
+**Verification:** Automated: [jwt-stamping.test.ts](../../src/__tests__/operators/jwt-stamping.test.ts), [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [EnvironmentAreaFields.test.tsx](../../web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx)
 
 **Status:** Implemented
 
@@ -372,7 +372,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Automated test: Authenticated bounded discovery transport is covered by the adjacent tests.
+**Verification:** Automated: [distribution-client.test.ts](../../src/__tests__/operators/distribution-client.test.ts)
 
 **Status:** Implemented
 
@@ -401,7 +401,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
 
-**Verification:** Automated test: Authenticated approved artifact download is covered by the adjacent tests.
+**Verification:** Automated: [artifact-download.test.ts](../../src/__tests__/operators/artifact-download.test.ts)
 
 **Status:** Implemented
 
@@ -660,7 +660,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-014](#req-operator-014-restrictive-operator-policy)
 
-**Verification:** Automated test: Manifest snapshots and SQLite admission ordering are covered by the adjacent tests.
+**Verification:** Automated: [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts)
 
 **Status:** Implemented
 
@@ -747,7 +747,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Automated test: Durable drive generation and checkpoint behavior is covered by the adjacent tests.
+**Verification:** Automated: [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [operator-activities.test.ts](../../src/__tests__/routes/operator-activities.test.ts)
 
 **Status:** Implemented
 
@@ -1499,7 +1499,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Automated test: [producer, settlement and logging-control cases](../../src/__tests__/operators/dispatcher-production.test.ts), [SDK-tool observations](../../src/__tests__/operators/dispatcher-result.test.ts), [bounded response shape](../../src/__tests__/lib/inference-diagnostics.test.ts), [native logging](../../src/__tests__/lib/bedrock-native-diagnostics.test.ts), [management persistence](../../src/__tests__/operators/operator-access.test.ts) and [management flow](../../web-ui/src/__tests__/operators/operator-management-flow.test.tsx).
+**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-result.test.ts](../../src/__tests__/operators/dispatcher-result.test.ts), [inference-diagnostics.test.ts](../../src/__tests__/lib/inference-diagnostics.test.ts), [bedrock-native-diagnostics.test.ts](../../src/__tests__/lib/bedrock-native-diagnostics.test.ts), [operator-access.test.ts](../../src/__tests__/operators/operator-access.test.ts), [operator-management-flow.test.tsx](../../web-ui/src/__tests__/operators/operator-management-flow.test.tsx)
 
 **Status:** Planned
 
@@ -1565,7 +1565,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
 
-**Verification:** Automated test: Named projection/production/native tests above.
+**Verification:** Automated: [dispatcher-result.test.ts](../../src/__tests__/operators/dispatcher-result.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [flue-native-cases.ts](../../src/__tests__/operators/fixtures/flue-native-cases.ts)
 
 **Status:** Implemented
 
@@ -1744,7 +1744,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-020](#req-operator-020-operator-scoped-r2-interception), [REQ-OPERATOR-022](#req-operator-022-restricted-operator-container-lifecycle)
 
-**Verification:** Automated test: Explicit-sync behavior is covered by the adjacent host tests.
+**Verification:** Automated: [operator-sync-io.test.js](../../host/__tests__/operator-sync-io.test.js), [operator-sync.test.js](../../host/__tests__/operator-sync.test.js), [operator-sync-router.test.js](../../host/__tests__/operator-sync-router.test.js)
 
 **Status:** Implemented
 
@@ -1867,7 +1867,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-021](#req-operator-021-structured-owned-pi-conversation), [REQ-OPERATOR-024](#req-operator-024-independent-synchronization-verification), [REQ-OPERATOR-025](#req-operator-025-optional-encrypted-webhook-handoff), [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Automated test: Consumer invocation acceptance, immutable reconciliation and session-origin behavior are covered by the adjacent behavioral tests.
+**Verification:** Automated: [consumer-contracts.test.ts](../../src/__tests__/operators/consumer-contracts.test.ts)
 
 **Status:** Implemented
 
@@ -1896,7 +1896,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-009](#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures)
 
-**Verification:** Automated test: Attachment bounds, canonical names and authority rejection are covered by the adjacent consumer-contract tests.
+**Verification:** Automated: [consumer-contracts.test.ts](../../src/__tests__/operators/consumer-contracts.test.ts)
 
 **Status:** Implemented
 
@@ -1926,7 +1926,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-009](#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures), [REQ-OPERATOR-037](#req-operator-037-bounded-operator-consumer-inputs)
 
-**Verification:** Automated test: Direct, session, webhook and local-review regression fixtures are covered by the adjacent tests.
+**Verification:** Automated: [platform-acceptance-fixtures.test.ts](../../src/__tests__/operators/platform-acceptance-fixtures.test.ts), [legacy-review-unchanged.test.ts](../../src/__tests__/operators/legacy-review-unchanged.test.ts)
 
 **Status:** Implemented
 
@@ -1956,7 +1956,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Automated test: Webhook-key generation, rotation and protected storage are covered by the adjacent tests.
+**Verification:** Automated: [webhook-key.test.ts](../../src/__tests__/operators/webhook-key.test.ts), [registry-webhook-key.test.ts](../../src/__tests__/operators/registry-webhook-key.test.ts)
 
 **Status:** Implemented
 
@@ -1989,7 +1989,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-018](#req-operator-018-request-attached-operator-orchestration)
 
-**Verification:** Automated test: Capability consumption and activity-result behavior is covered by the adjacent tests.
+**Verification:** Automated: [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts), [operator-webhook.test.ts](../../src/__tests__/routes/operator-webhook.test.ts)
 
 **Status:** Implemented
 
@@ -2069,7 +2069,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-026](#req-operator-026-managed-webhook-edge-bypass)
 
-**Verification:** Automated test: Webhook edge behavior is covered by the adjacent route tests.
+**Verification:** Automated: [wrangler-static-assets.test.js](../../host/__tests__/wrangler-static-assets.test.js), [index.test.ts](../../src/__tests__/index.test.ts), [operator-webhook.test.ts](../../src/__tests__/routes/operator-webhook.test.ts)
 
 **Status:** Implemented
 
@@ -2093,7 +2093,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity)
 
-**Verification:** Automated test: Non-consuming status and not-ready behavior is covered by the adjacent activity test.
+**Verification:** Automated: [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts)
 
 **Status:** Implemented
 
@@ -2337,7 +2337,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Automated test: [operator-management-redesign.test.tsx](../../web-ui/src/__tests__/operators/operator-management-redesign.test.tsx), [operator-management.test.tsx](../../web-ui/src/__tests__/operators/operator-management.test.tsx), [operator-management-flow.test.tsx](../../web-ui/src/__tests__/operators/operator-management-flow.test.tsx), [operator-catalog.test.ts](../../src/__tests__/operators/operator-catalog.test.ts).
+**Verification:** Automated: [operator-management-redesign.test.tsx](../../web-ui/src/__tests__/operators/operator-management-redesign.test.tsx), [operator-management.test.tsx](../../web-ui/src/__tests__/operators/operator-management.test.tsx), [operator-management-flow.test.tsx](../../web-ui/src/__tests__/operators/operator-management-flow.test.tsx), [operator-catalog.test.ts](../../src/__tests__/operators/operator-catalog.test.ts)
 
 **Status:** Implemented
 
@@ -2363,7 +2363,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Automated test: [operator-management-redesign.test.tsx](../../web-ui/src/__tests__/operators/operator-management-redesign.test.tsx).
+**Verification:** Automated: [operator-management-redesign.test.tsx](../../web-ui/src/__tests__/operators/operator-management-redesign.test.tsx)
 
 **Status:** Implemented
 
@@ -2392,7 +2392,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Automated test: [operator-management-redesign.test.tsx](../../web-ui/src/__tests__/operators/operator-management-redesign.test.tsx), [operator-management-flow.test.tsx](../../web-ui/src/__tests__/operators/operator-management-flow.test.tsx).
+**Verification:** Automated: [operator-management-redesign.test.tsx](../../web-ui/src/__tests__/operators/operator-management-redesign.test.tsx), [operator-management-flow.test.tsx](../../web-ui/src/__tests__/operators/operator-management-flow.test.tsx)
 
 **Status:** Implemented
 
@@ -2415,7 +2415,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-068](#req-operator-068-scoped-restriction-controls)
 
-**Verification:** Automated test: [Installation restriction tests](../../web-ui/src/__tests__/operators/operator-management.test.tsx).
+**Verification:** Automated: [operator-management.test.tsx](../../web-ui/src/__tests__/operators/operator-management.test.tsx)
 
 **Status:** Implemented
 
@@ -2742,7 +2742,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Automated test: Owner-scoped cancellation and CSRF-protected browser start are covered by the adjacent route tests. The browser client test proves rejected mutations are attempted once.
+**Verification:** Automated: [operator-activities.test.ts](../../src/__tests__/routes/operator-activities.test.ts), [operator-activities.test.ts](../../web-ui/src/__tests__/api/operator-activities.test.ts)
 
 **Status:** Implemented
 
@@ -2795,7 +2795,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Automated test: [operator-activities.test.ts](../../src/__tests__/routes/operator-activities.test.ts).
+**Verification:** Automated: [operator-activities.test.ts](../../src/__tests__/routes/operator-activities.test.ts)
 
 **Status:** Implemented
 
@@ -2971,7 +2971,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff)
 
-**Verification:** Automated test: [boundary-workflow-enrollment.test.ts](../../src/__tests__/operators/boundary-workflow-enrollment.test.ts), [review-boundary-action-trust.test.ts](../../src/__tests__/operators/review-boundary-action-trust.test.ts), [operator-access.test.ts](../../src/__tests__/operators/operator-access.test.ts), [operator-boundary-action.test.js](../../host/__tests__/operator-boundary-action.test.js), [operator-boundary-claim.test.ts](../../src/__tests__/routes/operator-boundary-claim.test.ts), [review-boundary-claim.test.ts](../../src/__tests__/operators/review-boundary-claim.test.ts).
+**Verification:** Automated: [boundary-workflow-enrollment.test.ts](../../src/__tests__/operators/boundary-workflow-enrollment.test.ts), [review-boundary-action-trust.test.ts](../../src/__tests__/operators/review-boundary-action-trust.test.ts), [operator-access.test.ts](../../src/__tests__/operators/operator-access.test.ts), [operator-boundary-action.test.js](../../host/__tests__/operator-boundary-action.test.js), [operator-boundary-claim.test.ts](../../src/__tests__/routes/operator-boundary-claim.test.ts), [review-boundary-claim.test.ts](../../src/__tests__/operators/review-boundary-claim.test.ts)
 
 **Status:** Planned
 
@@ -3057,7 +3057,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff)
 
-**Verification:** Automated test: [review-published-result.test.ts](../../src/__tests__/operators/review-published-result.test.ts), [review-connected-lifecycle.test.ts](../../src/__tests__/operators/review-connected-lifecycle.test.ts), [review-history-transport.test.ts](../../src/__tests__/operators/review-history-transport.test.ts), [review-boundary-result.test.ts](../../src/__tests__/operators/review-boundary-result.test.ts), [operator-review-remote.test.ts](../../src/__tests__/lib/operator-review-remote.test.ts), [conductor-production-packet.test.ts](../../src/__tests__/operators/conductor-production-packet.test.ts).
+**Verification:** Automated: [review-published-result.test.ts](../../src/__tests__/operators/review-published-result.test.ts), [review-connected-lifecycle.test.ts](../../src/__tests__/operators/review-connected-lifecycle.test.ts), [review-history-transport.test.ts](../../src/__tests__/operators/review-history-transport.test.ts), [review-boundary-result.test.ts](../../src/__tests__/operators/review-boundary-result.test.ts), [operator-review-remote.test.ts](../../src/__tests__/lib/operator-review-remote.test.ts), [conductor-production-packet.test.ts](../../src/__tests__/operators/conductor-production-packet.test.ts)
 
 **Status:** Planned
 
@@ -3321,7 +3321,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-088](#req-operator-088-host-request-preparation-evidence), [REQ-OPERATOR-089](#req-operator-089-verified-preparation-attribution), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-087](#req-operator-087-protected-transport-cancellation)
 
-**Verification:** Automated test: [raw capture and redaction](../../src/__tests__/lib/operator-raw-logging.test.ts), [admitted policy and execution evidence](../../src/__tests__/operators/dispatcher-production.test.ts) and [Host original-value capture](../../host/__tests__/operator-inference-raw.test.js).
+**Verification:** Automated: [operator-raw-logging.test.ts](../../src/__tests__/lib/operator-raw-logging.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [operator-inference-raw.test.js](../../host/__tests__/operator-inference-raw.test.js)
 
 **Status:** Planned
 
@@ -3353,7 +3353,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-090](#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-087](#req-operator-087-protected-transport-cancellation)
 
-**Verification:** Automated test: [trusted forwarding and passive original-policy proof](../../src/__tests__/operators/dispatcher-production.test.ts), [native RPC context](../../src/__tests__/operators/loader-runtime.test.ts) and [persisted-log provisioning and additive readiness](../../src/__tests__/operators/dispatcher-activation.test.ts).
+**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts), [dispatcher-activation.test.ts](../../src/__tests__/operators/dispatcher-activation.test.ts)
 
 **Status:** Planned
 

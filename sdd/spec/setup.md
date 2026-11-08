@@ -115,7 +115,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/lib/onboarding.test.ts))
+**Verification:** Automated: [onboarding.test.ts](../../src/__tests__/lib/onboarding.test.ts)
 
 **Status:** Implemented
 
@@ -405,7 +405,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-012](#req-setup-012-setup-wizard-step-sequence), [REQ-SETUP-014](#req-setup-014-managed-repository-credential-boundary), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-148](agents.md#req-agent-148-protected-managed-release-publication)
 
-**Verification:** Automated Setup-route, payload-boundary, and transactional trust tests
+**Verification:** Automated: [setup-managed-environment.test.ts](../../src/__tests__/routes/setup-managed-environment.test.ts), [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -436,7 +436,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated credential storage, prefill, host, redirect, diagnostic, storage, and container-boundary tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [setup-managed-environment.test.ts](../../src/__tests__/routes/setup-managed-environment.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 
@@ -463,7 +463,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-013](#req-setup-013-managed-environment-configuration)
 
-**Verification:** Automated Setup UI, normalization, parent-child, and stored-state tests
+**Verification:** Automated: [ManagedEnvironmentSection.test.tsx](../../web-ui/src/__tests__/components/ManagedEnvironmentSection.test.tsx), [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [setup-managed-environment.test.ts](../../web-ui/src/__tests__/stores/setup-managed-environment.test.ts)
 
 **Status:** Implemented
 
@@ -520,7 +520,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-ENTERPRISE-017](setup.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
 
-**Verification:** Automated route and mode-hardening tests
+**Verification:** Automated: [admin-configuration.test.ts](../../src/__tests__/routes/admin-configuration.test.ts), [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts), [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts)
 
 **Status:** Implemented
 
@@ -545,7 +545,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-ENTERPRISE-053](models-and-routing.md#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Automated Administration configuration route tests
+**Verification:** Automated: [admin-configuration.test.ts](../../src/__tests__/routes/admin-configuration.test.ts)
 
 **Status:** Implemented
 
@@ -575,7 +575,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-004](#req-setup-004-setup-is-idempotent), [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
 
-**Verification:** Automated request, persistence, conflict, redaction, executor-boundary, and first-run compatibility tests
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -724,7 +724,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
 
-**Verification:** Automated Administration-run and Initialization compatibility tests
+**Verification:** Automated: [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts)
 
 **Status:** Implemented
 
@@ -769,7 +769,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management)
 
-**Verification:** Automated Settings composition tests
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx)
 
 **Status:** Implemented
 
@@ -840,7 +840,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](subscription.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions)
 
-**Verification:** Automated tests ([enterprise-surface-suppression](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx), [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx), and [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx))
+**Verification:** Automated: [enterprise-surface-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx), [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx), [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx)
 
 **Status:** Implemented
 
@@ -871,7 +871,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](models-and-routing.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** Automated test ([Setup configure tests](../../src/__tests__/routes/setup.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [route-config resolver tests](../../src/__tests__/lib/enterprise-route-config.test.ts), [access-group parsing](../../src/__tests__/lib/access-group-resolution.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx))
+**Verification:** Automated: [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [access-group-resolution.test.ts](../../src/__tests__/lib/access-group-resolution.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx)
 
 **Status:** Implemented
 

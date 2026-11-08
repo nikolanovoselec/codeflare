@@ -660,7 +660,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Automated tests ([Timekeeper](../../src/__tests__/timekeeper/index.test.ts), [usage API](../../src/__tests__/routes/usage.test.ts), and [Usage page](../../web-ui/src/__tests__/components/UsagePage.test.tsx))
+**Verification:** Automated: [index.test.ts](../../src/__tests__/timekeeper/index.test.ts), [usage.test.ts](../../src/__tests__/routes/usage.test.ts), [UsagePage.test.tsx](../../web-ui/src/__tests__/components/UsagePage.test.tsx)
 
 **Status:** Implemented
 
@@ -688,7 +688,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data)
 
-**Verification:** Automated tests ([Header](../../web-ui/src/__tests__/components/Header.test.tsx) and [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx))
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 
 **Status:** Implemented
 
@@ -711,7 +711,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-018](#req-sub-018-usage-dashboard-page)
 
-**Verification:** Automated distinct-positioning component test
+**Verification:** Automated: [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx)
 
 **Status:** Implemented
 
@@ -823,7 +823,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
 
-**Verification:** Automated claim exclusion and transaction rollback tests
+**Verification:** Automated: [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts)
 
 **Status:** Implemented
 
@@ -877,7 +877,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
 
-**Verification:** Automated timezone, revision-isolation, scheduled-period, and test-period tests
+**Verification:** Automated: [usage-reports.test.ts](../../src/__tests__/lib/usage-reports.test.ts), [admin-usage-reports.test.ts](../../src/__tests__/routes/admin-usage-reports.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts)
 
 **Status:** Implemented
 
@@ -900,7 +900,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history)
 
-**Verification:** Automated accepted-period and invalid-calendar route tests
+**Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts)
 
 **Status:** Implemented
 
@@ -962,7 +962,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-SUB-016](#req-sub-016-customer-portal-and-plan-switching), [REQ-SUB-017](#req-sub-017-enterprise-tier-contact-flow)
 
-**Verification:** Automated test ([Header subscription-hide](../../web-ui/src/__tests__/components/Header.test.tsx) (AC1 billing surfaces hidden in enterprise, AC4 shown in SaaS), [subscribe route guard](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC2 `/app/subscribe` redirects to `/app/` in a non-SaaS/enterprise deployment), [API enterpriseMode flag](../../src/__tests__/routes/user-profile-enterprise.test.ts) (AC3 deploy-time signal, AC4 flag-off parity).)
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx), [user-profile-enterprise.test.ts](../../src/__tests__/routes/user-profile-enterprise.test.ts)
 
 **Status:** Implemented
 

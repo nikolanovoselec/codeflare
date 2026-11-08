@@ -59,7 +59,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-TERM-034](#req-term-034-terminal-mode-assignment-is-immutable)
 
-**Verification:** Automated frontend and terminal-route tests.
+**Verification:** Automated: [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts)
 
 **Status:** Implemented
 
@@ -87,7 +87,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated preference and session-route tests.
+**Verification:** Automated: [session.test.ts](../../src/__tests__/routes/session.test.ts), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx)
 
 **Status:** Implemented
 
@@ -148,7 +148,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test ([host wire-protocol tests](../../host/__tests__/session-wire-protocol.test.js), [client kill control-frame test](../../web-ui/src/__tests__/stores/terminal.test.ts), and [xterm VT-extension guard](../../web-ui/src/__tests__/hooks/useTerminal.test.ts).)
+**Verification:** Automated: [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts)
 
 **Status:** Implemented
 
@@ -205,7 +205,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-TERM-003](#req-term-003-automatic-websocket-reconnection-on-transient-failures)
 
-**Verification:** Automated test ([quiet teardown](../../web-ui/src/__tests__/stores/terminal.test.ts), [connect-timeout test](../../web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts), and [backoff test](../../web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts).)
+**Verification:** Automated: [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts), [terminal-connect-timeout.test.ts](../../web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts), [terminal-reconnect-backoff.test.ts](../../web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts)
 
 **Status:** Implemented
 
@@ -418,7 +418,7 @@ None.
 
 **Dependencies:** [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology), [REQ-TERM-012](#req-term-012-multiview-virtual-session-workspace)
 
-**Verification:** Automated TerminalArea and terminal focus tests.
+**Verification:** Automated: [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [TerminalTabs.test.tsx](../../web-ui/src/__tests__/components/TerminalTabs.test.tsx), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts)
 
 **Status:** Implemented
 
@@ -477,7 +477,7 @@ None.
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology)
 
-**Verification:** Automated host and frontend protocol tests.
+**Verification:** Automated: [terminal-control-message.test.ts](../../web-ui/src/__tests__/stores/terminal-control-message.test.ts), [update-terminal-label.test.ts](../../web-ui/src/__tests__/stores/update-terminal-label.test.ts), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx)
 
 **Status:** Implemented
 
@@ -536,7 +536,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** Automated hook tests
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal.test.tsx](../../web-ui/src/__tests__/components/Terminal.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -559,7 +559,7 @@ None.
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-043](#req-term-043-visible-terminal-readiness-gating)
 
-**Verification:** Automated host wire-protocol and frontend terminal-internals tests.
+**Verification:** Automated: [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [Terminal.test.tsx](../../web-ui/src/__tests__/components/Terminal.test.tsx), [xterm-internals.test.ts](../../web-ui/src/__tests__/lib/xterm-internals.test.ts)
 
 **Status:** Implemented
 
@@ -588,7 +588,7 @@ None.
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** Automated test ([Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [TerminalGrid tests](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Floating button tests](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx))
+**Verification:** Automated: [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [TerminalGrid.test.tsx](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [FloatingTerminalButtons.test.tsx](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx)
 
 **Status:** Implemented
 
@@ -656,7 +656,7 @@ None.
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** Automated test ([useScrollCorrection](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts) + [Layout transition test](../../web-ui/src/__tests__/components/Layout.test.tsx) + [Full-buffer anchoring test](../../web-ui/src/__tests__/stores/terminal.test.ts) + [Input re-anchor tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts) + [Wheel navigation tests](../../web-ui/src/__tests__/lib/terminal-wheel.test.ts))
+**Verification:** Automated: [useScrollCorrection.test.ts](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [terminal-wheel.test.ts](../../web-ui/src/__tests__/lib/terminal-wheel.test.ts)
 
 **Status:** Implemented
 
@@ -688,7 +688,7 @@ None.
 
 **Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-014](#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)
 
-**Verification:** Automated test ([Frame assembler tests](../../web-ui/src/__tests__/lib/terminal-frames.test.ts) + [Store delivery tests](../../web-ui/src/__tests__/stores/terminal.test.ts) + [Zero-delta anchor test](../../web-ui/src/__tests__/lib/xterm-internals.test.ts))
+**Verification:** Automated: [terminal-frames.test.ts](../../web-ui/src/__tests__/lib/terminal-frames.test.ts), [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts), [xterm-internals.test.ts](../../web-ui/src/__tests__/lib/xterm-internals.test.ts)
 
 **Status:** Implemented
 
@@ -853,7 +853,7 @@ None.
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated producer, ingress, and queue tests.
+**Verification:** Automated: [pi-native-notifications.test.ts](../../src/__tests__/lib/pi-native-notifications.test.ts), [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [request-router.test.js](../../host/__tests__/request-router.test.js), [agent-events.test.js](../../host/__tests__/agent-events.test.js)
 
 **Status:** Implemented
 
@@ -999,7 +999,7 @@ None.
 
 **Dependencies:** [REQ-TERM-032](#req-term-032-herdr-clipboard-compatibility-boundary)
 
-**Verification:** Automated trusted-gesture, exact-once paste, and latest-write ordering tests.
+**Verification:** Automated: [FloatingTerminalButtons.test.tsx](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts)
 
 **Status:** Implemented
 
@@ -1219,7 +1219,7 @@ None.
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer)
 
-**Verification:** Automated Herdr status, host queue, and Pi extension tests.
+**Verification:** Automated: [herdr-agent-status.test.js](../../host/__tests__/herdr-agent-status.test.js)
 
 **Status:** Implemented
 
@@ -1249,7 +1249,7 @@ None.
 
 **Dependencies:** [REQ-TERM-029](#req-term-029-herdr-status-gated-terminal-completion), [REQ-OPS-055](operations.md#req-ops-055-herdr-release-integration)
 
-**Verification:** Automated socket, timer, queue, and packaged-schema tests.
+**Verification:** Automated: [herdr-agent-status.test.js](../../host/__tests__/herdr-agent-status.test.js), [agent-events.test.js](../../host/__tests__/agent-events.test.js)
 
 **Status:** Implemented
 

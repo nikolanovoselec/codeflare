@@ -1032,7 +1032,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** Automated test ([runtime-observation authentication](../../src/__tests__/container-metrics.test.ts), [bounded poll re-arm](../../src/__tests__/container-metrics.test.ts), [transport evidence](../../src/__tests__/container-metrics.test.ts), [unreachable policy](../../src/__tests__/lib/session-unreachable-policy.test.ts)).
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-unreachable-policy.test.ts](../../src/__tests__/lib/session-unreachable-policy.test.ts)
 
 **Status:** Implemented
 
@@ -1256,7 +1256,7 @@ None.
 
 **Dependencies:** [REQ-OPS-010](operations.md#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-IDE-003](browser-ide.md#req-ide-003-ide-lifecycle-and-availability)
 
-**Verification:** Shutdown, readiness, restart-trigger, editor-launch, and state-capture tests
+**Verification:** Automated: [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [request-router.test.js](../../host/__tests__/request-router.test.js), [openvscode-proxy.test.js](../../host/__tests__/openvscode-proxy.test.js), [entrypoint-openvscode.test.js](../../host/__tests__/entrypoint-openvscode.test.js), [extension-persistence.test.ts](../../openvscode/agent-sidebar/test/extension-persistence.test.ts)
 
 **Status:** Implemented
 
