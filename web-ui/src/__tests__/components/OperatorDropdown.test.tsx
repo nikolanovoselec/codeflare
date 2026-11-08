@@ -117,9 +117,11 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByRole('tab', { name: 'Runs' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Back to installed operators' })).toBeTruthy();
+    expect(screen.getByText('Review one invocation. Automatic scheduling is a separate setting.')).toBeVisible();
     expect(server.prepared).toEqual({});
     await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(await screen.findByRole('heading', { name: 'Installed operators' })).toBeTruthy();
+    expect(screen.getByText('Run once when needed. Automatic runs are optional and configured separately.')).toBeVisible();
     expect(server.prepared).toEqual({});
     await fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
