@@ -585,9 +585,9 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-042](setup.md#req-enterprise-042-enterprise-pi-draft-connection-and-verification)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [Receipt and Save authority](../../src/__tests__/routes/reasoning-eligibility.test.ts), [capability evidence](../../src/__tests__/lib/independent-capability-authority.test.ts), [canonical target confirmation](../../src/__tests__/routes/target-capability-discovery.test.ts), [response parsing](../../web-ui/src/__tests__/api/reasoning-client.test.ts), [observed-path workspace](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx), [routing fields](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

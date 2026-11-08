@@ -800,20 +800,19 @@ A full code-server browser editor for an advanced running session. The editor op
 5. Every edit position lies within the captured invoking document. <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: out-of-bounds inline edits fail closed) -->
 6. The invoking document version still equals its captured version when the host emits edits. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/agent-sidebar/src/pi/inline-edit-validation.ts::validateInlineTextEdits --> <!-- @test: openvscode/agent-sidebar/test/inline-edit-validation.test.ts (REQ-IDE-026: stale document versions fail closed) -->
 
-**Notes:** Automated edit-validation coverage is complete; fresh integration verification is required before promotion to Implemented.
-
 **Constraints:**
 
 - Any validation failure prevents host edit emission; envelope validation belongs to [REQ-IDE-030](#req-ide-030-native-inline-chat-result-envelope).
 - Dispatch-error isolation belongs to [REQ-IDE-028](#req-ide-028-native-inline-chat-dispatch-error-isolation).
+- Rendered native transaction acceptance belongs to [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution), not edit validation.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation), [REQ-IDE-030](#req-ide-030-native-inline-chat-result-envelope)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate edit count, byte size, geometry, document bounds, and version freshness. Fresh deployment verifies rendered native transaction behavior under REQ-IDE-020.
+**Verification:** Automated: [Edit validation](../../openvscode/agent-sidebar/test/inline-edit-validation.test.ts), [RPC result validation](../../openvscode/agent-sidebar/test/backend-generation.test.ts), [invoking-document integration](../../openvscode/agent-sidebar/test/activation.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1197,9 +1196,9 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-026](#req-ide-026-native-inline-chat-edit-validation)
 
-**Verification:** Automated native panel and editor Inline Chat tests verify each coordinate basis; fresh integration verification confirms the selected-text edit transaction.
+**Verification:** Automated: [Panel coordinates](../../openvscode/agent-sidebar/test/vscode-native-chat.test.ts), [Inline coordinates](../../openvscode/agent-sidebar/test/activation.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
