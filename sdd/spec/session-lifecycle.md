@@ -38,9 +38,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Creation accepts a trimmed name and optional supported AI agent type.
-2. Each session receives a unique valid lowercase alphanumeric ID.
-3. One complete non-secret D1 row durably stores owner, name, configuration, timestamps, lifecycle fencing and runtime projection fields.
+1. Creation accepts a trimmed name and optional supported AI agent type. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody -->
+2. Each session receives a unique valid lowercase alphanumeric ID. <!-- @impl: src/lib/kv-keys.ts::generateSessionId -->
+3. One complete non-secret D1 row durably stores owner, name, configuration, timestamps, lifecycle fencing and runtime projection fields. <!-- @impl: src/lib/session-repository.ts::create -->
 4. A missing workspace value resolves to Terminal and the immutable terminal/workspace stamps cannot be patched by clients.
 5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity.
 6. Creation remains rate-limited and storage quota is checked in SaaS mode.
