@@ -65,6 +65,7 @@ Exercise the changed user path after provider discovery returns the expected `{ 
 - Verify Analytics empty-history and data-start states, actual period-history chart, Timekeeper-lag disclosure, user detail, deleted-user history and CSV download.
 - Verify Reports disabled state, schedule presentation, current-month test email, provider failure and delivery history.
 - Verify Activity empty and retained-run states. Confirm records contain no submitted secrets.
+- Leave Analytics, Reports and Activity idle through a stable polling interval: their data requests must not recur. Then exercise navigation, filters, explicit refresh and an applicable run reconnect; only those actions should request their data.
 - Verify five-second transition polling, 60-second stable polling, hidden cancellation, immediate visible refresh and no overlapping requests in browser network tools.
 - Verify desktop and mobile hierarchy against the approved Administration and Analytics design catalog.
 - Confirm one caught structured error and one uncaught route exception are discoverable in Integration logs.

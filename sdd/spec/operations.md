@@ -1547,7 +1547,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Stable visible session status polls every 60 seconds, transitions poll every five seconds, hidden pages stop polling, and recursive scheduling prevents overlap. <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
-2. Batch status always returns core status, reads usage only for `include=usage`, reads storage only for `include=storage`, and rejects unknown include values. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/api/client.ts::getBatchSessionStatus --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-OPS-057 AC2: closed optional batch-status reads) -->
+2. Frequent batch status returns only the core D1 session projection; usage and storage use a separate slower or event-driven ancillary read. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/api/client.ts::getBatchSessionStatus --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns the owner D1 projection without ancillary KV I/O or session writes) --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (returns cached storage and entitlement state outside the D1 hot path) -->
 3. Analytics, Reports, and Activity read only on navigation, filters, explicit refresh, or run reconnect; none background-polls. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @manual -->
 4. Production and Enterprise use `head_sampling_rate = 0.05`; Integration targets retain `1`, successful pings emit no custom logs, and structured failures remain discoverable. <!-- @impl: scripts/ci/set-head-sampling.mjs::setHeadSampling --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (observability deployment boundary (REQ-OPS-057)) -->
 5. Sampled D1 metrics record rows read, rows written, and SQL duration without user or secret material. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (logs bounded D1 metrics without user or secret material (REQ-OPS-057 AC5)) -->
@@ -1560,7 +1560,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SUB-025](subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](#req-ops-056-non-destructive-d1-deployment-boundary)
 
-**Verification:** Automated optional-read, logging-config, and representative-load tests; polling and exception visibility evidence remains required from Integration before goal completion
+**Verification:** Automated: [Core session projection](../../src/__tests__/routes/session-batch-status.test.ts), [ancillary state](../../src/__tests__/routes/session-ancillary-status.test.ts), [deployment observability](../../src/__tests__/ci/usage-d1-deploy.test.ts), [D1 metrics](../../src/__tests__/lib/admin-usage.test.ts), [accounting load](../../src/__tests__/timekeeper/accounting-load.test.ts); Manual: [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist)
 
 **Status:** Implemented
 
