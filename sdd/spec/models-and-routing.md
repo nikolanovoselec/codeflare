@@ -352,7 +352,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Constraints:**
 
-- The canary retains its validated Pi 0.84.4 streaming-envelope baseline, distinct from the installed runtime pinned in [Pi dependencies](../../preseed/agents/pi/package.json).
+- The canary retains its validated Pi 0.84.4 streaming-envelope baseline, independent of [installed Pi runtime pins](../../preseed/agents/pi/package.json).
 - Its system instruction is an ordinary task instruction, with unchanged function schema and replay requirements. <!-- @impl: src/lib/reasoning-discovery.ts::basePiMessages --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (preserves the validated Pi 0.84.4 canary request and replay fixtures) -->
 - Logical probes are counted separately from HTTP attempts.
 - Each attempt deadline includes response-body consumption and cancels stalled reads before any fallback or further probe.

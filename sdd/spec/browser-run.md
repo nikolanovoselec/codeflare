@@ -265,7 +265,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Constraints:**
 
-- Container placeholders become real credentials only at the Worker boundary; session configuration, never requests, binds the trusted account.
+- Container placeholders become credentials only Worker-side; trusted accounts bind to session configuration, never requests.
 - Tool registration and administrator-placeholder prerequisites remain unchanged; caller credentials never widen administrator scope.
 - Native permissions and Operator restrictions govern every credential lane.
 - Enterprise administrator `/browser-rendering/*` and guarded non-enterprise OAuth modes never coexist ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)).
@@ -308,15 +308,14 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Constraints:**
 
-- RPC budgets apply per call, not per workflow.
-- The native adapter resets its six-minute request timeout on progress; supported elicitation pauses it. It is not a fixed total workflow deadline. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: native request timeout resets on progress and cancellation reaches the real server) --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: configured six-minute call budget permits a response beyond thirty seconds) -->
+- RPC budgets are per-call; native progress resets six-minute requests, supported elicitation pauses them, and no fixed total workflow deadline applies. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: native request timeout resets on progress and cancellation reaches the real server) --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: configured six-minute call budget permits a response beyond thirty seconds) -->
 - Claude overrides remain browser-scoped, preserving unrelated servers and native startup/teardown safeguards.
 - Fresh Pi load creates timeout settings, never servers or credentials.
 - [REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration) owns filename migration/regeneration before timeout preparation.
 - Customized shapes, external routing and credentials remain unchanged.
 - Chrome emulation may multiply page waits, not the MCP budget.
 - Short stabilization/teardown timers remain unchanged.
-- Managed lazy connections use a ten-minute adapter idle timer without health pings. Active calls remain protected; remote `keep_alive=1200000` and website authentication are independent.
+- Managed lazy connections idle-disconnect after ten minutes without health pings; active calls remain protected, independently of remote `keep_alive=1200000` and website authentication.
 - Schema-supported 120000ms navigation guidance separates navigation, RPC, remote inactivity and owner authentication.
 - Reconnection permits neither uncertain-mutation replay nor inferred owner authentication.
 - Equal budgets cannot guarantee structured timeout reporting before transport expiry.

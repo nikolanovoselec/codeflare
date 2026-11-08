@@ -833,7 +833,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 - Personal usage data and account actions are governed separately by [REQ-SUB-022](subscription.md#req-sub-022-cross-mode-personal-usage-data) and [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
 - `GET /api/user` exposes both signals to `sessionStore`; `GET /api/auth/status` also exposes `saasMode` for `SubscribeGuard`.
 - Enterprise's public `/public/auth/providers` projection is empty, so SPA root navigation cannot select the marketing login from configured Access IdPs; default, onboarding and SaaS provider projections remain unchanged. <!-- @impl: src/index.ts::app --> <!-- @test: src/__tests__/index.test.ts (REQ-ENTERPRISE-008/REQ-AUTH-022: Enterprise public providers cannot select a SaaS login on SPA root navigation) -->
-- Other suppression is render-gating only: it removes no component code path for non-enterprise deployments and deletes no stored user state.
+- Other suppression is render-only, preserving non-enterprise component paths and stored user state.
 - Billing and session-mode visibility: this REQ adds the client `SubscribeGuard` saasMode redirect plus the subscription, mode-selector, quota-banner, and first-login-routing surfaces; the matching routes are made unreachable server-side in [REQ-ENTERPRISE-009](security.md#req-enterprise-009-enterprise-backend-route-hardening).
 
 **Priority:** P2
@@ -918,9 +918,9 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Constraints:**
 
-- The token is a secret: stored encrypted (kv-crypto, same shape as the Browser Rendering token, [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)), masked on prefill, no-clobber on blank, and never returned to the client; The URL is non-secret and stored plain.
+- The secret token uses encrypted kv-crypto storage matching [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), masked prefill and blank-update preservation; clients never receive it. The non-secret URL is stored plain.
 - URL and token resolve independently with wizard KV before deploy secrets, allowing mixed sources only when the corresponding saved value is absent ([REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC1).
-- Unreadable saved credentials deny inference under AC3.
+- Unreadable saved credentials deny inference (AC3).
 - The token never enters the container, as required by [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC4.
 - Grouping fields into `SetupSection`s preserves every field, store binding, and conditional gate; only visual grouping changes.
 - `SetupSection` is a reusable structure-only component with no copy.
