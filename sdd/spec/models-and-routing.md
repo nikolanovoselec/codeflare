@@ -375,7 +375,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 ### REQ-ENTERPRISE-035: Enterprise Pi Protocol Match Selection
 
-**Intent:** Normal target discovery automatically selects and verifies reusable protocol handling without per-model profile authoring or backend-family claims. The old profile-matching workflow remains available under Advanced.
+**Intent:** The old profile-matching workflow remains available under Advanced.
 
 **Applies To:** Admin
 
@@ -388,11 +388,6 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 5. Token-exhausted tool calls or replays remain inconclusive rather than proving incompatibility. <!-- @impl: src/lib/reasoning-discovery.ts::mappingDiagnostics --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-035: reports completion limits at %s without retrying or claiming incompatibility) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (reports incomplete tool generation at the selected ceiling rather than unsupported reasoning) -->
 6. The Advanced matcher prioritizes assignable matches and actionable incomplete-check notices without candidate diagnostic panels. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (shows an actionable incomplete result without candidate diagnostics or counters) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (keeps Gemma Off failures scoped to Gemma instead of coloring the matched GPT profile) -->
 7. Failed checks distinguish provider refusal, unobserved cache reuse and an unexpected buffered response envelope from connection failure, without exposing provider content. <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-035: Advanced discovery explains $code and leaves the route unassignable) --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification) --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::reasoningCheckSummary --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (reports concrete %s failure without exposing raw data) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (reports incompatible %s with a clear diagnostic and no invented draft) -->
-8. Normal Discover returns one automatically constructed/reused shared contract plus target-bound verification, not a matching-profile shopping list. Unlisted synthetic identifiers require no per-model definition. <!-- @impl: src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities --> <!-- @impl: src/routes/admin/ai-capability-discovery.ts::routes --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx -->
-9. Discovery reports tools/replay, reasoning, streaming and input caching independently for each tested semantic mapping, without cumulative grades. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: returns independent $reasoning capability rows without input caching while retaining seven Dynamic preferences) --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-072/078: preserves High incremental delivery beside XHigh and Max Invoke evidence in one native result) -->
-10. The finite request-form campaign stays within 40 submissions/2,048 output tokens/90 seconds each/10 minutes overall, independently of model/catalog additions. Dynamic stops at its first complete tools/replay contract; Native assembles successful audited forms before returning. Hash-bound wire choices match runtime. <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates --> <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityResponse --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts --> <!-- @test: src/__tests__/lib/target-capability-runtime.test.ts -->
-11. Evidence covers one correlated exercised Dynamic backend across retained mappings, never a union of conflicting known backends. Multi-distinct-backend routes with unidentified selection remain inconclusive even without cache evidence. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @impl: src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx -->
-
 **Constraints:**
 
 - Cache-fill refusal diagnostics retain measured write/read counters and the unattempted-read flag without granting cache permission or erasing completed tools/replay. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) -->
@@ -427,6 +422,60 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration)
+
+**Verification:** Automated tests in the anchored discovery and Administration API suites above.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-094: Automatic protocol discovery campaigns
+
+**Intent:** Normal target discovery automatically selects and verifies reusable protocol handling without per-model profile authoring or backend-family claims.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Normal Discover returns one automatically constructed/reused shared contract plus target-bound verification, not a matching-profile shopping list. Unlisted synthetic identifiers require no per-model definition. <!-- @impl: src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities --> <!-- @impl: src/routes/admin/ai-capability-discovery.ts::routes --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx -->
+2. Discovery reports tools/replay, reasoning, streaming and input caching independently for each tested semantic mapping, without cumulative grades. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: returns independent $reasoning capability rows without input caching while retaining seven Dynamic preferences) --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-072/078: preserves High incremental delivery beside XHigh and Max Invoke evidence in one native result) -->
+3. The finite request-form campaign stays within 40 submissions/2,048 output tokens/90 seconds each/10 minutes overall, independently of model/catalog additions. Dynamic stops at its first complete tools/replay contract; Native assembles successful audited forms before returning. Hash-bound wire choices match runtime. <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates --> <!-- @impl: src/lib/ai-capability-discovery/compatibility-wire.ts::compatibilityResponse --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts --> <!-- @test: src/__tests__/lib/target-capability-runtime.test.ts -->
+4. Evidence covers one correlated exercised Dynamic backend across retained mappings, never a union of conflicting known backends. Multi-distinct-backend routes with unidentified selection remain inconclusive even without cache evidence. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @impl: src/lib/ai-capability-discovery/index.ts::discoverTargetCapabilities --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx -->
+
+**Constraints:**
+
+- Cache-fill refusal diagnostics retain measured write/read counters and the unattempted-read flag without granting cache permission or erasing completed tools/replay. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/bedrock-capability-discovery.test.ts (REQ-ENTERPRISE-035: surfaces a sanitized cache-fill refusal after a positive write without submitting a read (%s)) -->
+
+- Buffered-envelope rejection retains HTTP status and transport rather than claiming a connection error. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: classifies a buffered Dynamic native envelope as unexpected response format without replay or qualification) -->
+
+- V2 capability summaries contain only `schemaVersion: 2` and `mappings`; rows contain exact `levels`, exercised `transport`, `tools`, `replay`, `reasoning`, `streaming` and `cache`. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary -->
+- Worker/browser share strict parsing; outer document schemas remain v1. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (round-trips per-mapping evidence and authorizes verified tools without input cache evidence) --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (rejects malformed or extra evidence without restoring a grade (%j)) -->
+- V2 authority requires complete tools/replay and exact profile semantic-group/alias coverage with the correct mapped operation; duplicate, missing or extra rows/levels fail closed. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (binds evidence levels and transport to the actual immutable profile rather than trusting capability booleans) -->
+- Cache is optional. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::capabilityEvidenceMatches --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-035/043: lets an administrator activate verified tools without cache reuse and save an Off preference through real receipt authority) -->
+- Strict legacy v1 decoding preserves original qualification and current adapter/canary rules; formerly ineligible evidence cannot gain authority from v2 policy or load/rebind. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::legacyCapabilityQualifies --> <!-- @test: src/__tests__/lib/independent-capability-authority.test.ts (retains legacy failed evidence for reading without upgrading it to current usable authority) -->
+- Optional cache misses/refusals do not erase valid tool/replay evidence or trigger buffered cache chasing. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility -->
+- Invalid fills never launch a paired read; fatal authentication, quota, server, framing, transport and timeout boundaries still withhold a fresh receipt. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/target-capability-discovery.test.ts (REQ-ENTERPRISE-035: keeps a working streaming Dynamic path assignable without cache reuse or buffered cache chasing) -->
+- Streaming requires cold public deltas over time before EOF for that mapping/operation; Invoke or synthesized buffered SSE and Gateway HIT cannot establish it.
+- Buffered routes remain usable without an incremental claim.
+- No arbitrary native protocol, URL, header, model substitution or transport cross-product is introduced.
+- Failed stages retain sanitized diagnostics; stale draft/inventory evidence cannot authorize Save.
+- The following matching/selection constraints apply to the retained Advanced workflow. It remains deterministic, sanitized, non-assigning and non-activating under [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence); normal Discover instead adopts a qualified draft automatically and still requires reviewed Save.
+- Results do not identify the backend model family or prove increasing reasoning effort; compatibility and Pi tool/replay observations are not reasoning-strength measurements.
+- The finite built-in protocol bank bounds route-only probes.
+- Saved custom revisions reuse those observations without additional paid probes.
+- Unknown request properties are not inferred.
+- Selected-profile verification remains a separate explicit check.
+- Candidate-specific request rejection stops that candidate without retry.
+- Complete existing-profile matches precede partial candidate drafts.
+- Rate limiting never triggers automatic retries or custom-draft creation.
+- Completed matches require explicit selection followed by live verification or administrator confirmation before activation.
+- Other fatal failures suppress recommendations and drafts.
+- Retained matches show a notice that remaining checks stopped on rate limiting. <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-035: offers completed matches with a rate-limit notice without retrying) -->
+- Partial drafts require one unambiguous maximal mapping, never a union of contradictory protocols.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration)
 
 **Verification:** Automated tests in the anchored discovery and Administration API suites above.
 
@@ -489,7 +538,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 - Compatibility does not prove increasing reasoning effort.
 - Off-disabled evidence remains separate from tool success. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckOverview --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (does not equate a Pi tool pass with verified Off or reasoning configuration) -->
 - Candidate diagnostics remain scoped to their candidate, never another matched profile. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckDetails --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (keeps Gemma Off failures scoped to Gemma instead of coloring the matched GPT profile) -->
-- This retained selected-profile check introduces no runtime/Gateway/credential change. New compatibility-wire behavior and its separate budget belong to the dedicated component in [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection).
+- This retained selected-profile check introduces no runtime/Gateway/credential change. New compatibility-wire behavior and its separate budget belong to the dedicated component in [REQ-ENTERPRISE-094](#req-enterprise-094-automatic-protocol-discovery-campaigns).
 
 **Priority:** P1
 

@@ -192,14 +192,34 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 6. Failed or ambiguous destruction retains retryable authoritative state and does not report stopped or deleted.
 7. The frontend retains mounted workspace state through uncertainty and disposes it only after newer authoritative stopping/stopped or successful deletion evidence.
 
-8. Dashboard and session-dropdown actions offer non-deleting Retry Stop for persisted `stopping` and Stop for `unreachable`. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s dashboard session) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s session) -->
-9. An active local Stop attempt suppresses duplicate submissions; failure or polling cancellation releases the attempt so a retained session can retry. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: suppresses duplicate local Stop submissions until the first attempt finishes) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: a failed Stop leaves retry available and retry completes the same session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006: a failed Delete during Stop polling leaves Retry Stop usable) -->
-
 **Constraints:** Existing final agent-event drain, final sync, teardown ceilings and storage durability remain unchanged.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
+
+**Verification:** Automated recovery-menu and local Stop-attempt regressions; broader lifecycle verification remains planned.
+
+**Status:** Planned
+
+---
+
+### REQ-SESSION-041: Stop recovery controls and local attempt fencing
+
+**Intent:** Users can retry an uncertain Stop without deleting their session or submitting duplicate local attempts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Dashboard and session-dropdown actions offer non-deleting Retry Stop for persisted `stopping` and Stop for `unreachable`. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s dashboard session) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s session) -->
+2. An active local Stop attempt suppresses duplicate submissions; failure or polling cancellation releases the attempt so a retained session can retry. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: suppresses duplicate local Stop submissions until the first attempt finishes) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: a failed Stop leaves retry available and retry completes the same session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006: a failed Delete during Stop polling leaves Retry Stop usable) -->
+
+**Constraints:** Existing final agent-event drain, final sync, teardown ceilings and storage durability remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-start-stop-restart-and-delete-sessions), [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
 **Verification:** Automated recovery-menu and local Stop-attempt regressions; broader lifecycle verification remains planned.
 
@@ -865,9 +885,35 @@ None.
 
 4. Once the session DO accepts Stop, its complete claim, pending Protected Action cancellation, existing bounded graceful teardown and D1 exit confirmation continue independently of the calling HTTP request. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (protects the entire Stop when the caller disconnects during %s I/O) -->
 5. Before DO acceptance the Worker does not claim `stopping`. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: an RPC rejected before DO acceptance cannot leave a Worker-owned stopping claim) -->
-6. Stop retry after coordinator reconstruction, operational identity cleanup or transient D1 failure reuses the same generation's current termination intent. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (finishes the claimed Stop after caller loss and erased operational identity, preserving the session for restart) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains stopping when D1 confirmation fails and completes after recovery with a new coordinator) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains the same intent while retrying a reconstructed stopping generation) -->
-7. Retry after confirmed completion succeeds idempotently without another teardown. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (treats a retry after a lost successful response as already completed) -->
-8. Stop retry rejects a mismatched owner/session identity, replacement lifecycle generation or differently pinned termination intent without terminating another workload. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a termination intent pinned to a different generation without changing ownership) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a stale retry without terminating a replacement generation) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects an owner/session address mismatch without claiming or terminating either session) -->
+**Constraints:**
+
+- No automatic existing-record repair, migration or recovery scheduler.
+- Explicit owner Stop retry uses current D1 authority.
+- Stale duration is diagnostic, not authority to clear a termination intent.
+- Browser-independent completion does not promise automatic recovery across DO crashes or persistent D1 outages.
+- Existing final notification drain, authenticated final sync and teardown deadlines remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
+
+**Verification:** Automated D1/route, modeled DO lifetime and reconstruction/retry behavioral tests. Hosted disconnection acceptance remains separate from these platform-boundary models.
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-042: Same-generation Stop retry authority
+
+**Intent:** Explicit Stop retries recover the original termination intent without repeating completed teardown or affecting a replacement workload.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. Stop retry after coordinator reconstruction, operational identity cleanup or transient D1 failure reuses the same generation's current termination intent. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (finishes the claimed Stop after caller loss and erased operational identity, preserving the session for restart) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains stopping when D1 confirmation fails and completes after recovery with a new coordinator) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains the same intent while retrying a reconstructed stopping generation) -->
+2. Retry after confirmed completion succeeds idempotently without another teardown. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (treats a retry after a lost successful response as already completed) -->
+3. Stop retry rejects a mismatched owner/session identity, replacement lifecycle generation or differently pinned termination intent without terminating another workload. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a termination intent pinned to a different generation without changing ownership) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a stale retry without terminating a replacement generation) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects an owner/session address mismatch without claiming or terminating either session) -->
 
 
 **Constraints:**
@@ -880,7 +926,7 @@ None.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
+**Dependencies:** [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
 
 **Verification:** Automated D1/route, modeled DO lifetime and reconstruction/retry behavioral tests. Hosted disconnection acceptance remains separate from these platform-boundary models.
 
