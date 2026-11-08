@@ -2106,7 +2106,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
-**Verification:** Manual check
+**Verification:** Manual: [Interactive triage and closure](../../preseed/agents/claude/skills/sdd-init/SKILL.md#resume-mode--picking-up-where-you-left-off)
 
 **Status:** Implemented
 
