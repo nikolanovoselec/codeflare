@@ -160,6 +160,8 @@ Native stop reasons map explicitly: `tool_use`→`tool_calls`, `end_turn`/`stop_
 
 Provider tool blocks become executable output/stored replay only after `tool_use`; `max_tokens` retains safe text/usage but never publishes a partial call. Completed transactions stay exact/fail-closed. If Pi retained an unexecuted proposal, a later nonempty text-only user turn can abandon it only with zero tool results, retaining safe assistant prose. Partial results, orphan/duplicate ambiguity, assistant boundaries and non-text user content stay protected. Structural recovery also permits summarization to omit old unexecuted proposals without weakening signed replay, changing profile/adapter identity or the one-operation/no-fallback rule. Coverage is fixture-based, not a new live-provider claim. See [REQ-ENTERPRISE-085](../../sdd/spec/models-and-routing.md#req-enterprise-085-provider-native-bedrock-incomplete-tool-recovery).
 
+Request classification preserves the following order: `classifyBedrockToolTurn` in `src/lib/bedrock-anthropic-native-adapter.ts` classifies original OpenAI messages before tool results become native user blocks. Request translation uses that classification to validate replay. Only after validation does transport selection consume the saved transport and mapped effort; it does not directly consume replay classification. Provider-signed state remains outside the translated client protocol.
+
 <a id="bedrock-prompt-caching"></a>
 <a id="provider-cache-versus-gateway-cache"></a>
 <a id="checkpoint-translation-and-ownership"></a>
