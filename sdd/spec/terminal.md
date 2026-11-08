@@ -1367,7 +1367,7 @@ None.
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test ([Mobile behavior](../../web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts), [terminal lifecycle](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [page controls](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx)); deployed phone and tablet interaction verified manually
+**Verification:** Automated: [Mobile behavior](../../web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts), [terminal lifecycle](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [page controls](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx); Manual: [Phone and tablet interaction](../../documentation/lanes/terminal-and-ide.md#mobile-platform-checks)
 
 **Status:** Implemented
 
@@ -1423,7 +1423,7 @@ None.
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
 
-**Verification:** Automated test ([useTerminal](../../web-ui/src/__tests__/hooks/useTerminal.test.ts))
+**Verification:** Automated: [Terminal input lifecycle](../../web-ui/src/__tests__/hooks/useTerminal.test.ts); Manual: [Android compositor](../../documentation/lanes/terminal-and-ide.md#mobile-platform-checks)
 
 **Status:** Implemented
 
@@ -1620,7 +1620,7 @@ None.
 
 **Dependencies:** [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state), [REQ-MOB-020](#req-mob-020-terminal-touch-activation)
 
-**Verification:** Automated trace tests for AC2 and AC4; manual deployed overlay checks for AC1 and AC3.
+**Verification:** Automated: [Content-free trace bounds](../../web-ui/src/__tests__/lib/touch-event-debug.test.ts); Manual: [Opt-in overlay](../../documentation/lanes/terminal-and-ide.md#mobile-platform-checks)
 
 **Status:** Implemented
 
@@ -1768,7 +1768,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [Canvas retirement](../../web-ui/src/__tests__/components/SplashCursor.test.tsx); Manual: [Rendered context loss](../../documentation/lanes/terminal-and-ide.md#mobile-platform-checks)
 
 **Status:** Implemented
 

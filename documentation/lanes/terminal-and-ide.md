@@ -296,6 +296,27 @@ Committed requirement Verification fields in [Terminal](../../sdd/spec/terminal.
 
 Phone/tablet command input/output/scrollback; Samsung address-bar top/bottom and back-dismiss; visibility return (Chrome reset/Samsung bounce); Fold screen/orientation changes; sibling MultiView keyboard handoff; first microphone/clipboard permission and IME commit; Herdr single activation/jitter/cancel/scroll/no-keyboard-reopen; open vs closed Pi viewport focus; OSC52 trusted recovery; modified/touch link no terminal side effects; content-free diagnostics; decorative retirement; renderer no zero-height fit.
 
+### Mobile platform checks
+
+These are unexecuted manual checks, not deployment evidence. Use an authorized disposable session and record the release, agent/browser/device versions, viewport and theme. Cover supported phone/tablet configurations, including Android Chrome, Samsung Internet and installed iOS PWA where applicable; an unavailable configuration remains unverified. Use only separately approved command/inference and permission budgets, never personal clipboard content or production changes.
+
+| Check | Action | Observable pass/fail |
+|---|---|---|
+| Terminal interaction | On desktop, phone and tablet, open the terminal and execute the harmless command `printf 'mobile-ok\n'` through the selected agent's approved execution path. Enter enough harmless output to scroll backward and return to the bottom. | Controls and terminal content fit the viewport; command input, exact output and scrollback remain usable, with only necessary touch differences from desktop. Clipping, lost input/output or inaccessible scrollback fails. |
+| Android IME | Open input, compose a harmless test word using the Android keyboard, then cancel it without submission. Repeat while the viewport changes between keyboard-open and closed. | The native IME caret never escapes the terminal bounds; the compositor remains isolated. Record an out-of-bounds caret as failure, not as the terminal's intended cursor. |
+| Input diagnostics | Open the terminal URL with `debug=1`. Tap, move and cancel a touch, then open/close the keyboard. Inspect the overlay; remove the opt-in afterward. | The overlay appears only after opt-in and shows ordering, final cancellation, touch origin/target, focus, move count and viewport/keyboard geometry. It retains at most twelve records and no terminal text. Missing fields or content leakage fails. |
+| Decorative context loss | On a fresh page with the decorative canvas active, use browser developer tools to run the snippet below. Repeat on another supported device class when available. | The decorative canvas retires and the app root's dark CSS surface remains visible; terminal interaction still works. A restored animation, blank application surface or lost terminal fails. No available loss extension means unverified, not passed. |
+
+```javascript
+const canvas = document.querySelector('.splash-cursor-canvas');
+const gl = canvas?.getContext('webgl2') ?? canvas?.getContext('webgl');
+const loss = gl?.getExtension('WEBGL_lose_context');
+if (!loss) throw new Error('Decorative context-loss check unavailable');
+loss.loseContext();
+```
+
+Retain only nonsecret observations and stop on failed permission or ownership checks. These cases cover the manual portions of [REQ-MOB-001](../../sdd/spec/terminal.md#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-016](../../sdd/spec/terminal.md#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls), [REQ-MOB-023](../../sdd/spec/terminal.md#req-mob-023-opt-in-mobile-input-diagnostics) and [REQ-MOB-018](../../sdd/spec/terminal.md#req-mob-018-decorative-webgl-canvas-retirement); their automated cases remain separate.
+
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 
