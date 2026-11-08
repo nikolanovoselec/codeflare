@@ -317,6 +317,60 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
+  it('REQ-ENTERPRISE-094: a failed future-model campaign bounds submitted output tokens and cannot authorize a target', async () => {
+    const submissions: Record<string, unknown>[] = [];
+    const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/future-budget-model',
+      maxCompletionTokens: 1_000_000, fetcher: async (_url, init) => {
+        submissions.push(JSON.parse(String(init?.body)));
+        return Response.json({ error: { code: 'invalid_parameter' } }, { status: 400 });
+      } });
+    expect(submissions.length).toBeGreaterThan(0);
+    // Intentional outbound cost contract, alongside refusal of activation proof.
+    expect(result.accounting.httpAttempts).toBeLessThanOrEqual(40);
+    for (const body of submissions) expect(body.max_tokens ?? body.max_completion_tokens).toBe(2048);
+    expect(result.assignable).toBe(false);
+    expect(result.profile).toBeUndefined();
+  });
+
+  it('REQ-ENTERPRISE-094: a submission exceeding ninety seconds aborts without replacement or activation proof', async () => {
+    vi.useFakeTimers();
+    try {
+      const observed: { signal?: AbortSignal; beganAt?: number } = {};
+      let finished = false;
+      const pending = discoverTargetCapabilities({ ...coordinates, route: 'dynamic/slow-future-model',
+        maxCompletionTokens: 2048, timeoutMs: 900_000, fetcher: async (_url, init) => {
+          observed.signal = init?.signal ?? undefined;
+          observed.beganAt = Date.now();
+          return new Promise<Response>(() => {}); // Recipient deliberately ignores cancellation.
+        } }).then(result => { finished = true; return result; });
+      await vi.waitFor(() => expect(observed.signal).toBeDefined());
+      await vi.advanceTimersByTimeAsync(observed.beganAt! + 89_999 - Date.now());
+      expect(finished).toBe(false);
+      expect(observed.signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await pending;
+      expect(observed.signal?.aborted).toBe(true);
+      expect(result.accounting.httpAttempts).toBe(1);
+      expect(result.assignable).toBe(false);
+      expect(result.profile).toBeUndefined();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('REQ-ENTERPRISE-094: the ten-minute campaign deadline forbids another form after elapsed authority', async () => {
+    vi.useFakeTimers();
+    try {
+      const began = Date.now();
+      const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/expired-future-model',
+        maxCompletionTokens: 2048, fetcher: async () => {
+          vi.setSystemTime(began + 600_000);
+          return Response.json({ error: { code: 'invalid_parameter' } }, { status: 400 });
+        } });
+      expect(result.accounting.httpAttempts).toBe(1);
+      expect(result.assignable).toBe(false);
+      expect(result.profile).toBeUndefined();
+    } finally { vi.useRealTimers(); }
+  });
+
   it('bounds the full finite search independently of added model names and binds wire choices to canonical identity', () => {
     const candidates = capabilityCandidates(false);
     const maximum = candidates.reduce((calls, profile) => calls + (profile.reasoningMode === 'provider-default' ? 4 : 5), 0);
