@@ -1893,6 +1893,170 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
   });
 
   describe('destroy', () => {
+    // Supplied DO storage: public reads observe actual SUT writes/deletes.
+    async function destroyFixture(withIdentity = true) {
+      const stored = new Map<string, unknown>(withIdentity ? [
+        ['bucketName', 'test-bucket'], ['_sessionId', 'sess123'],
+        ['lifecycleGeneration', 7], ['observationSequence', 6],
+        ['containerAuthToken', 'destroy-wire-token'],
+      ] : []);
+      mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, structuredClone(value)); });
+      mockStorage.delete.mockImplementation(async (key: string | string[]) => {
+        for (const item of typeof key === 'string' ? [key] : key) stored.delete(item);
+      });
+      let ready = Promise.resolve();
+      mockCtx.blockConcurrencyWhile.mockImplementation((work: () => Promise<void>) => {
+        ready = work();
+        return ready;
+      });
+      const wire: Array<{ path: string; method: string; authorization: string | null }> = [];
+      mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        wire.push({ path, method: request.method, authorization: request.headers.get('Authorization') });
+        return Response.json(path === '/internal/agent-events/drain'
+          ? { hostNow: Date.now(), events: [] } : { synced: true });
+      });
+      mockContainerRuntime.running = true;
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await ready;
+      let started = false;
+      mockContainerRuntime.start.mockImplementation(() => { started = true; });
+      vi.spyOn(instance, 'stop').mockImplementation(async () => { mockContainerRuntime.running = false; });
+      return { instance, wire, started: () => started };
+    }
+
+    it('REQ-SESSION-009 AC1: public destroy removes the forwarding credential and subsequent fetch stays unavailable without starting', async () => {
+      const f = await destroyFixture();
+      const socket = () => new Request('http://container/terminal', { headers: { Upgrade: 'websocket' } });
+      expect((await f.instance.fetch(socket())).status).toBe(200);
+      await f.instance.destroy();
+      expect((await f.instance.fetch(socket())).status).toBe(503);
+      const response = await f.instance.fetch(new Request('http://container/workspace'));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: 'Container not running' });
+      const bucket = await f.instance.fetch(new Request('http://container/_internal/getBucketName'));
+      expect(await bucket.json()).toEqual({ bucketName: null });
+      expect(await mockCtx.storage.get('containerAuthToken')).toBeUndefined();
+      expect(await mockCtx.storage.get('_sessionId')).toBeUndefined();
+      expect(f.started()).toBe(false);
+    });
+
+    it('REQ-SESSION-009 AC4: a delivered metrics callback after public destroy leaves schedules and service effects unchanged', async () => {
+      const f = await destroyFixture();
+      type Task = { taskId: string; callback: string; payload: unknown; type: 'delayed'; time: number; delayInSeconds: number };
+      let tasks: Task[] = [{ taskId: 'queued', callback: 'collectMetrics', payload: {}, type: 'delayed', time: 0, delayInSeconds: 60 }];
+      vi.spyOn(f.instance, 'listSchedules').mockImplementation(async method => tasks.filter(task => !method || task.callback === method) as never);
+      vi.spyOn(f.instance, 'deleteSchedules').mockImplementation(method => { tasks = tasks.filter(task => task.callback !== method); });
+      vi.spyOn(f.instance, 'schedule').mockImplementation(async (delay, callback, payload) => {
+        const task: Task = { taskId: 'rearmed', callback: String(callback), payload, type: 'delayed', time: 0, delayInSeconds: Number(delay) };
+        tasks.push(task);
+        return task as never;
+      });
+      await f.instance.destroy();
+      expect(await f.instance.listSchedules('collectMetrics')).toEqual([]);
+      const effects: string[] = [];
+      mockEnv.USAGE_DB = { prepare: () => { effects.push('d1'); throw Error('Destroyed session reached D1'); } };
+      mockContainerRuntime.start.mockImplementation(() => { effects.push('start'); });
+      mockContainerRuntime.signal.mockImplementation(() => { effects.push('signal'); });
+      mockContainerRuntime.destroy.mockImplementation(() => { effects.push('force'); });
+      vi.spyOn(f.instance, 'stop').mockImplementation(async () => { effects.push('stop'); });
+      const wireBefore = [...f.wire];
+      await f.instance.collectMetrics({ ownerKey: 'test-bucket', sessionId: 'sess123', generation: 7 });
+      expect(await f.instance.listSchedules('collectMetrics')).toEqual([]);
+      expect(f.wire).toEqual(wireBefore);
+      expect(effects).toEqual([]);
+      expect(await mockCtx.storage.get('observationSequence')).toBe(6);
+    });
+
+    it('REQ-SESSION-011 AC1 / REQ-SESSION-019 AC1: authenticated final-sync completion precedes SIGTERM even with a transient false running flag', async () => {
+      const f = await destroyFixture();
+      mockContainerRuntime.running = false;
+      let reached!: () => void;
+      const requested = new Promise<void>(resolve => { reached = resolve; });
+      let complete!: (response: Response) => void;
+      const response = new Promise<Response>(resolve => { complete = resolve; });
+      const order: string[] = [];
+      mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+        const request = new Request(input, init);
+        if (new URL(request.url).pathname === '/internal/final-sync') {
+          expect(request.method).toBe('POST');
+          expect(request.headers.get('Authorization')).toBe('Bearer destroy-wire-token');
+          order.push('authenticated-final-sync');
+          reached();
+          return response;
+        }
+        return Response.json({ hostNow: Date.now(), events: [] });
+      });
+      vi.spyOn(f.instance, 'stop').mockImplementation(async signal => {
+        order.push(String(signal));
+        mockContainerRuntime.running = false;
+      });
+      const completion = f.instance.destroy();
+      await requested;
+      expect(order).toEqual(['authenticated-final-sync']);
+      mockContainerRuntime.running = true;
+      order.push('sync-completed');
+      complete(Response.json({ synced: true }));
+      await completion;
+      expect(order).toEqual(['authenticated-final-sync', 'sync-completed', 'SIGTERM']);
+      expect(await mockCtx.storage.get('finalSyncAudit')).toEqual(expect.objectContaining({ outcome: 'completed', httpStatus: 200 }));
+    });
+
+    it('REQ-SESSION-019 AC1: missing token emits no outgoing request and leaves a readable bounded teardown audit', async () => {
+      const f = await destroyFixture(false);
+      const entered = Date.now();
+      await expect(f.instance.destroy()).resolves.toBeUndefined();
+      expect(f.wire).toEqual([]);
+      const audit = await mockCtx.storage.get('finalSyncAudit') as { at: number; outcome: string; reason: string; running: boolean };
+      expect(audit).toEqual({ outcome: 'errored', reason: 'missing-auth-token', at: expect.any(Number), running: true });
+      expect(audit.at).toBeGreaterThanOrEqual(entered);
+      expect(audit.at).toBeLessThanOrEqual(entered + 135_000);
+      expect(mockContainerRuntime.running).toBe(false);
+      expect(f.started()).toBe(false);
+    });
+
+    it.each(['storage-fence', 'storage-read', 'storage-delete', 'final-sync', 'response-body', 'audit-write', 'stop', 'provider'] as const)(
+      'REQ-SESSION-011 AC5: an awaited %s stall cannot extend the shared 135-second teardown deadline', async stage => {
+        vi.useFakeTimers();
+        try {
+          const f = await destroyFixture(stage !== 'storage-read');
+          let reached!: () => void;
+          const stalled = new Promise<void>(resolve => { reached = resolve; });
+          const hang = <T,>(): Promise<T> => { reached(); return new Promise<T>(() => {}); };
+          const put = mockStorage.put.getMockImplementation()!;
+          const get = mockStorage.get.getMockImplementation()!;
+          const fetch = mockTcpPortFetch.getMockImplementation()!;
+          if (stage === 'storage-fence' || stage === 'audit-write') {
+            mockStorage.put.mockImplementation(async (key: string, value: unknown) =>
+              key === (stage === 'storage-fence' ? 'shutdownRequested' : 'finalSyncAudit') ? hang<void>() : put(key, value));
+          }
+          if (stage === 'storage-read') mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? hang<unknown>() : get(key));
+          if (stage === 'storage-delete') mockStorage.delete.mockImplementation(() => hang<void>());
+          if (stage === 'final-sync' || stage === 'response-body') {
+            mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+              if (new URL(new Request(input, init).url).pathname !== '/internal/final-sync') return fetch(input, init);
+              if (stage === 'final-sync') return hang<Response>();
+              reached();
+              return new Response(new ReadableStream<Uint8Array>({ start() {} }));
+            });
+          }
+          if (stage === 'stop') vi.spyOn(f.instance, 'stop').mockImplementation(() => hang<void>());
+          if (stage === 'provider') vi.spyOn(f.instance, 'superDestroy').mockImplementation(() => hang<void>());
+          let result = 'pending';
+          const completion = f.instance.destroy().then(() => { result = 'resolved'; }, error => { result = (error as Error).message; });
+          await stalled;
+          await vi.advanceTimersByTimeAsync(134_999);
+          expect(result).toBe('pending');
+          await vi.advanceTimersByTimeAsync(1);
+          await completion;
+          expect(result).toBe('teardown deadline exceeded');
+          expect(f.started()).toBe(false);
+        } finally { vi.useRealTimers(); }
+      },
+    );
+
     // Most existing tests in this block assert storage cleanup, not the new
     // graceful-shutdown polling. Default to !running so the override skips the
     // 25 s SIGTERM-and-poll branch; tests that need the graceful path opt in.
