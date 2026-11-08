@@ -60,7 +60,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions) (file persistence across sessions), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) (15-min bisync), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) (initial sync restores files on container start)
+**Dependencies:** [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
 **Verification:** Automated test ([Behavioral test](../../host/__tests__/entrypoint-vault-boot.test.js))
 
@@ -254,7 +254,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-009](session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) (container destroy wipes session state), [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) (graceful shutdown with final sync), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) (graceful shutdown performs final sync)
+**Dependencies:** [REQ-SESSION-009](session-lifecycle.md#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)
 
 **Verification:** Automated test
 
@@ -284,7 +284,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (preseed configs from single source), [REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start) (preseed deployed to container on start), [REQ-AGENT-014](agents.md#req-agent-014-manifest-driven-preseed-pipeline) (manifest-driven preseed pipeline)
+**Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start), [REQ-AGENT-014](agents.md#req-agent-014-manifest-driven-preseed-pipeline)
 
 **Verification:** Automated test ([entrypoint-vault-boot](../../host/__tests__/entrypoint-vault-boot.test.js))
 
@@ -313,7 +313,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault directory survives sessions), [REQ-MEM-006](memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode) (Pro mode gating)
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions), [REQ-MEM-006](memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
 **Verification:** Automated test
 
@@ -340,7 +340,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P1
 
-**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor)
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
 **Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts))
 
@@ -860,7 +860,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) (vault key generation and lifecycle), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) (bucket-stable URL and session routing), [REQ-VAULT-029](#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety) (canonical worker cutover)
+**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-029](#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety)
 
 **Verification:** Automated test ([Bootstrap-hop test](../../src/__tests__/routes/vault.test.ts), [Service-worker retention test](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [Open-flow test](../../web-ui/src/__tests__/components/Layout.test.tsx))
 
@@ -895,7 +895,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion) (edit detection loop), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault + graphify-out ride the R2 sync)
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
 **Verification:** Automated test ([Content-hash and promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts), [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [rclone persistence test](../../host/__tests__/entrypoint-rclone-filters.test.js))
 

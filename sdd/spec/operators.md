@@ -1431,7 +1431,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics).
+**Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics)
 
 **Verification:** Projection/production and authentic generated SDK emission tests; historical RED established missing diagnostics. Hosted GREEN, official artifact/release/installation identity, live effects, validated collection, SDK release and cleanup remain separate gates. <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic SDK emits seal observations across refused, ordinary, overflow and retry journeys) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic failed seal emits closed undiscovered preflight without effects or assessment) -->
 

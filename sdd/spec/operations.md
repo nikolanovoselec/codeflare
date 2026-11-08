@@ -1524,11 +1524,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 6. Existing KV, R2, Durable Object state, users, sessions, and containers are never reset or migrated by D1 provisioning. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 7. After deployment, the established credential remains available to existing Worker runtime operations. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-056 AC7: preserves the established credential through deployment and Worker secret upload) -->
 
+**Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
+
 **Constraints:** GitHub Actions cannot create or widen its own secret. Missing D1 permission is an external blocker.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+**Dependencies:** [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks)
 
 **Verification:** Fake-Wrangler behavioral tests for preflight, resolution, creation, migration, and fail-closed ordering
 

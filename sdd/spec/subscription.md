@@ -761,11 +761,13 @@ Tiers, billing, usage tracking, and quotas.
 6. Deleted users retain named aggregate history for 60 months; explicit same-email provisioning reactivates ownership without erasing prior history. <!-- @impl: src/lib/admin-usage.ts::reactivateUsageUser --> <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
 7. Responses disclose `dataSince` and result-owned `historyUpdatedAt` without claiming global outbox freshness. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 
+**Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
+
 **Constraints:** No cache, second aggregate table, session-state catalog, or timezone parameter is added.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management)
 
 **Verification:** Automated authorization, deletion-race, reactivation, retention, cursor, aggregate, and JSON/CSV-equivalence tests; UI manual validation on Integration
 
@@ -788,11 +790,13 @@ Tiers, billing, usage tracking, and quotas.
 5. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; `waitUntil()` is only the test-send fast path. <!-- @impl: src/index.ts::scheduled --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
 6. Delivery history reports pending, sending, accepted, or failed provider-acceptance state without inventing provider delivery state or IDs. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) --> <!-- @manual -->
 
+**Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
+
 **Constraints:** Resend credentials and sender identity remain deployment-managed. Reports do not background-poll and never promise exactly-once delivery.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SETUP-018](setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+**Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SETUP-018](setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution)
 
 **Verification:** Automated timezone, claim, retry, email, CSV, and delivery-history tests; UI manual validation on Integration
 
@@ -811,11 +815,13 @@ Tiers, billing, usage tracking, and quotas.
 1. Retention runs at most once per UTC day, and only the winning execution prunes eligible history. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-028 AC1: daily retention claim) -->
 2. If any prune fails, the daily claim and all pruning roll back so a later execution can retry. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-028 AC2: retention rollback) -->
 
+**Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
+
 **Constraints:** Retention uses the existing deployment-scoped usage database and scheduler; no second timer or coordinator is added.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
 
 **Verification:** Automated claim exclusion and transaction rollback tests
 

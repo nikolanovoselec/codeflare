@@ -782,7 +782,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow)
+**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings)
 
 **Verification:** Automated test
 

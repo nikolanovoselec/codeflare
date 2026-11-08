@@ -306,6 +306,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Constraints:**
 
 - Vault-extract and memory-capture writers on both runtimes author request chunks and fold them through the shared merge path.
+- Vault is always-on in the global graph.
 - Vault graph merges share the capture-pipeline/global-graph lock; its short timeout prevents a crashed holder from blocking extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
 - Missing or unreadable graph files retain the established fresh-graph recovery path.
 - Each merge copies the cumulative `vault-graph.json` to the sibling `graph.json`; only `vault-graph.json` is read back and published, and an empty `graph.json` at boot is not evidence there is nothing to publish.
@@ -313,7 +314,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown) (vault is always-on in the global graph)
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)
 
 **Verification:** Automated test ([vault-extract-merge](../../host/__tests__/vault-extract-merge.test.js))
 
