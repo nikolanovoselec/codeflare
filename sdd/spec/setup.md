@@ -1627,3 +1627,5 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Verification:** Existing named behavioral tests; CI qualification remains separate.
 
 **Status:** Implemented
+
+---

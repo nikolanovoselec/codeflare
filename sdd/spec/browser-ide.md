@@ -1505,3 +1505,5 @@ A full code-server browser editor for an advanced running session. The editor op
 **Verification:** Planned lifecycle-color, accessible-notice, reconnect and retained-editor tests.
 
 **Status:** Planned
+
+---

@@ -743,6 +743,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Status:** Implemented
 
+---
+
 Task #114 excludes both Browser namespaces in the existing selector after [21 observed RED failures](https://github.com/nikolanovoselec/codeflare/actions/runs/40255590866). Task #155 changes only AC4's unreadable/invalid Enterprise policy resolution to strict; explicit OFF, absent-key defaults, valid policy behavior, and lifecycle ACs remain unchanged. Final exact-head GREEN and live Gateway evidence are pending.
 
 ---
@@ -778,6 +780,8 @@ Task #114 excludes both Browser namespaces in the existing selector after [21 ob
 **Verification:** Automated test ([controller-egress resolver/transport/SSRF/account-scoped](../../src/__tests__/lib/controller-egress.test.ts), [EgressController transparent proxy + fail-closed + account-scoped passthrough + WebSocket](../../src/__tests__/egress-controller.test.ts), [container catch-all wiring + account-id prop](../../src/__tests__/container/index.test.ts), and [container env vars placeholder R2 key](../../src/__tests__/container/container-env.test.ts).)
 
 **Status:** Implemented
+
+---
 
 Task #114 implementation candidate follows [21 observed RED failures](https://github.com/nikolanovoselec/codeflare/actions/runs/40255590866); final exact-head GREEN remains pending. Both Browser namespaces now use the existing Gateway selector; AC3 bridging, R2 signing/authority and transparent credentials remain unchanged, without claiming live compatibility or AV/DLP qualification.
 

@@ -410,7 +410,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 - Buffered routes remain usable without an incremental claim.
 - No arbitrary native protocol, URL, header, model substitution or transport cross-product is introduced.
 - Failed stages retain sanitized diagnostics; stale draft/inventory evidence cannot authorize Save.
-- The following matching/selection constraints apply to the retained Advanced workflow. It remains deterministic, sanitized, non-assigning and non-activating under REQ-ENTERPRISE-033; normal Discover instead adopts a qualified draft automatically and still requires reviewed Save.
+- The following matching/selection constraints apply to the retained Advanced workflow. It remains deterministic, sanitized, non-assigning and non-activating under [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence); normal Discover instead adopts a qualified draft automatically and still requires reviewed Save.
 - Results do not identify the backend model family or prove increasing reasoning effort; compatibility and Pi tool/replay observations are not reasoning-strength measurements.
 - The finite built-in protocol bank bounds route-only probes.
 - Saved custom revisions reuse those observations without additional paid probes.
@@ -489,7 +489,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 - Compatibility does not prove increasing reasoning effort.
 - Off-disabled evidence remains separate from tool success. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckOverview --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (does not equate a Pi tool pass with verified Off or reasoning configuration) -->
 - Candidate diagnostics remain scoped to their candidate, never another matched profile. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckDetails --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (keeps Gemma Off failures scoped to Gemma instead of coloring the matched GPT profile) -->
-- This retained selected-profile check introduces no runtime/Gateway/credential change. New compatibility-wire behavior and its separate budget belong to the dedicated component in REQ-ENTERPRISE-035.
+- This retained selected-profile check introduces no runtime/Gateway/credential change. New compatibility-wire behavior and its separate budget belong to the dedicated component in [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection).
 
 **Priority:** P1
 
@@ -1409,3 +1409,5 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 **Verification:** Adjacent environment-output tests prove the respective R2/Browser/owner-Cloudflare contracts. Deployment-token exclusion and owner-provider outcomes retain manual verification; current-head CI is pending. The historical capstone title is not universal human-auth evidence.
 
 **Status:** Implemented
+
+---

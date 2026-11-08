@@ -223,6 +223,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Status:** Implemented
 
+---
+
 ## Distribution, immutable packages and registry administration
 
 <a id="req-operator-002-enterprise-distribution-registration"></a>
@@ -583,6 +585,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Verification:** Existing promotion and normal-activation HTTP/platform-wire regressions cover these contracts. CI has demonstrated the missing-handoff RED state; the implementation and corrected coverage require exact-head GREEN. Hosted lifecycle acceptance remains separate.
 
 **Status:** Planned
+
+---
 
 ## Admission, runtime and durable execution
 
@@ -1757,6 +1761,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Status:** Implemented
 
+---
+
 ## Webhook capabilities and edge handoff
 
 <a id="req-operator-012-protected-operator-webhook-keys"></a>
@@ -1921,6 +1927,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Verification:** Automated test: Non-consuming status and not-ready behavior is covered by the adjacent activity test.
 
 **Status:** Implemented
+
+---
 
 ## Catalog, installation and invocation presentation
 
@@ -2241,6 +2249,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Verification:** Automated test: [Installation restriction tests](../../web-ui/src/__tests__/operators/operator-management.test.tsx).
 
 **Status:** Implemented
+
+---
 
 ## Owner-scoped observation and control
 
@@ -2593,6 +2603,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Status:** Implemented
 
+---
+
 ## Protected Review enrollment, claims and independent evidence
 
 <a id="req-operator-053-enterprise-pr-boundary-review-handoff"></a>
@@ -2853,6 +2865,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Status:** Planned
 
+---
+
 ## Renovate assessment and separately fenced publication
 
 <a id="req-operator-051-renovate-dispatcher-assessment"></a>
@@ -2978,6 +2992,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Verification:** Intent4 due-interval retry and concurrent election are authored but unverified for original prospective admissions. Effect-uncertain dispositions and unresolved writes refuse fresh retry eligibility. Manual repository-journey retry remains unverified; the deployed permanent same-head deduplication does not satisfy the amended criteria. Configured-run, admission, callback and publication tests passed historically and were delivered to Integration environments. Earlier connected fixtures simulated SDK scheduling and child settlement, not compiled Dispatcher/model judgment or natural post-activation PRs. Observed manual invocation did not complete; repeat-control CI/visual verification and end-to-end success remain pending.
 
 **Status:** Planned
+
+---
 
 ### REQ-OPERATOR-087: Protected transport cancellation
 

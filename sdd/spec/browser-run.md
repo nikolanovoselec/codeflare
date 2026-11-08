@@ -283,6 +283,8 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Status:** Implemented
 
+---
+
 Task #114 implementation candidate follows [RED CI40255590866](https://github.com/nikolanovoselec/codeflare/actions/runs/40255590866), which observed all 21 intended routing failures across the owning suites. Source now selects strict-aware REST/CDP transport; final exact-head GREEN, deployment, live compatibility and applicable AV/DLP evidence remain pending.
 
 ---

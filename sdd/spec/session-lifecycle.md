@@ -1211,3 +1211,5 @@ None.
 **Verification:** Shutdown, readiness, restart-trigger, editor-launch, and state-capture tests
 
 **Status:** Implemented
+
+---

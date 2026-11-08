@@ -912,3 +912,5 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Verification:** Name persistence, rename/clear, exact retained-suffix bytes, budget checks and pinned-SDK resume-list/reopen outcomes.
 
 **Status:** Implemented
+
+---

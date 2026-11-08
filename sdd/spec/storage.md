@@ -1711,3 +1711,5 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Verification:** Existing named behavioral tests; CI qualification remains separate.
 
 **Status:** Implemented
+
+---
