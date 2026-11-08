@@ -2067,6 +2067,7 @@ None.
 
 - Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
 - Inline repair invokes `spec-enforce` before `doc-enforce`; report-only reviewers never own mutations or Git operations.
+- Independent preparation stays parallel while useful work remains; the root validates each completed handoff before applying it or closing findings.
 
 **Priority:** P1
 

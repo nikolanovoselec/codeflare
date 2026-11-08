@@ -737,6 +737,8 @@ PR-boundary reviewers are never spawned to mutate the project. This implements
 AC6 and [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes)
 AC6.
 
+Cleanup keeps independent investigation, test/documentation drafts and verification preparation in background lanes while useful work remains. The root validates each completed handoff against the actual contract, source and checks before applying it or closing findings, without waiting for other lanes. Native completion notifications drive handoffs; enforcement and repository/Git mutations stay root-owned. <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Parallel execution (binding) -->
+
 At invocation, `/review` prefers the Git repository containing the command cwd,
 including a linked worktree, then falls back to remembered active-repository state. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::recallActiveRepo -->
 An executable resolver validates the root without changing valid path whitespace or
