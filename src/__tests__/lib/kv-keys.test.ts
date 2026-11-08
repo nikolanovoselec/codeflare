@@ -89,6 +89,7 @@ describe('getSessionPrefix', () => {
   });
 });
 
+// REQ-SESSION-001: Session creation with complete D1 record.
 describe('generateSessionId', () => {
   it('produces a 24-char lowercase hex string', () => {
     const id = generateSessionId();
