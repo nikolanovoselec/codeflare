@@ -18,7 +18,7 @@ The rescue command for projects whose spec has accumulated implementation leakag
 
 - While independent work remains, keep useful background assignments active and replenish lanes as they finish. Delegate bounded investigation, test/documentation drafts and verification preparation; the root continues independent work rather than serializing assignments or waiting idly. Do not create busywork when dependencies prevent useful parallelism.
 - As each agent finishes, the root validates its artifacts against the actual requirements, owning source, callers, fixtures and applicable checks before applying changes, closing findings or changing Status. A report or draft is not passing evidence. Recover useful artifacts from interrupted assignments rather than blindly repeating their investigation.
-- Enforcement, repository mutations, commits and pushes remain root-owned. Do not substitute report-only cleanup agents. Existing authorization, TDD and CI gates remain binding; inherit model/reasoning settings unless the user explicitly requests otherwise.
+- Enforcement, repository mutations, commits and pushes remain root-owned. Do not substitute report-only cleanup agents. Existing authorization, TDD and CI gates remain binding; inherit model/reasoning settings unless the user explicitly requests otherwise. Leave `max_turns` unset unless the user requests a limit. Resume budget-interrupted assignments with retained context instead of restarting their investigation.
 - Native completion notifications drive handoffs. Collect terminal results without polling in-flight agents, and validate each completed lane without waiting for all lanes to finish.
 
 ## What it does (per mode)
