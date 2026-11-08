@@ -17,6 +17,7 @@ import {
 } from '../lib/push-sender';
 
 const SESSION_ID_KEY = '_sessionId';
+export const FINAL_SYNC_AUDIT_KEY = 'finalSyncAudit';
 const logger = createLogger('container-metrics');
 
 // ---------------------------------------------------------------------------
@@ -259,20 +260,38 @@ export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number):
     // fast, which is swallowed below.
     logger.warn('drainFinalSync: container reads not-running, attempting drain anyway (possible transient)', { budgetMs });
   }
+  const deadline = Date.now() + budgetMs;
+  const remaining = () => Math.max(0, deadline - Date.now());
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs);
   try {
-    const port = ctx.container.getTcpPort(8080);
     // Raw port.fetch bypasses the DO's public fetch override (the only place
     // the auth header is injected) and the in-container host 401s /internal/*
     // without a Bearer token - the idle/quota-stop drain failed that way on
     // every stop until this header was added. Unlike the delete path, storage
     // is intact here, so read the token directly.
     let authToken: string | null = null;
-    try { authToken = (await ctx.storage.get<string>('containerAuthToken')) ?? null; } catch { authToken = null; }
+    let unavailable = false;
+    try {
+      const read = await raceBudget(ctx.storage.get<string>('containerAuthToken').then(value => ({ value })), remaining());
+      if (read) authToken = read.value ?? null;
+      else unavailable = true;
+    } catch { unavailable = true; }
+    if (!authToken || controller.signal.aborted) {
+      const event = { outcome: 'errored', at: Date.now(), running: ctx.container.running,
+        reason: unavailable ? 'auth-token-unavailable' : controller.signal.aborted
+          ? 'teardown-deadline-exhausted' : 'missing-auth-token' };
+      logger.warn('drainFinalSync: authentication unavailable, suppressing final-sync request', event);
+      try {
+        const audit = await raceBudget(ctx.storage.put(FINAL_SYNC_AUDIT_KEY, event), remaining());
+        if (audit === null) logger.warn('drainFinalSync: credential-refusal audit unavailable');
+      } catch { logger.warn('drainFinalSync: credential-refusal audit unavailable'); }
+      return;
+    }
+    const port = ctx.container.getTcpPort(8080);
     const res = await port.fetch('http://localhost/internal/final-sync', {
       method: 'POST',
-      ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}),
+      headers: { Authorization: `Bearer ${authToken}` },
       signal: controller.signal,
     });
     if (res.ok) {

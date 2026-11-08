@@ -27,6 +27,7 @@ import {
   TRANSPORT_FAILURE_STREAK_KEY,
   TRANSPORT_RECOVERY_KEY,
   FINAL_SYNC_BUDGET_MS,
+  FINAL_SYNC_AUDIT_KEY,
   CONTAINER_POLL_BUDGET_MS,
   drainAgentEventsBeforeStop,
   type MetricsState,
@@ -385,7 +386,6 @@ export async function collectMetrics(host: LifecycleHost, delivered?: MetricsPin
 // storage (survives the destroy) AND logged, so a drain that is skipped or fails
 // on a stop/delete is never silent. The collectMetrics drain callers keep using
 // the plain best-effort drainFinalSync; only the teardown path audits.
-const FINAL_SYNC_AUDIT_KEY = 'finalSyncAudit';
 type FinalSyncOutcome = 'completed' | 'incomplete' | 'errored';
 // Outcome plus the observable detail (HTTP status + the host's reason string) so
 // a non-completed final sync is queryable post-mortem. The budget-inversion 504
