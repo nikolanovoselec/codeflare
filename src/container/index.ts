@@ -815,6 +815,49 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
   }
 
+  /**
+   * The private port hands back an unaccepted socket. Returning it directly
+   * leaves nothing in this object listening, so it dies when the Durable
+   * Object shuts down at an alarm boundary. Accept both ends here so the
+   * object owns the relay (same pattern as the Containers SDK, not imported
+   * because that path would start the container).
+   */
+  private relayWebSocket(containerResponse: Response): Response {
+    const containerWs = containerResponse.webSocket;
+    if (!containerWs) return containerResponse;
+    containerWs.accept();
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    server.accept();
+
+    // 1005/1006 are reserved: they cannot be sent in a close frame.
+    const sendableCode = (code: number): number => (code === 1005 || code === 1006 ? 1000 : code);
+    const closeQuietly = (socket: WebSocket, code: number, reason: string): void => {
+      try {
+        socket.close(code, reason);
+      } catch {
+        // Already closed by the other direction.
+      }
+    };
+    const forward = async (target: WebSocket, data: string | ArrayBuffer | Blob): Promise<void> => {
+      try {
+        target.send(data instanceof Blob ? await data.arrayBuffer() : data);
+      } catch {
+        // Target closed mid-flight; its close event handles teardown.
+      }
+    };
+
+    containerWs.addEventListener('message', event => { void forward(server, event.data); });
+    server.addEventListener('message', event => { void forward(containerWs, event.data); });
+    containerWs.addEventListener('close', event => closeQuietly(server, sendableCode(event.code), event.reason));
+    server.addEventListener('close', event => closeQuietly(containerWs, sendableCode(event.code), event.reason));
+    containerWs.addEventListener('error', () => closeQuietly(server, 1011, 'container-socket-error'));
+    server.addEventListener('error', () => closeQuietly(containerWs, 1011, 'client-socket-error'));
+
+    return new Response(null, { status: 101, webSocket: client, headers: containerResponse.headers });
+  }
+
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
     // Ordinary ingress cannot manufacture the separate admitted RPC context.
@@ -829,7 +872,8 @@ export class container extends Container<Env> implements ContainerEnvState {
     const pathname = new URL(request.url).pathname;
     if ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
         request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
-      return this.forwardExisting(request);
+      const forwarded = await this.forwardExisting(request);
+      return forwarded.webSocket ? this.relayWebSocket(forwarded) : forwarded;
     }
     const internal = dispatchInternalRoute(this.host, request);
     if (internal) return internal;
