@@ -88,6 +88,12 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
     expect(response.status).toBe(200);
     const body = await response.json() as { statuses: Record<string, { status: string }> };
     expect(body.statuses[row.session_id]?.status).toBe('unreachable');
+    expect(body).not.toHaveProperty('usage');
+    expect(body).not.toHaveProperty('storageStats');
+    expect(body).not.toHaveProperty('preseedNeedsUpgrade');
+    expect(body).not.toHaveProperty('preseedUpgradeTarget');
+    expect(body).not.toHaveProperty('managedReleaseStatus');
+    expect(body).not.toHaveProperty('managedReleaseProgress');
   });
 
   it('returns ordered lifecycle, metrics, readiness, and incident fields', async () => {

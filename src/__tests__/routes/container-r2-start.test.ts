@@ -204,13 +204,15 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       });
       const fetch = createApp();
 
-      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
-      const body = await response.json() as { code: string };
-
-      expect(response.status).toBe(409);
-      expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
-      expect(createBucketIfNotExists).not.toHaveBeenCalled();
-      expect(testState.container!.fetch).not.toHaveBeenCalled();
+      for (const cacheUnavailable of [false, true]) {
+        testState.managedReleaseError = cacheUnavailable ? new Error('verified cache unavailable') : null;
+        const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+        const body = await response.json() as { code: string };
+        expect(response.status).toBe(409);
+        expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
+        expect(createBucketIfNotExists).not.toHaveBeenCalled();
+        expect(testState.container!.fetch).not.toHaveBeenCalled();
+      }
     });
 
     it('REQ-STOR-022 AC3: blocks container start while interrupted targets remain pending', async () => {
@@ -218,7 +220,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       mockKV._set('user-prefs:test-bucket', {
         managedEnvironmentApplied: {
           digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4,
-          mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z',
+          mode: 'default', projectionIdentity: PROJECTION_ALL, appliedAt: '2026-08-18T00:00:00.000Z',
         },
         managedEnvironmentReconciliation: {
           targets: [{ digest: 'c'.repeat(64), sequence: 3, mode: 'default' }],
@@ -238,7 +240,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     it('blocks an old applied mode during a cache outage when Enterprise resolves advanced mode', async () => {
       testState.managedReleaseError = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
-        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z' },
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default', projectionIdentity: PROJECTION_ALL, appliedAt: '2026-08-18T00:00:00.000Z' },
       });
       const fetch = createApp({ ENTERPRISE_MODE: 'active' });
 
@@ -256,7 +258,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'advanced',
-        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-08-18T00:00:00.000Z' },
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced', projectionIdentity: PROJECTION_ALL, appliedAt: '2026-08-18T00:00:00.000Z' },
       });
       const fetch = createApp({ SAAS_MODE: 'active' }, {
         email: 'test@example.com',

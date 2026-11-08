@@ -28,6 +28,10 @@ vi.mock('../../lib/r2-client', async (importActual) => {
   return { ...actual, createR2Client: mockCreateR2Client, getR2Url: mockGetR2Url };
 });
 
+import { createMockKV } from '../helpers/mock-kv';
+import { createTestApp } from '../helpers/test-app';
+import lifecycleRoutes from '../../routes/session/lifecycle';
+
 import {
   getR2SsePolicyDisabled,
   getBucketR2Regime,
@@ -99,7 +103,7 @@ function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; et
   const puts: Array<{ key: string; headers: Record<string, string>; to: R2SseRegime }> = [];
   const heads: Array<{ key: string; regime: R2SseRegime }> = [];
 
-  mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+  const fetch = async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     const headers = (init?.headers ?? {}) as Record<string, string>;
 
@@ -137,9 +141,10 @@ function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; et
       return new Response('<CopyObjectResult><ETag>"e2"</ETag></CopyObjectResult>', { status: 200 });
     }
     return new Response(null, { status: 500 });
-  });
+  };
+  mockFetch.mockImplementation(fetch);
 
-  return { store, puts, heads };
+  return { store, puts, heads, fetch };
 }
 
 const r2Env = {
@@ -390,6 +395,83 @@ describe('planRegimeReconcile (synchronous decision)', () => {
 });
 
 // ── Chunked driver ──────────────────────────────────────────────────────────────
+describe('REQ-ENTERPRISE-020 AC3: ancillary poll drives the real migration engine', () => {
+  it.each(['policy drift', 'mixed recovery'] as const)('REQ-ENTERPRISE-020 AC3/7: ancillary polls checkpoint and finish %s through real reconciliation', async (scenario) => {
+    const recovery = scenario === 'mixed recovery';
+    const source = recovery ? 'plain' : 'sse-c';
+    const target = recovery ? 'sse-c' : 'plain';
+    const objects: Record<string, { regime: R2SseRegime }> = {};
+    for (let i = 0; i < 4; i++) objects[`k${i}.md`] = { regime: source };
+    const r2 = makeR2(objects, { pageSize: 2 });
+    const kv = createMockKV();
+    if (recovery) {
+      kv._set('r2-regime:bkt', {
+        status: 'mixed-recovery', regime: 'sse-c', generation: 7,
+        phase: 'migrate', drained: false,
+      });
+    } else {
+      kv._store.set('setup:r2_sse_disabled', 'active');
+    }
+    const app = createTestApp({
+      routes: [{ path: '/sessions', handler: lifecycleRoutes }],
+      mockKV: kv,
+      bucketName: 'bkt',
+      envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct', SAAS_MODE: 'false' },
+    });
+    const poll = async () => {
+      const work: Promise<unknown>[] = [];
+      const response = await app.request('/sessions/ancillary-status', {}, undefined, {
+        waitUntil: (task: Promise<unknown>) => { work.push(task); },
+        passThroughOnException: () => {},
+      } as ExecutionContext);
+      const body = await response.json();
+      await Promise.all(work);
+      expect(response.status).toBe(200);
+      return body;
+    };
+
+    // Yield on an actual simulated copy, not unrelated clock-call counts.
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    let yielded = false;
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const response = await r2.fetch(url, init);
+      if (init?.method === 'PUT' && !yielded) {
+        yielded = true;
+        nowSpy.mockReturnValue(1_016_000);
+      }
+      return response;
+    });
+    try {
+      const first = await poll();
+      expect(first).toMatchObject({ bucketMigrating: true, bucketMigrationPending: false });
+      expect(first).not.toHaveProperty('bucketMigrationPercent');
+      const mid = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
+      expect(mid).toMatchObject({
+        status: recovery ? 'mixed-recovery' : 'migrating', regime: 'sse-c',
+        generation: recovery ? 7 : 0, phase: 'migrate', cursor: 'k1.md', total: 4, processed: 2,
+      });
+      expect(mid.leaseExpiresAt).toBeUndefined();
+      expect([...r2.store.values()].filter((o) => o.regime === target)).toHaveLength(2);
+      expect([...r2.store.values()].filter((o) => o.regime === source)).toHaveLength(2);
+
+      const second = await poll();
+      expect(second).toMatchObject({ bucketMigrating: true, bucketMigrationPending: false, bucketMigrationPercent: 25 });
+      expect(await getRegimeState({ KV: kv } as unknown as Env, 'bkt')).toMatchObject({
+        status: 'ready', regime: target, generation: recovery ? 7 : 1,
+      });
+      expect([...r2.store.values()].map((o) => o.regime)).toEqual([target, target, target, target]);
+
+      const third = await poll();
+      expect(third).toMatchObject({ bucketMigrating: false, bucketMigrationPending: false });
+      expect(third).not.toHaveProperty('bucketMigrationPercent');
+      expect(await getRegimeState({ KV: kv } as unknown as Env, 'bkt')).toMatchObject({
+        status: 'ready', regime: target, generation: recovery ? 7 : 1,
+      });
+    } finally { nowSpy.mockRestore(); }
+  });
+});
+
+// Existing lower-level driver cases remain independent of route orchestration.
 describe('advanceMigration (chunked, verified, self-healing)', () => {
   const drainNoop = { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) };
 
