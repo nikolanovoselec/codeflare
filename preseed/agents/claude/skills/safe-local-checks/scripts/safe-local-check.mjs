@@ -39,6 +39,7 @@ function usage() {
     '  safe-local-check.mjs json <file...>',
     '  safe-local-check.mjs yaml <file...>',
     '  safe-local-check.mjs shell-syntax <file...>',
+    '  safe-local-check.mjs node-test <file...>',
     '  safe-local-check.mjs lock-consistency [package-lock.json...]',
     '  safe-local-check.mjs pi-preseed',
   ].join('\n');
@@ -341,7 +342,8 @@ async function main() {
   if (mode === 'ts-syntax') return checkTsSyntax(args);
   if (mode === 'shell-syntax') return checkShellSyntax(args);
   if (mode === 'node-test') {
-    throw new Error('Unit tests are CI-only, regardless of deployment CPU, memory or storage');
+    const { files } = await repositoryFiles(args, 'node-test');
+    return runBounded(process.execPath, ['--test', '--test-concurrency=1', ...files], managedTimeout());
   }
   if (mode === 'lock-consistency') return checkLockConsistency(args);
   if (mode === 'pi-preseed') return checkPiPreseed();

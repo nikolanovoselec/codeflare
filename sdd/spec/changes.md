@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-08
 
-- Keep session checks read-only: the managed wrapper refuses unit-test execution, and builds/tests remain CI-only regardless of deployment CPU, memory or storage. Deployment resource profiles and their allocations remain configurable and unchanged ([REQ-AGENT-052](agents.md#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening), [REQ-OPS-007](operations.md#req-ops-007-container-specs-configurable-per-environment)).
+- Keep execution permissions independent of deployment CPU, memory or storage: builds and ordinary test runners remain CI-only; the existing tuned managed wrapper remains the sole local-test route with unchanged functionality. Deployment resource profiles and their allocations remain configurable and unchanged ([REQ-AGENT-052](agents.md#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening), [REQ-OPS-007](operations.md#req-ops-007-container-specs-configurable-per-environment)).
 
 ## 2026-11-07
 

@@ -139,7 +139,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Constraints:**
 
-- Builds and unit tests are CI-only regardless of deployment CPU, memory or storage.
+- Builds and test execution outside the tuned managed safe-local-check wrapper are CI-only, regardless of deployment CPU, memory or storage.
 - Runner labels remain configurable across workflows.
 - Hosted Ubuntu sandbox packages use official Ubuntu sources only; unavailable required sources/packages fail the host lane. <!-- @impl: scripts/ci/install-approved-packet-packages.sh::apt_options --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
 - Custom-runner policy and real bubblewrap/AppArmor probe stay unchanged.

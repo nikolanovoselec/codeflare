@@ -269,23 +269,23 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     });
   });
 
-  it('refuses Node unit-test execution without starting a supplied test file', () => {
+  it('runs explicit Node test files through the bounded process wrapper', () => {
     const root = mkdtempSync(join(tmpdir(), 'safe-local-check-node-test-'));
     mkdirSync(join(root, '.git'));
-    const marker = join(root, 'test-executed');
-    writeFileSync(join(root, 'blocked.test.mjs'), [
+    writeFileSync(join(root, 'passing.test.mjs'), [
       "import test from 'node:test';",
-      "import { writeFileSync } from 'node:fs';",
-      `test('execution marker', () => writeFileSync(${JSON.stringify(marker)}, 'executed'));`,
+      "import assert from 'node:assert/strict';",
+      "test('passes', () => assert.equal(2 + 2, 4));",
       '',
     ].join('\n'), 'utf8');
 
-    for (const targets of [['blocked.test.mjs'], ['.'], []]) {
-      const result = run(root, ['node-test', ...targets]);
-      assert.equal(result.status, 2, result.stderr);
-      assert.match(result.stderr, /unit tests.*CI.only/i);
-      assert.equal(existsSync(marker), false, 'session wrapper started a unit test');
-    }
+    const result = run(root, ['node-test', 'passing.test.mjs']);
+
+    assert.equal(result.status, 0, result.stderr);
+
+    const directoryResult = run(root, ['node-test', '.']);
+    assert.equal(directoryResult.status, 2);
+    assert.match(directoryResult.stderr, /regular file/i);
   });
 
   it('runs Bash syntax checks through the managed process wrapper', () => {

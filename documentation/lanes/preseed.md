@@ -557,8 +557,10 @@ and both parser dependencies; repository versions take precedence over the fixed
 copies, without downloads or arbitrary `PATH` lookup. ESLint remains a repository-only
 mode: it requires an existing local installation and never substitutes another analyzer.
 Full-project read-only checks have no file-count limit and run at low priority for
-at most three minutes. Node syntax checks use the same deadline. Unit tests and builds
-remain CI-only regardless of deployment CPU, memory or storage. TypeScript and YAML parsing retain repository-first resolution
+at most three minutes. Node syntax checks and explicitly named Node test files use
+the same deadline. This tuned wrapper is the only permitted local-test route;
+deployment resource allocation never changes its permissions or bounds. Builds and
+ordinary test runners remain CI-only. TypeScript and YAML parsing retain repository-first resolution
 and use available approved image copies when project dependencies are absent. This parser
 selection follows [REQ-AGENT-192](../../sdd/spec/agents.md#req-agent-192-image-baked-typescript-syntax-parser). <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire -->
 

@@ -151,7 +151,7 @@ The `workers.dev` URL is only the initial setup surface. After setup configures 
 | default or `saas` | 1 | 3 | 6 | Baseline for node-pty + agent CLIs; `saas` is a deployment alias for the same profile |
 | `high` | 2 | 6 | 12 | Higher parallelism |
 
-Deployment allocation never permits session builds or unit tests; those run in CI regardless of the selected profile.
+Deployment allocation never changes execution permissions: builds and ordinary test runners remain CI-only. The tuned managed safe-local-check wrapper is the sole permitted local-test route, at every profile.
 
 One profile is selected per deployment through the `RESSOURCE_TIER` GitHub Actions repo variable (`low`, `high`, `saas`, or unset for default). The deployment-wide `max_instances` defaults to 10 independently of that profile; the `MAX_INSTANCES` GitHub Actions variable may override it with a positive integer. The limits are not additive pools per profile.
 

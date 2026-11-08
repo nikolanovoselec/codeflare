@@ -1,3 +1,3 @@
 # Local execution gate
 
-Builds and unit tests are CI-only regardless of deployment CPU, memory or storage. Integration tests, type checks, dependency-graph analysis, installs, servers and direct analyzers are also CI-only. For read-only local lint or syntax checks, load `safe-local-checks` and use only its managed wrapper; never create the user-only bypass.
+Builds, package test scripts, broad integration tests, type checks, dependency-graph analysis, installs, servers and direct analyzers are CI-only regardless of deployment CPU, memory or storage. Local tests and approved lint/syntax checks may run only through the tuned `safe-local-checks` managed wrapper; load that skill and preserve its supported modes and bounds. Never create the user-only bypass.
