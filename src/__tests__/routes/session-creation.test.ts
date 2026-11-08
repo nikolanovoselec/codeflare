@@ -70,7 +70,7 @@ describe('REQ-SESSION-001: Session creation with name and agent type', () => {
     });
 
     it('accepts all valid agentType values', async () => {
-      const validTypes = ['claude-code', 'codex', 'antigravity', 'opencode', 'copilot', 'bash'] as const;
+      const validTypes = ['claude-code', 'codex', 'antigravity', 'opencode', 'copilot', 'pi', 'bash'] as const;
       for (const agentType of validTypes) {
         const app = createApp();
         const res = await app.request('/sessions', {

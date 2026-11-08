@@ -111,6 +111,8 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
+// REQ-OPERATOR-099: Installed review, invocation and presentation.
+// UI-boundary outcomes do not substitute for backend policy/SDK qualification.
 describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
   it('AC1/8: keeps segments and nested navigation in the existing dialog without preparing work on opening', async () => {
     await review();
@@ -520,6 +522,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Start one run' }));
     await waitFor(() => expect(server.prepared['prepared-1']?.phase).toBe('prepared'));
     expect(screen.getByRole('button', { name: /start one run|starting/i }).hasAttribute('disabled')).toBe(true);
+    await fireEvent.click(screen.getByRole('button', { name: /start one run|starting/i }));
     expect(screen.getByRole('tab', { name: 'Runs' }).hasAttribute('disabled')).toBe(true);
     expect(screen.queryByRole('link', { name: 'Manage installations' })).toBeNull();
     resolve();
