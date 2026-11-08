@@ -1486,7 +1486,7 @@ None.
 
 **Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-014](#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)
 
-**Verification:** Automated test ([Scroll-ownership tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts), [full-buffer deferral tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [stylesheet contract test](../../web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts))
+**Verification:** Automated: [Scroll ownership](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts), [buffer deferral](../../web-ui/src/__tests__/stores/terminal.test.ts), [stylesheet contract](../../web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts); Manual: [Native scrolling scenarios](../../documentation/lanes/terminal-and-ide.md#req-mob-004-test-scenarios)
 
 **Status:** Implemented
 
@@ -1880,7 +1880,7 @@ None.
 
 **Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-TERM-014](#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)
 
-**Verification:** Automated test ([Scroll-event tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts); [full-buffer batched-write test](../../web-ui/src/__tests__/stores/terminal.test.ts))
+**Verification:** Automated: [Scroll events](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts), [keyboard lifecycle](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [buffered writes](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 

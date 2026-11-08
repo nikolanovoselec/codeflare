@@ -92,7 +92,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-VAULT-021](vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)
 
-**Verification:** Automated test ([Route isolation tests](../../src/__tests__/routes/vscode-validation.test.ts); [launch tests](../../host/__tests__/entrypoint-openvscode.test.js); [UI-state snapshot tests](../../host/__tests__/browser-ide-ui-state.test.js); [settings preparation tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs))
+**Verification:** Automated: [Route isolation](../../src/__tests__/routes/vscode-validation.test.ts), [launch lifecycle](../../host/__tests__/entrypoint-openvscode.test.js), [startup UI state](../../host/__tests__/browser-ide-ui-state.test.js), [settings preparation](../../openvscode/claude/test/prepare-sidebar-config.test.mjs), [startup filters](../../host/__tests__/entrypoint-rclone-filters.test.js), [workspace layout](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -123,7 +123,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Automated test ([Lifecycle tests](../../host/__tests__/entrypoint-openvscode.test.js); [host response tests](../../host/__tests__/openvscode-proxy.test.js); [header tests](../../web-ui/src/__tests__/components/Layout.test.tsx))
+**Verification:** Automated: [Lifecycle](../../host/__tests__/entrypoint-openvscode.test.js), [host proxy](../../host/__tests__/openvscode-proxy.test.js), [request dispatch](../../host/__tests__/request-router.test.js), [authentication chain](../../src/__tests__/routes/vscode-auth-chain.test.ts), [workspace layout](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -305,7 +305,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-007](#req-ide-007-ide-guarded-approval)
 
-**Verification:** Automated test ([Base settings tests](../../openvscode/claude/test/managed-settings.test.mjs); [base seed tests](../../openvscode/claude/test/prepare-sidebar-config.test.mjs); [all-kinds launch tests](../../host/__tests__/entrypoint-openvscode.test.js))
+**Verification:** Automated: [Managed settings](../../openvscode/claude/test/managed-settings.test.mjs), [seed preparation](../../openvscode/claude/test/prepare-sidebar-config.test.mjs), [all-kinds launch](../../host/__tests__/entrypoint-openvscode.test.js)
 
 **Status:** Implemented
 
