@@ -2437,7 +2437,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation)
 
-**Verification:** Component behavior tests and integration-browser visual acceptance verify the content-sized compact and bounded populated views; exact-head qualification for the dropdown redesign is pending.
+**Verification:** Manual check through integration-browser visual acceptance of the content-sized compact and bounded populated views. Component behavior tests are supplemental; exact-head qualification for the dropdown redesign is pending.
 
 **Status:** Planned
 

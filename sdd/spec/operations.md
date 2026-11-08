@@ -1422,7 +1422,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-031](#req-ops-031-shared-deployment-buildkit-cache)
 
-**Verification:** Exact-head fresh-image cache and timing evidence
+**Verification:** Manual check of exact-head fresh-image cache and timing evidence
 
 **Status:** Implemented
 

@@ -2215,7 +2215,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Manual verification
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -2738,7 +2738,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-195](#req-agent-195-portable-humanize-writing-guidance)
 
-**Verification:** Deterministic seed generation and manual catalog inspection
+**Verification:** Manual check through deterministic seed generation and catalog inspection
 
 **Status:** Implemented
 
@@ -2761,7 +2761,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-196](#req-agent-196-repository-led-technology-guidance)
 
-**Verification:** Deterministic seed generation and manual ownership review
+**Verification:** Manual check through deterministic seed generation and ownership review
 
 **Status:** Implemented
 
@@ -2914,7 +2914,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection)
 
-**Verification:** Manual verification
+**Verification:** Automated test
 
 **Status:** Implemented
 
