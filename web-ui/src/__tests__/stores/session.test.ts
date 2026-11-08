@@ -142,6 +142,81 @@ describe('Session Store', () => {
       return { promise, resolve, reject };
     }
 
+    it('REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery', async () => {
+      const running = { ...dashboardSession, status: 'running' as const, lifecycle: 'running' as const, revision: 3 };
+      mockGetSessions.mockResolvedValueOnce([running]);
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+        [running.id]: { status: 'running', lifecycle: 'running', generation: 1, revision: 3,
+          metrics: { cpu: '12%', mem: '24%', hdd: '2%', syncStatus: 'success' } },
+      } });
+      await sessionStore.loadSessions();
+      sessionStore.initializeTerminalsForSession(running.id);
+      terminalLifecycle.ownedSessionIds.add(running.id);
+      const tabs = sessionStore.getTerminalsForSession(running.id)?.tabs.map(tab => tab.id);
+      mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('D1 read unavailable'));
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.statusUnavailable).toBe(true);
+      expect(sessionStore.sessions.find(s => s.id === running.id)).toMatchObject({ status: 'running', generation: 1, revision: 3 });
+      expect(sessionStore.getMetricsForSession(running.id)).toMatchObject({ cpu: '12%', mem: '24%' });
+      expect(sessionStore.getTerminalsForSession(running.id)?.tabs.map(tab => tab.id)).toEqual(tabs);
+      expect(terminalLifecycle.ownedSessionIds.has(running.id)).toBe(true);
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+        [running.id]: { status: 'running', lifecycle: 'running', generation: 1, revision: 4 },
+      } });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.statusUnavailable).toBe(false);
+      expect(sessionStore.sessions.find(s => s.id === running.id)).toMatchObject({ status: 'running', revision: 4 });
+      expect(terminalLifecycle.ownedSessionIds.has(running.id)).toBe(true);
+    });
+
+    it.each(['catalog', 'status', 'enrichment'] as const)('REQ-SESSION-029: %s authentication failure does not become a lifecycle availability warning', async source => {
+      const { ApiError } = await import('../../api/fetch-helper');
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const error = new ApiError('Authentication expired', 401, 'Unauthorized');
+      if (source === 'catalog') mockGetSessions.mockRejectedValueOnce(error);
+      else mockGetBatchSessionStatus.mockRejectedValueOnce(error);
+      if (source === 'status') await sessionStore.refreshSessionStatuses();
+      else {
+        if (source === 'enrichment') mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+        await sessionStore.loadSessions();
+      }
+      expect(sessionStore.statusUnavailable).toBe(false);
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject(dashboardSession);
+      if (source === 'status') expect(sessionStore.authExpired).toBe(true);
+    });
+
+    it('REQ-SESSION-029 AC3: old poll failure cannot replace newer successful catalog availability', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const oldBatch = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+      mockGetBatchSessionStatus.mockReturnValueOnce(oldBatch.promise);
+      const oldPoll = sessionStore.refreshSessionStatuses();
+      mockGetSessions.mockResolvedValueOnce([{ ...dashboardSession, revision: 4 }]);
+      await sessionStore.loadSessions();
+      oldBatch.reject(new Error('Older status read failed'));
+      await oldPoll;
+      expect(sessionStore.statusUnavailable).toBe(false);
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)?.revision).toBe(4);
+    });
+
+    it('REQ-SESSION-029 AC3: old catalog failure cannot replace newer successful poll availability', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const oldList = deferred<Awaited<ReturnType<typeof api.getSessions>>>();
+      mockGetSessions.mockReturnValueOnce(oldList.promise);
+      const oldLoad = sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+        [dashboardSession.id]: { status: 'stopped', lifecycle: 'stopped', generation: 1, revision: 5 },
+      } });
+      await sessionStore.refreshSessionStatuses();
+      oldList.reject(new Error('Older catalog read failed'));
+      await oldLoad;
+      expect(sessionStore.statusUnavailable).toBe(false);
+      expect(sessionStore.error).toBeNull();
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)?.revision).toBe(5);
+    });
+
     it('REQ-SESSION-029 AC7: initial authoritative cards appear before pending batch and ancillary reads', async () => {
       mockGetSessions.mockResolvedValueOnce([]);
       await sessionStore.loadSessions();
@@ -194,6 +269,7 @@ describe('Session Store', () => {
       ancillary.reject(new Error('metadata unavailable'));
       await sessionStore.refreshSessionAncillaryStatus().catch(() => undefined);
       expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)?.status).toBe('unreachable');
+      expect(sessionStore.statusUnavailable).toBe(false);
     });
 
     it('REQ-SESSION-010 AC7: forced metadata refresh is preserved when joining pending status work', async () => {

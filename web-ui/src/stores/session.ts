@@ -2,6 +2,7 @@ import { createStore, produce } from 'solid-js/store';
 import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
 import * as api from '../api/client';
+import { ApiError } from '../api/fetch-helper';
 import { upgradeAgentConfigs } from '../api/storage';
 import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
@@ -44,6 +45,8 @@ import {
   registerPollingDeps,
   invalidateSessionStatusReads,
   getSessionCatalogRevision,
+  beginSessionStatusRead,
+  sessionStatusUnavailable,
   sessionMissCounters,
   refreshSessionStatuses,
   refreshSessionAncillaryStatus,
@@ -364,11 +367,14 @@ let loadSessionsGeneration = 0;
 async function loadSessions(): Promise<void> {
   const thisGen = ++loadSessionsGeneration;
   const requestedCatalogRevision = getSessionCatalogRevision();
+  let acceptedCatalogRevision = requestedCatalogRevision;
+  const reportAvailability = beginSessionStatusRead();
 
   setState('loading', true);
   setState('error', null);
 
   let batchError: string | null = null;
+  let batchAuthFailure = false;
   try {
     // Ancillary work owns its own values, never catalog availability.
     void refreshSessionAncillaryStatus().catch((err) => {
@@ -377,6 +383,7 @@ async function loadSessions(): Promise<void> {
     const batchRequest = api.getBatchSessionStatus().catch((err) => {
       logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
       batchError = err instanceof Error ? err.message : 'Failed to fetch session statuses';
+      batchAuthFailure = err instanceof ApiError && err.status === 401;
       return { statuses: {} as Record<string, BatchStatusEntry> };
     });
     const sessions = await api.getSessions();
@@ -423,6 +430,7 @@ async function loadSessions(): Promise<void> {
       }
     }
     invalidateSessionStatusReads();
+    acceptedCatalogRevision = getSessionCatalogRevision();
     sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
     setState('loading', false);
@@ -444,8 +452,12 @@ async function loadSessions(): Promise<void> {
 
     // Publish the authoritative catalog before optional status enrichment.
     const batchResponse = await batchRequest;
-    if (thisGen !== loadSessionsGeneration) return;
-    if (batchError) setState('error', batchError);
+    if (thisGen !== loadSessionsGeneration || acceptedCatalogRevision !== getSessionCatalogRevision()) return;
+    if (batchError) {
+      if (reportAvailability(batchAuthFailure ? sessionStatusUnavailable() : true)) setState('error', batchError);
+    } else {
+      reportAvailability(false);
+    }
     const batchStatuses = batchResponse.statuses;
 
     for (const session of sessionsWithStatus) {
@@ -529,7 +541,8 @@ async function loadSessions(): Promise<void> {
       }
     }
   } catch (err) {
-    if (thisGen !== loadSessionsGeneration) return;
+    if (thisGen !== loadSessionsGeneration || acceptedCatalogRevision !== getSessionCatalogRevision()
+      || !reportAvailability(err instanceof ApiError && err.status === 401 ? sessionStatusUnavailable() : true)) return;
     setState('error', err instanceof Error ? err.message : 'Failed to load sessions');
   } finally {
     if (thisGen === loadSessionsGeneration) {
@@ -874,6 +887,7 @@ export const sessionStore = {
   get activeSessionId() { return state.activeSessionId; },
   get loading() { return state.loading; },
   get error() { return state.error; },
+  get statusUnavailable() { return sessionStatusUnavailable(); },
   getActiveSession,
   isSessionInitializing,
   getInitProgressForSession,

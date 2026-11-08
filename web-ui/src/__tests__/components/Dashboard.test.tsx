@@ -9,6 +9,10 @@ import * as storageApi from '../../api/storage';
 import * as vaultCache from '../../lib/vault-cache';
 import type { SessionWithStatus } from '../../types';
 
+const availabilityMock = vi.hoisted(() => ({
+  set: undefined as undefined | ((unavailable: boolean) => void),
+}));
+
 const viewportMock = vi.hoisted(() => ({
   setViewport: undefined as undefined | ((viewport: 'mobile' | 'tablet' | 'desktop') => void),
 }));
@@ -104,6 +108,8 @@ vi.mock('../../components/SessionLimitPopup', () => ({
 vi.mock('../../stores/session', async () => {
   const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
   const [r2Ready, setR2Ready] = createSignal(true);
+  const [statusUnavailable, setStatusUnavailable] = createSignal(false);
+  availabilityMock.set = setStatusUnavailable;
   let _isAtLimit = false;
   let _maxSessions = 3;
   const [_preseedUpgrading, setPreseedUpgrading] = createSignal(false);
@@ -118,6 +124,7 @@ vi.mock('../../stores/session', async () => {
       get sessions() { return []; },
       get maxSessions() { return _maxSessions; },
       get r2Ready() { return r2Ready(); },
+      get statusUnavailable() { return statusUnavailable(); },
       get preseedUpgrading() { return _preseedUpgrading(); },
       preseedUpgradeFailed: false,
       managedReleaseBlockedReason: null,
@@ -266,6 +273,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (storageStore as any)._setStats(null);
     (sessionStore as any)._setR2Ready(true);
     viewportMock.setViewport?.('desktop');
+    availabilityMock.set?.(false);
   });
 
   afterEach(() => {
@@ -277,6 +285,20 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (sessionStore as any)._setManagedReleaseStatus(null);
     (sessionStore as any)._setManagedReleaseProgress(null);
     mockMultiView = null;
+  });
+
+  it.each(['desktop', 'mobile'] as const)('REQ-SESSION-010/029: %s announces unavailable status without replacing cards and clears on recovery', async viewport => {
+    viewportMock.setViewport?.(viewport);
+    render(() => <Dashboard {...defaultProps} />);
+    availabilityMock.set?.(true);
+    // Intentional availability-copy/accessibility contract, not a source or
+    // implementation snapshot: retained cards are not presented as fresh data.
+    const notice = await screen.findByText('Session status unavailable. Displayed state may be outdated.');
+    expect(notice).toHaveAttribute('role', 'status');
+    for (const session of mockSessions) expect(screen.getByTestId(`session-card-${session.id}`)).toBeInTheDocument();
+    availabilityMock.set?.(false);
+    await waitFor(() => expect(screen.queryByText('Session status unavailable. Displayed state may be outdated.')).not.toBeInTheDocument());
+    for (const session of mockSessions) expect(screen.getByTestId(`session-card-${session.id}`)).toBeInTheDocument();
   });
 
   // === Deployment-mode account actions (REQ-SUB-023 AC2-AC7) ===
