@@ -565,7 +565,7 @@ describe('REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entr
 
 // ---------------------------------------------------------------------------
 // REQ-STOR-017: the background-init subshell (bisync baseline + vault + daemons)
-// runs concurrently with the PTY pre-warm on a single vCPU, so it must
+// runs concurrently with PTY pre-warm at any deployment resource profile, so it must
 // self-deprioritize (lowest niceness + idle I/O class) BEFORE doing any work, or
 // it starves pi pre-warm and inflates startup latency. Scheduler config = contract.
 // ---------------------------------------------------------------------------
@@ -577,7 +577,7 @@ const backgroundInitBlock = extractBetween(
 
 describe('REQ-STOR-017: background init yields CPU/disk to pi pre-warm (entrypoint.sh)', () => {
   it('renices the background subshell to lowest priority (nice 19)', () => {
-    assert.match(backgroundInitBlock, /renice -n 19 "\$BASHPID"/, 'background init not reniced — it can starve pi pre-warm on the single vCPU');
+    assert.match(backgroundInitBlock, /renice -n 19 "\$BASHPID"/, 'background init not reniced — it can contend with pi pre-warm');
   });
   it('sets the background subshell to idle I/O class (ionice -c 3)', () => {
     assert.match(backgroundInitBlock, /ionice -c 3 -p "\$BASHPID"/, 'background init not ionice-idle — its disk I/O can stall pi pre-warm reads');

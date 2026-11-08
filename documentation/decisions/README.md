@@ -20,7 +20,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 
 | ID | Decision | Summary | Category | State |
 |----|----------|---------|----------|-------|
-| [AD1](#ad1-one-container-per-session) | Isolate each terminal session in its own container | Each terminal tab receives a dedicated 1-vCPU container, preventing noisy-neighbor contention and making teardown a clean-slate operation. | Architecture | Active |
+| [AD1](#ad1-one-container-per-session) | Isolate each terminal session in its own container | Each session receives a dedicated container with deployment-configured resources, preventing noisy-neighbor contention and making teardown a clean-slate operation. | Architecture | Active |
 | [AD2](#ad2-container-id-format) | Derive container IDs from bucket and session IDs | Container IDs use `{bucketName}-{sessionId}` for direct Durable Object lookup without KV, and invalid session IDs never fall back to avoid orphans. | Architecture | Active |
 | [AD3](#ad3-per-user-r2-buckets) | Create an isolated R2 bucket for each user | The Worker derives and creates one S3-compatible bucket per email identity, isolating files and reducing user deletion to emptying and deleting that bucket. | Architecture | Active |
 | ~~[AD4](#ad4-periodic-rclone-bisync)~~ | ~~Replace the original periodic bisync policy~~ | The 60-second daemon cadence moved to [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers), and final-drain timing moved to [AD57](#ad57-135-second-shutdown-budget-for-final-bisync). | Architecture | Superseded |
@@ -189,7 +189,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
-**Decision:** CPU isolation -- each tab gets full 1 vCPU instead of sharing.
+**Decision:** Each session has its own isolated container; CPU, memory and storage are configured at deployment.
 
 Alternative was one container per user with multiplexed PTYs. Per-session containers avoid noisy-neighbor CPU contention between tabs running different agents, and simplify cleanup (destroy container = clean slate).
 
@@ -1839,14 +1839,14 @@ Alternative 2 — Reuse `SESSION_MODE` or another existing variable to imply the
 
 **Status:** Accepted (2026-05-29); revised (2026-06-02, 2026-08-04)
 
-**Context:** [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking)'s graphify hot-reload wrapper hardens `graphify update` on the 1 vCPU container by capping virtual memory (`ulimit -v`) and worker count so a runaway AST rebuild dies with ENOMEM instead of OOM-killing the session. Earlier Pi guidance added a divergent two-step wrapper that ran extra clustering/report logic after `graphify update`. That divergence proved brittle as upstream Graphify gained the desired extract/build/cluster/label/report/html pipeline: Codeflare-specific post-processing risked stale IDs, duplicate edges, and drift from official `safishamsi/graphify` output.
+**Context:** [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking)'s graphify hot-reload wrapper hardens `graphify update` in container sessions by capping virtual memory (`ulimit -v`) and worker count so a runaway AST rebuild dies with ENOMEM instead of OOM-killing the session. Earlier Pi guidance added a divergent two-step wrapper that ran extra clustering/report logic after `graphify update`. That divergence proved brittle as upstream Graphify gained the desired extract/build/cluster/label/report/html pipeline: Codeflare-specific post-processing risked stale IDs, duplicate edges, and drift from official `safishamsi/graphify` output.
 
 **Decision:** The Pi wrapper stays only as a safety envelope around upstream `graphify update`. It resolves the target repository, applies the bounded resource environment (`GRAPHIFY_MAX_WORKERS`, `GRAPHIFY_SAFE_RLIMIT_KB`, and `GRAPHIFY_VIZ_NODE_LIMIT`), then delegates graph output to Graphify. It does not hand-edit graph JSON, normalize imports, apply Codeflare-specific allowlists, or run a custom cluster pass. First-time Pi full AST builds use `build-graphify-ast.sh`, which calls Graphify's own detect/extract/build/cluster/report/export modules for the missing-graph case. Pi Architecture graph builds use `build-graphify-architecture.sh`, which applies generic noise filters and projects Graphify's symbol graph into file/module dependencies for navigation.
 
 Full semantic builds have Pi Agent subagents write Graphify-schema cache chunks/local fragments, recreate a fresh AST-only baseline, and merge cached/new semantic data without passing semantic source files as `prune_sources` (Graphify prunes after adding). Community labeling is optional in Pi and Claude. When requested, the active session writes `.graphify_labels.json` and local Graphify module calls regenerate graph/report/html from existing community assignments. When skipped, Graphify's official report/html remain final and `callflow.html` is exported directly; publication does not require a labels file.
 
 **Consequences:**
-- Codeflare keeps the 1-vCPU safety limits without forking Graphify's output semantics.
+- Codeflare keeps a bounded resource envelope without forking Graphify's output semantics.
 - Graph IDs, clusters, report contents, and HTML visualization stay compatible with upstream Graphify; optional community labels remain a local presentation layer.
 - Pi and Claude Graphify behavior converge around official Graphify flows; Pi-specific code exists only for runtime prompting, architecture-scope filtering/projection, cache production by session agents, active-repo fallback, and resource bounds.
 - The structural gate in `codeflare-pi.ts` remains fail-open: a missing or failed graph never blocks user work.
@@ -1855,7 +1855,7 @@ Full semantic builds have Pi Agent subagents write Graphify-schema cache chunks/
 
 Alternative 1 — Keep the previous fail-closed/two-step Pi wrapper. Rejected because the custom post-processing duplicated upstream responsibilities and could reintroduce stale/duplicated graph structure after Graphify upgrades.
 
-Alternative 2 — Run bare `graphify update` without a wrapper. Rejected because the 1-vCPU Codeflare container still needs bounded memory and worker defaults to avoid crashing the session.
+Alternative 2 — Run bare `graphify update` without a wrapper. Rejected because container sessions need bounded memory and worker defaults to avoid crashing the session.
 
 
 
@@ -1873,7 +1873,7 @@ Alternative 2 — Run bare `graphify update` without a wrapper. Rejected because
 
 A transient `gh pr view` failure once dropped the merge gate by mis-classifying a live head as stale (the "failure #13" referenced in `review-helpers.ts`); `classifyReviewHead` now separates `stale` from `unknown` to keep the gate fail-closed, and the durable `.git/`-persisted state makes that classification recoverable.
 
-**Decision:** Keep `noExtensions: true` and load capabilities **additively** via `additionalExtensionPaths` (which still load under `noExtensions`): always the graphify package, the `context-mode` package only when enabled in Pi settings (so lanes inherit `/ctx on`), and `codeflare-pi.ts` as a local file (for the local-build blocker, attribution gate, and graphify-first gate). `review-enforcement` and `@gotgenes/pi-subagents` are never added, so neither clobbers the main session. Lane source selection is the pure `review-job-helpers.ts::laneExtensionSources`. `codeflare-pi`'s `session_start` global-graph merge is skipped inside lanes via a `globalThis.__codeflareReviewLaneDepth` counter set by `runDurableLane`, avoiding a redundant `graphify global add` subprocess per lane on the 1 vCPU container.
+**Decision:** Keep `noExtensions: true` and load capabilities **additively** via `additionalExtensionPaths` (which still load under `noExtensions`): always the graphify package, the `context-mode` package only when enabled in Pi settings (so lanes inherit `/ctx on`), and `codeflare-pi.ts` as a local file (for the local-build blocker, attribution gate, and graphify-first gate). `review-enforcement` and `@gotgenes/pi-subagents` are never added, so neither clobbers the main session. Lane source selection is the pure `review-job-helpers.ts::laneExtensionSources`. `codeflare-pi`'s `session_start` global-graph merge is skipped inside lanes via a `globalThis.__codeflareReviewLaneDepth` counter set by `runDurableLane`, avoiding a redundant `graphify global add` subprocess per lane in the container session.
 
 **Consequences:**
 - Reviewers gain graphify and (when enabled) context-mode, and run under the same build-blocker/graphify-first gates as the main agent.

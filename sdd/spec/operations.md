@@ -139,7 +139,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Constraints:**
 
-- Quality runs on CI, never the 1-vCPU development container; runner labels remain configurable across workflows.
+- Builds and unit tests are CI-only regardless of deployment CPU, memory or storage.
+- Runner labels remain configurable across workflows.
 - Hosted Ubuntu sandbox packages use official Ubuntu sources only; unavailable required sources/packages fail the host lane. <!-- @impl: scripts/ci/install-approved-packet-packages.sh::apt_options --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-sandbox-packages.test.js (approved-packet sandbox package prerequisites) -->
 - Custom-runner policy and real bubblewrap/AppArmor probe stay unchanged.
 - Path-filtered lanes run in parallel; manual dispatch runs all.
@@ -289,7 +290,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Container resource tier accepts four per-deployment values: low (0.25 vCPU / 1 GiB / 4 GB), default (1 vCPU / 3 GiB / 6 GB), saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 12 GB). <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
+1. Per-deployment resource profiles (CPU in vCPU, memory in GiB, disk in GB) are low 0.25/1/4, default and saas 1/3/6, and high 2/6/12. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 2. All tiers default to 10 concurrent instances. <!-- @manual -->
 3. The concurrent-instance cap is overridable per deployment and must be a positive integer. <!-- @manual -->
 4. Per-user concurrent session limits are configurable per deployment, with separate defaults for regular users (3) and admins (10). <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @manual -->

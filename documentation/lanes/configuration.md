@@ -145,11 +145,13 @@ The `workers.dev` URL is only the initial setup surface. After setup configures 
 
 ### Container Specs
 
-| Tier | Config | Notes |
-|------|--------|-------|
-| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | Sub-1-vCPU workloads |
-| default or `saas` | 1 vCPU, 3 GiB, 6 GB | Baseline for node-pty + agent CLIs; `saas` is a deployment alias for the same profile |
-| `high` | 2 vCPU, 6 GiB, 12 GB | Higher parallelism |
+| Tier | CPU (vCPU) | Memory (GiB) | Disk (GB) | Notes |
+|------|------------|--------------|-----------|-------|
+| `low` | 0.25 | 1 | 4 | Cloudflare `basic`; lower deployment allocation |
+| default or `saas` | 1 | 3 | 6 | Baseline for node-pty + agent CLIs; `saas` is a deployment alias for the same profile |
+| `high` | 2 | 6 | 12 | Higher parallelism |
+
+Deployment allocation never permits session builds or unit tests; those run in CI regardless of the selected profile.
 
 One profile is selected per deployment through the `RESSOURCE_TIER` GitHub Actions repo variable (`low`, `high`, `saas`, or unset for default). The deployment-wide `max_instances` defaults to 10 independently of that profile; the `MAX_INSTANCES` GitHub Actions variable may override it with a positive integer. The limits are not additive pools per profile.
 
@@ -540,13 +542,13 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 
 ### Graphify Tooling
 
-These env vars tune the graphify knowledge-graph build/update tooling. All are optional with safe defaults - the codeflare container ships them pinned to values verified safe for a 1-vCPU / 3.2 GB RAM container.
+These optional env vars tune Graphify knowledge-graph construction and updates. Codeflare ships conservative bounded defaults; deployment CPU, memory and storage remain configurable.
 
 | Variable | Purpose | Default | Required | Consumed by | Implements |
 |----------|---------|---------|----------|-------------|------------|
 | `GRAPHIFY_SAFE_RLIMIT_KB` | Virtual-memory cap (KB) applied to bounded Graphify update/build wrappers via `ulimit -v`. Wraps Graphify extraction/update so a runaway rebuild dies with ENOMEM rather than OOM-killing the codeflare session. | `1500000` (1.5 GB) | no | `preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh`; `preseed/agents/pi/scripts/safe-graphify-update.sh`; `preseed/agents/pi/scripts/build-graphify-ast.sh`; `preseed/agents/pi/scripts/build-graphify-architecture.sh` | [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) |
-| `GRAPHIFY_SAFE_WORKERS` | Graphify extraction/update subprocess count. Forwarded to graphify as `GRAPHIFY_MAX_WORKERS`. Single-worker on a 1 vCPU container is safest. | `1` | no | `preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh`; `preseed/agents/pi/scripts/safe-graphify-update.sh`; `preseed/agents/pi/scripts/build-graphify-ast.sh`; `preseed/agents/pi/scripts/build-graphify-architecture.sh` | [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) |
-| `GRAPHIFY_BUILD_TIMEOUT` | Timeout in seconds for Pi AST builds, architecture builds, and incremental graph updates before they abort rather than monopolizing the 1-vCPU session. | `600` for AST/update; `240` for architecture | no | `preseed/agents/pi/scripts/build-graphify-ast.sh`; `preseed/agents/pi/scripts/build-graphify-architecture.sh`; `preseed/agents/pi/scripts/safe-graphify-update.sh` | [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) |
+| `GRAPHIFY_SAFE_WORKERS` | Graphify extraction/update subprocess count. Forwarded to graphify as `GRAPHIFY_MAX_WORKERS`. The default bounds concurrent work independently of deployment resource allocation. | `1` | no | `preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh`; `preseed/agents/pi/scripts/safe-graphify-update.sh`; `preseed/agents/pi/scripts/build-graphify-ast.sh`; `preseed/agents/pi/scripts/build-graphify-architecture.sh` | [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) |
+| `GRAPHIFY_BUILD_TIMEOUT` | Timeout in seconds for Pi AST builds, architecture builds, and incremental graph updates before they abort rather than monopolizing session resources. | `600` for AST/update; `240` for architecture | no | `preseed/agents/pi/scripts/build-graphify-ast.sh`; `preseed/agents/pi/scripts/build-graphify-architecture.sh`; `preseed/agents/pi/scripts/safe-graphify-update.sh` | [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) |
 | `GRAPHIFY_VIZ_NODE_LIMIT` | Positive-integer node limit passed to Graphify's HTML exporter. Graphs above the limit use Graphify's aggregated community view; non-integer or non-positive values abort publication. | `100000` | no | Pi AST, architecture, semantic-merge, and label-apply Graphify paths | [REQ-AGENT-128](../../sdd/spec/agents.md#req-agent-128-graph-visualization-node-limits) |
 | `GRAPHIFY_ARCH_EXTRA_EXCLUDES` | Additional shell-split gitignore-style patterns appended to Pi Architecture graph filters when a repo needs local noise reduction beyond the generic tests/docs/generated/config exclusions. | (unset) | no | `preseed/agents/pi/scripts/build-graphify-architecture.sh` | [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) |
 | `GRAPHIFY_ARCH_KEEP_ISOLATES` | When truthy (`1`, `true`, `yes`), keeps isolated files in Pi Architecture graph output instead of omitting them from the module dependency map. | unset (omit isolates) | no | `preseed/agents/pi/scripts/build-graphify-architecture.sh` | [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) |

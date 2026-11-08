@@ -453,7 +453,7 @@ Six startup costs and stale-state risks are controlled (REQ-STOR-017):
     In the baked relay path, `relay_managed_pi_extensions()` removes those same three exact local files before laying down current managed bytes. The pruning list is exact: unrelated user-added extensions remain untouched.
 - **Background init deprioritization (all modes).**
 
-    The background subshell running the bisync `--resync` baseline, vault seed, and sync/vault daemons runs at `nice 19` / `ionice -c 3` (idle I/O class), yielding the single vCPU and disk to the concurrent pi PTY pre-warm — whose latency was dominated by contention with the baseline, not by the baseline's own work.
+    The background subshell running the bisync `--resync` baseline, vault seed, and sync/vault daemons runs at `nice 19` / `ionice -c 3` (idle I/O class), yielding CPU and disk priority to concurrent Pi PTY pre-warm independently of deployment resource allocation — whose latency was dominated by contention with the baseline, not by the baseline's own work.
 
 <a id="governed-mode-r2-sse-c-disabled"></a>
 ## Encryption-Regime Alias

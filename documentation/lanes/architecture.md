@@ -497,10 +497,10 @@ Worker caches are per-isolate optimizations with bounded staleness; exact invent
 | Coordinator reconstruction | At most two resets; preserve possible workload, never infer exit from transport | Container/Troubleshooting |
 | Bisync | 15 minutes plus manual triggers; local files may lead R2 | Storage & Sync |
 | Final persistence | 120-second sync budget, shared 135-second teardown cap | Storage & Sync/Container |
-| Initial restore/baseline/prewarm | Mode-specific readiness; baseline can run concurrently/deprioritized on single vCPU | Container |
+| Initial restore/baseline/prewarm | Mode-specific readiness; baseline can run concurrently with lower CPU/disk priority at any deployment resource profile | Container |
 | Create/start rate limit | 10 creates, five starts per user/minute | API Reference |
 | Concurrent workload cap | SaaS effective tier; non-SaaS including current Enterprise role-based; best effort | Billing/Configuration; [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) |
-| Resource profile | Low 0.25 vCPU/1 GiB/4 GB; default/`saas` 1 vCPU/3 GiB/6 GB; high 2 vCPU/6 GiB/12 GB | Configuration |
+| Resource profile | Deployment-selected CPU(vCPU)/memory(GiB)/disk(GB): low 0.25/1/4; default/`saas` 1/3/6; high 2/6/12 | Configuration |
 | Deployment capacity | Default ten instances; positive-integer `MAX_INSTANCES` override | Configuration |
 | Timekeeper user cache | 60 seconds, 100 entries | Billing |
 

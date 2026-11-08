@@ -4879,7 +4879,7 @@ complete_managed_curation_startup() {
     if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
         (
             # REQ-STOR-017: deprioritize ALL background init (bisync --resync baseline, vault
-            # seed, sync/vault daemons) so it yields the single vCPU and the disk to the pi PTY
+            # seed, sync/vault daemons) so it yields CPU and disk priority to the pi PTY
             # pre-warm running concurrently. Pre-warm latency was dominated by contention, not
             # work; with idle I/O class + lowest niceness, pi preempts this subshell whenever it
             # wants CPU/disk, so the baseline effectively runs in pre-warm's slack (and after it
