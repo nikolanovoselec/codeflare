@@ -784,12 +784,16 @@ async function clearTransportRecoveryState(ctx: DurableObjectState): Promise<voi
 async function scheduleRecoveryOwnershipReadRetry(
   ctx: DurableObjectState,
   callbacks: MetricsCallbacks,
+  execution: MetricsExecution,
+  incidentId: string | null,
 ): Promise<void> {
   try {
     await callbacks.schedule(60, 'collectMetrics');
   } catch (err) {
     logger.error('collectMetrics: failed to schedule recovery ownership read retry', undefined, {
       durableObjectId: ctx.id.toString(),
+      sessionId: execution.sessionId, lifecycleGeneration: execution.generation,
+      incidentId, errorClass: 'schedule_failed',
       error: err instanceof Error ? err.message : String(err),
     });
     throw err;
@@ -1048,9 +1052,13 @@ export async function collectMetrics(
 ): Promise<void> {
   const { ownerKey, sessionId, generation, sequence, runtime } = execution;
   const repository = new D1SessionRepository(env.USAGE_DB);
+  let diagnosticIncidentId: string | null = null;
   const readCurrent = async () => {
     const result = await raceBudget(repository.getSession(ownerKey, sessionId).then(session => ({ session })), CONTAINER_POLL_BUDGET_MS);
     if (!result) throw new Error('D1 lifecycle observation deadline exceeded');
+    if (execution.isCurrent() && result.session?.lifecycleGeneration === generation) {
+      diagnosticIncidentId = result.session.unreachableIncidentId ?? null;
+    }
     return result.session;
   };
   const sameGeneration = (session: D1Session | null): session is D1Session =>
@@ -1060,7 +1068,7 @@ export async function collectMetrics(
     try { await callbacks.schedule(delay, 'collectMetrics'); }
     catch (error) {
       logger.error('collectMetrics: required lifecycle alarm unavailable', undefined, {
-        sessionId, lifecycleGeneration: generation, errorClass: 'schedule_failed',
+        sessionId, lifecycleGeneration: generation, incidentId: diagnosticIncidentId, errorClass: 'schedule_failed',
       });
       throw error;
     }
@@ -1094,7 +1102,7 @@ export async function collectMetrics(
     const streak = await ctx.storage.get<number>(TRANSPORT_FAILURE_STREAK_KEY);
     recoveryTick ||= recovery != null || (typeof streak === 'number' && streak > 0);
   } catch {
-    await scheduleRecoveryOwnershipReadRetry(ctx, callbacks);
+    await scheduleRecoveryOwnershipReadRetry(ctx, callbacks, execution, diagnosticIncidentId);
     return;
   }
   if (recoveryTick) {
@@ -1321,6 +1329,7 @@ export async function collectMetrics(
       }
     }
     if (!execution.isCurrent()) return;
+    if (sameGeneration(incident)) diagnosticIncidentId = incident.unreachableIncidentId ?? null;
     if (sameGeneration(incident) && (incident.lifecycleState === 'stopping'
         || (incident.unreachableDeadlineMs !== undefined && Date.now() >= incident.unreachableDeadlineMs))) {
       terminationRetry = await callbacks.terminateUnreachable(incident, execution);

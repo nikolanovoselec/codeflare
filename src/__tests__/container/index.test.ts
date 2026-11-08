@@ -1418,18 +1418,19 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockContainerRuntime.running = true;
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'authorized-proxy-fixture';
         return null;
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe('authorized-proxy-fixture'));
       const request = new Request('http://container/unknown-route', {
         method: 'GET',
       });
 
       const response = await instance.fetch(request);
-      // super.fetch() handles proxying (SDK manages readiness + networking)
-      expect(response).toBeDefined();
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('base fetch');
     });
   });
 
@@ -1839,6 +1840,27 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(response.status).toBe(200);
       const body = await response.json() as { bucketName: string | null };
       expect(body).toHaveProperty('bucketName');
+    });
+
+    it.each([undefined, 'Bearer caller-supplied'])('REQ-SEC-022 AC1: missing lifecycle credentials refuse protected forwarding (%s)', async (authorization) => {
+      mockContainerRuntime.running = true;
+      mockStorage.get.mockImplementation(async (key: string) => key === 'bucketName' ? 'test-bucket' : null);
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.R2_BUCKET_NAME).toBe('test-bucket'));
+      const upstreamState = { syncRequested: false };
+      const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
+      const upstream = vi.spyOn(proto, 'fetch').mockImplementation(async () => {
+        upstreamState.syncRequested = true;
+        return new Response('sync started', { status: 200 });
+      });
+      try {
+        const response = await instance.fetch(new Request('http://container/internal/bisync-trigger', {
+          method: 'POST', headers: authorization ? { Authorization: authorization } : {},
+        }));
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({ error: 'Container authorization unavailable' });
+        expect(upstreamState.syncRequested).toBe(false);
+      } finally { upstream.mockRestore(); }
     });
 
     it('REQ-SEC-022 AC1: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch', async () => {

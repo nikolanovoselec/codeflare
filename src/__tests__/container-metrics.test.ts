@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV, MockKV } from './helpers/mock-kv';
 import { createMockSessionD1 } from './helpers/mock-session-d1';
 import type { Session } from '../types';
+import { D1SessionRepository } from '../lib/session-repository';
 
 // ---------------------------------------------------------------------------
 // Shared mutable state - vi.hoisted ensures this runs before vi.mock factories
@@ -962,13 +963,20 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
       testState.scheduleFailuresRemaining = 1;
 
-      // Observe the single failing tick immediately and retain its rejection
-      // as an outcome that can be asserted without another rejected promise.
-      const observed = containerInstance.collectMetrics().then(
-        () => ({ ok: true }),
-        error => ({ ok: false, error }),
-      );
-      expect(await observed).toMatchObject({ ok: false, error: new Error('schedule failed') });
+      const errors: unknown[] = [];
+      mockLogger.error.mockImplementation((...args: unknown[]) => { errors.push(args[2]); });
+      try {
+        const observed = containerInstance.collectMetrics().then(
+          () => ({ ok: true }),
+          error => ({ ok: false, error }),
+        );
+        expect(await observed).toMatchObject({ ok: false, error: new Error('schedule failed') });
+        expect(errors).toContainEqual(expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0,
+          incidentId: null, errorClass: 'schedule_failed',
+        }));
+        expect(JSON.stringify(errors)).not.toContain('agent-event-token');
+      } finally { mockLogger.error.mockReset(); }
 
       expect(testState.scheduleCalls).toEqual([]);
       expect(testState.callOrder).toEqual([]);
@@ -976,6 +984,56 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.abortReasons).toEqual([]);
       expect(await storage().get('usageSeconds')).toBeUndefined();
       expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'running', workspace: 'terminal' });
+    });
+
+    it('REQ-SESSION-026 AC1: required alarm failure retains the observed D1 incident identity', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+      testState.tcpFetchShouldFail = true;
+      testState.scheduleFailuresRemaining = 1;
+      const errors: unknown[] = [];
+      mockLogger.error.mockImplementation((...args: unknown[]) => { errors.push(args[2]); });
+      try {
+        await expect(containerInstance.collectMetrics()).rejects.toThrow('schedule failed');
+        const env = (containerInstance as unknown as { env: { USAGE_DB: D1Database } }).env;
+        const session = await new D1SessionRepository(env.USAGE_DB).getSession('test-bucket', 'testsession123456');
+        expect(session?.unreachableIncidentId).toEqual(expect.any(String));
+        expect(errors).toContainEqual(expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0,
+          incidentId: session?.unreachableIncidentId, errorClass: 'schedule_failed',
+        }));
+        expect(await storage().get('usageSeconds')).toBeUndefined();
+        expect(JSON.stringify(errors)).not.toContain('agent-event-token');
+      } finally { mockLogger.error.mockReset(); }
+    });
+
+    it.each(['stop', 'error'] as const)('REQ-SESSION-026 AC1: %s callback alarm failures retain captured context and ownership', async (callback) => {
+      const key = 'session:test-bucket:testsession123456';
+      mockKV._set(key, {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+      const env = (containerInstance as unknown as { env: { USAGE_DB: D1Database } }).env;
+      const incident = await new D1SessionRepository(env.USAGE_DB).observeUnreachable(
+        'test-bucket', 'testsession123456', 0, 0, 'observed-incident', Date.now(),
+      );
+      expect(incident?.unreachableIncidentId).toBe('observed-incident');
+      testState.scheduleFailuresRemaining = 1;
+      const errors: unknown[] = [];
+      mockLogger.error.mockImplementation((...args: unknown[]) => { errors.push(args[2]); });
+      try {
+        await expect(callback === 'stop'
+          ? containerInstance.onStop()
+          : containerInstance.onError(new Error('Network connection lost.'))).rejects.toThrow('schedule failed');
+        expect(errors).toContainEqual(expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0,
+          incidentId: callback === 'stop' ? 'observed-incident' : null, errorClass: 'schedule_failed',
+        }));
+        expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'unreachable', unreachableIncidentId: 'observed-incident' });
+        expect(await storage().get('usageSeconds')).toBeUndefined();
+      } finally { mockLogger.error.mockReset(); }
     });
 
     it('deliberate shutdown still suppresses an unnecessary ownership-read retry alarm', async () => {

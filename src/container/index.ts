@@ -867,14 +867,17 @@ export class container extends Container<Env> implements ContainerEnvState {
     // readiness, WebSocket upgrades, and container networking). The SDK's
     // sleepAfter timer is pinned to 24h (see class field comment) and plays
     // no role in idle detection - collectMetrics() owns that decision.
-    if (this._containerAuthToken) {
-      const authedRequest = new Request(request, {
-        headers: new Headers(request.headers),
+    if (!this._containerAuthToken) {
+      return new Response(JSON.stringify({ error: 'Container authorization unavailable' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
       });
-      authedRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
-      return super.fetch(authedRequest);
     }
-    return super.fetch(request);
+    const authedRequest = new Request(request, {
+      headers: new Headers(request.headers),
+    });
+    authedRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
+    return super.fetch(authedRequest);
   }
 
   /**

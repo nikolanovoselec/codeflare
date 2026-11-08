@@ -718,7 +718,7 @@ export async function onStop(host: LifecycleHost): Promise<void> {
     });
   } catch (error) {
     host.logger.error('Container stop retry alarm unavailable', undefined, { sessionId: execution.sessionId,
-      lifecycleGeneration: execution.generation, errorClass: 'schedule_failed' });
+      lifecycleGeneration: execution.generation, incidentId: current?.unreachableIncidentId ?? null, errorClass: 'schedule_failed' });
     throw error;
   }
 }
@@ -744,7 +744,10 @@ export async function onError(host: LifecycleHost, error: unknown): Promise<void
     await host.schedule(delay, 'collectMetrics', { ownerKey: execution.ownerKey,
       sessionId: execution.sessionId, generation: execution.generation });
   } catch (scheduleError) {
-    host.logger.error('Container error retry alarm unavailable', toError(scheduleError));
+    host.logger.error('Container error retry alarm unavailable', toError(scheduleError), {
+      sessionId: execution.sessionId, lifecycleGeneration: execution.generation,
+      incidentId: null, errorClass: 'schedule_failed',
+    });
     throw scheduleError;
   }
 }

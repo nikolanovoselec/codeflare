@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-08
 
+- Refuse protected container forwarding without lifecycle credentials, retire IDE backends blocked on cancelled prompt writes, and retain generation/incident context when required recovery alarms fail. Preserve internal routes, ordinary completed-turn reuse and retry ownership ([REQ-SEC-022](security.md#req-sec-022-container-proxy-bearer-validation), [REQ-IDE-008](browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-SESSION-026](session-lifecycle.md#req-session-026-lifecycle-scheduling-and-persistence-failures-remain-actionable)).
+
 - Keep execution permissions independent of deployment CPU, memory or storage: builds and ordinary test runners remain CI-only; the existing tuned managed wrapper remains the sole local-test route with unchanged functionality. Deployment resource profiles and their allocations remain configurable and unchanged ([REQ-AGENT-052](agents.md#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening), [REQ-OPS-007](operations.md#req-ops-007-container-specs-configurable-per-environment)).
 
 ## 2026-11-07
