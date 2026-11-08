@@ -317,6 +317,20 @@ describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
+  it('REQ-ENTERPRISE-094: unidentified backend remains inconclusive without cache evidence', async () => {
+    const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/unknown-noncaching-backend',
+      maxCompletionTokens: 256, requireBackendIdentity: true, fetcher: async (_url, init) => {
+        const value = response(JSON.parse(String(init?.body)), 'MISS');
+        value.headers.delete('cf-aig-provider'); value.headers.delete('cf-aig-model');
+        return value;
+      } });
+    expect(result.assignable).toBe(false);
+    expect(result.classification).toBe('Inconclusive');
+    expect(result.profile).toBeUndefined();
+    expect(result.report).toBeUndefined();
+    expect(result.attempts[0].diagnostics).toContainEqual(expect.objectContaining({ code: 'observed_backend_unidentified' }));
+  });
+
   it('REQ-ENTERPRISE-094: a failed future-model campaign bounds submitted output tokens and cannot authorize a target', async () => {
     const submissions: Record<string, unknown>[] = [];
     const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/future-budget-model',
