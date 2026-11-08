@@ -275,7 +275,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
-**Verification:** Goal control and deployment-image tests
+**Verification:** Automated: [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js)
 
 **Status:** Implemented
 
@@ -307,7 +307,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
-**Verification:** Entrypoint startup tests; executable settings-patch tests; weekly shadow-pin workflow contract
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js)
 
 **Status:** Implemented
 
@@ -337,7 +337,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-129](#req-agent-129-goal-continuation-settings-policy)
 
-**Verification:** Executable continuation scheduler tests
+**Verification:** Automated: [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js)
 
 **Status:** Implemented
 
@@ -526,7 +526,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-113](#req-agent-113-review-owned-goal-release)
 
-**Verification:** Existing patched-controller and review-enforcement behavioral tests
+**Verification:** Automated: [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -573,7 +573,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-114](#req-agent-114-review-owned-goal-continuation), [REQ-AGENT-117](#req-agent-117-non-disruptive-review-owned-goal-control)
 
-**Verification:** pi-goal compatibility-transform behavioral tests
+**Verification:** Automated: [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js)
 
 **Status:** Implemented
 
@@ -3106,7 +3106,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](security.md#req-sec-002-api-tokens-never-enter-containers)
 
-**Verification:** Automated test ([Interceptor test](../../src/__tests__/cloudflare-browser-interceptor.test.ts) + [registered REST/CDP transport](../../src/__tests__/container/browser-interception.test.ts) + [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [OAuth CA-trust test](../../host/__tests__/entrypoint-oauth-ca-trust.test.js))
+**Verification:** Automated: [cloudflare-browser-interceptor.test.ts](../../src/__tests__/cloudflare-browser-interceptor.test.ts), [browser-interception.test.ts](../../src/__tests__/container/browser-interception.test.ts), [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [entrypoint-oauth-ca-trust.test.js](../../host/__tests__/entrypoint-oauth-ca-trust.test.js)
 
 **Status:** Implemented
 

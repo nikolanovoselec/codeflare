@@ -157,7 +157,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
 
-**Verification:** Automated tests in the anchored runtime and host suites above.
+**Verification:** Automated: [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [reasoning-discovery.test.ts](../../src/__tests__/lib/reasoning-discovery.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
 **Status:** Implemented
 
@@ -204,7 +204,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-049](#req-enterprise-049-unified-enterprise-model-authorization)
 
-**Verification:** Anchored interceptor fixtures and CI.
+**Verification:** Automated: [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -261,7 +261,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-077](#req-enterprise-077-provider-native-bedrock-transport-dispatch)
 
-**Verification:** Automated interceptor tests.
+**Verification:** Automated: [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
@@ -522,7 +522,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection)
 
-**Verification:** Automated tests in the anchored Administration API and discovery suites above.
+**Verification:** Automated: [admin-reasoning.test.ts](../../src/__tests__/routes/admin-reasoning.test.ts), [admin-reasoning-discovery.test.ts](../../src/__tests__/routes/admin-reasoning-discovery.test.ts), [reasoning-discovery.test.ts](../../src/__tests__/lib/reasoning-discovery.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
 **Status:** Implemented
 
@@ -584,7 +584,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-038](#req-enterprise-038-enterprise-pi-selected-profile-verification)
 
-**Verification:** Anchored behavioral tests run in CI.
+**Verification:** Automated: [ReasoningProfileEditor.test.tsx](../../web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx)
 
 **Status:** Implemented
 
@@ -892,7 +892,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-012](setup.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](#req-enterprise-013-per-group-dynamic-routing)
 
-**Verification:** Automated tests in the anchored backend and web-ui suites above.
+**Verification:** Automated: [reasoning-profiles.test.ts](../../src/__tests__/lib/reasoning-profiles.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [reasoning-discovery.test.ts](../../src/__tests__/lib/reasoning-discovery.test.ts), [reasoning-configuration.test.ts](../../src/__tests__/lib/reasoning-configuration.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts)
 
 **Status:** Implemented
 
@@ -1066,7 +1066,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-050](#req-enterprise-050-native-provider-compat-dispatch), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement)
 
-**Verification:** Anchored adapter and interceptor fixtures and CI.
+**Verification:** Automated: [openai-sse-tool-name-repair.test.ts](../../src/__tests__/lib/openai-sse-tool-name-repair.test.ts), [gemini-thought-signature-adapter.test.ts](../../src/__tests__/lib/gemini-thought-signature-adapter.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 

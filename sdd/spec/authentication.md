@@ -614,7 +614,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-AUTH-020](#req-auth-020-onboarding-mode-landing-integrated-login-shell)
 
-**Verification:** Automated test ([Login page render tests](../../landing/src/__tests__/login-page.test.ts), [login script tests](../../landing/src/__tests__/login.script.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts), [auth gap tests](../../src/__tests__/lib/auth-gaps.test.ts), [auth middleware tests](../../src/__tests__/middleware/auth-saas.test.ts), [onboarding helper tests](../../src/__tests__/lib/onboarding.test.ts))
+**Verification:** Automated: [login-page.test.ts](../../landing/src/__tests__/login-page.test.ts), [login.script.test.ts](../../landing/src/__tests__/login.script.test.ts), [onboarding-login.test.ts](../../src/__tests__/routes/onboarding-login.test.ts), [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts), [auth-saas.test.ts](../../src/__tests__/middleware/auth-saas.test.ts), [onboarding.test.ts](../../src/__tests__/lib/onboarding.test.ts)
 
 **Status:** Implemented
 

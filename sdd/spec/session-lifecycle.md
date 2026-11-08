@@ -1166,13 +1166,15 @@ None.
 4. Logs contain no credentials, tokens, transcript or terminal content, or per-file paths.
 5. D1 row and statement metadata is sampled or aggregated during integration rather than emitted as another high-volume stream.
 
+**Notes:** The production transition and privacy qualification gap is documented at [the live observability finding](.review-queue.md#triage-session-025-observability).
+
 **Constraints:** Use the existing structured logger; no new telemetry framework.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-024](#req-session-024-recovery-deadline-and-termination-intent-are-durable)
 
-**Verification:** Planned structured-event and negative-volume tests.
+**Verification:** Unspecified.
 
 **Status:** Planned
 

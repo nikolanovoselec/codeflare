@@ -18,6 +18,7 @@ R2 persistence, bidirectional home synchronization, durable managed-resource rec
 - [Conflict Resolution](#conflict-resolution)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [File Browser](#file-browser-req-stor-016)
+- [Storage manual acceptance procedures](#storage-manual-acceptance-procedures)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Managed-Resource Sync Policy](#managed-resource-sync-policy-req-stor-031)
 - [Performance Characteristics](#performance-characteristics)
@@ -409,6 +410,58 @@ return an error response (4xx) rather than any listing.
 
 ---
 
+## Storage manual acceptance procedures
+
+These are methods, not executed receipts or permission to run them. Obtain explicit authorization for isolated disposable identities, buckets, sessions, faults and exact cleanup; never use production or ordinary user data. Use existing authenticated interfaces and preserve admission, encryption and managed-resource guards. Operational preparation remains with the linked private runbooks.
+
+Record the exact build, requirement/AC, synthetic fixture identity, nonsecret digests, elapsed time and observed result. PASS requires the stated observable outcomes; a violation is FAIL. Missing authorization, fixture capability or independent observation is BLOCKED, never success. Do not promote Status merely because a procedure exists.
+
+### REQ-STOR-004 startup restore acceptance
+
+1. Prepare an admitted nonempty R2 fixture file absent from a fresh disposable container. Use an approved bucket-scoped transport control to delay restore after terminal-listener readiness; do not stall a shared endpoint.
+2. Start normally. Observe listener, restore and subsequent startup events. Release the response and compare restored bytes. PASS requires post-restore configuration and agent usability to wait for successful restore; listener readiness alone is insufficient.
+3. In a separate stalled-restore case, measure from restore-start to its terminal outcome. PASS requires the existing 120-second transfer bound, recorded timeout and subsequent startup progress; distinguish event-reporting overhead from transfer duration. Indefinite blocking or wrong restored bytes fails.
+
+### REQ-STOR-005 final persistence acceptance
+
+1. After successful restore/baseline and an observed ordinary-sync completion, create a nonempty admitted fixture file. Record its digest and independently confirm R2 has not received it before requesting Stop.
+2. Use normal `POST /api/sessions/:id/stop`, not Kill or direct signals. Observe successful final sync and confirmed lifecycle stop; a stop response alone is not durability evidence.
+3. Independently download the exact key after shutdown. PASS requires matching bytes and publication attributable to the final drain, not an earlier periodic sync. Missing/corrupt bytes fails; unsuccessful sync or unavailable independent readback cannot pass this success case.
+
+### REQ-STOR-007 upload and preview acceptance
+
+1. Upload known nonempty bytes with authenticated `POST /api/storage/upload` JSON `{key, content}`, where content is base64. Independently download the encoded exact key. PASS requires matching bytes, key and reported size; rejection does not qualify storage.
+2. Prepare a small text object with an actual supported text Content-Type; simple upload stores octet-stream, so a filename suffix is insufficient. Preview through `GET /api/storage/preview?key=...`; PASS requires JSON text content and matching metadata.
+3. Preview a non-text fixture. PASS requires binary metadata without a text-content payload. Wrong bytes, absent qualifying text or leaked binary-as-text fails. The inline-download viewer is not this JSON preview endpoint.
+
+### REQ-STOR-008 multipart and shared limit acceptance
+
+1. As disposable identity A, initiate with `{key}`, upload a nonempty base64 part with `{key, uploadId, partNumber: 1, content}`, then complete with `{key, uploadId, parts: [{partNumber: 1, etag}]}` through the corresponding `/api/storage/upload/*` endpoints.
+2. PASS requires independently observed stored-part bytes or matching completed-download bytes. A returned upload ID/ETag alone is insufficient. Keep ordinary fixture keys outside managed namespaces and retain only nonsecret evidence.
+3. In a fresh A window, interleave legitimate upload phases against the shared 60-per-60-second allowance. Prepare valid phase inputs before exhaustion. PASS requires alternate phases to return 429 with retry/limit guidance after aggregate exhaustion, not separate allowances.
+4. Verify B's independent first request remains eligible and A recovers after its actual window expires. Unrelated errors or crossing a window boundary cannot qualify throttling. Abort only known disposable incomplete uploads when permitted, under explicit cleanup authorization.
+
+### REQ-STOR-015 per-user sync limit acceptance
+
+1. Use isolated A/B identities with working KV limiting and no stress bypass. Prefer no running sessions to avoid transfer fan-out; any necessary live fixture effects require separate authorization.
+2. Send six sequential authenticated `POST /api/sessions/sync` requests inside A's fresh 60-second window, then a seventh. PASS requires six admitted requests and a 429 `RATE_LIMIT_ERROR` with limit 6, remaining 0 and retry guidance.
+3. While A is exhausted, verify B remains eligible; retry A after window expiry. Cross-user exhaustion or failure to recover fails. Never rewrite limiter keys to manufacture a result.
+
+### REQ-STOR-027 Integration replacement-container marker acceptance
+
+1. Use an authorized disposable Integration bucket and a repository/PR fixture whose exact head genuinely completed its applicable review. Acknowledge through the existing completion action; record marker identity, mode, `reviewedAt` and digest without forging completion.
+2. Observe prompt local acknowledgement without a review-specific sync. Let ordinary cadence or final Stop publish the marker, then independently confirm exact R2 bytes. Direct R2 copying or forced review sync cannot supply this evidence.
+3. Replace only the authorized container, retaining bucket and repository/branch/base/head identity. After restore, PASS requires unchanged marker bytes/timestamp and completion consumption without another acknowledgement; an existing clone at the same identity must agree.
+4. Different heads/protected-base identities must not inherit completion. Missing/corrupt markers, wrong identity acceptance or extra review-triggered sync fails. Record the mode exercised; one round trip is not all-mode/device proof. Unavailable safe lookup is BLOCKED.
+
+### REQ-STOR-033 Enterprise Integration interrupted-upgrade acceptance
+
+1. Under the existing private owner runbook, separately authorize an isolated Enterprise Integration bucket, no owning workload, verified applied A/target B and bucket-scoped transport control. Preserve agent selection, mode, resource policy and release identity across retry.
+2. Include changed/new target paths and a release-identical markerless user edit. Trigger `/api/storage/seed/agent-configs/upgrade`; allow some B objects to be written and independently verified before the authorized fault interrupts remaining work. Browser cancellation alone is insufficient.
+3. Confirm proper partial effects without applied-B publication. Remove only the fixture fault and use Retry upgrade with the same target. PASS requires verified completed objects skipped, remaining changes written, unchanged user edits retained and success-only final B publication.
+4. Verify applied/current state and bytes/metadata independently of POST success. Bad-marker skips, replayed completed writes, overwritten unchanged edits or premature publication fails. Do not substitute Recreate, changed identity or manufactured provenance.
+5. Existing automated fallback/admission/Recreate checks remain separate. Record concurrency against the six-operation ceiling only when approved traces expose it. If real interruption, scope or observation is unavailable, mark BLOCKED; add no product failpoint or infrastructure.
+
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 
@@ -460,7 +513,7 @@ Six startup costs and stale-state risks are controlled (REQ-STOR-017):
 
 When an enterprise admin enables [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable), R2 SSE-C is disabled deployment-wide so the corporate bucket is readable/scannable. Each bucket's actual encryption regime + any in-flight migration is tracked by a per-bucket **state object** (`r2-regime:<bucket>` — `{status: ready|migrating|mixed-recovery, regime, from?, to?, generation, cursor?, phase?, drained?, leaseExpiresAt?, keyMd5?, stuckCount?, lastFailedKey?}`; it replaced the old boolean `UserPreferences.r2SseRegime` marker, a boolean being unable to describe a partially in-place-migrated bucket). Flipping the policy losslessly re-encrypts the bucket in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the dashboard `batch-status` poll, with the regime committed only after a full verification HEAD-scan.
 
-While a bucket migrates, running containers are drained (best-effort — a drain failure leaves a brief stray-write window, caught by the verification rescan + read self-heal), every R2 writer is gated `409 BUCKET_MIGRATING`, and reads use a dual-regime fallback (a stray cross-regime object self-heals via a `mixed-recovery` scan). Session start never performs migration; it rejects an in-flight migration before runtime admission. Record creation and starting its runtime are distinct operations. Sync behaviour follows the committed regime: rclone drops the SSE-C block from `rclone.conf` and compares by checksum once the bucket is plain. See [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) (migration mechanics; supersedes [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)) and the [Deployment lane](deployment.md#governed-mode-migration-batch-status-driven).
+Migration defers while D1 records a workload-owning session, even if that runtime is unhealthy or earlier chunks drained. Ownership is rechecked after lease admission and bounded drain, before multipart aborts or object mutations; unknown authority keeps work retryable. A benign drain timeout can proceed only after a fresh no-owner result. Background migration does not destroy owning sessions. Every R2 writer remains gated `409 BUCKET_MIGRATING`, and reads use a dual-regime fallback (a stray cross-regime object self-heals via a `mixed-recovery` scan). Session start never performs migration; it rejects an in-flight migration before runtime admission. Record creation and starting its runtime are distinct operations. Sync behaviour follows the committed regime: rclone drops the SSE-C block from `rclone.conf` and compares by checksum once the bucket is plain. See [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) (migration mechanics; supersedes [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)) and the [Deployment lane](deployment.md#governed-mode-migration-batch-status-driven).
 
 ---
 

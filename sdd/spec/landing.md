@@ -507,7 +507,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-004](#req-landing-004-first-paint-stability-and-immutable-asset-caching)
 
-**Verification:** Automated test: [build-cache-policy.test.ts](../../landing/src/__tests__/build-cache-policy.test.ts) and [built-output.test.ts](../../landing/src/__tests__/built-output.test.ts).
+**Verification:** Automated: [build-cache-policy.test.ts](../../landing/src/__tests__/build-cache-policy.test.ts), [built-output.test.ts](../../landing/src/__tests__/built-output.test.ts)
 
 **Status:** Implemented
 

@@ -94,7 +94,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
 
-**Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [child-session guard tests](../../src/__tests__/lib/pi-child-session-guard.test.ts), [session JSONL fuzz coverage](../../src/__tests__/fuzz/vault-migration.fuzz.test.ts))
+**Verification:** Automated: [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [pi-child-session-guard.test.ts](../../src/__tests__/lib/pi-child-session-guard.test.ts), [vault-migration.fuzz.test.ts](../../src/__tests__/fuzz/vault-migration.fuzz.test.ts)
 
 **Status:** Implemented
 
@@ -910,7 +910,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-028](#req-mem-028-pi-active-transcript-size-retention), [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
 
-**Verification:** Name persistence, rename/clear, exact retained-suffix bytes, budget checks and pinned-SDK resume-list/reopen outcomes.
+**Verification:** Automated: [pi-trim-byte-cut.test.js](../../host/__tests__/pi-trim-byte-cut.test.js), [pi-transcript-trimming.test.js](../../host/__tests__/pi-transcript-trimming.test.js)
 
 **Status:** Implemented
 

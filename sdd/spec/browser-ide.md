@@ -451,7 +451,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-011](#req-ide-011-file-review-with-codeflare)
 
-**Verification:** Automated test (activation and packaging tests)
+**Verification:** Automated: [packaging.test.ts](../../openvscode/agent-sidebar/test/packaging.test.ts), [activation.test.ts](../../openvscode/agent-sidebar/test/activation.test.ts)
 
 **Status:** Implemented
 
@@ -1391,7 +1391,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](#req-ide-047-bash-first-browser-ide-terminals), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Backend preference/session tests; container environment tests; host lifecycle/readiness tests; managed-settings and welcome-extension tests; frontend routing and MultiView tests
+**Verification:** Automated: [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts), [session-workspace.test.ts](../../src/__tests__/routes/session-workspace.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [workspace-readiness.test.js](../../host/__tests__/workspace-readiness.test.js), [entrypoint-openvscode.test.js](../../host/__tests__/entrypoint-openvscode.test.js), [welcome-extension.test.ts](../../openvscode/agent-sidebar/test/welcome-extension.test.ts), [managed-settings.test.mjs](../../openvscode/claude/test/managed-settings.test.mjs), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx)
 
 **Status:** Implemented
 
@@ -1417,7 +1417,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Host readiness tests; backend startup-status tests; frontend dashboard and polling tests
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [container-status.test.ts](../../src/__tests__/routes/container-status.test.ts), [workspace-readiness.test.js](../../host/__tests__/workspace-readiness.test.js), [client.test.ts](../../web-ui/src/__tests__/api/client.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [vscode-auth-chain.test.ts](../../src/__tests__/routes/vscode-auth-chain.test.ts)
 
 **Status:** Implemented
 
@@ -1445,7 +1445,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery)
 
-**Verification:** Backend authentication tests; frontend dashboard, Layout, and window-ownership tests
+**Verification:** Automated: [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [browser-ide-window.test.ts](../../web-ui/src/__tests__/lib/browser-ide-window.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vscode-auth-chain.test.ts](../../src/__tests__/routes/vscode-auth-chain.test.ts)
 
 **Status:** Implemented
 
@@ -1472,7 +1472,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-048](#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-IDE-050](#req-ide-050-browser-ide-status-and-ownership)
 
-**Verification:** Frontend dashboard and card tests
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx)
 
 **Status:** Implemented
 
@@ -1495,13 +1495,15 @@ A full code-server browser editor for an advanced running session. The editor op
 5. Client countdown expiry changes messaging only; it cannot declare stopped, close the editor or dispose workspace state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
 6. Newer authoritative `stopping`/`stopped` or successful deletion evidence permits disposal. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
 
+**Notes:** The lifecycle and retained-editor qualification gap is documented at [the live coverage queue](.review-queue.md#triage-planned-per-ac-qualification).
+
 **Constraints:** Editor readiness is separate evidence from process lifecycle and transport reachability.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-012](session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state)
 
-**Verification:** Planned lifecycle-color, accessible-notice, reconnect and retained-editor tests.
+**Verification:** Unspecified.
 
 **Status:** Planned
 

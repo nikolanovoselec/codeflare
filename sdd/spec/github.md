@@ -112,7 +112,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container), [CON-GH-003](constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding)
 
-**Verification:** Automated test ([Interceptor test](../../src/__tests__/github-interceptor.test.ts) (injection format per host incl. Copilot `api.githubcopilot.com/mcp` Bearer, fail-closed, no cross-user spoofing) + [wiring](../../src/__tests__/container/enterprise-llm.test.ts) (all three GitHub hosts) + [placeholder env](../../src/__tests__/container/container-env.test.ts))
+**Verification:** Automated: [github-interceptor.test.ts](../../src/__tests__/github-interceptor.test.ts), [enterprise-llm.test.ts](../../src/__tests__/container/enterprise-llm.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 
@@ -168,7 +168,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated container configuration and entrypoint tests
+**Verification:** Automated: [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [git-clone.test.js](../../host/__tests__/git-clone.test.js)
 
 **Status:** Implemented
 
@@ -259,7 +259,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** Automated test ([Unit test](../../src/__tests__/lib/github-token.test.ts) (disconnectGithub) + [offboarding revoke](../../src/__tests__/lib/user-cleanup.test.ts))
+**Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts)
 
 **Status:** Implemented
 
@@ -284,7 +284,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials)
 
-**Verification:** Automated test ([Container env test](../../src/__tests__/container/container-env.test.ts) (non-enterprise real `GH_TOKEN` vs enterprise placeholder))
+**Verification:** Automated: [container-env.test.ts](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 
@@ -319,7 +319,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport), [REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow), [REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)
 
-**Verification:** Automated test ([Route test](../../src/__tests__/routes/github.test.ts) + [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope test](../../src/__tests__/lib/oauth-scopes.test.ts))
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
 
 **Status:** Implemented
 

@@ -185,7 +185,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-AGENT-163](agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](agents.md#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Automated source-probe and workflow-contract tests
+**Verification:** Automated: [impeccable-engine-source.py](../../scripts/ci/impeccable-engine-source.py), [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
 
@@ -210,7 +210,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-058](#req-ops-058-fast-impeccable-native-engine-regression), [REQ-AGENT-163](agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](agents.md#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Automated deployment native-binary tests
+**Verification:** Automated: [impeccable-engine.py](../../scripts/ci/impeccable-engine.py)
 
 **Status:** Implemented
 
@@ -862,7 +862,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated tests ([suite-gates](../../src/__tests__/ci/suite-gates.test.ts), [workflow hardening](../../host/__tests__/ci-workflow-hardening.test.js)); exercise package coverage routing, coverage evidence failures, the bounded backend crash exception, and changed-line LCOV handling.
+**Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts), [ci-workflow-hardening.test.js](../../host/__tests__/ci-workflow-hardening.test.js)
 
 **Status:** Implemented
 
@@ -994,7 +994,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js)) exercises the authoritative-path truth table, workflow-cancellation stop, and deployed/no-deploy outcomes.
+**Verification:** Automated: [deploy-requires-tests.test.js](../../host/__tests__/deploy-requires-tests.test.js)
 
 **Status:** Implemented
 
@@ -1018,7 +1018,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-028](#req-ops-028-deploy-verification-and-outcome-gate)
 
-**Verification:** Automated test (host tests execute the resolver CLI through a fake GitHub boundary and evaluate the workflow gates).
+**Verification:** Automated: [validate-pr-checks-run.test.js](../../host/__tests__/validate-pr-checks-run.test.js), [deploy-requires-tests.test.js](../../host/__tests__/deploy-requires-tests.test.js), [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
 
@@ -1156,7 +1156,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image)
 
-**Verification:** Automated selector and image-identity tests
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [container-image-input-hash.test.js](../../host/__tests__/container-image-input-hash.test.js)
 
 **Status:** Implemented
 
@@ -1241,7 +1241,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
-**Verification:** Automated test (workflow-structure and fake-Docker tests execute cache-enabled and cache-unavailable build paths and assert the exact import/export arguments and permissions).
+**Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
 
@@ -1372,7 +1372,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-010](#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-STOR-002](storage.md#req-stor-002-bidirectional-sync-with-r2)
 
-**Verification:** Runtime-path, baseline, cadence, trigger, health, and final-sync tests
+**Verification:** Automated: [runtime-paths.test.js](../../host/__tests__/runtime-paths.test.js), [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js), [metrics.test.js](../../host/__tests__/metrics.test.js)
 
 **Status:** Implemented
 
@@ -1502,7 +1502,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Dependency Review configuration and committed-lock metadata tests
+**Verification:** Automated: [develop-required-checks.test.js](../../host/__tests__/develop-required-checks.test.js), [dockerfile-dependency-integrity.test.js](../../host/__tests__/dockerfile-dependency-integrity.test.js)
 
 **Status:** Implemented
 
@@ -1532,7 +1532,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks)
 
-**Verification:** Fake-Wrangler behavioral tests for preflight, resolution, creation, migration, and fail-closed ordering
+**Verification:** Automated: [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts), [ci-workflow-hardening.test.js](../../host/__tests__/ci-workflow-hardening.test.js)
 
 **Status:** Implemented
 
@@ -1587,7 +1587,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image)
 
-**Verification:** Automated configuration mutation and pinned-Wrangler parse tests
+**Verification:** Automated: [container-ssh-config.test.js](../../host/__tests__/container-ssh-config.test.js)
 
 **Status:** Implemented
 
