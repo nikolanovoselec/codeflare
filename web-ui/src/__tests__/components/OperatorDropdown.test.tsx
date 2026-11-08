@@ -14,6 +14,7 @@ const server = vi.hoisted(() => ({
   nextCursor: null as string | null, installCursor: null as string | null,
   previewError: false, installError: false, prepareError: false, startError: false, saveError: false,
   startWait: null as Promise<void> | null, reconcileError: false,
+  prepareWait: null as Promise<void> | null, inspectWait: null as Promise<void> | null,
   configuration: { renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 3600 }, retained: 'unchanged' },
   savedPolicy: null as unknown, savedRevision: null as number | null,
 }));
@@ -59,6 +60,7 @@ vi.mock('../../api/operator-management', () => ({
     return installation;
   },
   prepareInstallationActivity: async (installationId: string, invocation: unknown) => {
+    if (server.prepareWait) await server.prepareWait;
     if (server.prepareError) throw new Error('Preparation unavailable');
     const activityId = `prepared-${Object.keys(server.prepared).length + 1}`;
     server.prepared[activityId] = { installationId, invocation, phase: 'prepared' };
@@ -71,6 +73,7 @@ vi.mock('../../api/operator-management', () => ({
     return { ok: true };
   },
   getOwnedActivity: async (id: string) => {
+    if (server.inspectWait) await server.inspectWait;
     if (server.reconcileError) throw new Error('Activity unavailable');
     return { ...server.detail, activityId: id, executionStatus: server.prepared[id]?.phase ?? 'unknown' };
   },
@@ -107,6 +110,7 @@ beforeEach(() => {
   server.prepared = {}; server.nextCursor = null; server.installCursor = null;
   server.previewError = false; server.installError = false; server.prepareError = false; server.startError = false;
   server.saveError = false; server.reconcileError = false; server.startWait = null;
+  server.prepareWait = null; server.inspectWait = null;
   server.savedPolicy = null; server.savedRevision = null;
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -564,6 +568,81 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect(server.prepared).toEqual({ 'prepared-1': { installationId: 'install-1', invocation: { repository: 'acme/updates' }, phase: 'queued' } });
     expect(screen.getByRole('tab', { name: 'Runs' }).hasAttribute('disabled')).toBe(false);
   });
+
+  it('REQ-OPERATOR-099 AC3: current preview version survives segment switching and cancellation without preparing work', async () => {
+    server.preview.version = 'current-preview-v2';
+    server.preview.configuredRepository = 'acme/current-preview';
+    await review();
+    expect(screen.getByText('current-preview-v2 · Updates')).toBeVisible();
+    expect((screen.getByRole('textbox', { name: 'Repository' }) as HTMLInputElement).value).toBe('acme/current-preview');
+    await fireEvent.click(screen.getByRole('tab', { name: 'Runs' }));
+    await screen.findByRole('heading', { name: 'Recent runs' });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    expect(screen.getByText('current-preview-v2 · Updates')).toBeVisible();
+    expect(screen.getByText(/may post assessments and merge eligible pull requests/i)).toBeVisible();
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await screen.findByRole('article', { name: 'Updates' });
+    expect(server.prepared).toEqual({});
+    expect(server.configuration.renovate.automaticRuns).toBe(false);
+    expect(server.savedRevision).toBeNull();
+  });
+
+  it('REQ-OPERATOR-099 AC2: a changed revision at management read preserves configuration and never submits a scheduling save', async () => {
+    server.management = { ...server.management, installations: [{ id: 'install-1', revision: 8,
+      policy: { capabilities: ['fetch'] }, configuration: server.configuration }] };
+    const original = structuredClone(server.configuration);
+    await open('Installed');
+    await fireEvent.click(await screen.findByRole('checkbox', { name: /automatic runs/i }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await screen.findByText('Installation revision changed. Refresh before saving again.');
+    expect(server.configuration).toEqual(original);
+    expect(server.savedRevision).toBeNull();
+    expect(server.prepared).toEqual({});
+  });
+
+  it.each(['prepare', 'start', 'inspect'] as const)(
+    'REQ-OPERATOR-099 AC6: pending %s retains review and prevents another launch or dismissal', async stage => {
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      if (stage === 'prepare') server.prepareWait = gate;
+      else if (stage === 'start') server.startWait = gate;
+      else { server.startError = true; server.inspectWait = gate; }
+      await review();
+      try {
+        await fireEvent.click(screen.getByRole('button', { name: 'Start one run' }));
+        if (stage === 'inspect') {
+          await fireEvent.click(await screen.findByRole('button', { name: 'Inspect prepared activity' }));
+        } else if (stage === 'start') {
+          await waitFor(() => expect(server.prepared['prepared-1']?.phase).toBe('prepared'));
+        }
+        expect(screen.getByRole('tab', { name: 'Runs' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Close operators' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Back to installed operators' })).toBeDisabled();
+        const launch = screen.getByRole('button', { name: /start one run|starting/i });
+        expect(launch).toBeDisabled();
+        await fireEvent.click(launch);
+        await fireEvent.keyDown(document, { key: 'Escape' });
+        await fireEvent.mouseDown(document.body);
+        await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+        expect(screen.getByRole('dialog')).toBeVisible();
+        expect(screen.getByRole('heading', { name: 'Start a manual run' })).toBeVisible();
+        expect(server.prepared).toEqual(stage === 'prepare' ? {} : { 'prepared-1': {
+          installationId: 'install-1', invocation: { repository: 'acme/updates' }, phase: 'prepared' } });
+        release();
+        if (stage === 'inspect') {
+          await screen.findByText('Activity prepared-1: prepared. No new run was started.');
+          expect(screen.getByRole('tab', { name: 'Runs' })).not.toBeDisabled();
+          expect(screen.getByRole('button', { name: 'Start one run' })).toBeDisabled();
+        } else {
+          await waitFor(() => expect(server.prepared).toEqual({ 'prepared-1': {
+            installationId: 'install-1', invocation: { repository: 'acme/updates' }, phase: 'queued' } }));
+        }
+        expect(server.configuration.renovate.automaticRuns).toBe(false);
+        expect(server.savedRevision).toBeNull();
+      } finally { release(); }
+    },
+  );
 
   it('AC9: failed preparation cannot borrow an earlier activity to authorize retry', async () => {
     server.prepareError = true;
