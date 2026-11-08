@@ -1629,3 +1629,30 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Status:** Implemented
 
 ---
+
+### REQ-AGENT-230: Administrator Cloudflare OAuth client configuration
+
+**Intent:** Administrators configure the shared Cloudflare OAuth client through Setup while each user's grant remains separate.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The operator's Cloudflare OAuth client id + secret are configured in the admin-gated Setup wizard (KV; id plain, secret encrypted at rest, fail-closed without `ENCRYPTION_KEY`), mirroring the GitHub provider config ([REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
+
+**Constraints:**
+
+- One OAuth client per operator account; each user authorizes their own Cloudflare account.
+- The operator's OAuth client must be registered with `token_endpoint_auth_method = client_secret_post`.
+- Cloudflare's client-secret **rotation is broken** (Cloudflare-side bug): only the secret returned at client *creation* authenticates.
+- The exact OAuth scope set must be granted on the operator's client — see the [Configuration](../../documentation/lanes/configuration.md) lane and verify against `GET /client/v4/oauth/scopes`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-AGENT-029](agents.md#req-agent-029-deploy-credential-propagation-to-container)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---

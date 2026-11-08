@@ -260,7 +260,7 @@ For public visibility, set `client_uri`, add the `cloudflare_oauth_client_publis
 
 Public visibility is permanent and cannot be reverted to private.
 
-Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-064 AC6).
+Enter the new client id + creation secret in the admin Setup wizard ([REQ-AGENT-230](../../sdd/spec/setup.md#req-agent-230-administrator-cloudflare-oauth-client-configuration) AC1).
 
 **Verify:** the connect flow completes and the per-user token persists in `deploy-keys:<bucket>` (source `'oauth'`), then `applyCloudflareOAuthToken` injects it into the container on session start (AC4). Confirmed working on both production and integration deployments.
 
