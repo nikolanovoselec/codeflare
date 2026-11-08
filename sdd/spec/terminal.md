@@ -1545,7 +1545,7 @@ None.
 
 **Dependencies:** [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated gesture routing tests.
+**Verification:** Automated: [Fullscreen gesture routing](../../web-ui/src/__tests__/lib/touch-gestures.test.ts), [attached fullscreen input](../../host/__tests__/session-wire-protocol.test.js)
 
 **Status:** Implemented
 
@@ -1570,7 +1570,7 @@ None.
 
 **Dependencies:** [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated gesture and duplicate-suppression tests plus manual Samsung Internet tap verification.
+**Verification:** Automated: [Gesture suppression](../../web-ui/src/__tests__/lib/touch-gestures.test.ts), [Herdr cell activation](../../web-ui/src/__tests__/lib/herdr-mouse.test.ts); Manual: [Samsung tap activation](../../documentation/lanes/terminal-and-ide.md#mobile-platform-checks)
 
 **Status:** Implemented
 
@@ -1596,7 +1596,7 @@ None.
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](#req-mob-020-terminal-touch-activation)
 
-**Verification:** Manual check.
+**Verification:** Manual: [Herdr focus and history](../../documentation/lanes/terminal-and-ide.md#mobile-platform-checks)
 
 **Status:** Implemented
 
