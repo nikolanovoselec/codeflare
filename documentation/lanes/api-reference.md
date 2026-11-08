@@ -664,7 +664,7 @@ Existing deployments rebuild a verified release in the recognizable bucket befor
 Source: `src/routes/setup/custom-domain.ts`
 
 1. **Zone resolution** -- looks up the Cloudflare zone ID by trying progressively shorter domain suffixes (supports ccTLDs like `.co.uk`).
-2. **DNS upsert** -- creates or updates a proxied CNAME record pointing the custom domain to `{workerName}.{accountSubdomain}.workers.dev`.
+2. **DNS upsert** -- creates or updates a proxied CNAME record pointing the custom domain to `{workerName}.{accountSubdomain}.workers.dev`. The record name is relative to the resolved zone (`@` when the hostname equals the zone, otherwise the hostname minus the zone suffix), so a subdomain zone such as `sub.example.com` yields `app` for `app.sub.example.com`.
 3. **Worker route** -- creates the route pattern `{customDomain}/*` mapped to the worker script. Handles "already exists" errors by updating the existing route.
 
 **Step 5 -- `create_access_app`**
