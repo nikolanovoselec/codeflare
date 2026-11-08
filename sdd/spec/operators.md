@@ -1277,17 +1277,17 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Constraints:**
 
-- Original authority, policy and deadlines remain unchanged; reads grant no admission, retry or effect authority.
-- Normal-host evidence uses public SDK receipts, read events/results and retained parent metadata bound to the exact deployment/job.
-- Private SDK SQL, attachment methods and replacement reader classes are not normal-host inspection interfaces.
-- Unsupported or unavailable history fields remain explicit, never empty-history proof.
-- Historical facet records remain retained without reconstruction, migration or a startup handshake; normal-host readback cannot relabel them as newly observed work.
-- Parent scans cap at1,024 metadata entries/eight highest logical ordinals; no response bodies or legacy migration; phase bindings never supply SDK attempt IDs.
-- Export limits are 64 KiB, 32 recent batches and 64 selected lifecycle records; parent enumeration and SDK access share a10-second response-wait deadline.
-- Private bodies, raw errors and state/tool/output values are excluded; identifier correlations are SHA-256 hashes.
-- Installation/deployment/job binding is checked before and after authorized SDK access; no cross-object atomicity or completeness is inferred from one read.
-- Omitted content, older records and chunked batches remain explicit gaps, never absent-history proof.
-- Readback creates no execution logs, reservations or lifecycle mutations.
+- Reads preserve authority, policy and deadlines; no admission/retry/effect grants.
+- Normal-host evidence uses public SDK receipts/events/results and retained parent metadata bound to exact deployment/job.
+- Private SDK SQL/attachments/replacement reader classes are not normal-host interfaces.
+- Unsupported/unavailable history remains explicit, never emptiness proof.
+- Historical facets remain retained without reconstruction/migration/startup handshake, never relabelled newly observed work.
+- Parent scans: ≤1,024 metadata entries/eight highest logical ordinals; no response bodies/legacy migration or phase-derived SDK attempt IDs.
+- Exports: 64 KiB, 32 recent batches, 64 selected lifecycle records; parent enumeration/SDK access share a10-second response-wait deadline.
+- Exclude private bodies, raw errors, state/tool/output values; SHA-256 identifier correlations.
+- Check installation/deployment/job binding before/after authorized SDK access; no inferred cross-object atomicity or single-read completeness.
+- Omitted content, older records and chunked batches remain explicit gaps, never absence proof.
+- No readback execution logs, reservations or lifecycle mutations.
 
 **Priority:** P0
 
@@ -2654,20 +2654,20 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Constraints:**
 
-- Neither session ownership nor GitHub identity supplies human authority.
+- Session ownership/GitHub identity confer no human authority.
 - No new identity broker, workflow-selected principal, JWT renewal or candidate-controlled workflow.
-- Pi and Codeflare do not dispatch the automatically triggered GitHub workflow.
-- Only the authenticated claim binds run/attempt under [REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence).
-- Local `/review` remains unchanged and never starts the operator.
-- Uncertain applicability, expired authority or failed **active** remote execution cannot silently fall back or clear a check.
-- Explicitly inactive/unconfigured enrollment permits existing local review; verification must not activate remote execution.
+- Pi/Codeflare never dispatch the automatically triggered GitHub workflow.
+- Only the authenticated claim binds run/attempt ([REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence)).
+- Local `/review` never starts the operator.
+- Uncertain applicability, expired authority or failed **active** remote execution permits no silent fallback/check clearing.
+- Explicitly inactive/unconfigured enrollment permits existing local review; verification cannot activate remote execution.
 - Human authority expiry stops protected execution.
-- An Action without a matching Codeflare handoff fails closed; terminal reread never reclaims start or mints read authority.
-- Consumed status and continuation capabilities cannot be reused.
-- Browser JWTs and publisher credentials never enter Pi or the compiled child.
-- The parent verifies numeric repository, PR/head/base/merge-base, acknowledged-head ancestry and installed Action bytes.
-- Session-bound range and rejected-finding evidence are not principal authority.
-- An independent terminal receipt is retained before publication under [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering).
+- Actions without matching Codeflare handoffs fail closed; terminal reread grants neither start nor read authority.
+- Consumed status/continuation capabilities remain single-use.
+- Browser JWTs/publisher credentials never enter Pi/compiled children.
+- Parent checks numeric repository, PR/head/base/merge-base, acknowledged-head ancestry and installed Action bytes.
+- Session ranges/rejected-finding evidence confer no principal authority.
+- Retain an independent terminal receipt before publication ([REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering)).
 - Conductor creates the canonical packet after Action start.
 - Rejected reasoning alone cannot resolve findings.
 
