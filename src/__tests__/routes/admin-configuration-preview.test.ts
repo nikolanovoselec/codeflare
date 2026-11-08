@@ -630,6 +630,16 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(response.status).toBe(200);
     expect((await response.json() as { warnings: { code: string }[] }).warnings)
       .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'jwt_stamping_all_disclosure' })]));
+    const unconfirmed = await all.app.request('/admin/configuration-runs', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ section: 'securityEgress', baseRevision: 0, values: {
+        strictGatewayEgress: false, jwtStamping: { mode: 'all', destinations: [] },
+      } }),
+    });
+    expect(unconfirmed.status).toBe(400);
+    expect(await unconfirmed.json()).toMatchObject({ code: 'configuration_warning_confirmation_required',
+      warnings: [expect.objectContaining({ code: 'jwt_stamping_all_disclosure' })] });
+    expect(await all.kv.get(SETUP_KEYS.OPERATOR_JWT_STAMPING)).toBeNull();
   });
 
   it('keeps Browser Run optional but rejects incomplete effective pairs', async () => {

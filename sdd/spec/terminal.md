@@ -1262,7 +1262,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. An eligible delayed Herdr completion becomes available to normal notification delivery. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @impl: host/src/herdr-agent-status.ts::createHerdrAgentStatusCallbacks --> <!-- @impl: host/src/server.ts --> <!-- @test: host/__tests__/herdr-agent-status.test.js (routes Herdr completion to primary session notification delivery) -->
+1. An eligible delayed Herdr completion becomes available to normal notification delivery. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @impl: host/src/herdr-agent-status.ts::createHerdrAgentStatusCallbacks --> <!-- @impl: host/src/server.ts::herdrAgentStatusMonitor.start --> <!-- @test: host/__tests__/herdr-agent-status.test.js (routes Herdr completion to primary session notification delivery) -->
 2. Local display labels Pi completion `Ready for input`. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC2: labels local Pi completion as ready for input) -->
 3. Push display labels Pi completion `Ready for input`. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-039 AC3: labels Pi Push completion as ready for input) -->
 4. Local display retains `Task completed` for Claude completion. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC4: keeps local Claude completion copy task-oriented) -->
