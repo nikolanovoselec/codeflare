@@ -9,6 +9,7 @@ Default deployment execution, verification, rollback, and development references
 ## Contents
 
 - [Standard Deployment](#standard-deployment)
+- [Integration acceptance checklist](#integration-acceptance-checklist)
 - [Dormant Review enrollment](#dormant-review-enrollment)
 - [Enterprise Mode Secrets](#enterprise-mode-secrets)
 - [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
@@ -46,6 +47,31 @@ Exercise the changed user path after provider discovery returns the expected `{ 
 **Rollback:** Stop and use [Production Rollback](#production-rollback) when a changed user path fails or the deployed version does not match the reviewed tree. Do not deploy another unreviewed tree as an incident workaround.
 
 ---
+
+## Integration acceptance checklist
+
+**When:** Qualifying an Integration release before any separately authorized sampled Production promotion ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)).
+
+**Prerequisites:** Record the exact commit and Deploy run. Use authorized Integration targets and test identities; this checklist grants no production, billing, credential or deployment permission. Account operation and spend alerts must be in place before Production history is enabled.
+
+**Action:**
+
+- Verify mode-aware navigation and every applicable Environment section in Default, Onboarding, SaaS and Enterprise.
+- Perform one non-destructive Environment review and apply, including conflict, reconnect, failure and interrupted states.
+- In Enterprise AI Routing, Discover a target and review its result. For missing unsaved proof, retain the draft and use Advanced Verify or explicit Mark as verified before Review and Confirm Save; no custom-backend description or wizard is required.
+- Run bounded discovery for one target and verify the Pi 0.84.4 canary's streaming, tool call, exact result replay, logical-probe/HTTP-attempt counts and non-activation. Revalidate after a route version or declared backend changes; the canary baseline is not the installed Pi runtime version.
+- Activate a successfully checked route through explicit Review changes and Confirm Save; observed-path success requires acknowledging that other backends remain untested. Verify unchecked routes cannot be activated and a stale `baseRevision` is rejected.
+- Start Pi for an explicitly enabled fallback policy and a matching group: verify only eligible allowed routes appear, startup defaults match the policy, `/model` switches routes and tool replay completes. Disabled fallback and empty first-matching policies must grant no routes.
+- Verify Analytics empty-history and data-start states, actual period-history chart, Timekeeper-lag disclosure, user detail, deleted-user history and CSV download.
+- Verify Reports disabled state, schedule presentation, current-month test email, provider failure and delivery history.
+- Verify Activity empty and retained-run states. Confirm records contain no submitted secrets.
+- Verify five-second transition polling, 60-second stable polling, hidden cancellation, immediate visible refresh and no overlapping requests in browser network tools.
+- Verify desktop and mobile hierarchy against the approved Administration and Analytics design catalog.
+- Confirm one caught structured error and one uncaught route exception are discoverable in Integration logs.
+
+**Verify:** Retain observations bound to the exact commit, Deploy run and tested mode/target. Integration exception-visibility evidence is mandatory before sampled Production promotion; independently verify operation/spend alerts before enabling Production history. Browser and visual acceptance belongs to the operator on Integration. CI does not pretend a component snapshot proved any of this.
+
+**Rollback:** Stop promotion on failure. Restore only separately authorized Integration test changes from their recorded baseline; unresolved acceptance never grants permission to change Production or manufacture passing evidence.
 
 ## Dormant Review enrollment
 

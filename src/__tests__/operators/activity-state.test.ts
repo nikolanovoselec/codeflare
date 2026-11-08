@@ -800,6 +800,57 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await secured.getExecutionContext()).toBeNull();
   }, false));
 
+  it('REQ-OPERATOR-006/031: concurrent start yields one durable winner and observation preserves result authority', () => withActivity(async ({ activity, registry, token, ctx, activityEnv }) => {
+    const reconstructed = new OperatorActivity(ctx, activityEnv);
+    const attempts = await Promise.all([activity.startWebhook(token), reconstructed.startWebhook(token)]);
+    expect(attempts.map(attempt => attempt.ok).sort()).toEqual([false, true]);
+    const winner = attempts.find(attempt => attempt.ok);
+    if (!winner?.ok) throw new Error('Expected one successful webhook start');
+    expect(winner.phase).toBe('queued');
+    expect(winner.readCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(winner.readCapability).not.toBe(token);
+    expect(await reconstructed.getWebhookStatus(token)).toMatchObject({ ok: false });
+    expect(await reconstructed.getWebhookStatus(winner.readCapability)).toMatchObject({ ok: true, terminal: false });
+    expect(await reconstructed.redeemWebhookResult(winner.readCapability)).toEqual({ ok: false, reason: 'not-ready' });
+    expect(await reconstructed.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await reconstructed.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'Original result' } })).toMatchObject({ ok: true });
+    expect((await registry.setEnabled('operator', false, 3)).ok).toBe(true);
+    expect(await activity.redeemWebhookResult(winner.readCapability))
+      .toMatchObject({ ok: true, terminal: true, result: { output: 'Original result' } });
+    expect(await new OperatorActivity(ctx, activityEnv).startWebhook(token)).toMatchObject({ ok: false });
+  }, true, false));
+
+  it.each(['failed', 'cancelled', 'expired', 'superseded'] as const)(
+    'REQ-OPERATOR-006: returns bounded terminal evidence for %s without rerunning work', outcome => withActivity(async ({ activity, token, deadline }) => {
+      const started = await activity.startWebhook(token);
+      if (!started.ok) throw new Error('Expected webhook start');
+      if (outcome === 'expired') {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(deadline + 1);
+      } else {
+        expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+        if (outcome === 'failed') {
+          expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'failed', checkpoint: null,
+            result: { message: 'x'.repeat(64 * 1024) } })).toEqual({ ok: false, reason: 'invalid-update' });
+          expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'failed', checkpoint: null,
+            result: { message: 'Bounded failure' } })).toMatchObject({ ok: true });
+        } else if (outcome === 'cancelled') {
+          expect(await activity.cancelDrive()).toMatchObject({ ok: true });
+        } else {
+          expect(await activity.interruptDrive(1)).toMatchObject({ ok: true });
+        }
+      }
+      try {
+        const result = await activity.redeemWebhookResult(started.readCapability);
+        const status = outcome === 'cancelled' ? 'cancel-requested' : outcome === 'superseded' ? 'unknown' : outcome;
+        expect(result).toMatchObject({ ok: true, terminal: true, status });
+        expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThan(64 * 1024);
+        expect(await activity.startWebhook(token)).toMatchObject({ ok: false });
+      } finally { if (outcome === 'expired') vi.useRealTimers(); }
+    }, true, false),
+  );
+
   it('rereads identical immutable terminal bytes after lost delivery only with the original read capability', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
     const started = await activity.startWebhook(token);
     expect(started).toMatchObject({ ok: true, phase: 'queued' });

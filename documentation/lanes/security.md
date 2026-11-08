@@ -344,8 +344,8 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig -->
 <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
 <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::sidebarApproval -->
-<!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@earendil-works/pi-coding-agent/node_modules/undici -->
-<!-- @impl: preseed/npm-tools/package-lock.json::node_modules/@earendil-works/pi-coding-agent/node_modules/undici -->
+<!-- @impl: preseed/agents/pi/package-lock.json::"node_modules/undici" -->
+<!-- @impl: preseed/npm-tools/package-lock.json::"node_modules/undici" -->
 <!-- @impl: scripts/browser-ide-ui-state.py::capture -->
 <!-- @impl: scripts/ci/sign-release.sh::validate_release_source -->
 <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main -->

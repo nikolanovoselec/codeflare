@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { acknowledgeOperatorActivities, getOperatorActivity, listOperatorActivities } from '../../api/operator-activities';
+import { acknowledgeOperatorActivities, cancelOperatorActivity, getOperatorActivity, listOperatorActivities } from '../../api/operator-activities';
 import { listOperatorInstallations } from '../../api/operator-management';
 
 const detail = { activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'completed',
@@ -32,6 +32,29 @@ describe('REQ-OPERATOR-086 AC2/5: five-entry installation page wire', () => {
     vi.stubGlobal('fetch', async () => Response.json({ items: Array.from({ length: 6 }, (_, index) => installation(index + 1)), cursor: null }));
     await expect(listOperatorInstallations()).rejects.toBeDefined();
   });
+});
+
+describe('REQ-OPERATOR-036: failed activity mutations surface uncertainty instead of replaying', () => {
+  const summary = { activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'cancel-requested',
+    cleanupStatus: 'pending', collectionStatus: 'unavailable', attention: false, sessionId: null,
+    source: null, updatedAt: detail.updatedAt };
+  for (const operation of [
+    { name: 'cancel', send: () => cancelOperatorActivity('activity-1'), response: summary },
+    { name: 'acknowledge', send: () => acknowledgeOperatorActivities(4), response: { unreadCount: 0 } },
+  ]) {
+    it.each(['network', 'HTTP 503'])(`${operation.name} preserves the original %s failure even if replay would succeed`, async fault => {
+      let initialFailure = true;
+      vi.stubGlobal('fetch', async () => {
+        if (!initialFailure) return Response.json(operation.response);
+        initialFailure = false;
+        if (fault === 'network') throw new TypeError('Delivery was lost after submission');
+        return Response.json({ error: 'Unavailable' }, { status: 503 });
+      });
+      // Observable contract: an uncertain mutation must not become successful
+      // through an invisible retry. The upstream would succeed on any replay.
+      await expect(operation.send()).rejects.toBeDefined();
+    });
+  }
 });
 
 describe('REQ-OPERATOR-041: in-app owned result read', () => {
