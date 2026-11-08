@@ -108,3 +108,4 @@ One support file lives at the `sdd/` root (the path is the `/review` skill's tri
 4. Keep changed `@impl` and `@test` anchors adjacent to the acceptance criteria they support.
 5. Update owned documentation and `spec/changes.md` with the behavior change.
 6. Do not mark a touched requirement Implemented while any changed acceptance criterion is partial or unsupported.
+7. Verification names real linked automated suites and/or concrete manual procedures, never execution history; Dependencies lists only linked prerequisite REQ/CON IDs or `None.`. Follow the [canonical field contract](../preseed/agents/claude/skills/spec-enforce/SKILL.md#req-rendering-template-binding), preserve misplaced obligations in their proper owner, and never treat formatting as completion evidence.

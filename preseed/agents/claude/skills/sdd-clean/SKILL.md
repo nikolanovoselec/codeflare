@@ -113,6 +113,12 @@ Passes 4 and 5 are the legacy-import bridge. On a project where every REQ alread
 
 Before any documentation rewrite, account for every paragraph, table row, list item, diagram, link, compatibility fragment, REQ/ADR reference, and source anchor in the affected collection. If a destination is ambiguous or two facts conflict, emit a finding and leave the collection unchanged. `/sdd clean` never creates a baseline suppression or deletes content to satisfy shape.
 
+### Strict field and documentation cleanup
+
+Dependencies normalize during shape repair to exact linked prerequisite REQ/CON IDs or `None.`; never retain constraint paragraphs, implementation prose or verification evidence in that field. After the anchor bridge, normalize Verification to the canonical linked-method forms in `spec-enforce`, using independently established tests and concrete named manual procedures. Preserve every genuine acceptance obligation before removing free prose; locate or author the actual procedure from the existing contract, or record the precise gap rather than inventing a target. Reformatting never promotes Status.
+
+Documentation normalization also enforces the complete SDD-domain/documentation-owner join and alphabetical indexes under `doc-enforce`. Preserve old links and aliases when creating or consolidating an owner. Remove session, commit, CI-run and experiment chronology from operational docs, retaining its existing Git/PR/CI/Vault history and routing current safety or qualification conditions to their proper requirements/procedures/live gaps. Never create an execution-report lane, duplicate normative authority, or delete load-bearing conditions to satisfy shape.
+
 ### Per-category mechanics
 
 - **Strikethrough text** → stripped (git history is the strikethrough), except the ID and decision cells of a fully superseded ADR index row.

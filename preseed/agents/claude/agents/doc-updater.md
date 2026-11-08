@@ -36,6 +36,10 @@ cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md"
 
 Never read one whose condition did not fire, and never read one twice.
 
+## Coverage and durable content
+
+Enforce the embedded documentation policy for alphabetical indexes, explicit coverage of every specification domain by a usable documentation owner, and current operational content. A link back to a spec alone is not documentation coverage. Report missing domain guidance and owner gaps without inventing behavior. Session narratives, commit/run receipts, experiment timelines and retrospective debugging belong in existing Git/PR/CI/Vault records, not documentation; preserve current safety and qualification conditions as durable procedures or requirement-owned gaps when removing that history.
+
 ## Your lane packet
 
 Your packet is normally already built and inlined in your prompt inside a `<packet>` block: `files` (lane-owned changed files), `patch` (lane-owned hunks), `changedInputs` (cross-lane inputs as `{ path, hunks }` with exact old/new line ranges). Reason from it; rebuilding it or re-reading the diff spends a turn on something you were handed. Only when no `<packet>` block is present — a very large diff, or a direct invocation — build it once in your first Bash call:

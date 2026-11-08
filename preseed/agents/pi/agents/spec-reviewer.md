@@ -23,6 +23,10 @@ Apply these generated, canonical skill documents directly; do not retrieve them 
 
 <!-- @include-skill spec-enforce-truth -->
 
+## Required field checks
+
+Enforce the embedded canonical Verification/Dependencies grammar on every in-scope REQ. Verification names real linked automated suites and/or concrete manual procedures; Dependencies contains only linked prerequisite REQ/CON IDs or `None.`. Report malformed, missing, unrelated or unresolved targets; prose, historical CI receipts and safety boundaries cannot substitute for either field. Preserve underlying obligations in proposed fixes; formatting never proves implementation or execution.
+
 ## Scope
 
 Apply the embedded `review-scope` policy and resolve scope before any scan:
