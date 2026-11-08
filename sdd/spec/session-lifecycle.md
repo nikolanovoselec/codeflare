@@ -41,9 +41,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. Creation accepts a trimmed name and optional supported AI agent type. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody -->
 2. Each session receives a unique valid lowercase alphanumeric ID. <!-- @impl: src/lib/kv-keys.ts::generateSessionId --> <!-- @test: src/__tests__/lib/kv-keys.test.ts (generateSessionId) -->
 3. One complete non-secret D1 row durably stores owner, name, configuration, timestamps, lifecycle fencing and runtime projection fields. <!-- @impl: src/lib/session-repository.ts::create -->
-4. A missing workspace value resolves to Terminal and the immutable terminal/workspace stamps cannot be patched by clients.
-5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity.
-6. Creation remains rate-limited and storage quota is checked in SaaS mode.
+4. A missing workspace value resolves to Terminal and the immutable terminal/workspace stamps cannot be patched by clients. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @impl: src/routes/session/crud.ts::UpdateSessionBody --> <!-- @impl: src/routes/session/crud.ts::app -->
+5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession(session) = 201 --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::lifecycleGeneration: 0 = 0 -->
+6. Creation remains rate-limited and storage quota is checked in SaaS mode. <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter --> <!-- @impl: src/routes/session/crud.ts::app -->
 
 **Constraints:** Secrets remain in their established stores. Session records are never written to KV.
 
@@ -360,12 +360,12 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Before Start, one owner-indexed D1 query counts other sessions in `starting`, `running`, `unreachable`, or `stopping`.
-2. A count at or above the configured tier cap rejects Start; an explicit zero cap blocks it.
-3. Existing SaaS tier limits, non-SaaS role defaults, deployment overrides and stress-test bypass remain unchanged.
-4. Create in `stopped` does not consume capacity.
-5. D1 query failure fails Start closed rather than using KV, SDK state or stale client data.
-6. Enforcement remains best effort: concurrent Starts may both pass and exceed the nominal cap.
+1. Before Start, one owner-indexed D1 query counts other sessions in `starting`, `running`, `unreachable`, or `stopping`. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/routes/container/lifecycle-validation.ts::countsTowardSessionLimit --> <!-- @impl: src/lib/session-repository.ts::listSessions -->
+2. A count at or above the configured tier cap rejects Start; an explicit zero cap blocks it. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
+3. Existing SaaS tier limits, non-SaaS role defaults, deployment overrides and stress-test bypass remain unchanged. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
+4. Create in `stopped` does not consume capacity. <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/routes/container/lifecycle-validation.ts::countsTowardSessionLimit -->
+5. D1 query failure fails Start closed rather than using KV, SDK state or stale client data. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
+6. Enforcement remains best effort: concurrent Starts may both pass and exceed the nominal cap. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/lib/session-repository.ts::start -->
 
 **Constraints:** Do not add stronger reservation guarantees. Session KV LIST/get operations are prohibited.
 
@@ -444,13 +444,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Frequent batch status uses one owner-indexed primary-consistent D1 query, no session KV operation, no per-session query or container/SDK probe, and sends `no-store` semantics.
-2. Responses return complete session projections with lifecycle, generation, revision, readiness, incident/deadline, metrics and observation timestamps.
-3. Clients apply responses monotonically by generation and revision so delayed success or failure cannot undo newer state.
-4. For Terminal workspaces, backend `running` plus this device's connected terminal WebSocket renders green ACTIVE; without it, blue IDLE; neither label is persisted.
+1. Frequent batch status uses one owner-indexed primary-consistent D1 query, no session KV operation, no per-session query or container/SDK probe, and sends `no-store` semantics. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-repository.ts::listSessions -->
+2. Responses return complete session projections with lifecycle, generation, revision, readiness, incident/deadline, metrics and observation timestamps. <!-- @impl: src/lib/session-repository.ts::fromRow --> <!-- @impl: src/routes/session/lifecycle.ts::app -->
+3. Clients apply responses monotonically by generation and revision so delayed success or failure cannot undo newer state. <!-- @impl: web-ui/src/lib/session-presentation.ts::applyOrderedProjection --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce -->
+4. For Terminal workspaces, backend `running` plus this device's connected terminal WebSocket renders green ACTIVE; without it, blue IDLE; neither label is persisted. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
 5. `starting` and `unreachable` use yellow recovery presentation and `stopped` is gray, while D1 read failure retains the last ordered state and shows a separate status-unavailable warning.
-6. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests.
-7. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure.
+6. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/stores/session-polling.ts::handlePollingVisibilityChange -->
+7. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus -->
 
 **Constraints:** Dashboard polling never wakes a container. Authentication and revocation middleware may retain unrelated KV use.
 
@@ -828,12 +828,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. Persisted backend lifecycle is exactly `stopped`, `starting`, `running`, `unreachable`, or `stopping`; ACTIVE and IDLE are never persisted.
-2. Creating a session inserts a complete D1 row in `stopped`; only an accepted Start advances its lifecycle generation and enters `starting`.
-3. Runtime projection accepts a write only when its generation matches and its observation sequence is greater than the last accepted sequence.
-4. Delayed callbacks retain their original generation and cannot mutate a replacement lifecycle; delayed writers use conditional `UPDATE` and cannot recreate a deleted row.
-5. Every accepted mutation advances a response revision used with generation to order API responses.
-6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed.
+1. Persisted backend lifecycle is exactly `stopped`, `starting`, `running`, `unreachable`, or `stopping`; ACTIVE and IDLE are never persisted. <!-- @impl: src/lib/session-repository.ts::SessionLifecycleState --> <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation -->
+2. Creating a session inserts a complete D1 row in `stopped`; only an accepted Start advances its lifecycle generation and enters `starting`. <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::start -->
+3. Runtime projection accepts a write only when its generation matches and its observation sequence is greater than the last accepted sequence. <!-- @impl: src/lib/session-repository.ts::project -->
+4. Delayed callbacks retain their original generation and cannot mutate a replacement lifecycle; delayed writers use conditional `UPDATE` and cannot recreate a deleted row. <!-- @impl: src/container/container-metrics.ts::captureMetricsExecution --> <!-- @impl: src/lib/session-repository.ts::project --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed -->
+5. Every accepted mutation advances a response revision used with generation to order API responses. <!-- @impl: src/lib/session-repository.ts::project --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @impl: web-ui/src/lib/session-presentation.ts::applyOrderedProjection -->
+6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed. <!-- @impl: src/lib/session-repository.ts::reconcileRuntime --> <!-- @impl: src/lib/session-repository.ts::claimUnreachableTermination -->
 7. Only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit writes `stopped`; transport failure, D1 failure, signal acceptance, elapsed time, an owner read, or SDK state does not. Uncertain exit preserves `stopping` and termination ownership. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
 
 **Constraints:** D1 owns shared lifecycle truth. The Durable Object retains SDK/process identity, assigned generation, observation sequence and schedules, but not competing lifecycle business truth.
