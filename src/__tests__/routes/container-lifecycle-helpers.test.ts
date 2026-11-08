@@ -77,17 +77,10 @@ vi.mock('../../lib/agent-config', () => ({
 
 const mockListAllKvKeys = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
 vi.mock('../../lib/kv-keys', async () => ({
-  // Real pure helpers (buildSessionMetadata, expandSessionMetadata, ...) come
-  // from the actual module; only listAllKvKeys / putSessionWithMetadata are
-  // overridden so the test controls KV interaction.
+  // Keep unrelated KV helpers real except for the existing preference/list overrides.
   ...(await vi.importActual<typeof import('../../lib/kv-keys')>('../../lib/kv-keys')),
-  getSessionKey: vi.fn((bucket: string, sessionId: string) => `session:${bucket}:${sessionId}`),
   getPreferencesKey: vi.fn((bucket: string) => `user-prefs:${bucket}`),
   listAllKvKeys: mockListAllKvKeys,
-  getSessionPrefix: vi.fn((bucket: string) => `session:${bucket}:`),
-  putSessionWithMetadata: vi.fn(async (kv: unknown, key: string, session: unknown) => {
-    await (kv as { put: (k: string, v: string) => Promise<void> }).put(key, JSON.stringify(session));
-  }),
 }));
 
 vi.mock('../../lib/container-helpers', () => ({
@@ -151,43 +144,38 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(result.id).toBe('session1');
     });
 
-    it('REQ-SESSION-028 AC1: reads only metadata-less non-target sessions when enforcing the limit', async () => {
-      const currentKey = 'session:bucket:session1';
-      const legacyKey = 'session:bucket:legacy00000001';
-      mockKV._set(currentKey, {
-        id: 'session1', name: 'Current', status: 'stopped', createdAt: '2024-01-01T00:00:00Z',
-      });
-      mockKV._set(legacyKey, {
-        id: 'legacy00000001', name: 'Legacy', status: 'running', createdAt: '2024-01-01T00:00:00Z',
-      });
-      mockListAllKvKeys.mockResolvedValue([
-        { name: currentKey, metadata: { s: 's' } },
-        { name: 'session:bucket:metadata00001', metadata: { s: 'r' } },
-        { name: legacyKey },
-      ]);
-
-      await validateSessionAndCheckLimits({
-        env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
-        bucketName: 'bucket',
-        sessionId: 'session1',
-        maxSessions: 3,
-      });
-
-      const readKeys = mockKV.get.mock.calls.map(([key]) => key);
-      expect(readKeys).toContain(currentKey);
-      expect(readKeys).toContain(legacyKey);
-      expect(readKeys).not.toContain('session:bucket:metadata00001');
-    });
+    it.each(['starting', 'running', 'unreachable', 'stopping'] as const)(
+      'REQ-SESSION-007/028: enforces D1 %s capacity independently of legacy KV sessions', async (status) => {
+        // D1 adapter backing and request KV are deliberately independent.
+        const authority = createMockKV();
+        authority._set('session:bucket:session1', {
+          id: 'session1', name: 'Current', status: 'stopped', createdAt: '2024-01-01T00:00:00Z',
+        });
+        authority._set('session:bucket:owning00000001', {
+          id: 'owning00000001', name: 'Owned workload', status, createdAt: '2024-01-01T00:00:00Z',
+        });
+        mockKV._set('session:bucket:legacy00000001', { id: 'legacy00000001', status: 'running' });
+        mockKV._set('session:bucket:legacy00000002', { id: 'legacy00000002', status: 'running' });
+        const params = {
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(authority) } as Env,
+          bucketName: 'bucket', sessionId: 'session1', maxSessions: 2,
+        };
+        await expect(validateSessionAndCheckLimits(params)).resolves.toMatchObject({ id: 'session1', name: 'Current' });
+        await expect(validateSessionAndCheckLimits({ ...params, maxSessions: 1 }))
+          .rejects.toMatchObject({ code: 'QUOTA_EXCEEDED', statusCode: 402 });
+      },
+    );
 
     it('throws NotFoundError when session does not exist', async () => {
+      mockKV._set('session:bucket:nonexistent', { id: 'nonexistent', status: 'running' });
       await expect(
         validateSessionAndCheckLimits({
-          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(mockKV), } as Env,
+          env: { KV: mockKV as unknown as KVNamespace, USAGE_DB: createMockSessionD1(createMockKV()) } as Env,
           bucketName: 'bucket',
           sessionId: 'nonexistent',
           maxSessions: 3,
         })
-      ).rejects.toThrow('Session');
+      ).rejects.toMatchObject({ code: 'NOT_FOUND', statusCode: 404, message: expect.stringContaining('Session') });
     });
 
     it('throws RateLimitError when at max sessions', async () => {

@@ -538,11 +538,11 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Session CRUD, discovery, status, metrics, admission, terminal/editor authorization, sync fanout, managed reconciliation and user cleanup perform no session KV LIST/get/write.
-2. There is no legacy-session import, backfill, dual write, shadow projection, fallback read or reverse migration.
-3. Session-specific KV helpers and list metadata types are removed or narrowed so unrelated KV data remains intact.
-4. A stopped session remains an ordinary D1 row until Delete hard-deletes it.
-5. Post-cutover rollback uses a reviewed D1-compatible build or forward fix and never a KV-only Worker.
+1. Session CRUD, discovery, status, metrics, admission, terminal/editor authorization, sync fanout, managed reconciliation and user cleanup perform no session KV LIST/get/write. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @impl: src/lib/session-helpers.ts::listRunningSessionIds --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer -->
+2. There is no legacy-session import, backfill, dual write, shadow projection, fallback read or reverse migration. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @impl: migrations/usage/0003_complete_session_cutover.sql::session_cutover -->
+3. Session-specific KV helpers and list metadata types are removed or narrowed so unrelated KV data remains intact. <!-- @impl: src/lib/kv-keys.ts::listAllKvKeys --> <!-- @impl: src/lib/kv-keys.ts::getPreferencesKey -->
+4. A stopped session remains an ordinary D1 row until Delete hard-deletes it. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed -->
+5. Post-cutover rollback uses a reviewed D1-compatible build or forward fix and never a KV-only Worker. <!-- @manual: Before an authorized rollback, review candidate D1 compatibility and retained session authority using documentation/lanes/deployment.md#production-rollback and documentation/lanes/container.md#cutover-boundary; reject KV-only builds or choose a reviewed forward fix. No rollback qualification is claimed by this procedure. -->
 
 **Constraints:** Credentials, preferences, configuration, entitlements, managed releases, storage caches and unrelated records remain in existing stores.
 
@@ -1190,7 +1190,7 @@ None.
 1. Failure to schedule required recovery, reconciliation, termination or confirmed-exit work is logged with generation and incident identity and propagates to its lifecycle caller.
 2. Failed authoritative mutations retain retryable ownership and cannot be converted into `stopped` or successful recovery. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/lib/session-repository.ts::recoverUnreachable --> <!-- @impl: src/lib/session-repository.ts::confirmStoppedOrObserved -->
 3. Retry work is bounded, duplicate-safe and non-billable. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/lib/session-repository.ts::markRecoveryForceStarted -->
-4. If lifecycle authority cannot be established, Start, Stop, Delete, migration and destructive reconciliation fail closed.
+4. If lifecycle authority cannot be established, Start, Stop, Delete, migration and destructive reconciliation fail closed. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/lib/migration-containers.ts::hasHealthyContainer --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer -->
 
 **Constraints:** A D1 failure and a host-transport failure remain distinct conditions.
 

@@ -1,113 +1,7 @@
 /**
- * KV key utilities for session management
+ * KV key utilities and session name/ID helpers
  */
-import type { Session } from '../types';
-import { NotFoundError } from './error-types';
 import { createLogger } from './logger';
-
-/**
- * Compressed metadata embedded in KV list keys for session status.
- * batch-status reads this instead of N individual KV.get calls.
- * Must fit within Cloudflare KV's 1024-byte metadata limit (~195 bytes worst case).
- */
-export interface SessionListMetadata {
-  /** status: 'r' = running, 'i' = initializing, 's' = stopped */
-  s?: 'r' | 'i' | 's';
-  /** lastActiveAt ISO string */
-  la?: string;
-  /** lastStartedAt ISO string */
-  sa?: string;
-  /** Browser IDE editor readiness: 1 = ready, 0 = warming/failed. */
-  er?: 0 | 1;
-  /** Browser IDE bounded warm-up failure. */
-  ee?: 1;
-  /** metrics */
-  m?: {
-    /** cpu */
-    c?: string;
-    /** mem */
-    e?: string;
-    /** hdd */
-    h?: string;
-    /** syncStatus */
-    y?: string;
-    /**
-     * updatedAt: wall-clock heartbeat re-stamped by collectMetrics every tick
-     * regardless of PTY input. For the metrics-staleness display ONLY - it is
-     * NOT a liveness signal (it freezes whenever the collectMetrics alarm loop
-     * is not running, e.g. during DO/container hibernation). KV `status` is the
-     * no-wake dashboard projection written by lifecycle hooks; terminal and
-     * managed-mutation admission use persisted Container SDK state. A heartbeat-
-     * age heuristic here previously caused false "stopped" kicks; removed in
-     * codeflare#153.
-     */
-    u?: string;
-  };
-}
-
-/** Build compressed list metadata from a Session object. */
-export function buildSessionMetadata(session: Session): SessionListMetadata {
-  const meta: SessionListMetadata = {
-    s: session.status === 'running' ? 'r' : 's',
-    la: session.lastActiveAt,
-    sa: session.lastStartedAt,
-    ...(typeof session.editorReady === 'boolean' && { er: session.editorReady ? 1 : 0 }),
-    ...(session.editorReadyError === true && { ee: 1 }),
-  };
-  if (session.metrics) {
-    meta.m = {
-      ...(session.metrics.cpu && { c: session.metrics.cpu }),
-      ...(session.metrics.mem && { e: session.metrics.mem }),
-      ...(session.metrics.hdd && { h: session.metrics.hdd }),
-      ...(session.metrics.syncStatus && { y: session.metrics.syncStatus }),
-      ...(session.metrics.updatedAt && { u: session.metrics.updatedAt }),
-    };
-  }
-  return meta;
-}
-
-/** Expand compressed metadata to the shape batch-status returns. */
-export function expandSessionMetadata(meta: SessionListMetadata): {
-  status: string;
-  ptyActive: boolean;
-  lastActiveAt: string | null;
-  lastStartedAt: string | null;
-  editorReady?: boolean;
-  editorReadyError?: boolean;
-  metrics?: Session['metrics'];
-} {
-  const isRunning = meta.s === 'r';
-  return {
-    status: isRunning ? 'running' : 'stopped',
-    ptyActive: isRunning && meta.er === undefined,
-    lastActiveAt: meta.la || null,
-    lastStartedAt: meta.sa || null,
-    ...(meta.er !== undefined && { editorReady: meta.er === 1 }),
-    ...(meta.ee === 1 && { editorReadyError: true }),
-    ...(meta.m && {
-      metrics: {
-        ...(meta.m.c && { cpu: meta.m.c }),
-        ...(meta.m.e && { mem: meta.m.e }),
-        ...(meta.m.h && { hdd: meta.m.h }),
-        ...(meta.m.y && { syncStatus: meta.m.y }),
-        ...(meta.m.u && { updatedAt: meta.m.u }),
-      },
-    }),
-  };
-}
-
-/**
- * Write a session to KV with synchronized list metadata.
- * All session KV.put calls MUST use this to keep metadata in sync.
- */
-export async function putSessionWithMetadata(
-  kv: KVNamespace,
-  key: string,
-  session: Session,
-): Promise<void> {
-  const metadata = buildSessionMetadata(session);
-  await kv.put(key, JSON.stringify(session), { metadata });
-}
 
 /**
  * Extract the email address from a KV key like "user:alice@example.com"
@@ -129,20 +23,6 @@ export function sanitizeSessionName(name: string): string {
   // Allowlist: a-z A-Z 0-9 space hyphen underscore hash
   // Uses replace (not regex alternation) to ensure single-pass filtering
   return name.replace(/[^a-zA-Z0-9 #_-]/g, '').trim() || 'Untitled';
-}
-
-/**
- * Get KV key for a session
- */
-export function getSessionKey(bucketName: string, sessionId: string): string {
-  return `session:${bucketName}:${sessionId}`;
-}
-
-/**
- * Get KV prefix for user sessions
- */
-export function getSessionPrefix(bucketName: string): string {
-  return `session:${bucketName}:`;
 }
 
 /** KV key for one user-owned Web Push subscription endpoint digest. */
@@ -169,17 +49,6 @@ export function generateSessionId(): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
-}
-
-/**
- * Fetch a session from KV or throw NotFoundError if it doesn't exist.
- */
-export async function getSessionOrThrow(kv: KVNamespace, key: string): Promise<Session> {
-  const session = await kv.get<Session>(key, 'json');
-  if (!session) {
-    throw new NotFoundError('Session');
-  }
-  return session;
 }
 
 /**
@@ -472,7 +341,7 @@ export async function getBaseUrl(kv: KVNamespace, requestUrl: string): Promise<s
  * limit to prevent infinite loops.
  *
  * @param kv - KV namespace binding
- * @param prefix - Key prefix to list (e.g., "user:" or "session:bucket:")
+ * @param prefix - Key prefix to list (e.g., "user:" or "pushsub:bucket:")
  * @returns Array of all matching keys across all pages
  * @throws If more than MAX_KV_LIST_ITERATIONS pages are encountered (indicates infinite pagination)
  */

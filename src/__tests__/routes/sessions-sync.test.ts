@@ -17,7 +17,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
-import { buildSessionMetadata } from '../../lib/kv-keys';
 
 vi.mock('../../lib/logger', () => ({
   createLogger: vi.fn(() => ({
@@ -85,7 +84,7 @@ describe('CF-040 / REQ-STOR-015: POST /api/sessions/sync fan-out', () => {
 
   function seedRunning(id: string) {
     const session = makeSession(id, 'running');
-    mockKV._set(`session:test-bucket:${id}`, session, buildSessionMetadata(session));
+    mockKV._set(`session:test-bucket:${id}`, session);
   }
 
   // AC1: every running session is triggered (host returns 202).
@@ -138,7 +137,7 @@ describe('CF-040 / REQ-STOR-015: POST /api/sessions/sync fan-out', () => {
   it('skips stopped sessions (only running sessions are fanned out)', async () => {
     seedRunning('aabbccdd11223344');
     const stopped = makeSession('eeff001122334455', 'stopped');
-    mockKV._set('session:test-bucket:eeff001122334455', stopped, buildSessionMetadata(stopped));
+    mockKV._set('session:test-bucket:eeff001122334455', stopped);
     containerBehavior.map.set('test-bucket-aabbccdd11223344', { status: 202 });
 
     const app = createApp();

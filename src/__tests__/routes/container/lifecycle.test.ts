@@ -98,15 +98,10 @@ vi.mock('../../../lib/kv-keys', async () => ({
   // r2-migration reads via the /start ensureBucketAndSeed path) resolve — mirrors
   // the container-lifecycle-helpers test. Only KV-interaction helpers are overridden.
   ...(await vi.importActual<typeof import('../../../lib/kv-keys')>('../../../lib/kv-keys')),
-  getSessionKey: vi.fn((bucket: string, sessionId: string) => `session:${bucket}:${sessionId}`),
   getPreferencesKey: vi.fn((bucket: string) => `user-prefs:${bucket}`),
   getLlmKeysKey: vi.fn((bucket: string) => `llm-keys:${bucket}`),
   getDeployKeysKey: vi.fn((bucket: string) => `deploy-keys:${bucket}`),
   listAllKvKeys: vi.fn(async () => []),
-  getSessionPrefix: vi.fn((bucket: string) => `session:${bucket}:`),
-  putSessionWithMetadata: vi.fn(async (kv: unknown, key: string, session: unknown) => {
-    await (kv as { put: (k: string, v: string) => Promise<void> }).put(key, JSON.stringify(session));
-  }),
 }));
 
 // Mock container-helpers

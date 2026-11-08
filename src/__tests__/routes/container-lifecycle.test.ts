@@ -69,7 +69,7 @@ vi.mock('../../lib/circuit-breakers', () => ({
 import lifecycleRoutes from '../../routes/container/lifecycle';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { seedGettingStartedDocs } from '../../lib/r2-seed';
-import { buildSessionMetadata, SETUP_KEYS } from '../../lib/kv-keys';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 
 describe('Container Lifecycle Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -760,11 +760,11 @@ describe('Container Lifecycle Routes', () => {
           lastAccessedAt: new Date().toISOString(),
           metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: new Date().toISOString() },
         };
-        mockKV._set(`session:test-bucket:${id}`, session, buildSessionMetadata(session));
+        mockKV._set(`session:test-bucket:${id}`, session);
       }
-      // ... plus a 3rd running session whose heartbeat is stale. KV status is
-      // authoritative (the container writes 'stopped' on exit), so it still
-      // counts -> 3 running == limit of 3 -> the new start is blocked.
+      // ... plus a 3rd running session whose heartbeat is stale. The shared
+      // fixture presents these records through its D1 adapter; heartbeat age
+      // does not release capacity -> 3 running == limit of 3 -> Start is blocked.
       const stale = {
         id: 'stalesession0000000001',
         name: 'Stale',
@@ -774,7 +774,7 @@ describe('Container Lifecycle Routes', () => {
         lastAccessedAt: new Date().toISOString(),
         metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: staleU },
       };
-      mockKV._set('session:test-bucket:stalesession0000000001', stale, buildSessionMetadata(stale));
+      mockKV._set('session:test-bucket:stalesession0000000001', stale);
 
       const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
         method: 'POST',

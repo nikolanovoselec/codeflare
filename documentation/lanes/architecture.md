@@ -331,7 +331,7 @@ Visible panes own terminal sockets/resize; hidden running sessions mount neither
 | Per-isolate caches | Isolate | TTL/reset, ephemeral | Owning module | Configuration/Billing/Security |
 | Vault/cumulative graph content | User | R2-backed Vault/published graph after exact success | Root-owned extraction; consumers | Vault |
 
-Bucket creation is lazy/idempotent. Start and storage browse ensure it exists; specialist owners handle seeding and mode reconciliation. The legacy status metadata helper is preserved only as a historical traceability pointer: <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> The original status reader pointer remains <!-- @impl: src/routes/session/lifecycle.ts::app -->; its current source reads D1.
+Bucket creation is lazy/idempotent. Start and storage browse ensure it exists; specialist owners handle seeding and mode reconciliation. The retired legacy status metadata helper is preserved only as an [immutable historical traceability pointer](https://github.com/nikolanovoselec/codeflare/blob/690bb312effaa5561515fc766ba003f70e7d97d2/src/lib/kv-keys.ts#L103-L110). The original status reader pointer remains <!-- @impl: src/routes/session/lifecycle.ts::app -->; its current source reads D1.
 
 ## Data Flow
 
