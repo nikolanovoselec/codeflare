@@ -1500,7 +1500,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -1529,7 +1529,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Manual check
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -1977,7 +1977,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** Manual check
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2007,7 +2007,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2073,7 +2073,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2137,7 +2137,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2311,7 +2311,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2388,7 +2388,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow)
 
-**Verification:** Automated tests and manual verification ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts); Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -4450,7 +4450,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Automated tests and manual verification ([test anchor parser](../../host/__tests__/test-anchor-parser.test.js))
+**Verification:** Automated: [test-anchor-parser.test.js](../../host/__tests__/test-anchor-parser.test.js); Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -4946,7 +4946,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -4977,7 +4977,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-044](#req-agent-044-review-agent-discipline-enforcement), [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -5009,7 +5009,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -5040,7 +5040,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
 
-**Verification:** Manual review
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -5064,7 +5064,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
