@@ -22,6 +22,8 @@ This skill checks that the spec says what it claims by cross-referencing tests a
 
 ## Output
 
+**Clean/unleashed repair rule:** the root repairs unambiguous source/test locators, traceability and stale metadata after verifying actual bodies and the applicable contract. This is the exception to the no-auto-fix/escalation defaults below, not permission to infer behavior from names or rewrite a contract to fit code. Resolve judgment from an applicable accepted decision; otherwise preserve it and block for that exact decision. A recorded truth finding is not a completed cleanup repair. Report-only review remains unchanged.
+
 Returns findings array + auto-fix actions. Every finding names REQ, AC, anchor, searched evidence, severity, and smallest correction. Give each anchor one direct verification pass; truth mismatches are escalated, never guessed away. Writes evidence-count rows back to the spine's manifest:
 - `CQ-TEST — Test-anchor coverage`: `ran (N REQs, M findings)` or `inert (enforce_tdd: false)`
 - `CQ-SOURCE — Source-anchor truth-check`: `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` — ALWAYS runs, never inert
@@ -219,4 +221,4 @@ LOW: none emitted by this skill.
 Mode-dependent action:
 - `interactive`: confirm before applying any fix
 - `auto`: auto-fix CRITICAL + HIGH + MEDIUM where mechanical (CQ-SOURCE/CQ-TEST HIGH is NOT auto-fixable — an orphaned anchor or value drift requires JUDGMENT; escalate)
-- `unleashed`: auto-fix everything including LOW; Truth HIGHs still escalate to triage (Truth findings never silently rewrite)
+- `unleashed`: apply the verified clean-repair rule above, including LOW; unresolved truth judgments block cleanup, never silently rewrite. Review remains report-only.
