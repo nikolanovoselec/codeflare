@@ -68,9 +68,9 @@ RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/63837fb778d6a39f02be0
 # ---- Unchanged lazygit release rebuilt with the pinned, fixed Go toolchain ----
 FROM rclone-builder AS lazygit-builder
 WORKDIR /src/lazygit
-RUN LAZYGIT_VERSION="0.66.2" && \
+RUN LAZYGIT_VERSION="0.66.3" && \
     LAZYGIT_COMMIT="63ab89fff478854deb4a35ef8902676b3cc5ca72" && \
-    LAZYGIT_SHA256="0522f103eef4fda056562c1509a465ed19ba112192b3db9fbfde7eb9e2180c94" && \
+    LAZYGIT_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
     curl -fsSL "https://codeload.github.com/jesseduffield/lazygit/tar.gz/${LAZYGIT_COMMIT}" -o /tmp/lazygit-src.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit-src.tar.gz" | sha256sum -c - && \
     tar --strip-components=1 -xzf /tmp/lazygit-src.tar.gz && rm /tmp/lazygit-src.tar.gz && \
