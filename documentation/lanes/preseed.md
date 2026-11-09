@@ -200,7 +200,7 @@ Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mod
 `?? 'default'` fallback. Under `ENTERPRISE_MODE`, it short-circuits to
 `'advanced'` before consulting `prefs`, so a JIT-provisioned enterprise
 user with no stored preference still resolves to Pro
-([REQ-ENTERPRISE-001](../../sdd/spec/subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2).
+([REQ-ENTERPRISE-001](../../sdd/spec/subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2). All callers must read through this single resolver rather than checking the raw field directly ([REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC2). <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) -->
 
 **When mode takes effect**: On any of: explicit "Recreate AI agent
 skills & rules" click, new bucket creation, Stripe mode change
