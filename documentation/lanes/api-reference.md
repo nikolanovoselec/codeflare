@@ -390,6 +390,8 @@ The pre-Hono, pre-auth 400 keeps the full default security-header set; every oth
 | DELETE | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Remove allowed user (admin only) |
 | PATCH | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Update user tier/role (admin only) |
 
+`GET /api/user` also exposes `downloadsDisabled`; Storage Panel controls remain visible and tappable in their blocked styling, and interactions show the administrator-disabled notice instead of fetching ([REQ-ENTERPRISE-019](../../sdd/spec/storage.md#req-enterprise-019-view-only-storage-download-disable) AC4).
+
 For `GET /api/user`, current workers return `allowedAgents`. During a rolling upgrade, a successful response from an older worker may omit this optional field; the UI then hydrates the deployment-mode legacy catalog rather than remaining in its pre-hydration state ([REQ-AGENT-124](../../sdd/spec/agents.md#req-agent-124-agent-choice-profile-hydration)).
 
 ## Notifications
@@ -891,6 +893,10 @@ In SaaS mode, returns empty arrays - admin enters everything manually.
 ```json
 {"adminUsers": ["alice@example.com"], "allowedUsers": ["bob@example.com"]}
 ```
+
+Enterprise configure/prefill uses `dynamicRoutes` for the catalog; an absent/empty enterprise catalog is rejected with 400 before KV writes. Gateway prefill carries non-secret `aigGatewayUrl`, optional `aigGatewayId` and masked-presence `aigTokenSet`, never its token; absent storage reports unset/empty. These Gateway fields are omitted outside enterprise mode ([REQ-ENTERPRISE-012](../../sdd/spec/setup.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-017](../../sdd/spec/setup.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)).
+
+`r2SseDisabled` and `downloadsDisabled` are enterprise-only Setup booleans round-tripped by prefill. Their `configure_r2_sse` / `configure_downloads_disabled` steps store `'active'`/`'inactive'`; non-enterprise configure never writes them, and prefill omits them. Download-disable prefill is true for active stored policy and false when absent ([REQ-ENTERPRISE-018](../../sdd/spec/storage.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-019](../../sdd/spec/storage.md#req-enterprise-019-view-only-storage-download-disable)).
 
 Under `ENTERPRISE_MODE` the response additionally carries the stored enterprise configuration for wizard round-trip: Access groups, route catalog, context windows, capability-profile assignments, masked token flags, and toggles. Legacy GLM/Kimi assignments are surfaced as unpersisted migration proposals; GPT-OSS is surfaced unresolved rather than silently activated. The response also includes `activeAgents` (the stored coding-agent selection intersected with installed CLIs, or every installed capable agent when absent/invalid) and `configurableAgents` (the build-installed subset of the governable `copilot`, `pi` universe); both agent fields are omitted outside enterprise mode ([REQ-ENTERPRISE-025](../../sdd/spec/setup.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-ENTERPRISE-031](../../sdd/spec/models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-AGENT-123](../../sdd/spec/agents.md#req-agent-123-installed-agent-runtime-availability)).
 

@@ -956,9 +956,9 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. When the Enterprise-mode binding is set, the subscription/billing settings surfaces (tier display, plan switching, usage-quota controls) are hidden in the frontend. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
-2. When the Enterprise-mode binding is set, the `/app/subscribe` route is guarded so it does not render the tier-selection or checkout flow. <!-- @impl: web-ui/src/App.tsx::SubscribeGuard --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (REQ-ENTERPRISE-002 AC2: subscribe route guard) -->
+2. When the Enterprise-mode binding is set, subscription navigation is guarded so it renders neither tier selection nor checkout. <!-- @impl: web-ui/src/App.tsx::SubscribeGuard --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (REQ-ENTERPRISE-002 AC2: subscribe route guard) -->
 3. The frontend determines whether to hide billing surfaces from a deploy-time mode signal, not from the user's tier. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002) -->
-4. When the Enterprise-mode binding is unset, the subscription UI and `/app/subscribe` behave byte-identically to current behavior. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002) -->
+4. When the Enterprise-mode binding is unset, subscription navigation and UI remain byte-identical to existing behavior. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002) -->
 
 **Constraints:**
 
