@@ -228,7 +228,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -262,7 +262,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionContextMenu.test.tsx](../../web-ui/src/__tests__/components/SessionContextMenu.test.tsx), [session-kill.test.ts](../../web-ui/src/__tests__/stores/session-kill.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -295,7 +295,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [session-kill.test.ts](../../src/__tests__/routes/session-kill.test.ts), [session-kill.test.ts](../../src/__tests__/container/session-kill.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -326,7 +326,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [session-kill.test.ts](../../src/__tests__/container/session-kill.test.ts), [session-kill.test.ts](../../src/__tests__/routes/session-kill.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

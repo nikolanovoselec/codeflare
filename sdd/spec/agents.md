@@ -2605,7 +2605,7 @@ None.
 
 **Verification:** Automated: [safe-local-check.test.js](../../host/__tests__/safe-local-check.test.js), [pi-local-build-guard.test.ts](../../src/__tests__/lib/pi-local-build-guard.test.ts), [safe-local-check-image.test.js](../../host/__tests__/safe-local-check-image.test.js)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2631,7 +2631,7 @@ None.
 
 **Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
-**Status:** Planned
+**Status:** Implemented
 ---
 
 <a id="req-agent-192-image-baked-typescript-syntax-parser"></a>
@@ -2653,6 +2653,8 @@ None.
 6. Managed sessions can parse YAML without installing project dependencies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::checkYaml --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check-image.test.js (parses YAML using the image library without dependencies or repository mutation) -->
 
 7. ESLint runs only from an existing repository installation; without one, the wrapper refuses rather than using an image copy or another analyzer. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check-image.test.js (requires repository-installed ESLint without substituting an image analyzer) -->
+
+**Notes:** Image-baked implementation and conditional image tests exist; qualifying image-run execution remains to be established. Skipped host-run image tests do not provide that evidence.
 
 **Constraints:**
 
@@ -5267,7 +5269,7 @@ None.
 
 **Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
