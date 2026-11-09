@@ -1488,14 +1488,14 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Acceptance Criteria:**
 
-1. The lifecycle indicator is yellow while backend lifecycle is `starting` or `stopping`, green while `running` after editor readiness, and gray when `stopped`. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
-2. Backend `unreachable` retains the editor object and shows a separate accessible connectivity/recovery notice without changing the running indicator to yellow. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
-3. D1 status failure retains the last ordered lifecycle and editor state and shows a distinct status-unavailable notice. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
-4. Recovery reconnects to the existing session without invoking Start. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
-5. Client countdown expiry changes messaging only; it cannot declare stopped, close the editor or dispose workspace state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard -->
-6. Newer authoritative `stopping`/`stopped` or successful deletion evidence permits disposal. <!-- @impl: web-ui/src/stores/session.ts::refreshSessionStatuses -->
+1. Starting/stopping indicators are yellow. Running/unreachable indicators are green after editor readiness, otherwise gray; stopped is gray. Session errors and editor-readiness errors remain red. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-050 AC1: maps VS Code readiness %o to %s) -->
+2. Backend `unreachable` does not close the retained external editor window or turn a ready editor's indicator yellow. The editor runs in a separate browser window or tab, not a mounted Dashboard editor component. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+3. Status-read failure retains the last accepted ordered lifecycle and readiness state. The Dashboard presents a distinct accessible status-unavailable notice. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-010/029: %s announces unavailable status without replacing cards and clears on recovery) -->
+4. Explicit Open for a ready running/unreachable editor focuses its live retained window or opens its named session target when no live handle remains, without invoking Start. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-010 AC5 / REQ-AGENT-175 AC3: unreachable ready editor opens during pending update without starting) --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC2: focuses a live retained handle without navigation or a second open) -->
+5. Client countdown expiry cannot declare the session stopped, close its editor window or dispose workspace state. No recovery-countdown display is required. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+6. Newer authoritative `stopping`/`stopped` or successful deletion evidence permits disposal. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/stores/session.ts::sessionStore -->
 
-**Notes:** The lifecycle and retained-editor qualification gap is documented at [the live coverage queue](.review-queue.md#triage-planned-per-ac-qualification).
+**Notes:** Existing tests cover readiness presentation, retained-handle opening, ordered state and timer nonauthority. Live external-editor retention and late-event disposal ordering remain unqualified; see [the live coverage queue](.review-queue.md#triage-planned-per-ac-qualification).
 
 **Constraints:** Editor readiness is separate evidence from process lifecycle and transport reachability.
 
@@ -1503,7 +1503,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-012](session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state)
 
-**Verification:** Unspecified.
+**Verification:** Automated: [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [browser-ide-window.test.ts](../../web-ui/src/__tests__/lib/browser-ide-window.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx)
 
 **Status:** Planned
 

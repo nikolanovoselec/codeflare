@@ -1483,11 +1483,11 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. Configured and assignable Dynamic Routes display as `Dynamic Route - <route name>`. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-034/064: presents and preserves named Dynamic Routes in many-to-many group policies) -->
-2. Configured and assignable native targets display as `Native Route - <provider> - <user label>`, using the exact model only when the trimmed label is empty or absent. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
+2. Configured native rows use `Native Route - <provider> - <model>` for title/Configure, with the user label secondary. Policy options use `Native Route - <provider> - <trimmed label>`, falling back to the model for absent or blank labels. <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls) --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
 3. Policy submission retains the selected route name or opaque native handle rather than its presentation label. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
 4. Built-in compatibility profile labels begin with `Dynamic Route` or `Native Route` and identify the provider and supported model family without transport mechanics in the profile name. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: web-ui/src/__tests__/components/pi-profile-presentation.test.ts (presents the three Bedrock choices by route category and model family without transport jargon) -->
 
-**Notes:** Policy options use the user label, but the configured native row's primary title and Configure label still use the model. The configured-row labeling criterion remains unmet.
+**Notes:** Configured rows identify the model first; policy options identify the user-assigned label first. Presentation does not change submitted identities.
 
 **Constraints:** Presentation labels do not change route names, profile references, native target identities, or submitted policy values.
 
@@ -1497,7 +1497,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Verification:** Automated: [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [pi-profile-presentation.test.ts](../../web-ui/src/__tests__/components/pi-profile-presentation.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
