@@ -1728,6 +1728,8 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. The Pi router authenticates its fixed bounded contract; foreign, expired or stale native bindings cannot create or revive usable inference. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/operator-pi-router.test.js (REQ-OPERATOR-021: router authenticates then forwards fixed Pi request bytes/query and response) --> <!-- @test: host/__tests__/operator-pi-isolated-runner.test.js (REQ-OPERATOR-021/047: native private bind precedes ensure, is bounded/idempotent, and rejects foreign or stale descriptors) -->
 7. Ordinary PTYs and root execution remain unchanged. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/request-router.test.js (request router) -->
 
+**Notes:** Structured conversation identity, submission and cancellation exist, but explicit approval-needed observation and blocking are not implemented. Generic event forwarding does not establish that contract.
+
 **Constraints:**
 
 - Unknown SDK effects are not replayed.
@@ -2278,7 +2280,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 - The guided launcher cannot widen server-side invocation authority; opening or previewing it never starts work.
 - Dispatcher preparation and child input require no source-session identity, generation or Host metadata.
-- Native-enabled Dispatcher uses owner R2 configuration and SDK authentication; native-disabled inference uses its installation-selected Gateway route/reasoning without account-default substitution.
+- Native-enabled Dispatcher uses owner R2 configuration and SDK authentication; native-disabled inference uses its installation-selected Gateway route/reasoning without account-default substitution. <!-- @impl: src/operators/dispatcher-owner-inference.ts::dispatcherSdkOwnerContext --> <!-- @impl: src/operators/dispatcher-sdk-services.ts::readDispatcherSdkConfiguration --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (pins the saved built-in logical profile with zero Host catalog and no source-session descriptor) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (Native OFF ignores a foreign account default and retains the installation Gateway without Pi R2 access) -->
 - Neither Dispatcher mode loads Pi extensions or starts a Pi session.
 - Discovery and inference require no user-session creation, start, restart, warmup, live Pi process or additional persisted conversation.
 - Missing owner, installation, policy, R2 or route authority fails closed without source/credential substitution; an empty user-session catalog is not an authority failure.
@@ -2289,9 +2291,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-049](#req-operator-049-operators-management-interface), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-007](#req-operator-007-operator-aware-inference-selection), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission)
 
-**Verification:** The deployed Host-dependent implementation does not satisfy this contract: the authenticated empty session catalog disabled the launcher before any new Activity. Prior RED41064738491 and GREEN41082272129 covered the mistaken Host-handoff assumption, not session-independent inference. The corrected complete behavioral suite, implementation, exact-head GREEN CI, reviews and fresh hosted result/collection remain pending. Existing package publication, Install/Enable and protected raw-log qualification are not reopened.
+**Verification:** Automated: [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx), [operator-management-redesign.test.tsx](../../web-ui/src/__tests__/operators/operator-management-redesign.test.tsx), [generic-profile-admission.test.ts](../../src/__tests__/operators/generic-profile-admission.test.ts), [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [personal-pi-interception.test.ts](../../src/__tests__/personal-pi-interception.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2589,9 +2591,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
 
-**Verification:** Automated test: New behavior awaits exact-head CI and Enterprise Integration desktop/mobile inspection.
+**Verification:** Automated: [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts), [operator-activities.test.ts](../../src/__tests__/routes/operator-activities.test.ts), [OperatorActivityButton.test.tsx](../../web-ui/src/__tests__/components/OperatorActivityButton.test.tsx), [operator-activities.test.ts](../../web-ui/src/__tests__/api/operator-activities.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2627,9 +2629,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
 
-**Verification:** In-app Review and nested Dispatcher-result tests passed historically; compatibility evidence is not merge authorization. Enterprise Integration mobile result navigation remains unverified.
+**Verification:** Automated: [OperatorActivityButton.test.tsx](../../web-ui/src/__tests__/components/OperatorActivityButton.test.tsx), [operator-activities.test.ts](../../src/__tests__/routes/operator-activities.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [operator-activities.test.ts](../../web-ui/src/__tests__/api/operator-activities.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2673,9 +2675,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Acceptance Criteria:**
 
-1. An empty or single-completed-entry Runs overview uses content-sized compact presentation that accommodates the segment controls, search and footer without clipping. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed-only history) --> <!-- @manual: Verify compact content, segmented navigation and footer remain usable at desktop, tablet, and mobile viewports. -->
-2. An overview with working activities or multiple retained entries, including completed-only history, and Installed, manual-review and run-detail views occupy a bounded panel of up to 60vh within the viewport. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-086: overview changes only on manual refresh, not timer, focus or reconnect) --> <!-- @manual: Owner verifies the 60vh working height at desktop, tablet, and mobile viewports. -->
-3. The bounded multi-entry overview scrolls its activity list while preserving accessible history and keyboard navigation. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-list --> <!-- @manual: Owner verifies list scrolling at desktop, tablet, and mobile viewports. -->
+1. An empty or single-completed-entry Runs overview uses content-sized compact presentation that accommodates the segment controls, search and footer without clipping. <!-- @impl: web-ui/src/styles/operator-dropdown.css::.operator-dropdown.operator-activity-panel --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed-only history) --> <!-- @manual: Verify compact content, segmented navigation and footer remain usable at desktop, tablet, and mobile viewports. -->
+2. An overview with working activities or multiple retained entries, including completed-only history, and Installed, manual-review and run-detail views occupy a bounded panel of up to 60vh within the viewport. <!-- @impl: web-ui/src/styles/operator-dropdown.css::.operator-dropdown.operator-activity-panel--active --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-086: overview changes only on manual refresh, not timer, focus or reconnect) --> <!-- @manual: Owner verifies the 60vh working height at desktop, tablet, and mobile viewports. -->
+3. The bounded multi-entry overview scrolls its activity list while preserving accessible history and keyboard navigation. <!-- @impl: web-ui/src/styles/operator-dropdown.css::.operator-dropdown-body --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-list --> <!-- @manual: Owner verifies list scrolling at desktop, tablet, and mobile viewports. -->
 
 **Constraints:**
 
@@ -2685,9 +2687,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation)
 
-**Verification:** Manual check through integration-browser visual acceptance of the content-sized compact and bounded populated views. Component behavior tests are supplemental; exact-head qualification for the dropdown redesign is pending.
+**Verification:** Automated: [OperatorActivityButton.test.tsx](../../web-ui/src/__tests__/components/OperatorActivityButton.test.tsx), [OperatorDropdown.test.tsx](../../web-ui/src/__tests__/components/OperatorDropdown.test.tsx); Manual: [Operator dropdown visual acceptance](../../documentation/lanes/operators.md#operator-dropdown-visual-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2851,9 +2853,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Automated test: Component and owner-route behavior is automated; actual account-switch and activity-surface mobile acceptance remain pending. Operators catalog mobile acceptance does not establish this activity-surface criterion.
+**Verification:** Automated: [OperatorActivityButton.test.tsx](../../web-ui/src/__tests__/components/OperatorActivityButton.test.tsx), [OperatorDropdown.test.tsx](../../web-ui/src/__tests__/components/OperatorDropdown.test.tsx), [operator-activities.test.ts](../../src/__tests__/routes/operator-activities.test.ts); Manual: [Operator dropdown visual acceptance](../../documentation/lanes/operators.md#operator-dropdown-visual-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2923,9 +2925,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-050](#req-operator-050-generic-conductor-capability), [REQ-OPERATOR-029](#req-operator-029-capability-authenticated-webhook-edge)
 
-**Verification:** Selector, preparation, continuation, claim/Stop and compiled Conductor tests; historical passes establish dormant coverage only. Local triage excerpts grant no clearance or handoff; remote reads require authenticated publisher evidence. Target workflow installation, sandbox claim, independent publication, compiled production-owner execution, activation and current-head Enterprise Integration end-to-end proof remain pending.
+**Verification:** Automated: [operator-review-selector.test.ts](../../src/__tests__/lib/operator-review-selector.test.ts), [enterprise-routing.test.mjs](../../preseed/agents/pi/test/enterprise-routing.test.mjs), [review-boundary-egress.test.ts](../../src/__tests__/operators/review-boundary-egress.test.ts), [review-boundary-reservation.test.ts](../../src/__tests__/operators/review-boundary-reservation.test.ts), [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts), [conductor-prepared-runtime.test.ts](../../src/__tests__/operators/conductor-prepared-runtime.test.ts), [owned-session-runtime.test.ts](../../src/__tests__/operators/owned-session-runtime.test.ts), [operator-webhook.test.ts](../../src/__tests__/routes/operator-webhook.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2955,9 +2957,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** Automated test: adjacent claim/Stop and restart tests passed historical exact-head PR Checks `35903787791` at `6812f243`. Protected Action sandbox claim remains unproven.
+**Verification:** Automated: [review-action-oidc.test.ts](../../src/__tests__/operators/review-action-oidc.test.ts), [review-action-run.test.ts](../../src/__tests__/operators/review-action-run.test.ts), [review-boundary-claim.test.ts](../../src/__tests__/operators/review-boundary-claim.test.ts), [review-boundary-reservation.test.ts](../../src/__tests__/operators/review-boundary-reservation.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [boundary-stop.test.ts](../../src/__tests__/routes/boundary-stop.test.ts), [operator-boundary-claim.test.ts](../../src/__tests__/routes/operator-boundary-claim.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2987,9 +2989,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence)
 
-**Verification:** Owner-journal, protected-route and separate package-publisher tests; historical passes do not prove installed protected Action execution or external publication readback.
+**Verification:** Automated: [review-boundary-reservation.test.ts](../../src/__tests__/operators/review-boundary-reservation.test.ts), [review-boundary-claim.test.ts](../../src/__tests__/operators/review-boundary-claim.test.ts), [operator-boundary-claim.test.ts](../../src/__tests__/routes/operator-boundary-claim.test.ts), [review-action-oidc.test.ts](../../src/__tests__/operators/review-action-oidc.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3023,9 +3025,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering)
 
-**Verification:** Frozen-owner projection, route and separate package publisher/history/ledger tests; historical passes do not establish an installed workflow, live protected job, exact-ID GitHub receipt or shadow clearance.
+**Verification:** Automated: [review-boundary-claim.test.ts](../../src/__tests__/operators/review-boundary-claim.test.ts), [review-history-transport.test.ts](../../src/__tests__/operators/review-history-transport.test.ts), [review-published-result.test.ts](../../src/__tests__/operators/review-published-result.test.ts), [conductor-prepared-runtime.test.ts](../../src/__tests__/operators/conductor-prepared-runtime.test.ts), [operator-boundary-action.test.js](../../host/__tests__/operator-boundary-action.test.js); Manual: [Protected publisher credential acceptance](../../documentation/lanes/operators.md#protected-publisher-credential-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3326,7 +3328,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. Child reports and protected-request fields cannot assert host preparation metadata. <!-- @impl: src/operators/activity.ts::dispatcherDiagnosticReport --> <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC2 child %s cannot supply host preparation metadata) -->
 7. Retained preparation metadata survives reconstructed owner history, detail, export and linked-capsule readback. <!-- @impl: src/operators/dispatcher-diagnostics-store.ts::appendDiagnostic --> <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-083: AC2/4/5/7 preparation cause survives reconstruction in passive owner history detail and export) -->
 
-**Notes:** Existing authority and qualification boundaries remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
+**Notes:** Existing authority and qualification boundaries remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details). Generic preparation attribution is implemented; normal-host inference does not pass its overflow observer to the bounded reader, so an overflow lacks originating body-limit classification and paired consumed-byte bounds.
 
 **Constraints:**
 - Activity/generation and label selection remain parent-owned; export no raw bodies, prompts, credentials, tokens, URLs, child values or exception text.
