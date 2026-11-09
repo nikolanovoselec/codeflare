@@ -279,7 +279,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token), [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)
 
-**Verification:** Existing interceptor, registered transport, placeholder and credential-resolver suites cover the established boundary. New [browser continuity regressions](../../src/__tests__/container/browser-continuity.test.ts) cover lazy acquisition, exact-ID reuse, reconstruction, scope drift, acquisition uncertainty and strict failure. The current continuity diff awaits executed checks, exact-head CI and legitimate-owner live reconnect/authentication readback; source alone is not deployed acceptance.
+**Verification:** Automated: [browser-render-token.test.ts](../../src/__tests__/lib/browser-render-token.test.ts), [browser-interception.test.ts](../../src/__tests__/container/browser-interception.test.ts), [cloudflare-browser-interceptor.test.ts](../../src/__tests__/cloudflare-browser-interceptor.test.ts), [browser-continuity.test.ts](../../src/__tests__/container/browser-continuity.test.ts)
 
 **Status:** Implemented
 
@@ -389,7 +389,7 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Dependencies:** [REQ-BROWSER-008](#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-BROWSER-009](#req-browser-009-mcp-and-chrome-sdk-timeout-profile)
 
-**Verification:** Behavioral regressions cover reference reuse, authority changes, uncertainty and failure recovery. Exact-head CI and legitimate-owner hosted reconnect acceptance remain required.
+**Verification:** Automated: [browser-continuity.test.ts](../../src/__tests__/container/browser-continuity.test.ts)
 
 **Status:** Implemented
 
@@ -416,7 +416,7 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Dependencies:** [REQ-BROWSER-011](#req-browser-011-owner-bound-interactive-browser-continuity), [REQ-BROWSER-008](#req-browser-008-browser-rendering-token-interception-never-in-the-container)
 
-**Verification:** Delayed-attachment races and credential-lane regressions; exact-head CI and hosted acceptance remain separate.
+**Verification:** Automated: [browser-continuity.test.ts](../../src/__tests__/container/browser-continuity.test.ts)
 
 **Status:** Implemented
 

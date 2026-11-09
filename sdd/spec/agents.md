@@ -371,7 +371,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Package assembly and JITI cache contract tests; deployment image build
+**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js)
 
 **Status:** Implemented
 
@@ -2503,7 +2503,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-175](#req-agent-175-environment-update-ui-lockdown), [REQ-STOR-023](storage.md#req-stor-023-managed-release-status-projection)
 
-**Verification:** Automated session-store tests; deployed reconciliation and hosted acceptance require separate evidence.
+**Verification:** Automated: [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -2637,7 +2637,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-052](#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening), [REQ-OPS-033](operations.md#req-ops-033-build-dependencies-have-committed-integrity)
 
-**Verification:** Dependency-integrity, repository-precedence and built-image analyzer/parser coverage is authored; exact-head CI, consuming-image execution and managed delivery remain required.
+**Verification:** Automated: [safe-local-check.test.js](../../host/__tests__/safe-local-check.test.js), [safe-local-check-image.test.js](../../host/__tests__/safe-local-check-image.test.js)
 
 **Status:** Planned
 
@@ -2979,7 +2979,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated startup-helper tests cover fresh/restored preferences, preservation and unsafe-file handling; deployed startup acceptance remains separate.
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
 
 **Status:** Implemented
 
@@ -4295,7 +4295,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Generated-artifact retirement covers AC2. AC1 has a whole pinned-extension regression using real SDK session managers for foreground/child/background task retention and switching back. Lifecycle delivery is host-dispatched, not subprocess acceptance; execution remains subject to exact-head CI.
+**Verification:** Automated: [todo-isolation.test.mjs](../../preseed/agents/pi/test/todo-isolation.test.mjs), [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js)
 
 **Status:** Implemented
 
@@ -5180,7 +5180,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
 
-**Verification:** Automated Worker release-discovery tests; the shared background-lookup correction is pending behavioral RED/GREEN verification.
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Planned
 
@@ -5457,7 +5457,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-158](#req-agent-158-bounded-initial-pi-tool-exposure)
 
-**Verification:** Automated runtime-guard tests for queued/running refusal and settled/unknown pass-through; deployed managed acceptance
+**Verification:** Automated: [pi-subagent-resume-guard.test.ts](../../src/__tests__/lib/pi-subagent-resume-guard.test.ts)
 
 **Status:** Implemented
 

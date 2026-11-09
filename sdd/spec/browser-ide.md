@@ -246,7 +246,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation)
 
-**Verification:** Automated test ([Pi unrestricted-action tests](../../src/__tests__/lib/pi-sidebar-approval.test.ts); [extension-host tests](../../openvscode/agent-sidebar/test/vscode-approval-host.test.ts); [Claude permission tests](../../openvscode/claude/test))
+**Verification:** Automated: [pi-sidebar-approval.test.ts](../../src/__tests__/lib/pi-sidebar-approval.test.ts), [vscode-approval-host.test.ts](../../openvscode/agent-sidebar/test/vscode-approval-host.test.ts), [managed-settings.test.mjs](../../openvscode/claude/test/managed-settings.test.mjs), [prepare-sidebar-config.test.mjs](../../openvscode/claude/test/prepare-sidebar-config.test.mjs)
 
 **Status:** Implemented
 
@@ -276,7 +276,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-005](#req-ide-005-selected-native-ide-agent)
 
-**Verification:** Automated test ([Host lifecycle tests](../../host/__tests__/entrypoint-openvscode.test.js); [native Pi lifecycle tests](../../openvscode/agent-sidebar/test); deployment smoke in `.github/workflows/container-image.yml`)
+**Verification:** Automated: [native-chat.test.ts](../../openvscode/agent-sidebar/test/native-chat.test.ts), [backend-generation.test.ts](../../openvscode/agent-sidebar/test/backend-generation.test.ts), [pi-session.test.ts](../../openvscode/agent-sidebar/test/pi-session.test.ts), [entrypoint-openvscode.test.js](../../host/__tests__/entrypoint-openvscode.test.js), [process-generation.test.ts](../../openvscode/agent-sidebar/test/process-generation.test.ts)
 
 **Status:** Partial
 
@@ -366,7 +366,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility)
 
-**Verification:** Automated test ([activation behavior](../../openvscode/agent-sidebar/test/activation.test.ts); deployment smoke in `.github/workflows/container-image.yml`)
+**Verification:** Automated: [packaging.test.ts](../../openvscode/agent-sidebar/test/packaging.test.ts), [activation.test.ts](../../openvscode/agent-sidebar/test/activation.test.ts)
 
 **Status:** Implemented
 
@@ -510,7 +510,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](#req-ide-003-ide-lifecycle-and-availability)
 
-**Verification:** GitHub Actions runs editor lifecycle, settings preparation, manifest, welcome-bootstrap, and complete-image tests.
+**Verification:** Automated: [entrypoint-openvscode.test.js](../../host/__tests__/entrypoint-openvscode.test.js), [prepare-sidebar-config.test.mjs](../../openvscode/claude/test/prepare-sidebar-config.test.mjs), [welcome-extension.test.ts](../../openvscode/agent-sidebar/test/welcome-extension.test.ts), [extension-persistence.test.ts](../../openvscode/agent-sidebar/test/extension-persistence.test.ts), [browser-ide-extensions.test.js](../../host/__tests__/browser-ide-extensions.test.js)
 
 **Status:** Implemented
 
@@ -537,7 +537,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-010](#req-ide-010-pinned-ide-inventory-compatibility), [REQ-IDE-036](#req-ide-036-persistent-user-managed-extensions)
 
-**Verification:** GitHub Actions validates packaged-base emptiness, writable-layer isolation, and complete-image restore/capture behavior.
+**Verification:** Automated: [unsupported-ide-inventory.test.js](../../host/__tests__/unsupported-ide-inventory.test.js), [entrypoint-openvscode.test.js](../../host/__tests__/entrypoint-openvscode.test.js)
 
 **Status:** Implemented
 
@@ -691,7 +691,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-020](#req-ide-020-native-pi-editor-proposal-execution)
 
-**Verification:** PR-boundary review and GitHub Actions CI only. Configured bridge, host, backend, and shared-runtime tests cover each blocking protocol result, FIFO ownership, and generation behavior.
+**Verification:** Automated: [approval-bridge.test.ts](../../openvscode/agent-sidebar/test/approval-bridge.test.ts), [vscode-approval-host.test.ts](../../openvscode/agent-sidebar/test/vscode-approval-host.test.ts), [backend-generation.test.ts](../../openvscode/agent-sidebar/test/backend-generation.test.ts)
 
 **Status:** Partial
 
@@ -717,7 +717,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-005](#req-ide-005-selected-native-ide-agent), [REQ-IDE-011](#req-ide-011-review-with-pi-explorer-action), [REQ-IDE-014](#req-ide-014-review-with-pi-editor-context-action), [REQ-IDE-017](#req-ide-017-unsupported-ide-inventory-runtime-metadata), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate the five independently packaged compatibility surfaces.
+**Verification:** Automated: [packaging.test.ts](../../openvscode/agent-sidebar/test/packaging.test.ts), [activation.test.ts](../../openvscode/agent-sidebar/test/activation.test.ts), [unsupported-ide-inventory.test.js](../../host/__tests__/unsupported-ide-inventory.test.js)
 
 **Status:** Implemented
 
@@ -779,7 +779,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-007](#req-ide-007-ide-guarded-approval), [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-019](#req-ide-019-codeflare-eligibility-in-editor-inline-chat)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate local routing, process reuse, result-only provider payloads, exact tool restoration, and complete-image behavior.
+**Verification:** Automated: [activation.test.ts](../../openvscode/agent-sidebar/test/activation.test.ts), [native-chat.test.ts](../../openvscode/agent-sidebar/test/native-chat.test.ts), [pi-inline-edit-mode.test.js](../../host/__tests__/pi-inline-edit-mode.test.js), [vscode-approval-host.test.ts](../../openvscode/agent-sidebar/test/vscode-approval-host.test.ts)
 
 **Status:** Implemented
 
@@ -932,7 +932,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle), [REQ-IDE-025](#req-ide-025-shared-ide-pi-surface-isolation)
 
-**Verification:** PR-boundary review and GitHub Actions CI validate result cardinality, host-owned correlation, explanation bounds, bounded correction, categorized settlement, no-change behavior, and duplicate rejection.
+**Verification:** Automated: [pi-inline-edit-mode.test.js](../../host/__tests__/pi-inline-edit-mode.test.js), [backend-generation.test.ts](../../openvscode/agent-sidebar/test/backend-generation.test.ts)
 
 **Status:** Partial
 
@@ -1025,7 +1025,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-012](#req-ide-012-fixed-clean-browser-ide-workspace-selection), [REQ-IDE-015](#req-ide-015-clean-browser-ide-url-and-private-workspace-selection)
 
-**Verification:** Automated host proxy tests and complete-image smoke; deployed one-tab Inline review confirms renderer and extension-host URI convergence.
+**Verification:** Automated: [openvscode-proxy.test.js](../../host/__tests__/openvscode-proxy.test.js), [request-router.test.js](../../host/__tests__/request-router.test.js)
 
 **Status:** Implemented
 
