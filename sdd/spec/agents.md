@@ -1359,7 +1359,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -1566,7 +1566,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-008](#req-agent-008-preseed-deployed-to-container-on-start)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [graphify-active-repo.test.js](../../host/__tests__/graphify-active-repo.test.js), [graphify-mcp-lazy.test.js](../../host/__tests__/graphify-mcp-lazy.test.js), [graphify-native.test.ts](../../src/__tests__/lib/graphify-native.test.ts); Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1642,7 +1642,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch)
 
-**Verification:** Manual check
+**Verification:** Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1669,7 +1669,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch), [REQ-AGENT-127](#req-agent-127-graph-publication-artifacts-and-optional-labels)
 
-**Verification:** Manual check
+**Verification:** Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1725,7 +1725,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Manual review
+**Verification:** Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1754,7 +1754,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Automated test ([entrypoint rclone filter behavior](../../host/__tests__/entrypoint-rclone-filters.test.js))
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js); Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1779,7 +1779,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders)
 
-**Verification:** Automated test ([graph-first-nudge](../../host/__tests__/graph-first-nudge.test.js))
+**Verification:** Automated: [graph-first-nudge.test.js](../../host/__tests__/graph-first-nudge.test.js); Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1893,7 +1893,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** Automated test
+**Verification:** Automated: [container-env.test.ts](../../src/__tests__/container/container-env.test.ts); Manual: [Consultation startup acceptance](../../documentation/lanes/preseed.md#consultation-startup-acceptance)
 
 **Status:** Implemented
 
@@ -2248,7 +2248,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-205](#req-agent-205-graphify-build-skill-delivery)
 
-**Verification:** Manual review
+**Verification:** Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -2279,7 +2279,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -2537,7 +2537,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -3017,7 +3017,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts), [review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -3046,7 +3046,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated tests and manual verification ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -3358,7 +3358,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity), [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior)
 
-**Verification:** Automated bootstrap and actual locked-extension metadata-only discovery/direct-tool regressions cover AC1–2, with existing-user startup-setting preservation. Their execution remains subject to exact-head CI; migration evidence belongs to REQ-AGENT-217. Startup regeneration has anchored host regressions; manual verification remains on AC4–5.
+**Verification:** Automated: [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js), [consult-proxy.test.mjs](../../preseed/agents/pi/test/consult-proxy.test.mjs); Manual: [Consultation startup acceptance](../../documentation/lanes/preseed.md#consultation-startup-acceptance)
 
 **Status:** Implemented
 
@@ -3392,7 +3392,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4282,7 +4282,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-059](#req-agent-059-pi-native-review-findings-handoff)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4395,7 +4395,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-108](#req-agent-108-reviewer-evidence-resolution-fidelity)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4424,7 +4424,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4633,7 +4633,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [review-tool-guard.test.ts](../../src/__tests__/lib/review-tool-guard.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4668,7 +4668,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4733,7 +4733,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
 
-**Verification:** Automated tests and manual verification ([run review lane](../../host/__tests__/run-review-lane.test.js))
+**Verification:** Automated: [run-review-lane.test.js](../../host/__tests__/run-review-lane.test.js); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4803,7 +4803,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
 
-**Verification:** Automated tests and manual verification ([lane evidence](../../host/__tests__/lane-evidence.test.js), [run review lane](../../host/__tests__/run-review-lane.test.js))
+**Verification:** Automated: [lane-evidence.test.js](../../host/__tests__/lane-evidence.test.js), [run-review-lane.test.js](../../host/__tests__/run-review-lane.test.js); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4828,7 +4828,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Manual check
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4859,7 +4859,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -5311,7 +5311,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-172](#req-agent-172-herdr-preserves-the-canonical-pi-configuration-root), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
 
-**Verification:** Manual check
+**Verification:** Manual: [Herdr projection inspection](../../documentation/lanes/preseed.md#herdr-projection-inspection), [Herdr live-pane gate](../../preseed/agents/pi/skills/herdr/SKILL.md#gate), [Herdr helper orchestration](../../preseed/agents/pi/skills/herdr/SKILL.md#agent-orchestration)
 
 **Status:** Implemented
 
