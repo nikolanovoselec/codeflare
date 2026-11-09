@@ -4,6 +4,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Domain owner:** Backend (Worker + Container DO)
 
+Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle evidence boundaries](../../documentation/lanes/container.md#lifecycle-evidence-boundaries).
+
 ### Key Concepts
 
 - **Session** -- A named, user-owned workspace whose complete non-secret record and shared lifecycle truth are stored in D1 and whose isolated runtime is controlled by one Container Durable Object.
@@ -54,7 +56,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Planned D1 creation, validation and workspace tests.
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [kv-keys.test.ts](../../src/__tests__/lib/kv-keys.test.ts)
 
 **Status:** Planned
 
@@ -201,7 +203,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated recovery-menu and local Stop-attempt regressions; broader lifecycle verification remains planned.
+**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Planned
 
@@ -224,7 +226,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-start-stop-restart-and-delete-sessions), [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated recovery-menu and local Stop-attempt regressions; broader lifecycle verification remains planned.
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Planned
 
@@ -258,7 +260,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-039](#req-session-039-authorized-do-owned-native-kill), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
 
-**Verification:** Behavioral dropdown, context-menu, HTTP/client and store suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted native qualification and owner acceptance remain pending. These tests are not hosted proof.
+**Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionContextMenu.test.tsx](../../web-ui/src/__tests__/components/SessionContextMenu.test.tsx), [session-kill.test.ts](../../web-ui/src/__tests__/stores/session-kill.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 
 **Status:** Planned
 
@@ -291,7 +293,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-009](#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
 
-**Verification:** Route and modeled DO/native-process behavioral suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted native termination/disconnection qualification remains pending. Models are not hosted proof.
+**Verification:** Automated: [session-kill.test.ts](../../src/__tests__/routes/session-kill.test.ts), [session-kill.test.ts](../../src/__tests__/container/session-kill.test.ts)
 
 **Status:** Planned
 
@@ -322,7 +324,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
 
-**Verification:** Route and modeled DO/native-process confirmation, retry and fencing suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted qualification remains pending. Models are not hosted native termination proof.
+**Verification:** Automated: [session-kill.test.ts](../../src/__tests__/container/session-kill.test.ts), [session-kill.test.ts](../../src/__tests__/routes/session-kill.test.ts)
 
 **Status:** Planned
 
@@ -379,7 +381,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record)
 
-**Verification:** Planned D1 capacity and concurrent-start tests.
+**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts)
 
 **Status:** Planned
 
@@ -435,7 +437,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test ([index](../../src/__tests__/container/index.test.ts))
+**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
@@ -467,7 +469,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** Planned backend query-budget, frontend ordering and cross-device tests.
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Planned
 
@@ -588,7 +590,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
 
-**Verification:** Planned concurrent-load, delayed-response and outage tests.
+**Verification:** Automated: [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Planned
 
@@ -614,7 +616,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-028](#req-session-028-session-authority-has-no-kv-compatibility-path)
 
-**Verification:** Automated D1 deployment, migration, and session-admission tests.
+**Verification:** Automated: [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts), [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts)
 
 **Status:** Planned
 
@@ -642,7 +644,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Planned WebSocket, D1 outage and mounted-workspace tests.
+**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Planned
 
@@ -703,7 +705,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-013](#req-session-013-sleep-timer-countdown-ui)
 
-**Verification:** Actual Header regressions cover each countdown predicate independently of card tests. Execution remains unverified pending exact-head CI; computed stylesheet observations are not rendered-browser/manual acceptance.
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx)
 
 **Status:** Implemented
 
@@ -854,7 +856,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Planned behavioral D1 repository, lifecycle and delayed-callback tests.
+**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Planned
 
@@ -909,7 +911,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
 
-**Verification:** Automated D1/route, modeled DO lifetime and reconstruction/retry behavioral tests. Hosted disconnection acceptance remains separate from these platform-boundary models.
+**Verification:** Automated: [session.test.ts](../../src/__tests__/routes/session.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts)
 
 **Status:** Implemented
 
@@ -940,7 +942,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
 
-**Verification:** Automated D1/route, modeled DO lifetime and reconstruction/retry behavioral tests. Hosted disconnection acceptance remains separate from these platform-boundary models.
+**Verification:** Automated: [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts)
 
 **Status:** Implemented
 
@@ -971,7 +973,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
 
-**Verification:** Automated dashboard-rendering and real Layout/TerminalArea history-navigation regressions with modeled progress and desktop/mobile viewport widths; physical-browser acceptance remains separate after integration deployment.
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx)
 
 **Status:** Implemented
 
@@ -1072,7 +1074,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-020](#req-session-020-runtime-observation-is-bounded-and-projected-once)
 
-**Verification:** Automated test ([D1 persistence and production recovery coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts)); hosted acceptance remains pending.
+**Verification:** Automated: [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -1100,7 +1102,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Automated test ([Reconstruction and deadline-survival coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [pinned alarm coverage](../../src/__tests__/container/index.test.ts)); hosted acceptance remains pending.
+**Verification:** Automated: [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -1126,7 +1128,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Automated test ([Recovery, persistence and stopping accounting coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts)); hosted acceptance remains pending.
+**Verification:** Automated: [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -1160,7 +1162,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-022](#req-session-022-unreachable-recovery-preserves-process-identity)
 
-**Verification:** Automated test ([Deadline, finite force, manual recovery and confirmed-exit coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts)); hosted acceptance remains pending.
+**Verification:** Automated: [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -1215,7 +1217,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-024](#req-session-024-recovery-deadline-and-termination-intent-are-durable)
 
-**Verification:** Planned scheduling, ambiguous-write and fail-closed tests.
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts)
 
 **Status:** Planned
 
@@ -1235,7 +1237,7 @@ None.
 2. Lifecycle columns store state, generation, revision, last accepted observation sequence, transition timestamps, reason, readiness and readiness error under database checks. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
 3. Projection columns store last classified input plus latest CPU, memory, disk, sync and observation time without retaining metric history. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
 4. Incident columns store incident identity, first-observed time and absolute deadline; termination columns store intent identity, generation, claim and signal timestamps. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (migration creates a pending singleton gate and one owner-led projection index) -->
+5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (migration creates one owner-led projection index) -->
 6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`. <!-- @impl: src/lib/session-repository.ts::create -->
 7. The additive migration is idempotently managed by the existing `USAGE_DB` migration path and does not alter analytics tables. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
 
@@ -1249,7 +1251,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-030](#req-session-030-one-time-clean-slate-cutover-is-guarded-and-exact)
 
-**Verification:** Planned migration-shape, constraint, index and rerun tests.
+**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts)
 
 **Status:** Planned
 

@@ -44,7 +44,7 @@ beforeEach(async () => {
 // REQ-SESSION-026: Lifecycle scheduling and persistence failures remain actionable.
 // Covers the exercised production failure owners; full correlation/route-family qualification remains Planned.
 describe('REQ-SESSION-031: complete D1 session authority', () => {
-  it('migration creates a pending singleton gate and one owner-led projection index', async () => {
+  it('migration creates one owner-led projection index', async () => {
     await db.prepare("UPDATE session_cutover SET state = 'pending', completed_at = NULL WHERE id = 1").run();
     expect(await db.prepare('SELECT id, state FROM session_cutover').first()).toEqual({ id: 1, state: 'pending' });
 

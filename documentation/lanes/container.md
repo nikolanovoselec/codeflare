@@ -364,6 +364,22 @@ Provider template URLs preselect scopes. GitHub PAT template uses `emails` and `
 
 Docker Hub registry fallback and release workflow belong to [CI/CD](ci-cd.md). Historical operational caveats: piping `printf` to `gh secret set` can store empty values; file redirect avoids that. Old bundled Wrangler in `cloudflare/wrangler-action@v3` is not the authoritative deploy launcher; use the reviewed workflow's explicit Wrangler invocation. This guide authorizes no credential/deploy action.
 
+## Lifecycle evidence boundaries
+
+Session suite links identify actual covering methods, not complete hosted acceptance. Changed revisions require their own exact-head CI; predecessor receipts do not qualify them. Native termination, disconnection, real terminal/editor retention and physical-browser acceptance remain with the existing [deployment qualification owner](deployment.md), not a new gate or harness per requirement. Missing observations remain unverified.
+
+| Evidence | Bounded claim |
+|---|---|
+| Public Create, repository and capacity suites | Supplied identity/role/tier inputs plus real D1 outcomes do not establish real authentication, process start, complete query budgets/primary consistency, every schema negative or every mutation/revision path. |
+| Stop/KILL and retry suites | Platform/program lifetime, host and KV-backed D1 collaborators can be modeled even when the production coordinator runs. Replaced graceful teardown qualifies coordination, not the inner drain. Confirmation/retry/fencing models do not establish hosted native exit or caller-disconnection survival. |
+| Recovery suites | Real D1 incident/deadline/replay/accounting outcomes remain distinct from modeled reconstruction, native signalling, Timekeeper and host peers. They do not establish live PTY/process continuity or hosted billing. |
+| Header countdown | Header predicates are tested independently of card tests. JSDOM/computed styles are not rendered-browser acceptance. |
+| Navigation and retained workspaces | Layout/TerminalArea DOM/history and modeled mobile/desktop widths do not establish physical-browser behavior after Integration deployment. Store ownership flags do not prove actual terminal/editor identity, buffers, selection, tiling or scrollback retention. |
+| Cutover and schema | The projection-index case checks the owner-led index after manually arranging pending state; it does not prove migration-default/singleton constraints. Actual pending-gate Create/Start rejection and completion-SQL replay are narrower than full additive deployment/idempotence/analytics-preservation qualification. |
+| Storage after destroy | Public destroy/unavailable-fetch and late-metrics tests do not observe persistent R2 bytes across destruction/restart. Fixture file equality or HTTP success cannot replace that observation. |
+
+These limits preserve the lifecycle requirements and their existing open qualification gaps. No source copy, passing subset or method definition promotes a requirement or supplies missing external evidence.
+
 ## Agent runtime qualification
 
 These methods are not acceptance evidence. Record exact source/image/seed/mode and redacted outcomes; missing prerequisites remain blocked. Marked manual observations are not replaced by supplemental tests. Runtime, inference, protected access, state changes and publication need separate current authorization with existing disposable resources. Never replay uncertain operations or expose secrets. Static guidance review does not prove deterministic obedience or deployed behavior; CI/image/publication/deployment gates remain separately owned.
