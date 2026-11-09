@@ -183,7 +183,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation), [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
 
-**Verification:** Actual pinned package, executable startup/shadow-pin fixtures and existing packaged-image gates; final image/deployed acceptance remains separate.
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [rpiv-bump-gate.test.js](../../host/__tests__/rpiv-bump-gate.test.js), [questionnaire-timeout.test.mjs](../../preseed/agents/pi/test/questionnaire-timeout.test.mjs); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -248,7 +248,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Entrypoint runtime behavior and package-transform tests; deployment image verification
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -405,7 +405,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
-**Verification:** Package assembly, startup-policy, JITI cache, and Goal/Plan integration tests; manual reload smoke test; deployment image build
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -453,7 +453,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -1273,7 +1273,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test ([terminal-url-detection](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts))
+**Verification:** Automated: [dockerfile-browser-shim-behavior.test.js](../../host/__tests__/dockerfile-browser-shim-behavior.test.js), [terminal-link-provider.test.ts](../../web-ui/src/__tests__/lib/terminal-link-provider.test.ts), [terminal-url-detection.test.ts](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -1384,7 +1384,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -2961,7 +2961,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-221](#req-agent-221-pi-startup-presentation-preferences)
 
-**Verification:** Package-assembly and Codeflare status tests; manual packaged-terminal acceptance for native UI, configuration and widths.
+**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [local-statusline-repo.test.ts](../../src/__tests__/lib/local-statusline-repo.test.ts); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -3274,7 +3274,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** Manual check
+**Verification:** Manual: [Consultation explicit-user gate](../../preseed/agents/claude/skills/consult-llm/SKILL.md#hard-gate--explicit-user-request-only), [Choose consultation model](../../preseed/agents/claude/skills/consult-llm/SKILL.md#step-1--choose-the-model), [List concrete consultation models](../../preseed/agents/claude/skills/consult-llm/SKILL.md#listing-concrete-models)
 
 **Status:** Implemented
 
@@ -4088,7 +4088,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [dockerfile-context-mode-patch.test.js](../../host/__tests__/dockerfile-context-mode-patch.test.js), [entrypoint-context-mode-runtime.test.js](../../host/__tests__/entrypoint-context-mode-runtime.test.js), [entrypoint-context-mode.test.js](../../host/__tests__/entrypoint-context-mode.test.js), [entrypoint-pi-web-search.test.js](../../host/__tests__/entrypoint-pi-web-search.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -4887,7 +4887,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -5339,7 +5339,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-173](#req-agent-173-pi-can-orchestrate-coding-agents-through-herdr), [REQ-TERM-006](terminal.md#req-term-006-herdr-owns-in-session-terminal-topology)
 
-**Verification:** Manual review
+**Verification:** Manual: [Herdr topology operations](../../preseed/agents/pi/skills/herdr/SKILL.md#fast-ui-operations), [Herdr stale-ID recovery](../../preseed/agents/pi/skills/herdr/SKILL.md#avoid-command-discovery-loops)
 
 **Status:** Implemented
 
@@ -5885,7 +5885,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Automated test, Manual test
+**Verification:** Automated: [safe-graphify-update.test.js](../../host/__tests__/safe-graphify-update.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -5951,7 +5951,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Packaged-image smoke and image build
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [container-base-registry.test.js](../../host/__tests__/container-base-registry.test.js), [container-runtime-smoke.test.js](../../host/__tests__/container-runtime-smoke.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -5981,7 +5981,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Startup behavior tests, image warm-cache checks and deployed native-command acceptance
+**Verification:** Automated: [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
