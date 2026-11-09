@@ -73,6 +73,8 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 ## Session Management
 
+`POST /api/sessions` accepts optional request-body `agentType` for the coding-agent choice; validation and defaulting remain server-owned ([REQ-AGENT-002](../../sdd/spec/agents.md#req-agent-002-agent-selection-at-session-creation)).
+
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | List sessions |
@@ -488,7 +490,7 @@ Without a global default, clients submit an empty route with `reasoning: "off"`;
 
 ## GitHub Integration
 
-The GitHub panel (Connect, repository list, clone) is mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github`. The repo-panel routes (`/status`, `/repos`, `/clone`) are available in every mode, and the dashboard renders the panel whenever GitHub integration is enabled; there is no advanced-session gate ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). **Connect/disconnect are decoupled from the panel** — `/connect`, its callback, and `/disconnect` are `authMiddleware`-only, so they work from Guided Setup and Settings. The token is never returned to the browser; `/repos` proxies GitHub server-side.
+The GitHub panel (Connect, repository list, clone) is mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github`. The repo-panel routes (`/status`, `/repos`, `/clone`) are available in every mode, and the dashboard renders the panel whenever GitHub integration is enabled; there is no advanced-session gate ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). **Connect/disconnect are decoupled from the panel** — `/connect`, its callback, and `/disconnect` are `authMiddleware`-only, so they work from Guided Setup and Settings. The token is never returned to the browser; `/repos` proxies GitHub server-side, including the permitted personal/organization listing with the OAuth `read:org` scope ([REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing)).
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
@@ -880,6 +882,8 @@ Checks whether `CLOUDFLARE_API_TOKEN` is present in the environment, verifies it
 
 **`GET /api/setup/prefill`**
 
+Provider prefill carries `githubProviderType`, `githubAppClientId`, `githubOauthClientId`, and Boolean `githubAppClientSecretSet` / `githubOauthClientSecretSet` flags, never either secret. The flags report stored presence, not a new credential-validation probe ([REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup)).
+
 Best-effort prefill for the setup form. Reads existing admin and user lists from Cloudflare Access groups (scoped by worker name). Does not prefill the custom domain.
 
 In SaaS mode, returns empty arrays - admin enters everything manually.
@@ -915,7 +919,7 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 | POST | `/api/storage/delete` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | Delete objects by key and/or prefix (server-side bulk delete) |
 | GET | `/api/storage/preview` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | Preview file content (text files inline, others return metadata only) |
 | GET | `/api/storage/stats` | Session cookie | [REQ-STOR-006](../../sdd/spec/storage.md#req-stor-006-storage-quota-enforced-per-tier-at-session-start), [REQ-STOR-014](../../sdd/spec/storage.md#req-stor-014-r2-storage-stats-caching) | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
-| POST | `/api/storage/seed/getting-started` | Session cookie | [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session) | Seed tutorial docs |
+| POST | `/api/storage/seed/getting-started` | Session cookie | [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session), [REQ-AGENT-032](../../sdd/spec/agents.md#req-agent-032-starter-documentation-manually-recreatable-from-settings) | Seed tutorial docs; requested by Recreate starter documentation |
 | POST | `/api/storage/seed/agent-configs` | Session cookie | [REQ-AGENT-011](../../sdd/spec/agents.md#req-agent-011-agent-skills--rules-manually-recreatable-from-settings), [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session) | Recreate AI agent skills & rules (overwrites every desired path and respects session mode) |
 | POST | `/api/storage/seed/agent-configs/upgrade` | Session cookie | [REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-managed-release-delta-planning-and-resume), [REQ-STOR-034](../../sdd/spec/storage.md#req-stor-034-observational-managed-reconciliation-progress-writes), [REQ-STOR-035](../../sdd/spec/storage.md#req-stor-035-managed-reconciliation-cleanup-and-finalization), [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) | Dashboard-owned automatic reconcile; managed releases use a direct delta or marker-resumable full target and return matching completion progress when available, while baked upgrades keep their existing reconcile behavior |
 | POST | `/api/storage/upload/initiate` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Initiate multipart upload |
