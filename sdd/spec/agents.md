@@ -758,7 +758,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test
+**Verification:** Automated: [session-agent-allowlist.test.ts](../../src/__tests__/routes/session-agent-allowlist.test.ts), [session-agent-type.test.ts](../../src/__tests__/routes/session-agent-type.test.ts), [CreateSessionDialog.test.tsx](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -914,7 +914,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual content and delivery review
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -944,7 +944,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -973,7 +973,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1003,7 +1003,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** None.
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1035,7 +1035,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Manual review
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1060,7 +1060,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated test
+**Verification:** Automated: [r2-seed.test.ts](../../src/__tests__/lib/r2-seed.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1123,7 +1123,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test ([llm-keys](../../src/__tests__/routes/llm-keys.test.ts))
+**Verification:** Automated: [llm-keys.test.ts](../../src/__tests__/routes/llm-keys.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1150,7 +1150,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test ([deploy-keys](../../src/__tests__/routes/deploy-keys.test.ts))
+**Verification:** Automated: [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1183,7 +1183,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-010](storage.md#req-stor-010-agent-configs-auto-seeded-based-on-session-mode)
 
-**Verification:** Automated test ([storage-seed](../../src/__tests__/routes/storage-seed.test.ts))
+**Verification:** Automated: [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1211,7 +1211,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1304,7 +1304,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Manual review
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1330,7 +1330,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Manual review
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1411,7 +1411,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** Automated test
+**Verification:** Automated: [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [DeployKeysSection.test.tsx](../../web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1438,7 +1438,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([SettingsPanel](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx))
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1467,7 +1467,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** Automated test ([llm-keys](../../src/__tests__/routes/llm-keys.test.ts))
+**Verification:** Automated: [llm-keys.test.ts](../../src/__tests__/routes/llm-keys.test.ts), [LlmKeysSection.test.tsx](../../web-ui/src/__tests__/components/settings/LlmKeysSection.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1592,7 +1592,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -1617,7 +1617,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Manual check
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1833,7 +1833,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** Automated test ([container-env](../../src/__tests__/container/container-env.test.ts))
+**Verification:** Automated: [entrypoint-credentials.test.js](../../host/__tests__/entrypoint-credentials.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [account.test.ts](../../src/__tests__/routes/setup/account.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1861,7 +1861,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1919,7 +1919,7 @@ None.
 
 **Dependencies:** [REQ-STOR-009](storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session)
 
-**Verification:** Automated test
+**Verification:** Automated: [storage-seed-rate-limit.test.ts](../../src/__tests__/routes/storage-seed-rate-limit.test.ts), [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -2411,7 +2411,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2445,7 +2445,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-011](#req-agent-011-agent-skills--rules-manually-recreatable-from-settings), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Automated test
+**Verification:** Automated: [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -2567,7 +2567,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2586,7 +2586,7 @@ None.
 3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 4. Session guards reject build, test, lint, typecheck and development execution, including chained/nested runners, independently of deployment resources; runner names in metadata-only Git pathspecs, paths or package-name arrays neither count as execution nor consume an override. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not staged filenames) -->
 5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one guarded command through; failed consumption keeps blocking, and the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC5: user-only consume-on-use build override) -->
-6. The seeded safe-local-check wrapper runs approved read-only analyzers, Node syntax checks, or explicitly named Node test files from any repository through existing binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
+6. The seeded safe-local-check wrapper runs approved read-only analyzers, Node syntax checks, or explicitly named Node test files from any repository through existing binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) --> <!-- @test: host/__tests__/safe-local-check-image.test.js (uses image-baked Oxlint without dependencies, ignores ancestor/PATH tools, and stays read-only) -->
 7. Checked paths whose canonical targets leave the current repository directly or through symlinks are rejected. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryFiles --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 
 **Constraints:**
@@ -2600,7 +2600,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
 
-**Verification:** Focused wrapper tests cover managed checks; shared-analyzer coverage is authored, with exact-head CI, consuming-image checks and managed delivery still required. <!-- @test: host/__tests__/safe-local-check-image.test.js (uses image-baked Oxlint without dependencies, ignores ancestor/PATH tools, and stays read-only) -->
+**Verification:** Automated: [safe-local-check.test.js](../../host/__tests__/safe-local-check.test.js), [pi-local-build-guard.test.ts](../../src/__tests__/lib/pi-local-build-guard.test.ts), [safe-local-check-image.test.js](../../host/__tests__/safe-local-check-image.test.js); Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Planned
 
@@ -2663,7 +2663,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite), [REQ-AGENT-185](#req-agent-185-component-system-and-registry-boundaries)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2717,7 +2717,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-agent-specific-config-generation), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
 
-**Verification:** Automated compiler contract and manual writing review
+**Verification:** Automated: [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js); Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2747,7 +2747,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-195](#req-agent-195-portable-humanize-writing-guidance)
 
-**Verification:** Manual check through deterministic seed generation and catalog inspection
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -2773,7 +2773,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-196](#req-agent-196-repository-led-technology-guidance)
 
-**Verification:** Manual check through deterministic seed generation and ownership review
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -2800,7 +2800,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2824,7 +2824,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2847,7 +2847,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2874,7 +2874,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3171,7 +3171,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3195,7 +3195,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3219,7 +3219,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3245,7 +3245,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3415,7 +3415,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-051](#req-agent-051-pi-deploy-and-brainstorm-commands), [REQ-AGENT-070](#req-agent-070-claude-on-demand-ci-monitoring-policy), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3503,7 +3503,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Manual check
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -3954,7 +3954,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3986,7 +3986,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-189](#req-agent-189-layered-codeflare-capability-discovery), [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -4016,7 +4016,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-137](#req-agent-137-design-skill-review-boundary), [REQ-STOR-021](storage.md#req-stor-021-managed-content-ownership)
 
-**Verification:** Automated compiler test and manual check
+**Verification:** Automated: [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js); Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -4173,7 +4173,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Manual review
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -4338,7 +4338,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -4487,7 +4487,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -5640,7 +5640,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-052](#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening)
 
-**Verification:** Manual review
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
