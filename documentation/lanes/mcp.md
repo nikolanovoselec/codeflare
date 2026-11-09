@@ -14,7 +14,8 @@
 - [Client configuration and migration](#client-configuration-and-migration)
 - [Failure and recovery](#failure-and-recovery)
 - [Acceptance procedures](#acceptance-procedures)
-- [Requirement and source map](#requirement-and-source-map)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
 
 ## Register and connect
 
@@ -93,7 +94,7 @@ In each supported Pi mode, discover the router and load only the topic required 
 
 Use disposable restored native/legacy configuration fixtures and the existing migration suites. Preserve a valid native definition, an unrelated stdio server and a recoverable custom original; separately test a genuine conflict and rejected legacy expression. Expect only supported selected entries to migrate, retained originals on failure and successful-only obsolete-file sync exclusion. Never execute an inspected adapter or delete real configuration merely to diagnose it. This checks [REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration); signed delivery and installed identity do not alone prove a successful hosted handoff.
 
-## Requirement and source map
+## Requirement and Source Map
 
 | Concern | Requirements | Source owner | Evidence |
 |---|---|---|---|
@@ -102,3 +103,10 @@ Use disposable restored native/legacy configuration fixtures and the existing mi
 | Native configuration and progressive use | [REQ-AGENT-228](../../sdd/spec/mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery) | `scripts/merge-pi-mcp-portals.mjs::mergePiMcpPortals` | [Configuration tests](../../host/__tests__/pi-mcp-portals.test.js), [native client tests](../../host/__tests__/pi-mcp-stock.test.js); [progressive-use procedure](#progressive-portal-use) |
 | Credential-isolated transport | [REQ-AGENT-229](../../sdd/spec/mcp.md#req-agent-229-worker-mediated-mcp-portal-transport) | `src/mcp-portal-interceptor.ts::forwardMcpPortal` | [Transport tests](../../src/__tests__/mcp-portal-interceptor.test.ts), [interception tests](../../src/__tests__/container/mcp-portal-interception.test.ts) |
 | Lossless migration | [REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration) | `preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preparePiMcpAdapterConfig` | [Migration tests](../../host/__tests__/pi-mcp-adapter-config.test.js), [stdio tests](../../preseed/agents/pi/test/consult-proxy.test.mjs); [handoff procedure](#guarded-configuration-handoff) |
+
+## Related Documentation
+
+- [Configuration](configuration.md#mcp-portal-registration) — registration and saved settings.
+- [API Reference](api-reference.md#admin) — authenticated endpoint contracts.
+- [Agent Environment](preseed.md) — delivery and client preparation.
+- [Security](security.md) — shared authorization and credential boundaries.
