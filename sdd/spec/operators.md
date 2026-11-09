@@ -1534,9 +1534,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics)
 
-**Verification:** Maintained production cases exercise parent operation bindings/privacy, distinct host ordinals, cross-phase uncertainty and eight-record omission; owner-route cases cover ownership, forwarding and parameter rejection. The cold-parent case covers passive unbound reads and ordinary-entry recovery. These cases do not qualify full SDK metadata/completeness, deadline/scan-cap exhaustion, changed-binding handling or cold-child passivity; authorized same-Activity Enterprise Integration acceptance remains required.
+**Verification:** Automated: [dispatcher-public-diagnostics.test.ts](../../src/__tests__/operators/dispatcher-public-diagnostics.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [operator-activities.test.ts](../../src/__tests__/routes/operator-activities.test.ts), [browser diagnostic wire](../../web-ui/src/__tests__/api/operator-activities.test.ts).
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
