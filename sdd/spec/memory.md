@@ -782,7 +782,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
 
-**Verification:** Streamed byte-copy and live-owner lifecycle tests; CI and local adoption remain separate.
+**Verification:** Automated: [pi-transcript-start.test.js](../../host/__tests__/pi-transcript-start.test.js), [pi-trim-byte-cut.test.js](../../host/__tests__/pi-trim-byte-cut.test.js), [pi-transcript-trimming.test.js](../../host/__tests__/pi-transcript-trimming.test.js), [pi-trim-worker-lifecycle.test.js](../../host/__tests__/pi-trim-worker-lifecycle.test.js)
 
 **Status:** Implemented
 
@@ -814,7 +814,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
-**Verification:** Controlled byte, ownership, append and recovery outcomes; production acceptance remains separate.
+**Verification:** Automated: [pi-trim-byte-cut.test.js](../../host/__tests__/pi-trim-byte-cut.test.js), [pi-trim-worker-lifecycle.test.js](../../host/__tests__/pi-trim-worker-lifecycle.test.js), [pi-trim-adaptive.test.js](../../host/__tests__/pi-trim-adaptive.test.js)
 
 **Status:** Implemented
 
@@ -846,7 +846,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-028](#req-mem-028-pi-active-transcript-size-retention), [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
 
-**Verification:** Public scoped-operation and controlled kernel/byte outcomes; only persisted readback establishes completion.
+**Verification:** Automated: [pi-trim-request-budget.test.js](../../host/__tests__/pi-trim-request-budget.test.js), [pi-trim-byte-cut.test.js](../../host/__tests__/pi-trim-byte-cut.test.js), [pi-trim-worker-cancel.test.js](../../host/__tests__/pi-trim-worker-cancel.test.js), [pi-trim-adaptive.test.js](../../host/__tests__/pi-trim-adaptive.test.js), [pi-trim-window-retry.test.js](../../host/__tests__/pi-trim-window-retry.test.js), [pi-trim-worker-lifecycle.test.js](../../host/__tests__/pi-trim-worker-lifecycle.test.js)
 
 **Status:** Implemented
 
@@ -898,7 +898,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
 
-**Verification:** Controlled kernel-boundary fixtures; memory-exhaustion stress runs in CI only, never the active session.
+**Verification:** Automated: [pi-trim-worker-memory.test.js](../../host/__tests__/pi-trim-worker-memory.test.js), [pi-trim-window-retry.test.js](../../host/__tests__/pi-trim-window-retry.test.js), [pi-trim-adaptive.test.js](../../host/__tests__/pi-trim-adaptive.test.js)
 
 **Status:** Implemented
 
