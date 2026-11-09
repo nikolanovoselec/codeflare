@@ -33,14 +33,14 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. When GitHub OAuth is not configured, authentication is handled by Cloudflare Access; the Worker verifies CF Access JWTs against the deployment's CF Access JWKS endpoint. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
-2. When the deployment is configured as SaaS with GitHub OAuth, the Worker manages the entire OAuth flow and issues its own session cookies signed against an operator-provided JWT secret. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001: SaaS mode mutual exclusivity) -->
+2. When the deployment is configured as SaaS with GitHub OAuth, the Worker manages the entire OAuth flow and issues its own session cookies signed against an operator-provided JWT secret. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001: SaaS mode mutual exclusivity) -->
 3. The two modes are mutually exclusive at runtime: when the Direct GitHub OAuth branch is entered, CF Access is never checked. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001: SaaS mode mutual exclusivity) -->
 4. The frontend always calls a single logout endpoint; the backend dispatches to the correct logout flow based on mode. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (GET /logout / REQ-AUTH-009 (logout dispatches by mode)) --> <!-- @manual -->
 
 **Constraints:**
 
-- Missing SaaS credentials cause a fail-loud authentication error; there is no silent fallback to CF Access.
-- CF Access identity headers are not trusted in SaaS mode.
+- Once GitHub OAuth is configured, missing required credentials cause a fail-loud authentication error; authentication failure never falls back to CF Access.
+- CF Access identity headers are not trusted by the configured GitHub OAuth branch; unconfigured deployments retain [AD38](../../documentation/decisions/README.md#ad38-github-oidc-replaces-cf-access-in-saas-mode)'s Access selection.
 
 **Priority:** P0
 
