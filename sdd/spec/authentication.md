@@ -558,7 +558,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated: [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [users.test.ts](../../src/__tests__/routes/users.test.ts); Manual: [Admin user panel acceptance](../../documentation/lanes/authentication.md#admin-user-panel-acceptance)
+**Verification:** Manual: [Admin user panel acceptance](../../documentation/lanes/authentication.md#admin-user-panel-acceptance)
 
 **Status:** Partial
 

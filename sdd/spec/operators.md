@@ -1461,7 +1461,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
 
-**Verification:** Automated: [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts)
+**Verification:** Automated: [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
 
 **Status:** Planned
 

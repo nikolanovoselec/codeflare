@@ -606,7 +606,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-004](#req-setup-004-setup-is-idempotent), [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
 
-**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
+**Verification:** Automated: [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts)
 
 **Status:** Implemented
 
