@@ -492,7 +492,7 @@ describe('Session Store', () => {
         sessionStore.initializeTerminalsForSession(current.id);
         terminalLifecycle.ownedSessionIds.add(current.id);
         const before = JSON.parse(JSON.stringify(sessionStore.sessions.find(session => session.id === current.id)));
-        const tabs = sessionStore.getTerminalsForSession(current.id)?.tabs.map(tab => ({ id: tab.id, label: tab.label }));
+        const tabs = sessionStore.getTerminalsForSession(current.id)?.tabs.map(tab => ({ ...tab }));
         const discovered = { ...dashboardSession, id: `${current.id}-new`, name: 'Newly discovered', generation: 1, revision: 1 };
         mockGetSessions.mockResolvedValueOnce([{ ...current, ...older, name: 'Old name', status: 'stopped', lifecycle: 'stopped',
           lastAccessedAt: '2026-11-08T12:00:00Z', lastActiveAt: '2026-11-08T12:00:00Z', editorReady: false,
@@ -500,7 +500,7 @@ describe('Session Store', () => {
         await sessionStore.loadSessions();
         expect(sessionStore.sessions.find(session => session.id === current.id)).toEqual(before);
         expect(sessionStore.sessions.find(session => session.id === discovered.id)).toMatchObject(discovered);
-        expect(sessionStore.getTerminalsForSession(current.id)?.tabs.map(tab => ({ id: tab.id, label: tab.label }))).toEqual(tabs);
+        expect(sessionStore.getTerminalsForSession(current.id)?.tabs.map(tab => ({ ...tab }))).toEqual(tabs);
         expect(terminalLifecycle.ownedSessionIds.has(current.id)).toBe(true);
       },
     );
