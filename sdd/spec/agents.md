@@ -1826,7 +1826,7 @@ None.
 1. Stored GitHub and Cloudflare deploy credentials are injected into the container as environment variables on session start. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 2. Credentials are sent as explicit `null` when absent (not omitted) so revocation propagates on session restart. <!-- @impl: src/routes/container/lifecycle-init.ts::buildSetBucketNameBody --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (DEEP-20-002: sends newly absent deploy credentials as explicit null on restart) --> <!-- @test: src/__tests__/container/container-env.test.ts (applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression) / REQ-AGENT-029 (container env vars contract)) -->
 3. When a GitHub credential is present, the container configures git for authenticated HTTPS access. <!-- @test: host/__tests__/entrypoint-credentials.test.js (does NOT configure git credential.helper when GH_TOKEN is unset (REQ-AGENT-029 AC3: guard)) --> <!-- @manual -->
-4. The Cloudflare account ID is resolved automatically from the API token when one is stored, so users need not supply it separately. <!-- @impl: src/routes/setup/account.ts::handleGetAccount --> <!-- @test: src/__tests__/routes/setup/account.test.ts (returns account ID on success) -->
+4. Cloudflare accounts are discovered from the stored token without manual ID entry; a sole account is selected automatically, otherwise account choices are returned and explicit selection is validated against that token. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (stores Cloudflare token and auto-selects single account) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (returns account list when multiple Cloudflare accounts) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (sets cloudflareAccountId after validating it against the stored token) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (rejects a cloudflareAccountId not accessible with the stored token) -->
 
 **Constraints:**
 
@@ -1836,7 +1836,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** Automated: [entrypoint-credentials.test.js](../../host/__tests__/entrypoint-credentials.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [account.test.ts](../../src/__tests__/routes/setup/account.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
+**Verification:** Automated: [entrypoint-credentials.test.js](../../host/__tests__/entrypoint-credentials.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 

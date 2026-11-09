@@ -502,6 +502,8 @@ Additional details:
 
 The connect flow pre-fills the Cloudflare dashboard token creation form with the correct permissions for the selected tier. Cloudflare API tokens do not expire by default but can be set to expire during creation. Scope tokens to specific accounts and zones, or use "All accounts" and "All zones" for convenience. Implements [REQ-AGENT-028](../../sdd/spec/agents.md#req-agent-028-deploy-credential-token-creation-ux) AC2.
 
+User-token storage discovers accessible accounts automatically. A sole account is selected automatically; multiple accounts are returned for user choice rather than selecting an arbitrary account. Submitted choices are validated against that token before persistence ([REQ-AGENT-029](../../sdd/spec/agents.md#req-agent-029-deploy-credential-propagation-to-container) AC4). This is separate from administrator Setup account discovery. <!-- @impl: src/routes/deploy-keys.ts::app -->
+
 **Enterprise mode:** the per-user "Push & Deploy" accordion is hidden, so an admin instead sets one Cloudflare **Browser Rendering** token (+ account id) in the Setup wizard, applied to every session. `setup:browser_render_token` is encrypted when `ENCRYPTION_KEY` is configured and uses AD32's plaintext fallback otherwise; `setup:browser_render_account_id` is non-secret. Prefill reports presence only, and leaving the token blank preserves it—no masked-value save sentinel is accepted. Sessions receive only the non-secret enterprise placeholder plus account id; the real token stays Worker-side. See [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token).
 
 ### GitHub Fine-Grained PAT (User)
