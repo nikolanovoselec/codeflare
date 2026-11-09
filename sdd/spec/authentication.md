@@ -504,13 +504,13 @@ None.
 <a id="req-auth-018-admin-user-management"></a>
 ### REQ-AUTH-018: User management admin panel
 
-**Intent:** Admins can manage users, approve access, and configure tiers without CLI tools. Approval is a tier mutation (`PATCH /api/users/:email`); the control surface adapts to the deployment mode — SaaS exposes the full subscription-tier picker, while onboarding (which has no paid tiers) collapses it to a plain Approve / Block decision.
+**Intent:** Admins can manage users, approve access and configure tiers without CLI tools. Approval changes a user's tier; the control surface adapts to deployment mode: SaaS exposes the full subscription-tier picker, while onboarding, with no paid tiers, uses a plain Approve / Block decision.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. `/admin/users` shows all users grouped by tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with users in multiple tiers and confirm every user appears under the correct tier heading. -->
+1. Admin user management shows all users grouped by tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with users in multiple tiers and confirm every user appears under the correct tier heading. -->
 2. An admin can search displayed users, approve pending users, change tiers, and request user deletion. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
 3. Deleting a user removes all owned settings, sessions, notification enrollments, R2 data, and scoped tokens. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
 4. The admin page displays the user count against configured capacity. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with a configured capacity and confirm the current and maximum user counts are displayed. -->
@@ -542,11 +542,11 @@ None.
 **Acceptance Criteria:**
 
 1. The authenticated user response returns persisted identity and account status without creating resources. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) -->
-2. `POST /api/user/onboarding-complete` marks the user's stored record onboarding-complete so later logins skip the onboarding redirect, and is a no-op when the user has no stored record yet. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
-3. `GET /api/user/r2-status` reports whether a scoped R2 token already exists for the user. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
-4. `POST /api/user/ensure-r2-token` creates the user's scoped R2 token when absent, returning ready on success, 503 when account setup is incomplete, and 500 on a provisioning failure. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
+2. Completing onboarding marks the user's stored record onboarding-complete so later logins skip the onboarding redirect; it is a no-op when the user has no stored record yet. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
+3. Token-status inspection reports whether a scoped R2 token already exists for the current user. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
+4. Ensuring storage readiness creates the user's scoped R2 token when absent, returning ready on success, 503 when account setup is incomplete and 500 on provisioning failure. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
 5. Every endpoint requires authentication; unauthenticated requests are rejected with 401. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
-6. `POST /api/user/ensure-r2-token` is rate-limited per user to bound token-provisioning abuse. <!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /user/ensure-r2-token - ensure-r2-token (5/min)) --> <!-- @manual -->
+6. Requests to ensure a scoped R2 token are rate-limited per user to bound token-provisioning abuse. <!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /user/ensure-r2-token - ensure-r2-token (5/min)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -564,16 +564,16 @@ None.
 
 ### REQ-AUTH-020: Onboarding-mode landing-integrated login shell
 
-**Intent:** In onboarding mode, `/login` is served by the marketing landing system while SaaS keeps the existing SPA login page.
+**Intent:** In onboarding mode, the login page is served by the marketing landing system while SaaS keeps the existing SPA login page.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. When the onboarding binding is `active` and the SaaS binding is not `active`, sign-in requests receive the dedicated onboarding login assets. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
-2. The landing-built `/login` page uses the shared landing design tokens, preloaded fonts, and login nav chrome. <!-- @impl: landing/src/pages/login.astro::BaseLayout --> <!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)) -->
-3. The landing-built `/login` page omits landing-only WebGL/motion hooks for stable first paint. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared nav and font preloads while omitting landing-only motion hooks) -->
-4. In SaaS mode, `/login` is unchanged and continues to serve the SPA login. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
+2. The landing-built login page uses the shared landing design tokens, preloaded fonts and login navigation chrome. <!-- @impl: landing/src/pages/login.astro::BaseLayout --> <!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)) -->
+3. The landing-built login page omits landing-only WebGL/motion hooks for stable first paint. <!-- @impl: landing/src/layouts/BaseLayout.astro::canonical --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared nav and font preloads while omitting landing-only motion hooks) -->
+4. In SaaS mode, the login page is unchanged and continues to serve the existing SPA login. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 5. The landing-built login remains on the dark canvas until its shared stylesheet and critical fonts are ready. <!-- @impl: landing/src/layouts/BaseLayout.astro::data-design-ready --> <!-- @test: landing/src/__tests__/login-page.test.ts (inherits the shared final-design gate before exposing the login shell) -->
 
 **Constraints:**
@@ -628,7 +628,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The API client's 401 handler on an authenticated path (`/app/*`, `/admin/*`) performs a hard navigation to `/` and **throws** a tagged API error; it never returns a non-resolving promise, so the bootstrap promise always settles. <!-- @impl: web-ui/src/api/fetch-helper.ts::ApiError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
+1. The API client's 401 handler on protected application or administration paths performs a hard navigation to the deployment root and throws a tagged API error; it never returns a non-resolving promise, so bootstrap always settles. <!-- @impl: web-ui/src/api/fetch-helper.ts::ApiError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
 2. Bootstrap expiry starts top-level sign-in and replaces the loading shell with a non-empty redirecting state, including when the 401 lacks API-helper metadata. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not a hung/blank or error page) -->
 3. The application root renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @impl: web-ui/src/App.tsx::RootPage --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)) -->
 4. A top-level error boundary wraps the app; an unhandled bootstrap/render error renders a recovery fallback (reload control) instead of a blank document. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC4: top-level ErrorBoundary catches a render throw) -->

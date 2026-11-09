@@ -130,6 +130,8 @@ The frontend calls `/auth/logout`. The Worker dispatches session-OIDC deployment
 <a id="access-session-expiry-and-restored-pages-req-auth-022"></a>
 ### Access Session Expiry and Restored Pages
 
+`web-ui/src/api/fetch-helper.ts::redirectExpiredSession` matches `/app`, `/app/*`, `/admin`, `/admin/*` and exact `/operators`. An expired-session 401 on these paths replaces location with `/` and throws `ApiError` tagged `authRedirect`, rather than returning a non-resolving promise ([REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page) AC1).
+
 Authenticated API clients treat explicit 401, manual/opaque redirects, and HTML login responses as the same expired-session condition. They replace the top-level location with `/` and render a redirecting state until navigation commits. Mobile/bfcache restoration revalidates on visibility return and persisted `pageshow`; valid sessions continue, expired sessions re-enter the normal sign-in path. Fingerprinted application assets remain immutable while HTML remains revalidating, preventing an expired restored page from replacing CSS/JavaScript with login HTML. <!-- @impl: web-ui/src/api/fetch-helper.ts::expiredSessionError --> <!-- @impl: web-ui/src/App.tsx::App -->
 
 <a id="service-automation-auth"></a>
