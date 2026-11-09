@@ -44,6 +44,10 @@ Terminal links exclude unmatched trailing closing parentheses from both the dest
 
 Component/store [classic-surface](../../sdd/spec/terminal.md#req-term-007-classic-topology-remains-available) and [MultiView focus/input](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing) tests are controlled methods, not proof of physical terminal/editor retention or hosted browser acceptance. Source and dependency inspection supports ownership/compatibility judgment, not executed process or socket lifetime. Keep those evidence populations distinct.
 
+### Terminal snapshot restoration acceptance
+
+Use an already-authorized disposable terminal with bounded synthetic output. Interrupt only its browser transport while the host continues, then reconnect through the normal UI without restarting the process. Pass when the authoritative host screen replaces prior client content without duplication, returns to the live bottom and drops the old selection/viewport while tabs, tiling and any external editor remain intact. Exercise Classic and Herdr separately; retain only outcome booleans, not terminal contents. Missing authorized transport controls make the observation unavailable.
+
 ### MultiView focus continuity acceptance
 
 Use two already-authorized connected MultiView panes and existing browser network inspection. Record connection identity and open/close counts, not headers or terminal payloads. Switch focus by click and touch; confirm both panes continue receiving output and benign input reaches only the focused pane. Pass only when the same pane surfaces and connections remain live without a new handshake or close. Missing authorized browser observations are unavailable evidence; this method does not authorize creating sessions or running a new harness.
