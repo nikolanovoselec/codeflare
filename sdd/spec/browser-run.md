@@ -55,7 +55,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-browser-run-mcp](../../host/__tests__/entrypoint-browser-run-mcp.test.js); Manual: [Claude Browser Run observation](../../documentation/lanes/preseed.md#claude-browser-run-observation)
 
 **Status:** Implemented
 
@@ -141,7 +141,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity), [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Browser semantic observation](../../documentation/lanes/preseed.md#browser-semantic-observation)
 
 **Status:** Implemented
 
