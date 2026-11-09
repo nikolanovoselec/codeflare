@@ -1391,7 +1391,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Acceptance Criteria:**
 
-1. The wizard offers a context-window number input per dynamic route, prefilled with `256000` and raisable/resettable by the admin; adding a route seeds this default, while removing it drops the entry. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) -->
+1. The wizard offers a context-window number input per dynamic route, prefilled with `256000` and raisable/resettable by the admin; adding a route seeds this default, while removing it drops the entry. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Per-route context window (REQ-ENTERPRISE-012)) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) -->
 
 **Constraints:**
 

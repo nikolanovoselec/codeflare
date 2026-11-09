@@ -753,8 +753,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. A failed background managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC4: a failed ancillary-status call does not consume the managed-release check window) -->
 5. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC5: status refresh caches failed compatible discovery for five minutes) -->
 
-**Notes:** See [compatible-discovery execution qualification](.review-queue.md#triage-stor-040-execution-qualification).
-
 **Constraints:**
 
 - Background refresh and explicit fresh-required validation share [REQ-AGENT-154](agents.md#req-agent-154-build-compatible-managed-release-discovery)'s ten-page, 1,000-record compatible-history traversal past newer incompatible releases. <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
@@ -767,7 +765,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
