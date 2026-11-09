@@ -334,7 +334,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Container images are scanned for HIGH and CRITICAL severity vulnerabilities in the reusable container-image workflow invoked by every deploy. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
+1. Container images are scanned for HIGH and CRITICAL severity vulnerabilities in the reusable container-image workflow invoked by every deploy. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @manual -->
 2. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 3. The deploy pipeline refuses image publication for unexcepted fixable HIGH/CRITICAL vulnerabilities, invalid bounded exceptions or runtimes below their required security floors. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> <!-- @test: host/__tests__/trivy-exception-gate.test.js (Trivy bounded exception gate) --> <!-- @manual -->
 4. Scanning occurs after image build and before push to the container registry; a pushed image is therefore always scanned-green at push time. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual -->
