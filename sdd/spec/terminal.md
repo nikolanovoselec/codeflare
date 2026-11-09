@@ -393,7 +393,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Dependencies:** [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology)
 
-**Verification:** Automated single-surface behavior plus source and dependency review.
+**Verification:** Automated: [session-tabs.test.ts](../../web-ui/src/__tests__/stores/session-tabs.test.ts), [tiling.test.ts](../../web-ui/src/__tests__/stores/tiling.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [touch-gestures.test.ts](../../web-ui/src/__tests__/lib/touch-gestures.test.ts), [update-terminal-label.test.ts](../../web-ui/src/__tests__/stores/update-terminal-label.test.ts)
 
 **Status:** Implemented
 
@@ -799,7 +799,7 @@ None.
 
 **Dependencies:** [REQ-TERM-012](#req-term-012-multiview-virtual-session-workspace)
 
-**Verification:** Automated test ([Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [TerminalGrid tests](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Floating button tests](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx))
+**Verification:** Automated: [terminal-workspace.test.ts](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [TerminalGrid.test.tsx](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [FloatingTerminalButtons.test.tsx](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx), [terminal-mobile-input.test.ts](../../web-ui/src/__tests__/lib/terminal-mobile-input.test.ts)
 
 **Status:** Implemented
 

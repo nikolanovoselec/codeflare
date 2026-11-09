@@ -580,6 +580,12 @@ MCP portals use the existing Environment Name/URL list for unique public HTTPS d
 
 User Management and Subscription Tiers reuse established components and `/api/users` and `/api/admin/tiers`; the shell does not create a new entitlement or user mutation authority. ([REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel)) <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions --> <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement -->
 
+### Administration display inspection
+
+Supplement the [timezone option](../../sdd/spec/setup.md#req-setup-020-administration-report-timezone-selection) and [managed summary](../../sdd/spec/setup.md#req-setup-021-administration-managed-environment-status) tests with user-owned read-only Integration UI inspection at its exact deployed revision. Use existing approved states; do not save settings, reconfigure curation, create a special fixture or change credentials. Missing states or denied access leave their observations unverified. Automated mappings and a historical screenshot do not establish current hosted appearance.
+
+Open Administration → Environment. Report timezone must render as a canonical-IANA dropdown and preserve an already accepted stored value outside bundled choices. Compare existing configured/enabled, configured/disabled and unconfigured managed-environment states: the summary must show its selected release, disabled state or absence distinctly, without inventing release freshness. Pass each observation only against its actual stored/prefilled state; screenshots without that correlation do not qualify. This is supplemental browser evidence, not replacement automation or permission to generate missing states.
+
 <a id="runtime-ownership"></a>
 ### Environment Runtime Ownership
 

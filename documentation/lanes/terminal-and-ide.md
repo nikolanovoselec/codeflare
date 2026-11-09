@@ -40,6 +40,10 @@ OAuth shims print URLs rather than opening container browsers. The shared xterm 
 
 Terminal links exclude unmatched trailing closing parentheses from both the destination and clickable range, preserving balanced and percent-encoded parentheses. The existing desktop and touch auth-link controls also recognize `auth.openai.com` regardless of path. <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
 
+### Terminal evidence boundaries
+
+Component/store [classic-surface](../../sdd/spec/terminal.md#req-term-007-classic-topology-remains-available) and [MultiView focus/input](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing) tests are controlled methods, not proof of physical terminal/editor retention or hosted browser acceptance. Source and dependency inspection supports ownership/compatibility judgment, not executed process or socket lifetime. Keep those evidence populations distinct.
+
 ### Herdr clipboard compatibility boundary
 
 Explicit copy uses OSC 52 standard `c` selector, valid base64/UTF-8, at most 64 KiB decoded. Reads/queries/invalid selectors/encoding/oversize are rejected. Herdr copy is independent of Classic right-click paste preference; Classic installs no Herdr write handler. Ctrl-/Cmd-V reads during trusted key gesture and pastes via xterm. Browser permission remains authoritative; content/queries are never logged and no second clipboard service exists. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/osc52.ts::beginClipboardWrite -->

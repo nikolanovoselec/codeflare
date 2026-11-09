@@ -636,7 +636,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SUB-027](subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution)
 
-**Verification:** Automated timezone-option behavior and user-owned manual UI acceptance on Integration
+**Verification:** Automated: [EnvironmentAreaFields.test.tsx](../../web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx), [iana-timezones.test.ts](../../web-ui/src/__tests__/lib/iana-timezones.test.ts); Manual: [Administration display inspection](../../documentation/lanes/configuration.md#administration-display-inspection)
 
 **Status:** Implemented
 
@@ -658,7 +658,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-013](#req-setup-013-managed-environment-configuration), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
 
-**Verification:** Automated summary-state mapping and user-owned manual UI acceptance on Integration
+**Verification:** Automated: [environment-areas.test.ts](../../web-ui/src/__tests__/components/environment-areas.test.ts); Manual: [Administration display inspection](../../documentation/lanes/configuration.md#administration-display-inspection)
 
 **Status:** Implemented
 
