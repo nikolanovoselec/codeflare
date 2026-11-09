@@ -76,6 +76,25 @@ describe('terminalWorkspaceStore visible pane ownership', () => {
     ]);
   });
 
+  it('REQ-SESSION-012 AC3: unreachable reconciliation retains workspace tabs, focus and layout through recovery', () => {
+    const sessions = [session('a'), session('b'), session('c')];
+    expect(terminalWorkspaceStore.createOrUpdateMultiView(['a', 'b', 'c'], sessions, 'desktop')).toBe(true);
+    const terminalIds: Record<string, string> = { a: '2', b: '3', c: '4' };
+    expect(terminalWorkspaceStore.openMultiView(sessions, id => terminalIds[id] ?? '1')).toBe(true);
+    const focused = terminalWorkspaceStore.getVisiblePanes().find(pane => pane.sessionId === 'b')!;
+    terminalWorkspaceStore.setFocusedPane(focused.id);
+    const snapshot = () => JSON.parse(JSON.stringify({
+      activeWorkspace: terminalWorkspaceStore.getActiveWorkspace(), panes: terminalWorkspaceStore.getVisiblePanes(),
+      focusedPaneId: terminalWorkspaceStore.getFocusedPaneId(), layout: terminalWorkspaceStore.getLayout(),
+      multiView: terminalWorkspaceStore.getMultiView(),
+    }));
+    const retained = snapshot();
+    for (const status of ['unreachable', 'running'] as const) {
+      terminalWorkspaceStore.reconcileMultiView(sessions.map(item => ({ ...item, status })), 'desktop');
+      expect(snapshot()).toEqual(retained);
+    }
+  });
+
   it('REQ-TERM-012: tablet MultiView accepts exactly two live sessions', () => {
     const sessions = [session('a'), session('b'), session('c')];
 

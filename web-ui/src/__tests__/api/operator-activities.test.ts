@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
+import { createComponent } from 'solid-js';
+import OperatorActivityButton from '../../components/OperatorActivityButton';
 import { acknowledgeOperatorActivities, cancelOperatorActivity, getOperatorActivity, listOperatorActivities } from '../../api/operator-activities';
 import { listOperatorInstallations } from '../../api/operator-management';
 
@@ -7,7 +10,7 @@ const detail = { activityId: 'activity-1', operatorId: 'reviewer', executionStat
   updatedAt: '2026-09-28T00:00:00.000Z', checkpoint: null,
   result: { originalReports: [{ lane: 'code-reviewer', findings: [{ message: 'Review finding' }] }] } };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-086 AC2/5: five-entry installation page wire', () => {
   const installation = (index: number) => ({ id: `installation-${index}`, operatorId: 'operator-1', name: 'Review',
@@ -32,6 +35,37 @@ describe('REQ-OPERATOR-086 AC2/5: five-entry installation page wire', () => {
     vi.stubGlobal('fetch', async () => Response.json({ items: Array.from({ length: 6 }, (_, index) => installation(index + 1)), cursor: null }));
     await expect(listOperatorInstallations()).rejects.toBeDefined();
   });
+});
+
+it('REQ-OPERATOR-086 AC3: paging summary rows uses only summary and acknowledgement endpoints', async () => {
+  const requests: string[] = [];
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin);
+    const method = init?.method ?? 'GET';
+    requests.push(`${method} ${url.pathname}`);
+    if (method === 'GET' && url.pathname === '/api/operator-activities' && url.searchParams.get('limit') === '5') {
+      const older = url.searchParams.get('after') === 'run-1';
+      return Response.json({ items: [{ activityId: older ? 'run-2' : 'run-1', operatorId: 'dispatcher',
+        operatorName: 'Dispatcher', version: 'v1.2.3', executionStatus: 'completed', cleanupStatus: 'released',
+        collectionStatus: 'consumed', attention: false, sessionId: null, source: null, updatedAt: '2026-11-09T00:00:00.000Z',
+        resultSummary: { assessed: 3, merged: 1, notMerged: 2, deferred: 0, unknown: 0 } }],
+      nextCursor: older ? null : 'run-1', workingCount: 0, unreadCount: 0, latestSequence: 2 });
+    }
+    if (method === 'POST' && url.pathname === '/api/operator-activities/read') return Response.json({ unreadCount: 0 });
+    return Response.json({ error: 'Result bodies are not available to overview paging' }, { status: 403 });
+  });
+  render(() => createComponent(OperatorActivityButton, { enabled: true }));
+  await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+  expect(await screen.findByRole('button', { name: 'View run-1' })).toBeVisible();
+  expect(screen.getByText('1 merged')).toBeVisible();
+  await fireEvent.click(screen.getByRole('button', { name: 'Load 5 more' }));
+  expect(await screen.findByRole('button', { name: 'View run-2' })).toBeVisible();
+  expect(screen.getByText('2 not merged')).toBeVisible();
+  await fireEvent.click(screen.getByRole('button', { name: 'Newer 5' }));
+  expect(await screen.findByRole('button', { name: 'View run-1' })).toBeVisible();
+  // Intentional HTTP allowlist: overview paging must not fetch per-row result bodies.
+  expect(requests.every(request => request === 'GET /api/operator-activities'
+    || request === 'POST /api/operator-activities/read')).toBe(true);
 });
 
 describe('REQ-OPERATOR-036: failed activity mutations surface uncertainty instead of replaying', () => {

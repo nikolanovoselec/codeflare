@@ -716,12 +716,24 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
 
   it('required scheduling failure is observable and does not signal, reset, or release ownership', async () => {
     const f = await runtimeFixture();
+    const { setLogLevel } = await import('../../lib/logger');
+    const entries: Array<{ level: string; module: string; data?: Record<string, unknown> }> = [];
+    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+      try { entries.push(JSON.parse(String(line))); } catch { /* Ignore unrelated non-JSON console output. */ }
+    });
+    setLogLevel('error');
     try {
       f.host.schedule = async () => { throw Error('alarm unavailable'); };
       await expect(f.tick()).rejects.toThrow('alarm unavailable');
+      const current = await repository().getSession(owner, id);
+      expect(current).toMatchObject({ lifecycleState: 'unreachable', lifecycleGeneration: pin.generation,
+        unreachableIncidentId: expect.any(String) });
+      expect(entries).toContainEqual(expect.objectContaining({ level: 'error', module: 'container-metrics',
+        data: expect.objectContaining({ sessionId: id, lifecycleGeneration: current!.lifecycleGeneration,
+          incidentId: current!.unreachableIncidentId, errorClass: 'schedule_failed' }) }));
       expect(f.effects).toEqual([]);
-      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'unreachable' });
-    } finally { vi.restoreAllMocks(); }
+      expect(f.host._usageSeconds).toBe(0);
+    } finally { setLogLevel('silent'); vi.restoreAllMocks(); }
   });
 
   it('lost incident acknowledgement in the production tick joins the durable incident instead of extending it', async () => {
