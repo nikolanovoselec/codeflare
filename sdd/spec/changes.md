@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-09
 
+- Use pre-authorized native tools for owned Pi conversations rather than an interactive approval-pause protocol. Preserve owner authorization, tool restrictions, conversation isolation and ordinary PTY behavior ([REQ-OPERATOR-021](operators.md#req-operator-021-structured-owned-pi-conversation)).
+
 - Align existing presentation contracts with model-first configured native rows, label-first policy options, independently retained editor windows and Dashboard-owned status-unavailable notices. Do not require an additional recovery countdown or in-workspace notice; preserve authoritative disposal and the chosen host-snapshot terminal restore. Runtime behavior is unchanged ([REQ-ENTERPRISE-064](setup.md#req-enterprise-064-route-and-compatibility-profile-presentation), [REQ-IDE-055](browser-ide.md#req-ide-055-ide-lifecycle-and-connectivity-are-presented-separately), [REQ-TERM-045](terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle)).
 
 - Preserve complete newer session metadata against stale catalog rows, use transitional polling for starting/unreachable sessions, and apply the existing native context-window maximum to client readiness and policy eligibility. Keep ancillary failure retention and fail-closed managed discovery distinct ([REQ-SESSION-029](session-lifecycle.md#req-session-029-ordered-client-state-retains-last-good-authority), [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-ENTERPRISE-056](setup.md#req-enterprise-056-native-target-disclosure-and-readiness)).
