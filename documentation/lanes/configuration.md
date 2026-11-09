@@ -265,6 +265,10 @@ OAuth agent TLS trust uses the platform-mounted `/etc/cloudflare/certs/cloudflar
 
 **Provider registration permissions** (set at app registration, not via config). Every OAuth App connection tier includes `gist`; its remaining `scope` values are derived from the selected tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) and [REQ-GITHUB-013](../../sdd/spec/github.md#req-github-013-connected-github-tokens-grant-gist-access)). GitHub OAuth App and GitHub App registration, including the internal-App requirement for EMU, are maintained in [GitHub Connect provider registration](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/integrations/github-provider.md).
 
+### GitHub provider credential acceptance
+
+Use only separately authorized existing provider configurations and negative states. Switch the selected provider and verify both saved client IDs remain available; a blank secret must preserve its logical value and prefill must expose presence only. A replacement without an encryption key must fail. An already unreadable selected Setup secret makes that provider unavailable; a valid configured environment fallback must still resolve, otherwise report unavailable. Do not create these states by rotating the immutable key, corrupting credentials or exporting secrets. Missing states block execution, not method definition.
+
 ## Onboarding mode
 
 Onboarding mode (`ONBOARDING_LANDING_PAGE` = active) serves the public waitlist landing and the integrated `/login` sign-in, adding the following on top of Default mode. The OAuth sign-in secrets and Resend email are shared with SaaS mode.

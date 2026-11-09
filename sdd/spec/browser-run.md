@@ -194,6 +194,8 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 6. Pi's interactive tools control the same authenticated Browser Run browser surface as Claude. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
 7. Pi starts interactive browser resources only on explicit connection, not status or capability discovery. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
 
+**Notes:** Lazy registration and metadata startup do not themselves prove remote browser acquisition or its absence. Cold-discovery acquisition timing remains an explicit observation limit; no runtime acquisition defect is established by that missing evidence.
+
 **Constraints:**
 
 - Same gate as the rest of Browser Run (advanced + a token carrying the `Browser Rendering - Edit` scope); the `chrome-devtools` server is the same Dockerfile-baked `chrome-devtools-mcp` binary Claude uses.
@@ -210,7 +212,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-BROWSER-009](#req-browser-009-mcp-and-chrome-sdk-timeout-profile)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-browser-run-mcp.test.js](../../host/__tests__/entrypoint-browser-run-mcp.test.js); Manual: [Pi interactive browser acceptance](../../documentation/lanes/preseed.md#pi-interactive-browser-acceptance)
 
 **Status:** Implemented
 
@@ -241,7 +243,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage), [REQ-SETUP-006](setup.md#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [setup/handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [kv-crypto.test.ts](../../src/__tests__/lib/kv-crypto.test.ts), [enterprise-surface-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx); Manual: [Browser read registration observation](../../documentation/lanes/preseed.md#browser-read-registration-observation)
 
 **Status:** Implemented
 

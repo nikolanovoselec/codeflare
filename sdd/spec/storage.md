@@ -1695,7 +1695,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 5. Repeated cleanup with no matches preserves ordinary files unchanged. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC5: empty repeats preserve ordinary files) -->
 6. Remote cleanup uses the remaining startup/baseline attempt deadline and the existing network-timeout bound for ordinary cycles. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: startup and baseline share their existing transfer deadline with cleanup) --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: a stalled remote cleanup obeys its remaining deadline) --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: ordinary cleanup uses the existing thirty-second network bound) -->
 
-**Notes:** See [runtime activation qualification](.review-queue.md#triage-stor-054-runtime-activation).
+**Notes:** [Conflict cleanup](../../documentation/lanes/storage-and-sync.md#conflict-resolution) is implemented and tested. Exact-runtime activation remains a separate deployment observation, not proof supplied by a source checkout.
 
 **Constraints:**
 

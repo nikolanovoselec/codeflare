@@ -44,6 +44,10 @@ Terminal links exclude unmatched trailing closing parentheses from both the dest
 
 Component/store [classic-surface](../../sdd/spec/terminal.md#req-term-007-classic-topology-remains-available) and [MultiView focus/input](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing) tests are controlled methods, not proof of physical terminal/editor retention or hosted browser acceptance. Source and dependency inspection supports ownership/compatibility judgment, not executed process or socket lifetime. Keep those evidence populations distinct.
 
+### MultiView focus continuity acceptance
+
+Use two already-authorized connected MultiView panes and existing browser network inspection. Record connection identity and open/close counts, not headers or terminal payloads. Switch focus by click and touch; confirm both panes continue receiving output and benign input reaches only the focused pane. Pass only when the same pane surfaces and connections remain live without a new handshake or close. Missing authorized browser observations are unavailable evidence; this method does not authorize creating sessions or running a new harness.
+
 ### Herdr clipboard compatibility boundary
 
 Explicit copy uses OSC 52 standard `c` selector, valid base64/UTF-8, at most 64 KiB decoded. Reads/queries/invalid selectors/encoding/oversize are rejected. Herdr copy is independent of Classic right-click paste preference; Classic installs no Herdr write handler. Ctrl-/Cmd-V reads during trusted key gesture and pastes via xterm. Browser permission remains authoritative; content/queries are never logged and no second clipboard service exists. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/osc52.ts::beginClipboardWrite -->

@@ -352,7 +352,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser)
 
-**Verification:** Automated test
+**Verification:** Automated: [setup/handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts); Manual: [GitHub provider credential acceptance](../../documentation/lanes/configuration.md#github-provider-credential-acceptance)
 
 **Status:** Implemented
 

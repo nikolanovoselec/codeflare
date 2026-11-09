@@ -857,7 +857,7 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 
 **Acceptance Criteria:**
 
-1. Session admission compares desired release, sequence, effective mode, extension digest, resource policy, and path digest with the applied stamp. A mismatch returns managed-update-pending before bucket or container work. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks a desired and applied resource-policy mismatch before bucket work) -->
+1. Before bucket or container work, session admission matches the applied release, sequence, effective mode, projection and resource policy to the desired identity. It requires valid extension and protected-path digests, rejects stale mutable-path identity and reports managed-update-pending on invalid or mismatched identity. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks a desired and applied resource-policy mismatch before bucket work) -->
 2. Protected start requires Enterprise Strict Gateway Egress and its binding, then requires fresh verification of exact user-bucket policy identity before container work. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (verifies protected bucket policy without cache and transports only its identity) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks corrupt protected policy before container work) -->
 3. Authenticated lifecycle transport uses one normalized policy enum, one path digest, and the existing curation release digest. <!-- @impl: src/lib/container-config-schema.ts::SetBucketNameBodySchema --> <!-- @impl: src/routes/container/lifecycle-init.ts::buildSetBucketNameBody --> <!-- @test: src/__tests__/lib/container-config-schema.test.ts (accepts mutable only with a null managed path identity) -->
 4. Invalid policy identity combinations do not cross the Worker-to-DO boundary. <!-- @impl: src/lib/container-config-schema.ts::SetBucketNameBodySchema --> <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @test: src/__tests__/lib/container-config-schema.test.ts (requires the curation release and managed path digests for both protected modes) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-027: rejects injected policy digests when policy mode is omitted) -->
@@ -871,7 +871,7 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 
 **Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
 
-**Verification:** Automated admission, schema, transport, and warm-refresh tests
+**Verification:** Automated: [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [container-config-schema.test.ts](../../src/__tests__/lib/container-config-schema.test.ts), [managed-r2-policy.test.ts](../../src/__tests__/lib/managed-r2-policy.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 

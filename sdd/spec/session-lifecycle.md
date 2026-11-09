@@ -189,8 +189,8 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Acceptance Criteria:**
 
-1. An accepted Start advances generation once, writes `starting`, and assigns that generation to the Durable Object before process work begins. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @impl: src/container/container-lifecycle.ts::onStart -->
-2. Start fails closed when D1 authority is unavailable, a termination intent is outstanding, or capacity validation rejects it. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/lib/session-repository.ts::start -->
+1. An accepted Start advances generation once and writes `starting` in D1 before process launch. The Durable Object adopts that generation during startup before publishing running state or generation-owned observations. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @impl: src/container/container-lifecycle.ts::onStart -->
+2. New Start admission fails closed when D1 authority is unavailable, a termination intent is outstanding, or capacity validation rejects it. An idempotent already-running response does not launch a process or allocate another generation. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/lib/session-repository.ts::start -->
 3. Stop conditionally claims `stopping` for the current generation, performs established graceful destruction, and reaches `stopped` only after a generation-fenced positive process-exit monitor observation or awaited destruction that confirms exit. An old `stopping` transition alone cannot release ownership. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-stop-delete.test.ts (returns failure and preserves retryable state when destruction is unconfirmed) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: old stopping remains owner-scoped and retains managed-mutation ownership without exit evidence) -->
 4. Restart preserves the same D1 session row, workspace and storage identity while applying current preferences in a new generation. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/lib/session-repository.ts::start -->
 5. Delete uses the same confirmed graceful destruction path and hard-deletes the D1 row only after exit; delayed writers cannot recreate it. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed --> <!-- @impl: src/lib/session-repository.ts::project -->
@@ -417,7 +417,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 ### REQ-SESSION-009: Container destroy wipes session state
 
-**Intent:** Destroying a container clears all transient session state from the Durable Object, leaving only the persistent KV record and R2 bucket.
+**Intent:** Destroying a container clears transient Durable Object state while preserving the authoritative D1 session record and persistent R2 storage.
 
 **Applies To:** User
 
@@ -427,7 +427,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 2. Session mode resets to default on destroy. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->
 3. Scheduled idle-metric polling is cancelled on destroy. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (onStop logs shutdownElapsedMs reflecting real elapsed time between destroy and onStop) -->
 4. After destroy, any delayed polling that fires detects the missing session state and exits without re-arming. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-009 AC4: a delivered metrics callback after public destroy leaves schedules and service effects unchanged) -->
-5. The user's persistent storage bucket and its contents are NOT deleted by destroy; files persist across sessions. <!-- @impl: src/container/index.ts::destroy -->
+5. The user's persistent storage bucket and its contents are NOT deleted by destroy; files persist across sessions. <!-- @impl: src/container/index.ts::destroy --> <!-- @manual: Session replacement storage acceptance -->
 
 **Constraints:**
 
@@ -437,7 +437,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts); Manual: [Session replacement storage acceptance](../../documentation/lanes/storage-and-sync.md#session-replacement-storage-acceptance)
 
 **Status:** Implemented
 
@@ -483,7 +483,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Acceptance Criteria:**
 
-1. Before signalling the container to stop, every graceful stop/delete path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011: drains a final R2 sync (POST /internal/final-sync) BEFORE signalling stop) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011 AC1 / REQ-SESSION-019 AC1: authenticated final-sync completion precedes SIGTERM even with a transient false running flag) -->
+1. Before signalling the container to stop, every graceful stop/delete path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011: drains a final R2 sync (POST /internal/final-sync) BEFORE signalling stop) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011 AC1 / REQ-SESSION-019 AC1: authenticated final-sync completion precedes SIGTERM even with a transient false running flag) --> <!-- @manual: Final persistence acceptance -->
 2. For runnable sync, the final-sync endpoint starts and awaits its own run, distinguishing success, failure and timeout. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)) -->
 3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts::FinalSyncEval --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behavioral)) -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->
@@ -503,7 +503,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-003](#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** Automated: [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts)
+**Verification:** Automated: [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts); Manual: [Final persistence acceptance](../../documentation/lanes/storage-and-sync.md#req-stor-005-final-persistence-acceptance)
 
 **Status:** Implemented
 
@@ -1177,13 +1177,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Structured transition events identify lifecycle generation and unreachable incident when an incident opens, reconstruction begins, recovery succeeds, termination is claimed, SIGTERM fails or is accepted, final sync completes or fails, and exit is confirmed.
-2. Reason classification distinguishes supported evidence for user, idle, quota, recovery-expiry, host-transport, D1-outage and platform/unknown paths without inventing an initiator.
+1. Structured recovery events identify generation and available incident for opening, reconstruction, recovery and recovery-expiry termination/signalling. Context-bearing final-sync and exit observations retain their known lifecycle identity; unavailable identity remains explicit.
+2. Event reasons or bounded error categories distinguish supported user, idle, quota, recovery-expiry, host-transport, D1-outage and platform/unknown evidence without inventing an initiator.
 3. Normal metrics ticks, individual WebSocket retries and unchanged state are not logged per occurrence.
 4. Logs contain no credentials, tokens, transcript or terminal content, or per-file paths.
-5. D1 row and statement metadata is sampled or aggregated during integration rather than emitted as another high-volume stream.
+5. D1 row and statement metadata is sampled or aggregated during integration rather than emitted as another high-volume stream. <!-- @manual: Integration D1 metadata sampling -->
 
-**Notes:** The production transition and privacy qualification gap is documented at [the live observability finding](.review-queue.md#triage-session-025-observability).
+**Notes:** Recovery observations use available identities and bounded categories, not a universal event enum or reconstructed initiator. Integration aggregation uses existing platform analytics rather than an application telemetry stream.
 
 **Constraints:** Use the existing structured logger; no new telemetry framework.
 
@@ -1191,7 +1191,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-024](#req-session-024-recovery-deadline-and-termination-intent-are-durable)
 
-**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts). These cover exercised transitions and failure paths; complete reason/transition and integration-sampling qualification remains open.
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts); Manual: [Integration D1 metadata sampling](../../documentation/lanes/container.md#integration-d1-metadata-sampling)
 
 **Status:** Planned
 
@@ -1206,7 +1206,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Failure to schedule required recovery, reconciliation, termination or confirmed-exit work is logged with generation and incident identity and propagates to its lifecycle caller. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (required scheduling failure is observable and does not signal, reset, or release ownership) --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::scheduleRecoveryOwnershipReadRetry --> <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (propagates a required ownership-read retry alarm failure without billing or destructive effects) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-026 AC1: required alarm failure retains the observed D1 incident identity) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-026 AC1: %s callback alarm failures retain captured context and ownership) -->
+1. Failure to schedule required recovery, reconciliation, termination or confirmed-exit work is logged with generation and available incident identity. After existing bounded retry handling, terminal scheduling failure propagates to its lifecycle caller. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (required scheduling failure is observable and does not signal, reset, or release ownership) --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::scheduleRecoveryOwnershipReadRetry --> <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (propagates a required ownership-read retry alarm failure without billing or destructive effects) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-026 AC1: required alarm failure retains the observed D1 incident identity) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-026 AC1: %s callback alarm failures retain captured context and ownership) -->
 2. Failed authoritative mutations retain retryable ownership and cannot be converted into `stopped` or successful recovery. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/lib/session-repository.ts::recoverUnreachable --> <!-- @impl: src/lib/session-repository.ts::confirmStoppedOrObserved -->
 3. Retry work is bounded, duplicate-safe and non-billable. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/lib/session-repository.ts::markRecoveryForceStarted -->
 4. If lifecycle authority cannot be established, Start, Stop, Delete, migration and destructive reconciliation fail closed. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/lib/migration-containers.ts::hasHealthyContainer --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer -->

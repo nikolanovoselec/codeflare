@@ -428,6 +428,10 @@ Record the exact build, requirement/AC, synthetic fixture identity, nonsecret di
 2. Use normal `POST /api/sessions/:id/stop`, not Kill or direct signals. Observe successful final sync and confirmed lifecycle stop; a stop response alone is not durability evidence.
 3. Independently download the exact key after shutdown. PASS requires matching bytes and publication attributable to the final drain, not an earlier periodic sync. Missing/corrupt bytes fails; unsuccessful sync or unavailable independent readback cannot pass this success case.
 
+### Session replacement storage acceptance
+
+For SESSION-009 AC5, reuse the final-persistence procedure above with an authorized nonempty fixture in an always-synced, non-managed path. Record the exact bucket, key and digest. After normal graceful destruction, create the next authorized session for the same owner, bucket and workspace; do not copy the fixture or substitute a bucket. Pass only if R2 and the restored file retain the original bytes after the old session is gone. Missing authorization/readback is blocked, not a pass.
+
 ### REQ-STOR-006 quota admission acceptance
 
 Use an authorized isolated SaaS/non-enterprise fixture with prepared tier and cache state. Changing billing/tier configuration needs separate permission; a missing cache or enterprise bypass cannot qualify this check.
