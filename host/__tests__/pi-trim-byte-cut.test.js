@@ -8,14 +8,15 @@ import {importPiExtension} from './fixtures/pi-extension-module.mjs';
 const {registerActiveSessionTranscriptTrimming}=await importPiExtension('active-session-transcript-trimming');
 const header=Buffer.from('{"type":"session","version":3,"id":"byte-cut"}\n');
 function expectedHash(file,start,end){const h=createHash('sha256'),fd=fs.openSync(file,'r'),b=Buffer.alloc(65536);h.update(header);try{for(let p=start;p<end;){const n=fs.readSync(fd,b,0,Math.min(b.length,end-p),p);h.update(b.subarray(0,n));p+=n;}}finally{fs.closeSync(fd);}return h.digest('hex');}
-function fixture(t,megabytes=60,sessionName){
+function fixture(t,megabytes=60,sessionName,beforeActivation){
  const root=fs.mkdtempSync(join(tmpdir(),'trim-byte-cut-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=join(root,'session.jsonl');
  // Opaque lines deliberately need no JSON decoding. Copy their bytes, not values.
  const line=Buffer.from('opaque UTF-8 é '+ 'x'.repeat(1007)+'\n');assert.equal(line.length,1024);
  const fd=fs.openSync(file,'w');fs.writeSync(fd,header);const oldInfo=sessionName?Buffer.from(JSON.stringify({type:'session_info',id:'old-session-name',parentId:null,timestamp:'2026-01-01T00:00:00Z',name:sessionName})+'\n'):Buffer.alloc(0);fs.writeSync(fd,oldInfo);const block=Buffer.concat(Array(1024).fill(line));
  for(let i=0;i<megabytes;i++)fs.writeSync(fd,block);fs.closeSync(fd);
- let selected=true;const tools=new Map(),ctx={sessionManager:{getSessionId:()=> selected?'byte-cut':'switched',getSessionFile:()=>file,getSessionName:()=>sessionName,getHeader:()=>({id:'byte-cut'}),getLeafId:()=> 'leaf',getBranch:()=>[{id:'leaf',parentId:null,type:'message',message:{role:'user',content:'current'}}]}};
- const owner=registerActiveSessionTranscriptTrimming({registerTool:x=>tools.set(x.name,x),sendMessage(){}});t.after(()=>owner.cancel());owner.markDue(ctx);let item=owner.collect(ctx);assert.ok(item?.request);
+ const branch=[{id:'leaf',parentId:null,type:'message',message:{role:'user',content:'current'}}];
+ let selected=true;const tools=new Map(),ctx={sessionManager:{getSessionId:()=> selected?'byte-cut':'switched',getSessionFile:()=>file,getSessionName:()=>sessionName,getHeader:()=>({id:'byte-cut'}),getLeafId:()=>branch.at(-1)?.id,getBranch:()=>branch}};
+ const owner=registerActiveSessionTranscriptTrimming({registerTool:x=>tools.set(x.name,x),sendMessage(){}},undefined,(_owner,phase)=>{if(phase==='before')beforeActivation?.({file,branch});});t.after(()=>owner.cancel());owner.markDue(ctx);let item=owner.collect(ctx);assert.ok(item?.request);
  const child={sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:item.request.prompt}}]}};
  const call=async operation=>JSON.parse((await tools.get('transcript_trim').execute('call',{operation},undefined,undefined,child)).content[0].text);
  return{file,owner,ctx,call,bodyOffset:header.length+oldInfo.length,rename(name){sessionName=name;fs.appendFileSync(file,JSON.stringify({type:'session_info',id:'renamed',parentId:'leaf',timestamp:new Date().toISOString(),name:name??''})+'\n');},switchOwner(){selected=false;},rearm(){owner.cancel();owner.markDue(ctx);item=owner.collect(ctx);assert.ok(item?.request);}};
@@ -41,6 +42,24 @@ test('REQ-MEM-030 AC4/7: activation includes appended tail and recalculates one 
  const tail=Buffer.from('new tail '+ 'z'.repeat(999990)+'\n');for(let i=0;i<5;i++)fs.appendFileSync(f.file,tail);
  const result=await f.call('activate');assert.equal(result.status,'trimmed');assert.ok(result.cutPercent>prepared.cutPercent);assert.ok(result.after>=15_000_000&&result.after<=25_000_000);
  const fd=fs.openSync(f.file,'r'),last=Buffer.alloc(tail.length);fs.readSync(fd,last,0,last.length,result.after-last.length);fs.closeSync(fd);assert.deepEqual(last,tail);
+});
+
+test('REQ-MEM-030 AC4: activation preserves a notification appended after its branch snapshot',async t=>{
+ const entry={id:'notification',parentId:'leaf',type:'custom_message',customType:'subagent-notification',content:'Completed: exact UTF-8 é payload'};
+ const tail=Buffer.from(JSON.stringify(entry)+'\n');
+ const f=fixture(t,60,undefined,({file,branch})=>{branch.push(entry);fs.appendFileSync(file,tail);});
+ const result=await f.call('trim');
+ assert.equal(result.status,'trimmed');assert.equal(result.committed,true);
+ const persisted=fs.readFileSync(f.file);
+ assert.deepEqual(persisted.subarray(-tail.length),tail);
+ assert.equal(result.after,persisted.length);assert.ok(result.after>=15_000_000&&result.after<=20_000_000);
+});
+test('REQ-MEM-029 AC1: activation rejects a rewritten branch without replacing source bytes',async t=>{
+ const f=fixture(t,60,undefined,({branch})=>{branch[0]={...branch[0],id:'different-branch'};});
+ const before=createHash('sha256').update(fs.readFileSync(f.file)).digest('hex');
+ const result=await f.call('trim');assert.equal(result.status,'refused');assert.equal(result.committed,false);
+ assert.equal(result.reason,'branch-changed');
+ assert.equal(createHash('sha256').update(fs.readFileSync(f.file)).digest('hex'),before);
 });
 
 test('REQ-MEM-029 AC1: a changed authorized prefix is not overwritten',async t=>{
