@@ -343,7 +343,8 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
 
 function transitioning(): boolean {
   const state = getState();
-  return state.sessions.some((session) => session.status === 'initializing' || session.status === 'stopping')
+  return state.sessions.some((session) => session.status === 'initializing' || session.status === 'starting'
+    || session.status === 'unreachable' || session.status === 'stopping')
     || state.managedReleaseStatus === 'upgrading'
     || state.bucketMigrating
     || state.bucketMigrationPending;

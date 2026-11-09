@@ -408,17 +408,13 @@ async function loadSessions(): Promise<void> {
         generation: local.generation,
         revision: local.revision,
       }, listed) !== listed;
+      if (local && localNewer) return local;
       const kill = localKillAttempts.get(s.id);
-      const keepLocalStatus = local && (localNewer || local.status === 'initializing'
+      const keepLocalStatus = local && (local.status === 'initializing'
         || (kill && kill.generation === s.generation && listedStatus !== 'stopped')
         || isLocallyStopping(s.id) || isSessionInitializing(s.id));
       return {
         ...s,
-        ...(localNewer && {
-          lifecycle: local.lifecycle, generation: local.generation, revision: local.revision,
-          editorReady: local.editorReady, editorReadyError: local.editorReadyError,
-          unreachableDeadlineMs: local.unreachableDeadlineMs,
-        }),
         status: keepLocalStatus && local ? local.status : listedStatus,
       };
     });

@@ -128,6 +128,8 @@ Saved-inventory cleanup is a separate explicit administration operation, not inf
 <a id="reasoning-semantics"></a>
 ## Reasoning and model publication
 
+Native target readiness and access-policy eligibility share the server's context-window bounds: greater than 16,384 and at most 4,000,000 tokens. Editing context outside those bounds removes policy eligibility without replacing the saved proof; restoring a valid context restores eligibility when that proof is still current. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields -->
+
 <!-- @impl: src/lib/reasoning-profiles.ts::translateRuntimeReasoningRequest --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
 Pi preferences are **Off, Minimal, Low, Medium, High, XHigh, Max**. Dynamic normalized discovered contracts and Dynamic/Native Provider-default contracts retain all seven client choices. Provider default sends **no client reasoning override** for any selection: not fabricated Off, observable thinking or graduated effort. Zero executable mappings does not mean zero selectable preferences. An Off default preference is allowed with a visible no-override/provider-controlled caveat. Dynamic generated single-mapping contracts normalize all seven preferences to the one tested mapping without expanding canonical mappings or receipts. Native configurable discoveries publish only actual successful levels and explicit aliases, including off-only profiles; older-client normalization does not justify publishing unsupported levels. Supported selected Off survives review, Save, reload and startup.

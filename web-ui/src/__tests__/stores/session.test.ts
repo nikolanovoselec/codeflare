@@ -77,6 +77,7 @@ import {
   MAX_STOP_POLL_ATTEMPTS,
   MAX_STOP_POLL_ERRORS,
   SESSION_POLL_STABLE_MS,
+  SESSION_POLL_TRANSITION_MS,
   STOP_POLL_INTERVAL_MS,
 } from '../../lib/constants';
 
@@ -236,6 +237,95 @@ describe('Session Store', () => {
       await sessionStore.refreshSessionAncillaryStatus();
     });
 
+    it.each(['starting', 'unreachable', 'stopping', 'running', 'stopped'] as const)(
+      'REQ-SESSION-010 AC6: %s uses its transition or stable polling cadence', async status => {
+        const baseline = { ...dashboardSession, status, lifecycle: status, generation: 2, revision: 8 };
+        mockGetSessions.mockResolvedValueOnce([baseline]);
+        await sessionStore.loadSessions();
+        await sessionStore.refreshSessionAncillaryStatus();
+        sessionStore.stopSessionListPolling();
+        mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+          [baseline.id]: { status, lifecycle: status, generation: 2, revision: 9 },
+        } });
+        const interval = ['starting', 'unreachable', 'stopping'].includes(status) ? SESSION_POLL_TRANSITION_MS : SESSION_POLL_STABLE_MS;
+        sessionStore.startSessionListPolling();
+        try {
+          await vi.advanceTimersByTimeAsync(interval - 1);
+          expect(sessionStore.sessions.find(session => session.id === baseline.id)?.revision).toBe(8);
+          await vi.advanceTimersByTimeAsync(1);
+          expect(sessionStore.sessions.find(session => session.id === baseline.id)?.revision).toBe(9);
+        } finally { sessionStore.stopSessionListPolling(); }
+      },
+    );
+
+    it('REQ-SESSION-010/029 AC6: hidden polling pauses and repeated visible refreshes remain serialized', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      sessionStore.stopSessionListPolling();
+      const descriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      const visibility = (value: 'hidden' | 'visible') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+      const pending = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+      try {
+        visibility('hidden');
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+          [dashboardSession.id]: { status: 'stopped', generation: 1, revision: 9 },
+        } });
+        sessionStore.startSessionListPolling();
+        await vi.advanceTimersByTimeAsync(2 * SESSION_POLL_STABLE_MS);
+        expect(sessionStore.sessions.find(session => session.id === dashboardSession.id)?.revision).toBe(2);
+        mockGetBatchSessionStatus.mockReturnValueOnce(pending.promise).mockResolvedValue({ statuses: {} });
+        visibility('visible'); visibility('visible'); visibility('visible');
+        await vi.advanceTimersByTimeAsync(SESSION_POLL_STABLE_MS);
+        expect(sessionStore.sessions.some(session => session.id === dashboardSession.id)).toBe(true);
+        pending.resolve({ statuses: {} });
+        await sessionStore.refreshSessionStatuses();
+        sessionStore.stopSessionListPolling();
+        expect(sessionStore.sessions.some(session => session.id === dashboardSession.id)).toBe(true);
+        await sessionStore.refreshSessionStatuses();
+        expect(sessionStore.sessions.some(session => session.id === dashboardSession.id)).toBe(true);
+        await sessionStore.refreshSessionStatuses();
+        expect(sessionStore.sessions.some(session => session.id === dashboardSession.id)).toBe(false);
+      } finally {
+        pending.resolve({ statuses: {} });
+        sessionStore.stopSessionListPolling();
+        if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor);
+        else Reflect.deleteProperty(document, 'visibilityState');
+      }
+    });
+
+    it('REQ-SESSION-010 AC7: failed ancillary lookup preserves last-good fields and recovery replaces them', async () => {
+      const { storageStore } = await import('../../stores/storage');
+      const before: api.SessionAncillaryStatus = { maxSessions: 7,
+        storageStats: { totalFiles: 5, totalFolders: 2, totalSizeBytes: 2048 },
+        usage: { dailySeconds: 3, monthlySeconds: 30, monthlyQuotaSeconds: 600, tier: 'advanced' },
+        managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
+        managedReleaseProgress: { phase: 'writing', completed: 2, total: 7 },
+        bucketMigrating: true, bucketMigrationPending: true, bucketMigrationPercent: 25 };
+      mockGetSessionAncillaryStatus.mockResolvedValueOnce(before);
+      await sessionStore.refreshSessionAncillaryStatus();
+      mockGetSessionAncillaryStatus.mockRejectedValueOnce(new Error('Ancillary unavailable'));
+      await expect(sessionStore.refreshSessionAncillaryStatus()).rejects.toThrow('Ancillary unavailable');
+      expect(sessionStore.maxSessions).toBe(7);
+      expect(storageStore.stats).toEqual(before.storageStats);
+      expect(getUsageState()).toEqual({ monthlySeconds: 30, monthlyQuotaSeconds: 600 });
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(sessionStore.managedReleaseProgress).toEqual(before.managedReleaseProgress);
+      expect([sessionStore.bucketMigrating, sessionStore.bucketMigrationPending, sessionStore.bucketMigrationPercent]).toEqual([true, true, 25]);
+      mockGetSessionAncillaryStatus.mockResolvedValueOnce({ maxSessions: 4,
+        storageStats: { totalFiles: 6, totalFolders: 2, totalSizeBytes: 4096 },
+        usage: { dailySeconds: 4, monthlySeconds: 40, monthlyQuotaSeconds: 900, tier: 'advanced' } });
+      await sessionStore.refreshSessionAncillaryStatus();
+      expect(sessionStore.maxSessions).toBe(4);
+      expect(storageStore.stats).toMatchObject({ totalSizeBytes: 4096 });
+      expect(getUsageState()).toEqual({ monthlySeconds: 40, monthlyQuotaSeconds: 900 });
+      expect(sessionStore.managedReleaseStatus).toBeNull();
+      expect(sessionStore.managedReleaseProgress).toBeNull();
+      expect([sessionStore.bucketMigrating, sessionStore.bucketMigrationPending, sessionStore.bucketMigrationPercent]).toEqual([false, false, null]);
+    });
+
     it('REQ-SESSION-029 AC4/AC5: pending then failed refresh retains last valid cards and tabs', async () => {
       mockGetSessions.mockResolvedValueOnce([dashboardSession]);
       await sessionStore.loadSessions();
@@ -389,6 +479,41 @@ describe('Session Store', () => {
       }
       expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject({ status: 'stopped', revision: 2, editorReady: true });
       expect(sessionStore.getMetricsForSession(dashboardSession.id)?.cpu).toBe('20%');
+    });
+
+    it.each([{ generation: 4, revision: 7 }, { generation: 3, revision: 99 }])(
+      'REQ-SESSION-029 AC2: stale catalog $generation/$revision preserves the complete newer session metadata', async older => {
+        const current = { ...dashboardSession, name: 'Current name', status: 'running' as const, lifecycle: 'running' as const,
+          generation: 4, revision: 8, workspace: 'terminal' as const, terminalMode: 'classic' as const,
+          lastAccessedAt: '2026-11-09T12:00:00Z', lastActiveAt: '2026-11-09T12:00:00Z',
+          editorReady: true, tabConfig: [{ id: '1', command: 'pi', label: 'Current tab' }] };
+        mockGetSessions.mockResolvedValueOnce([current]);
+        await sessionStore.loadSessions();
+        sessionStore.initializeTerminalsForSession(current.id);
+        terminalLifecycle.ownedSessionIds.add(current.id);
+        const before = JSON.parse(JSON.stringify(sessionStore.sessions.find(session => session.id === current.id)));
+        const tabs = sessionStore.getTerminalsForSession(current.id)?.tabs.map(tab => ({ id: tab.id, label: tab.label }));
+        const discovered = { ...dashboardSession, id: `${current.id}-new`, name: 'Newly discovered', generation: 1, revision: 1 };
+        mockGetSessions.mockResolvedValueOnce([{ ...current, ...older, name: 'Old name', status: 'stopped', lifecycle: 'stopped',
+          lastAccessedAt: '2026-11-08T12:00:00Z', lastActiveAt: '2026-11-08T12:00:00Z', editorReady: false,
+          tabConfig: [{ id: '1', command: 'bash', label: 'Old tab' }] }, discovered]);
+        await sessionStore.loadSessions();
+        expect(sessionStore.sessions.find(session => session.id === current.id)).toEqual(before);
+        expect(sessionStore.sessions.find(session => session.id === discovered.id)).toMatchObject(discovered);
+        expect(sessionStore.getTerminalsForSession(current.id)?.tabs.map(tab => ({ id: tab.id, label: tab.label }))).toEqual(tabs);
+        expect(terminalLifecycle.ownedSessionIds.has(current.id)).toBe(true);
+      },
+    );
+
+    it.each([8, 9])('REQ-SESSION-029 AC1: equal or newer catalog revision %s still updates current metadata', async revision => {
+      const current = { ...dashboardSession, generation: 4, revision: 8 };
+      mockGetSessions.mockResolvedValueOnce([current]);
+      await sessionStore.loadSessions();
+      const accepted = { ...current, name: 'Accepted name', lastAccessedAt: '2026-11-09T13:00:00Z', revision,
+        tabConfig: [{ id: '1', command: 'bash', label: 'Accepted tab' }] };
+      mockGetSessions.mockResolvedValueOnce([accepted]);
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions.find(session => session.id === current.id)).toMatchObject(accepted);
     });
 
     it.each(['list', 'list+batch', 'poll'] as const)(

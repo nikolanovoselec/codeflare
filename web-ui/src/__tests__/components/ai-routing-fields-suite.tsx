@@ -518,6 +518,47 @@ describe('Structured AI routing', () => {
     expect(within(article).queryByLabelText('Enable Gemini native target')).toBeNull();
   });
 
+  it.each(['automated', 'administrator'] as const)('REQ-ENTERPRISE-056 AC4: context bounds control %s readiness and policy eligibility without replacing proof', async method => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const handle = `cf-native-${id}`;
+    const ref = { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') };
+    const view = mount({ ...checkedCurrent(),
+      groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      fallbackRouting: { enabled: true, routes: [handle], defaultRoute: handle, reasoning: 'off' },
+      nativeTargets: [{ id, label: 'Bounded native', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5',
+        contextWindow: 4_000_000, profileRef: ref, enabled: true,
+        verification: { method, checkedAt: '2026-09-09T12:00:00.000Z', current: true } }],
+    });
+    for (const contextWindow of [4_000_000, 4_000_001, 4_000_000]) {
+      const eligible = contextWindow <= 4_000_000;
+      await openNative(view);
+      const article = view.getByRole('article', { name: 'Bounded native native target' });
+      const toggle = within(article).getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' });
+      if (toggle.getAttribute('aria-expanded') !== 'true') await fireEvent.click(toggle);
+      await fireEvent.input(within(article).getByLabelText('Native target 1 context window'), { target: { value: String(contextWindow) } });
+      expect(within(toggle).getByText(eligible ? method === 'administrator' ? 'Administrator-confirmed' : 'Verified' : 'Not ready'))
+        .toHaveAttribute('data-state', eligible ? 'passed' : 'unclear');
+      await openGroup(view, 'developers');
+      for (const policy of ['developers', 'Fallback']) {
+        const label = `${policy} Native Route - AWS Bedrock - Bounded native route`;
+        const select = view.getByLabelText(`${policy} default route`) as HTMLSelectElement;
+        if (eligible) {
+          expect(view.getByRole('checkbox', { name: label })).toBeChecked();
+          expect(within(select).getByRole('option', { name: 'Native Route - AWS Bedrock - Bounded native' })).toHaveValue(handle);
+          expect(select).toHaveValue(handle);
+        } else {
+          expect(view.queryByRole('checkbox', { name: label })).toBeNull();
+          expect(Array.from(select.options, option => option.value)).not.toContain(handle);
+        }
+      }
+      const values = formValues(view.container);
+      expect(values.groupRouting[0].routes).toEqual(eligible ? [handle] : []);
+      expect(values.fallbackRouting.routes).toEqual(eligible ? [handle] : []);
+      expect(values.nativeTargets[0]).toMatchObject({ id, contextWindow, profileRef: ref });
+      expect(values.nativeChecks?.[id]).toBeUndefined();
+    }
+  });
+
   it('REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control', async () => {
     const readyId = '11111111-1111-4111-8111-111111111111';
     const view = mount({ ...checkedCurrent(), nativeTargets: [

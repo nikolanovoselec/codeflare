@@ -14,7 +14,7 @@ import type {
 } from '../../types';
 import ReasoningProfileEditor, { DISCOVERY_COMPLETION_TOKENS, ReasoningCheckDetails, ReasoningCheckOverview, reasoningCheckSummary } from './ReasoningProfileEditor';
 import { profileDisplayName, profileValidationBasis } from './pi-profile-presentation';
-import { bedrockAnthropicCandidate, BEDROCK_MESSAGES_DEFAULT_PROFILE, nativeTargetDraftShapeValid, preservesDisabledNativeTarget } from '../../../../src/lib/native-ai-target-draft';
+import { bedrockAnthropicCandidate, BEDROCK_MESSAGES_DEFAULT_PROFILE, NATIVE_CONTEXT_WINDOW_MAX, nativeTargetDraftShapeValid, preservesDisabledNativeTarget } from '../../../../src/lib/native-ai-target-draft';
 import '../../styles/ai-routing-workspace.css';
 
 interface Props {
@@ -250,7 +250,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const providerLabel = (provider: string) => provider === 'aws-bedrock' ? 'AWS Bedrock'
     : configuredProviders().find((candidate) => candidate.provider === provider)?.label ?? provider;
   const nativeReady = (target: NativeDraft) => target.enabled && target.verification?.current === true && Boolean(target.handle || target.id)
-    && Number.isSafeInteger(target.contextWindow) && target.contextWindow > 16384;
+    && Number.isSafeInteger(target.contextWindow) && target.contextWindow > 16384 && target.contextWindow <= NATIVE_CONTEXT_WINDOW_MAX;
   const preparedProfileId = (provider: string) => provider === 'aws-bedrock' ? 'bedrock-anthropic-compat'
     : provider === 'google-ai-studio' ? 'native-google-ai-studio-compat'
       : provider === 'openai' ? 'native-openai-compat' : 'native-codeflare-inference-mesh-compat';
@@ -295,7 +295,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   };
   const eligibleRoutes = createMemo(() => routes().filter((route) => gatewayRoutes().includes(route.name) && verifiedAssignment(route) && validContext(route)));
   const nativeHandle = (target: NativeDraft) => target.handle ?? (target.id ? `cf-native-${target.id}` : '');
-  const eligibleNativeTargets = createMemo(() => nativeTargets().filter((target) => target.enabled && target.verification?.current && nativeHandle(target) && Number.isSafeInteger(target.contextWindow) && target.contextWindow > 16384));
+  const eligibleNativeTargets = createMemo(() => nativeTargets().filter(nativeReady));
   const nativeModelSuggestions = (provider: string) => [...new Set(routes().flatMap((route) => route.inventory?.legs
     .filter((leg) => leg.provider.replace(/^custom-/, '') === provider).map((leg) => leg.declaredModel) ?? []))].sort();
   const eligiblePolicyOptions = createMemo<PolicyOption[]>(() => [
