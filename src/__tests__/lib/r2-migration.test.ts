@@ -497,7 +497,7 @@ describe('REQ-SESSION-026 AC4: ancillary migration respects D1 workload ownershi
 describe('advanceMigration (chunked, verified, self-healing)', () => {
   const drainNoop = { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) };
 
-  async function runToReady(kv: KVNamespace, deps = drainNoop, max = 20): Promise<RegimeState> {
+  async function runToReady(kv: KVNamespace, deps: Parameters<typeof advanceMigration>[2] = drainNoop, max = 20): Promise<RegimeState> {
     for (let i = 0; i < max; i++) {
       const before = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
       if (before.status === 'ready') return before;

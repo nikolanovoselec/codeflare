@@ -171,7 +171,7 @@ describe('REQ-SESSION-010 AC7: ancillary session polling owner', () => {
     async function observe(envOverrides: Partial<Env> = {}, user?: AccessUser) {
       const response = await app(envOverrides, user).request('/sessions/ancillary-status');
       expect(response.status).toBe(200);
-      return await response.json();
+      return await response.json<{ preseedUpgradeTarget?: string }>();
     }
     function session(status: 'starting' | 'running' | 'unreachable' | 'stopping' | 'stopped') {
       return { id: 'aabbccdd11223344', name: 'Session', userId: 'test-bucket', status,

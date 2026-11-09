@@ -4,10 +4,15 @@ import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { D1SessionRepository } from '../../lib/session-repository';
 
+const nativeDestroyByContext = vi.hoisted(() => new WeakMap<object, () => Promise<void>>());
 vi.mock('@cloudflare/containers', () => ({
   Container: class {
-    constructor(public ctx: unknown, public env: unknown) {}
-    async destroy() {}
+    constructor(public ctx: object, public env: unknown) {}
+    async destroy() {
+      const destroy = nativeDestroyByContext.get(this.ctx);
+      if (!destroy) throw Error('Missing simulated native destruction');
+      await destroy();
+    }
   },
 }));
 
@@ -80,11 +85,15 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
         protectedWork.add(task);
         void task.finally(() => protectedWork.delete(task)).catch(() => {});
       },
-      storage: { get: async (key: string) => storage.get(key) },
+      storage: {
+        get: async (key: string) => storage.get(key),
+        put: async (key: string, value: unknown) => { storage.set(key, value); },
+        delete: async (key: string | string[]) => typeof key === 'string'
+          ? storage.delete(key)
+          : key.reduce((count, name) => count + Number(storage.delete(name)), 0),
+      },
     };
-    const instance = new SessionContainer(ctx as unknown as DurableObjectState<Env>, env);
-    await ready;
-    vi.spyOn(instance, 'destroy').mockImplementation(async () => {
+    nativeDestroyByContext.set(ctx, async () => {
       if (draining) throw Error('duplicate concurrent teardown');
       draining = true;
       teardownEntered.resolve();
@@ -93,6 +102,8 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
         running = false; // positive destruction confirmation, including idempotent repeat
       } finally { draining = false; }
     });
+    const instance = new SessionContainer(ctx as unknown as DurableObjectState<Env>, env);
+    await ready;
     return instance as unknown as { stopSession(input: StopRef): Promise<void> };
   }
   return { env, kv, key, repository, coordinator,

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV, MockKV } from './helpers/mock-kv';
 import { createMockSessionD1 } from './helpers/mock-session-d1';
 import type { Session } from '../types';
-import { D1SessionRepository } from '../lib/session-repository';
+import { D1SessionRepository, type D1Session } from '../lib/session-repository';
 
 // ---------------------------------------------------------------------------
 // Shared mutable state - vi.hoisted ensures this runs before vi.mock factories
@@ -58,6 +58,7 @@ const testState = vi.hoisted(() => ({
   storagePutFailures: new Set<string>(),
   storageDeleteFailures: new Set<string>(),
   storageStore: new Map<string, unknown>(),
+  waitUntilTasks: [] as Promise<unknown>[],
 }));
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,7 @@ vi.mock('@cloudflare/containers', () => {
       storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string | string[]) => Promise<void>; sync: () => Promise<void>;
         transaction: <T>(work: (tx: Pick<MockContainer['ctx']['storage'], 'get' | 'put' | 'delete'>) => Promise<T>) => Promise<T> };
       blockConcurrencyWhile: (fn: () => Promise<void>) => Promise<void>;
+      waitUntil: (promise: Promise<unknown>) => void;
       abort: (reason: string) => never;
     };
     env: Record<string, unknown>;
@@ -198,6 +200,11 @@ vi.mock('@cloudflare/containers', () => {
           this.ready = fn();
           return this.ready;
         },
+        waitUntil: (promise: Promise<unknown>) => {
+          testState.waitUntilTasks.push(promise);
+          // Observe immediately; the original rejection still fails teardown below.
+          void promise.catch(() => undefined);
+        },
         abort: (reason: string): never => {
           testState.abortReasons.push(reason);
           throw new Error('mock Durable Object abort');
@@ -266,6 +273,12 @@ import {
   TRANSPORT_FAILURE_STREAK_KEY,
   TRANSPORT_RECOVERY_KEY,
 } from '../container/container-metrics';
+
+afterEach(async () => {
+  while (testState.waitUntilTasks.length > 0) {
+    await Promise.all(testState.waitUntilTasks.splice(0));
+  }
+});
 
 describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)', () => {
   let mockKV: MockKV;
@@ -437,7 +450,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       testState.beforeHealthResponse = () => { throw kind === 'error' ? new Error(message) : message; };
       await withStructuredLogs(async entries => {
         await containerInstance.collectMetrics();
-        const session = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session;
+        const session = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session & Pick<D1Session, 'unreachableIncidentId'>;
         expect(session).toMatchObject({ status: 'unreachable', lifecycleGeneration: 0, unreachableIncidentId: expect.any(String) });
         expect(entries).toContainEqual(expect.objectContaining({ data: expect.objectContaining({
           sessionId: session.id, lifecycleGeneration: 0, incidentId: session.unreachableIncidentId,
@@ -461,7 +474,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       });
       await withStructuredLogs(async entries => {
         await containerInstance.collectMetrics();
-        const session = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session;
+        const session = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session & Pick<D1Session, 'unreachableIncidentId'>;
         expect(session).toMatchObject({ status: 'unreachable', unreachableIncidentId: expect.any(String) });
         expect(entries).toContainEqual(expect.objectContaining({ level: 'warn', data: expect.objectContaining({
           sessionId: session.id, lifecycleGeneration: 0, incidentId: session.unreachableIncidentId, errorClass: 'storage_write_failed',
