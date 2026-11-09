@@ -1305,6 +1305,22 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 **Verify:** Inspect the actual generated documents and operation transcript for every applicable observation. Missing observations are unverified, not passes. Stop on premature writes, fabricated source behavior, wrong status, unresolved generated anchors or prohibited execution; retain the failing output for correction. Keep final Plan Mode entry separate from permission to implement the proposed application.
 
+#### Workflow artifact identities
+
+Keep exact spellings here while requirements state observable outcomes. Resolve root/nested paths through the existing layout owner; flat compatibility shorthand does not authorize a second output tree.
+
+| Contract | Owned artifact/interface detail |
+|---|---|
+| [REQ-AGENT-022](../../sdd/spec/agents.md#req-agent-022-legacy-codebase-import-mode-discovery) AC1/AC6 | Domain requirements use `sdd/{domain}.md` in flat layout and its nested equivalent; unresolved import items use `.init-triage.md`. Unavailable-GitHub notices also go in the import `sdd/changes.md` entry or its resolved nested owner. |
+| [REQ-AGENT-033](../../sdd/spec/agents.md#req-agent-033-sdd-init-scaffolding-and-canonical-render) AC7 | Nested verification uses `sdd/spec/.review-queue.md` and its `_Awaiting first finding._` scaffold placeholder. This is the verification queue, not a documentation coverage placeholder. |
+| [REQ-AGENT-034](../../sdd/spec/agents.md#req-agent-034-sdd-init-enrichment-pass-with-graphify) AC4/AC5 | The nested glossary is `sdd/spec/glossary.md`; graph input is `graphify-out/graph.json`. Claude's `mcp__graphify__*` recipes map `get_neighbors` to cross-links, `god_nodes` to ADR seeds, `query_graph` to glossary concepts and `shortest_path` to dependency validation; Pi uses its native Graphify owner. |
+| [REQ-AGENT-035](../../sdd/spec/agents.md#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) AC5 | The verifier JSON `exit_code` gates commit; escalation goes to the resolved verification queue, `sdd/spec/.review-queue.md` in nested layout. |
+| [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC5 | Only open `.init-triage.md` items plus active transition suppress review in root/nested layouts; ordinary review queues are not transition state. |
+| [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes) AC1 | Autonomy comes from `sdd/spec/config.yml` in nested layout or `sdd/config.yml` in flat legacy layout. |
+| [REQ-AGENT-038](../../sdd/spec/agents.md#req-agent-038-resume-mode-drain-workflow) AC1/AC5 | Existing `sdd/` plus open `sdd/.init-triage.md` identifies Resume in flat shorthand; resolve the selected layout. Resume ignores configured `mode` and remains interactive with a clean working tree. |
+| [REQ-AGENT-092](../../sdd/spec/agents.md#req-agent-092-import-transition-review-suppression) AC1 | `.init-triage.md` is import transition work; `.review-queue.md` and legacy `.review-needed.md` are ordinary verification work, never suppression authorities. |
+| [REQ-AGENT-048](../../sdd/spec/agents.md#req-agent-048-audit-accumulator-surfaces) AC1 | `documentation/.doc-coverage.md` is the optional root-owned substantive coverage artifact; the applicable commit body remains an alternative. Neither is a scaffold-time empty coverage file. |
+
 #### Agent workflow extensions to SDD bootstrap acceptance
 
 Extend the existing SDD bootstrap acceptance cases, using its disposable-repository setup and stop conditions. Use shipped workflow/validator paths already named in the current requirement; do not create another enforcement implementation, test project or harness. The original no-premature-write, no-install/build/test and graph-consent boundaries remain in effect. Any pushing case requires an explicitly approved disposable remote, otherwise only its local observations can be made.

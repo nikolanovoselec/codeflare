@@ -1514,12 +1514,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/sdd init` Import Mode emits two outputs simultaneously: spec REQs in `sdd/{domain}.md` for anything clearly determinable from the full discovery surface, and triage entries in `sdd/.init-triage.md` for anything unclear. <!-- @manual -->
+1. `/sdd init` Import Mode simultaneously emits domain requirements for anything clearly determinable from the full discovery surface and import-triage entries for anything unclear. <!-- @manual -->
 2. The discovery surface during Import Mode is the full project history, not just source code. <!-- @manual -->
 3. The agent pulls evidence from the working tree (README, configs, source, tests, inline comments, ADR-shaped files) and git history (commit messages on entry-point files, tag annotations). <!-- @manual -->
 4. When a GitHub remote is detected, the agent additionally pulls pull requests with their review comments and inline threads, issues open and closed with their comments, release notes, and the wiki via the GitHub API. <!-- @manual -->
 5. When one artifact references another ("Closes #142"), the agent follows the chain backward through every linked artifact rather than stopping at the first hit. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Traverse linked artifacts backward recursively --> <!-- @manual -->
-6. When the GitHub corpus is unreachable, the agent skips GitHub sources and proceeds with working-tree + git-log evidence only; a one-line notice naming the reason is printed before scaffolding and appended to the `sdd/changes.md` import entry. <!-- @manual -->
+6. When the GitHub corpus is unreachable, the agent skips GitHub sources and proceeds with working-tree + git-log evidence only; a one-line notice naming the reason is printed before scaffolding and appended to the import changelog entry. <!-- @manual -->
 
 **Constraints:**
 
@@ -1939,7 +1939,7 @@ None.
 4. Lockfile generation during `/sdd init` is a scoped carveout to the no-local-builds rule (resolution only, with `--ignore-scripts` on npm; no installs, tests, or builds). <!-- @manual -->
 5. `/sdd init` runs as a lean two-confirm flow: the agent asks one vision question, drafts the entire spec in memory, presents the full draft as one review surface, and applies user edits in place until the user accepts. <!-- @manual -->
 6. Every REQ written by `/sdd init` renders in the canonical shape: ACs numbered (`1.`, `2.`, `3.`), each labeled field on its own line with blank-line separators between trailing fields, and `**Constraints:**` + `**Dependencies:**` always present. <!-- @manual -->
-7. `/sdd init` pre-creates the verification-queue file `sdd/spec/.review-queue.md` at scaffold time with the placeholder `_Awaiting first finding._`; after scaffold the layout-resolved review queue accumulates findings appended by spec-reviewer, `/sdd clean`, or `/sdd init` Import-Mode triage. <!-- @manual -->
+7. `/sdd init` pre-creates the verification queue at scaffold time with the placeholder `_Awaiting first finding._`; afterward the layout-resolved queue accumulates findings from spec-reviewer, `/sdd clean`, or `/sdd init` Import-Mode triage. <!-- @manual -->
 
 **Constraints:** None.
 
@@ -1964,8 +1964,8 @@ None.
 1. After the full draft is accepted, an enrichment pass runs before files are written, executing three sub-passes (cross-link, ADR-seed, glossary-seed) in one in-memory cycle with no additional user prompts. <!-- @manual -->
 2. The cross-link sub-pass adds every REQ that references another REQ concept by name to the parent's `Dependencies:` as a linked `REQ-X-NNN` heading anchor. <!-- @manual -->
 3. The ADR-seed sub-pass writes 3-8 founding technology-choice ADRs with an index and per-decision sections. <!-- @manual -->
-4. The glossary-seed sub-pass extracts every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body and gives each a one-line definition in `sdd/spec/glossary.md`. <!-- @manual -->
-5. The enrichment pass queries the project's `graphify-out/graph.json` via the `mcp__graphify__*` MCP tool family: `get_neighbors` drives the cross-link pass, `god_nodes` surfaces ADR-seed candidates, `query_graph` extracts glossary concept-tagged nodes, and `shortest_path` validates non-obvious dependency edges. <!-- @manual -->
+4. The glossary-seed sub-pass gives every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body a one-line definition in the specification glossary. <!-- @manual -->
+5. Enrichment queries the project's graph for cross-links, founding-decision candidates and glossary concepts, and validates non-obvious dependency edges with graph paths. <!-- @manual -->
 6. Missing-graph enrichment prompts once; declining uses the in-memory heuristic and records reduced cross-link density. <!-- @manual -->
 7. Graphify MCP tools are tool-agnostic across Bash and context-mode surfaces; the enrichment-pass contract is identical regardless of which tool surface is active. <!-- @manual -->
 
@@ -1995,7 +1995,7 @@ None.
 2. The verifier resolves every spec and documentation source anchor on disk, checks symbols and local literal values, and counts malformed anchors and unreadable files. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py::main --> <!-- @manual -->
 3. The verifier emits a machine-readable JSON report containing counts of parsed, resolved, orphaned, drifted, malformed, and unreadable anchors, plus per-entry failure details and an exit-code field, written to a Phase-7a evidence file the commit body can reference. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py::main --> <!-- @manual -->
 4. The `[sdd-init]` commit body MUST include the verbatim summary line `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. <!-- @manual -->
-5. A non-zero `exit_code` blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. <!-- @manual -->
+5. A non-zero verifier exit code blocks the commit until every failure is fixed in source or escalated to the live verification queue. <!-- @manual -->
 6. Substitute checks, self-attestation, partial coverage, inverted ordering, tooling bypass, or missing verifier evidence are CRITICAL failures. <!-- @manual -->
 7. After `/sdd init`, steady-state CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON when available rather than re-deriving. <!-- @manual -->
 
@@ -2025,7 +2025,7 @@ None.
 2. Evaluation resolves the checked-out branch and local full `HEAD`, then queries that branch's PR without deriving refs from command arguments. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryBranch --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) -->
 3. Review launches only when the PR is open, targets `main`, `master`, or `develop`, names the checked-out branch, and reports local `HEAD` as its exact head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
 4. Failed commands other than bounded ambiguous `gh pr create` reconciliation, quoted examples, absent PRs, detached HEAD, nonstandard worktrees, unsynchronized remote heads, and acknowledged heads request no work. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
-5. Root and nested SDD layouts suppress review only while transition is true and the layout-resolved `.init-triage.md` contains an open item; ordinary review queues never suspend transition review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+5. Root and nested SDD layouts suppress review only while transition is true and the layout-resolved import-triage queue contains an open item; ordinary review queues never suspend transition review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 6. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
 7. Each candidate remains paired with its executable shell segment and resolved repository. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (resolves a successful clone destination before repository lookup) -->
 
@@ -2055,7 +2055,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via the layout-resolved config file (`sdd/spec/config.yml` on the nested layout, `sdd/config.yml` on the flat-legacy layout). <!-- @manual: On disposable current branches, exercise `--auto` and `--unleashed`; confirm the root applies repairs in specification-then-documentation order and pushes the checked-out branch without creating a branch or PR. -->
+1. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable through the layout-resolved specification configuration. <!-- @manual: On disposable current branches, exercise `--auto` and `--unleashed`; confirm the root applies repairs in specification-then-documentation order and pushes the checked-out branch without creating a branch or PR. -->
 2. `interactive` and `auto` modes apply fixes on the current branch (auto silently, interactive after confirmation). <!-- @manual -->
 3. `unleashed` mode applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits and uses conservative JUDGMENT auto-resolution that never overwrites intent. <!-- @manual -->
 4. `unleashed` refuses when `enforce_tdd: false`; users must enable TDD or use `auto`. It creates no branch or PR, and per-category commits remain independently revertible. <!-- @manual -->
@@ -2087,11 +2087,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. Re-invoking `/sdd init` on a project where `sdd/` already exists and `sdd/.init-triage.md` has at least one open item enters Resume Mode. <!-- @manual -->
+1. Re-invoking `/sdd init` on a project with an existing specification directory and at least one open import-triage item enters Resume Mode. <!-- @manual -->
 2. The user chooses one of five decisions per item (`accept`, `correct`, `lost`, `skip`, `quit`); per-decision semantics are enumerated in Constraints. <!-- @manual -->
 3. Only `accept` and `correct` promote behavior; `skip` and `lost` add no behavior, while `lost` may add a transition-gap Note. <!-- @manual -->
 4. Each resolved decision is its own commit with exactly one accepted subject: `[sdd-init] resolve TRIAGE-{NNN}` for `accept` or `correct`, and `[sdd-init] mark lost TRIAGE-{NNN}` for `lost`. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @manual -->
-5. Resume Mode entry refuses to start when the working tree has uncommitted changes and is always interactive regardless of `sdd/config.yml`'s `mode`. <!-- @manual -->
+5. Resume Mode entry refuses to start when the working tree has uncommitted changes and is always interactive regardless of the configured autonomy mode. <!-- @manual -->
 6. Queue-drain closure mechanics are specified in [REQ-AGENT-047](#req-agent-047-resume-mode-closure-and-review-pipeline-gate). <!-- @manual -->
 
 **Constraints:**
@@ -2325,7 +2325,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Only open Import Mode triage in the layout-resolved `.init-triage.md` suppresses Pi review lanes; `.review-queue.md` and `.review-needed.md` never do. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+1. Only open Import Mode triage in the selected layout suppresses Pi review lanes; ordinary verification queues never do. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 2. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::TRIAGE --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (suppresses review ingress only during an open SDD transition) -->
 
 **Constraints:**
@@ -2402,7 +2402,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Doc-updater remains report-only. When its report contains a substantive coverage record worth retaining, the root may lazy-create `documentation/.doc-coverage.md` or place the record in the applicable commit body; no scaffold-time placeholder is created. <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::Output contract --> <!-- @manual -->
+1. Doc-updater remains report-only. When its report contains substantive coverage worth retaining, the root may lazily create the documentation coverage artifact or use the applicable commit body; no scaffold-time placeholder is created. <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::Output contract --> <!-- @manual -->
 2. The `/sdd clean` execution audit lives in per-category commit bodies (recoverable via `git log --grep='\[sdd-clean\]'`), not in a dotfile. <!-- @manual -->
 
 **Constraints:** None.
