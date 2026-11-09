@@ -91,7 +91,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [agent-config.test.ts](../../src/__tests__/lib/agent-config.test.ts), [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js); Manual: [Selected agent image acceptance](../../documentation/lanes/container.md#selected-agent-image-acceptance)
 
 **Status:** Implemented
 
@@ -851,7 +851,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-tab-autostart.test.js](../../host/__tests__/entrypoint-tab-autostart.test.js), [terminal-mode.test.js](../../host/__tests__/terminal-mode.test.js); Manual: [Both mode fixed settlement acceptance](../../documentation/lanes/terminal-and-ide.md#both-mode-fixed-settlement-acceptance)
 
 **Status:** Implemented
 
@@ -3585,7 +3585,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-075](#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed)
 
-**Verification:** AC1 and AC2 require manual verification. AC3 and AC4 have offline regressions using the shipped script and a local canonical Git bundle, covering copy failure, successful installation, preservation of an existing destination file, and temporary-clone cleanup.
+**Verification:** Automated: [turnstile-skill-persistence.test.js](../../host/__tests__/turnstile-skill-persistence.test.js); Manual: [Turnstile bounded request source review](../../documentation/lanes/preseed.md#turnstile-bounded-request-source-review)
 
 **Status:** Implemented
 
@@ -5594,7 +5594,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-163](#req-agent-163-impeccable-browser-question-idle-lifecycle)
 
-**Verification:** Manual review ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/serve_question.rs))
+**Verification:** Manual: [Impeccable next hand source review](../../documentation/lanes/preseed.md#impeccable-next-hand-source-review)
 
 **Status:** Implemented
 

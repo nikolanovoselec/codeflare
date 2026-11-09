@@ -145,7 +145,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-sleep-timeout.test.ts](../../src/__tests__/routes/session-sleep-timeout.test.ts), [enterprise-mode.test.ts](../../src/__tests__/lib/enterprise-mode.test.ts), [session-idle-timeout.test.js](../../host/__tests__/session-idle-timeout.test.js), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 
@@ -174,7 +174,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [openvscode-proxy.test.js](../../host/__tests__/openvscode-proxy.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 
@@ -766,7 +766,7 @@ None.
 
 **Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-pi-warmup-guard.test.js](../../host/__tests__/entrypoint-pi-warmup-guard.test.js), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts); Manual: [Startup and packaged image record acceptance](../../documentation/lanes/container.md#startup-and-packaged-image-record-acceptance)
 
 **Status:** Implemented
 
@@ -795,7 +795,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings)
 
-**Verification:** Automated test
+**Verification:** Automated: [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [timezone-sync.test.ts](../../web-ui/src/__tests__/lib/timezone-sync.test.ts); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 
@@ -824,7 +824,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Automated test ([container-status](../../src/__tests__/routes/container-status.test.ts))
+**Verification:** Automated: [container-status.test.ts](../../src/__tests__/routes/container-status.test.ts); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 

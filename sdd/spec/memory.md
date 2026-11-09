@@ -252,7 +252,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js); Manual: [Memory manifest and prompt delivery acceptance](../../documentation/lanes/preseed.md#memory-manifest-and-prompt-delivery-acceptance)
 
 **Status:** Implemented
 
@@ -283,7 +283,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-AGENT-003](agents.md#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Memory manifest and prompt delivery acceptance](../../documentation/lanes/preseed.md#memory-manifest-and-prompt-delivery-acceptance)
 
 **Status:** Implemented
 
@@ -375,7 +375,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** Automated test
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [memory-iso-ts-script.test.js](../../host/__tests__/memory-iso-ts-script.test.js); Manual: [Memory hook and short prompt acceptance](../../documentation/lanes/vault.md#memory-hook-and-short-prompt-acceptance)
 
 **Status:** Implemented
 
@@ -528,7 +528,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-004](vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
-**Verification:** Automated test ([memory-context-inject](../../host/__tests__/memory-context-inject.test.js))
+**Verification:** Automated: [memory-context-inject.test.js](../../host/__tests__/memory-context-inject.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [pi-memory-inject.test.ts](../../src/__tests__/lib/pi-memory-inject.test.ts); Manual: [Memory hook and short prompt acceptance](../../documentation/lanes/vault.md#memory-hook-and-short-prompt-acceptance)
 
 **Status:** Implemented
 
@@ -634,7 +634,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-008](#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts); Manual: [Memory manifest and prompt delivery acceptance](../../documentation/lanes/preseed.md#memory-manifest-and-prompt-delivery-acceptance)
 
 **Status:** Implemented
 

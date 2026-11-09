@@ -60,6 +60,25 @@ For the nonmanual AC1/AC3/AC4, existing routing, gate and artifact-handoff confi
 
 ---
 
+### Allocation and image-binding acceptance
+
+For [OPS-007/012/014](../../sdd/spec/operations.md), apply [pipeline prerequisites](ci-cd.md#pipeline-record-inspection) to existing Deploy records and private operator-retained provider readback. Match source, target, resolved profile, instance override and image digest. Missing readback is unavailable; source patches or green deploys alone do not prove provider application. No deployment or allocation experiment is authorized.
+
+| Scope | Required observation |
+|---|---|
+| OPS-007 AC1/2/5; OPS-014 AC1–3 | Compare resolved profile CPU/memory/disk and canonical defaults with effective provider configuration. Match the pushed image digest and binding, with no deploy-time rebuild. Wrong allocation/binding fails. |
+| OPS-007 AC3; OPS-012 AC1–4 | Compare retained default and positive-integer override cases across profiles. Effective cap follows the override independently of profile. Existing zero/negative/noninteger cases reject before promotion; missing cases are unavailable. |
+| OPS-007 AC4 | Compare resolved regular/admin limits with observed admission records. This is best-effort admission, not an atomic concurrency reservation or hard isolation guarantee. |
+| OPS-014 AC4/5 | Compare same-input cache-bust and baseline records: affected agent layer rebuilds while unrelated layers remain cached, then rollout binds that image. Repository SSH remains disabled/key-free; persistent identity provisioning is private-owned. |
+
+### Idle metering and identity lifecycle acceptance
+
+For OPS-006 inspect existing authorized instance analytics, last-input/idle records and confirmed sleep. CPU, provisioned-memory and local-disk totals stop increasing after reporting lag. Missing granularity is unavailable; stopped status alone is not billing evidence. Compare retained R2 restoration and local-only ephemeral absence through [replacement acceptance](storage-and-sync.md#session-replacement-storage-acceptance). Separate other Worker/DO/R2/log/storage/network charges: no Container usage does not mean no account charge.
+
+Recompute OPS-006's historic `$11.14` using the [original dated inputs](#cost-analysis), then make a separately dated current-pricing comparison. Missing inputs or rates block that comparison; never present the old example as a current quote.
+
+For OPS-061 use the private [persistent SSH runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/container-ssh.md) and existing add/rotate/remove records. Compare effective authorized public-key identities and access outcomes. Later authorized access to the same running instance works without another configuration deployment. Private-key custody and account permissions remain separate. Missing private records are unavailable; this method authorizes no key creation, extraction, rotation, connection or deployment.
+
 ## Integration acceptance checklist
 
 **When:** Qualifying an Integration release before any separately authorized sampled Production promotion ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)).

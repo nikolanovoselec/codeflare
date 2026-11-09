@@ -174,6 +174,20 @@ Managers/runners/saved grants/unverified choices stay distinct. Selectors use co
 
 Guided launcher exists only for authorized pinned supported Dispatcher manifests: repository-only journey submits chosen editable repository and discloses discovery/research/comments/conditional merges; legacy submits editable repository and positive PR with read-only disclosure. No universal target, start on open or unsupported-schema launcher. Uncertain start blocks another until exact owner Activity reconciles; failed preparation cannot reuse previous Activity. Conductor Review has no ad hoc launcher.
 
+### Operator management interface acceptance
+
+Use an authorized protected Enterprise Integration candidate, existing installations/releases, unavailable pins and metadata/error captures. Record revision, viewport, theme and per-row results. Missing states are unavailable. This read-only method authorizes no registration, promotion, enablement, save, invocation, refresh or fixture corruption. [Operator requirements](../../sdd/spec/operators.md) retain separate native and guided-launcher qualifications.
+
+| Contract | Action and required outcome |
+|---|---|
+| OPERATOR-008 | Open Administration's Operators link and the existing bookmark, then catalog/installed detail. Verify separate controls and exact pinned identity/purpose. An unavailable pin must not borrow another release's purpose. |
+| OPERATOR-073 | Compare selected and alternative tag/UTC publication time to retained metadata. Missing values use the honest numeric-ID fallback, not an invented version/date. Do not change pins to obtain a case. |
+| OPERATOR-049 layout | Inspect long-name detail, Advanced disclosure and existing errors at narrow/medium/wide widths. Focus, scrolling and actions remain reachable; numeric controls use 1/2/3 columns with aligned reset controls. Mobile sections stay horizontal; feedback and repeat-action/logging spacing match the accepted design. |
+| OPERATOR-049 appearance | Compare next-manual inference hierarchy, model details, right-aligned selected-accent status and keyboard disclosure with installed-version presentation. Under two accents, use existing `scripts/browser/check-operator-pill-colors.js` on catalog/detail. Every comparison matches; link and warning/error/success semantics remain distinct. Opening disclosure never saves. |
+| OPERATOR-075 | Read permission/help and Advanced disclosure. Existing identity selection, ceilings and installation restrictions are explained without implying provisioning. Gateway and Native reasoning remain distinct; unavailable saved choices are not silently substituted. A selector list alone does not qualify explanatory copy. |
+
+Preserve [verification boundaries](#verification-boundaries), including hosted execution and OPERATOR-058 guided-launcher acceptance. Compare saved feedback only with its original authorized operation; never repeat unknown effects.
+
 <a id="activity-admission"></a>
 ### Activity admission
 

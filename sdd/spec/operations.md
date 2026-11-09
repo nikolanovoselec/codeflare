@@ -84,7 +84,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Automated workflow-ownership tests; deployment image evidence
+**Verification:** Automated: [container-image-input-hash.test.js](../../host/__tests__/container-image-input-hash.test.js), [trivy-exception-gate.test.js](../../host/__tests__/trivy-exception-gate.test.js), [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts); Manual: [Image acceptance record inspection](../../documentation/lanes/ci-cd.md#image-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -115,7 +115,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Automated overlay-contract and packaged-runtime-smoke tests; deployment image evidence
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts); Manual: [Image acceptance record inspection](../../documentation/lanes/ci-cd.md#image-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -276,7 +276,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts); Manual: [Idle metering and identity lifecycle acceptance](../../documentation/lanes/deployment.md#idle-metering-and-identity-lifecycle-acceptance)
 
 **Status:** Implemented
 
@@ -306,7 +306,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test ([workflow-deploy-max-instances](../../host/__tests__/workflow-deploy-max-instances.test.js))
+**Verification:** Automated: [workflow-deploy-max-instances.test.js](../../host/__tests__/workflow-deploy-max-instances.test.js); Manual: [Allocation and image binding acceptance](../../documentation/lanes/deployment.md#allocation-and-image-binding-acceptance)
 
 **Status:** Implemented
 
@@ -336,7 +336,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated tests ([rate-limit](../../src/__tests__/middleware/rate-limit.test.ts), [workflow-stress-test](../../host/__tests__/workflow-stress-test.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js))
+**Verification:** Automated: [rate-limit.test.ts](../../src/__tests__/middleware/rate-limit.test.ts), [workflow-stress-test.test.js](../../host/__tests__/workflow-stress-test.test.js), [index.test.ts](../../src/__tests__/index.test.ts); Manual: [Stress acceptance record inspection](../../documentation/lanes/ci-cd.md#stress-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -423,7 +423,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Manual check
+**Verification:** Manual: [Allocation and image binding acceptance](../../documentation/lanes/deployment.md#allocation-and-image-binding-acceptance)
 
 **Status:** Implemented
 
@@ -486,7 +486,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
-**Verification:** Automated test ([index](../../src/__tests__/container/index.test.ts))
+**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [container-ssh-config.test.js](../../host/__tests__/container-ssh-config.test.js); Manual: [Allocation and image binding acceptance](../../documentation/lanes/deployment.md#allocation-and-image-binding-acceptance)
 
 **Status:** Implemented
 
@@ -630,7 +630,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Manual: [Shadow pin acceptance record inspection](../../documentation/lanes/ci-cd.md#shadow-pin-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -656,7 +656,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
 
-**Verification:** Automated exact-version verifier; manual release-job verification
+**Verification:** Automated: [herdr-version-verifier.test.js](../../host/__tests__/herdr-version-verifier.test.js); Manual: [Shadow pin acceptance record inspection](../../documentation/lanes/ci-cd.md#shadow-pin-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -790,13 +790,15 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. A Pi-extension bump aligns matching pins in both runtime manifests and installation specifications, preserving unrelated dependencies. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-025 AC5: Pi extension bumps align both runtime manifests and install specs) -->
 6. Goal and Plan package bumps run their exact-version transforms before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual: Actual locked candidate transforms must fail before publication on rejected input; workflow text or recorded fake commands do not establish this outcome. -->
 
+**Notes:** AC6 still needs actual latest-pinned candidate-transform/rejection and pre-publication failure coverage; source-only workflow checks are not acceptance.
+
 **Constraints:** None.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence), [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated lifecycle-safe lockfile test at the adjacent anchor; workflow execution remains manual. AC6 still needs actual latest-pinned candidate-transform/rejection and pre-publication failure coverage; source-only workflow checks are not acceptance.
+**Verification:** Automated: [npm-package-lock-regeneration.test.js](../../host/__tests__/npm-package-lock-regeneration.test.js), [npm-tool-manifest-update.test.js](../../host/__tests__/npm-tool-manifest-update.test.js), [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts); Manual: [Shadow pin acceptance record inspection](../../documentation/lanes/ci-cd.md#shadow-pin-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -1184,7 +1186,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-038](#req-ops-038-build-selected-coding-agent-clis), [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence)
 
-**Verification:** Automated manifest and platform-pruning tests; reduced complete-image deployment evidence
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [npm-platform-pruning.test.js](../../host/__tests__/npm-platform-pruning.test.js), [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts); Manual: [Image acceptance record inspection](../../documentation/lanes/ci-cd.md#image-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -1212,7 +1214,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-038](#req-ops-038-build-selected-coding-agent-clis), [REQ-IDE-005](browser-ide.md#req-ide-005-selected-native-ide-agent)
 
-**Verification:** Automated manifest and packaged-smoke behavior tests; complete-image deployment evidence
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js); Manual: [Image acceptance record inspection](../../documentation/lanes/ci-cd.md#image-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -1401,7 +1403,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-VAULT-004](vault.md#req-vault-004-unified-global-knowledge-graph), [REQ-AGENT-070](agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [entrypoint-context-mode-runtime.test.js](../../host/__tests__/entrypoint-context-mode-runtime.test.js), [graphify-active-repo.test.js](../../host/__tests__/graphify-active-repo.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts); Manual: [Attached monitor artifact acceptance](../../documentation/lanes/ci-cd.md#attached-monitor-artifact-acceptance)
 
 **Status:** Implemented
 
@@ -1428,7 +1430,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-031](#req-ops-031-shared-deployment-buildkit-cache)
 
-**Verification:** Manual check of exact-head fresh-image cache and timing evidence
+**Verification:** Manual: [Image acceptance record inspection](../../documentation/lanes/ci-cd.md#image-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -1482,7 +1484,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-050](#req-ops-050-hosted-image-build-critical-path-optimization)
 
-**Verification:** Behavioral prerequisite-failure tests; exact-head workflow order, scan, and SBOM evidence
+**Verification:** Automated: [container-image-speed.test.js](../../host/__tests__/container-image-speed.test.js), [trivy-exception-gate.test.js](../../host/__tests__/trivy-exception-gate.test.js); Manual: [Image acceptance record inspection](../../documentation/lanes/ci-cd.md#image-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -1620,7 +1622,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-060](#req-ops-060-optional-persistent-container-ssh-authorization)
 
-**Verification:** Manual check
+**Verification:** Manual: [Idle metering and identity lifecycle acceptance](../../documentation/lanes/deployment.md#idle-metering-and-identity-lifecycle-acceptance)
 
 **Status:** Implemented
 

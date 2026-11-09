@@ -293,7 +293,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [request-helpers.test.ts](../../src/__tests__/lib/request-helpers.test.ts), [terminal.test.ts](../../src/__tests__/routes/terminal.test.ts), [access.test.ts](../../src/__tests__/lib/access.test.ts); Manual: [Boundary and storage policy acceptance](../../documentation/lanes/security.md#boundary-and-storage-policy-acceptance)
 
 **Status:** Implemented
 
@@ -356,7 +356,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-OPS-001](operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test ([Trivy bounded exception gate](../../host/__tests__/trivy-exception-gate.test.js)); remaining scan behavior verified manually
+**Verification:** Automated: [trivy-exception-gate.test.js](../../host/__tests__/trivy-exception-gate.test.js); Manual: [Image acceptance record inspection](../../documentation/lanes/ci-cd.md#image-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -415,7 +415,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-012](#req-sec-012-container-auth-token-per-do-lifecycle)
 
-**Verification:** Automated container and host authentication tests; deployed raw-port rejection and authenticated-drain acceptance.
+**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [server-auth-check.test.js](../../host/__tests__/server-auth-check.test.js), [browser-ide-upgrade.test.js](../../host/__tests__/browser-ide-upgrade.test.js), [container-metrics-drain.test.ts](../../src/__tests__/container/container-metrics-drain.test.ts), [request-router.test.js](../../host/__tests__/request-router.test.js); Manual: [Boundary and storage policy acceptance](../../documentation/lanes/security.md#boundary-and-storage-policy-acceptance)
 
 **Status:** Partial
 
@@ -587,7 +587,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test
+**Verification:** Automated: [request-helpers.test.ts](../../src/__tests__/lib/request-helpers.test.ts), [warn-if-no-encryption-key.test.ts](../../src/__tests__/lib/warn-if-no-encryption-key.test.ts); Manual: [Boundary and storage policy acceptance](../../documentation/lanes/security.md#boundary-and-storage-policy-acceptance)
 
 **Status:** Implemented
 

@@ -1514,6 +1514,8 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 2. Deployment tokens remain excluded from container delivery. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @manual -->
 3. Non-enterprise retains owner-configured Cloudflare and provider credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (non-enterprise emits the real Connect-to-Cloudflare token + account id (byte-identical regression)) --> <!-- @manual -->
 
+**Notes:** Environment-output fixtures do not establish deployed credential delivery, owner-provider connectivity or universal human-auth storage.
+
 **Constraints:**
 
 - The historical strict-egress/Governed fixture concerns mediated environment variables, not all human Pi authentication storage.
@@ -1523,7 +1525,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-089](#req-enterprise-089-human-native-pi-startup), [REQ-ENTERPRISE-091](#req-enterprise-091-operator-personal-provider-isolation)
 
-**Verification:** Adjacent environment-output tests prove the respective R2/Browser/owner-Cloudflare contracts. Deployment-token exclusion and owner-provider outcomes retain manual verification; current-head CI is pending. The historical capstone title is not universal human-auth evidence.
+**Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts); Manual: [Setup credential boundary record acceptance](../../documentation/lanes/configuration.md#setup-credential-boundary-record-acceptance)
 
 **Status:** Implemented
 

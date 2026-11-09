@@ -397,6 +397,10 @@ AC1: For fresh Classic and Herdr Terminal sessions, correlate host “Pre-warmin
 
 AC3: In Classic, correlate first PTY output, “Pre-warm runtime ready, settling” and “Pre-warm ready (settled)” with the first usable browser input/output. Require first-output settlement followed by reachable input. Separately inspect an existing authorized silent-start observation for “Pre-warm ready (timeout)” and subsequent usable input/output. Do not alter startup commands or invent a timeout fixture to manufacture that observation. Without that case the timeout obligation remains unverified.
 
+### Both-mode fixed settlement acceptance
+
+For [AGENT-003 AC5](../../sdd/spec/agents.md), correlate existing authorized Classic and Herdr startup records on the same Integration candidate: first PTY output, runtime-ready/settling and settled timestamps, followed by usable adopted input/output. Herdr's atomic bootstrap precedes settling. Compare logged elapsed values against the fixed 1.5-second interval, allowing displayed rounding and scheduler delay; readiness cannot precede it. Read `host/src/server.ts` to confirm the fixed timer rather than adaptive timing. Timeout records do not qualify normal settlement. Missing timing or either mode is unavailable; do not change commands, insert sleeps or start a session for this inspection.
+
 <a id="req-term-006-manual-qualification"></a>
 ### Herdr reconnect and shutdown (REQ-TERM-006)
 

@@ -547,6 +547,16 @@ Identity lookup reads at most 2048 frontmatter bytes per note through non-follow
 
 Both runtimes rank capture recency by the instant encoded in `YYYY-MM-DDTHH-MM-SS±HHMM-<8-character-session-id>.md`, never restored mtime or lexical timestamp order. Equal instants sort by filename descending. Headings count only outside fenced blocks; fences match by backtick-run length. Per-extract truncation spends UTF-8 bytes, cuts at character boundaries, and charges its notice to the same cap, dropping the notice if it cannot fit. Each exact `Source:` path is reserved before title/body; an extract is omitted if required metadata cannot fit. Current individual captures are searched first, with machine-owned `Archive.md` as fallback. These bounds and evidence paths survive archive compaction unchanged.
 
+### Memory hook and short-prompt acceptance
+
+Use existing authorized advanced-runtime records at one candidate revision for [MEM-010/013](../../sdd/spec/memory.md). Separate source review from runtime observations. Missing cases are unavailable, not passing. Do not fabricate transcripts/carriers, reset sentinels, change clocks/preferences, replay capture, or alter counters, Goal state or user data.
+
+| Contract | Action and required outcome |
+|---|---|
+| REQ-MEM-010 AC1/2 | Compare a tilde-path case with `$HOME` expansion. Trace hook-to-runner JSON carrying path/date/counts/offsets; inline hook context is not the carrier. The runner's later self-contained transcript request is distinct. Retry state survives until successful locked merge/publication. |
+| REQ-MEM-010 AC4 | Compare preference-set, preference-absent/container-TZ-set and both-absent cases through environment, hook and timestamp assertion. Require preference, container default, then UTC precedence, with correct offset and wall-clock validation. |
+| REQ-MEM-013 AC4 | Inspect an existing first-real-prompt trace shorter than 20 characters in each supported advanced runtime. No context injection/query or spent injection sentinel; a later eligible prompt remains eligible. Initial graph guidance and capture counters are not injection evidence. |
+
 ### Hook Mechanics
 
 The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.

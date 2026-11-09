@@ -74,6 +74,20 @@ Pi extension discovery reads the owning preseed manifest except context-mode and
 
 Impeccable's one-minute no-container PR lane verifies pinned source, compiles the exact raster/wait logic into probes, reproduces upstream regressions, and verifies idle-grace/no-symlink fixes. Deployment still compiles/tests the complete binary before publication; bundle refresh rejects an engine the image has not adopted (REQ-AGENT-163/164/181, REQ-OPS-058/059).
 
+### Shadow-pin acceptance record inspection
+
+For [OPS-020/055/025](../../sdd/spec/operations.md), inspect existing shadow-pin runs, generated PRs and exact candidate checks under [pipeline prerequisites](#pipeline-record-inspection). Record owner/matrix leg, upstream identity, candidate/parent revision and outcome. Missing no-op, duplicate or rejected-candidate cases are unavailable. Do not dispatch, create PRs, update pins, install packages or run transforms.
+
+| Scope | Required existing observation |
+|---|---|
+| OPS-020 owners | Enumerate every required dedicated tool/job and applicable matrix leg at that revision. Newer releases produce separate compatibility PRs and owned checks; equal/older versions explicitly no-op. Parallelism needs timestamps, not graph shape. |
+| OPS-020 integrity | Inspect authoritative checksum verification. Where unavailable, invalidate the old checksum for review rather than trust it. Actionlint resolves and verifies `checksums.txt`. Existing same-tool/version branches skip without another branch, PR or mutation. |
+| OPS-055 | Herdr PR couples version, commit, checksum, provenance and launcher without workflow edits. Inspect duplicate skip and exact-version complete-image API checks, including scroll/status schemas. Incompatible-candidate refusal needs an actual retained rejection. |
+| OPS-025 AC1–5 | Compare coupled plugin/runtime/prewarm pins, owning locks, manifest/install identities and embedded seed. Actual commands must show lifecycle-disabled lock generation. Runtime integrity and shared toolchain pins move together; unrelated dependencies remain unchanged. Candidate CI rejects generated drift. |
+| OPS-025 AC6 | Compare actual latest-pinned Goal/Plan transform success and rejection before publication. A rejected candidate leaves no PR. Fake commands, source assertions or accepted-only records do not establish this case. |
+
+Candidate-transform and complete-image qualifications remain distinct from source-shape tests.
+
 <a id="keyless-release-signing"></a>
 <a id="keyless-release-signing-req-ops-034-req-ops-035"></a>
 ### Keyless release signing
@@ -243,6 +257,23 @@ For [REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is
 
 Missing authorized copies or retained outputs blocks those observations, not the procedure definition. Existing CI/type/security gates remain separate; this check grants no budget increase or deployment authorization.
 
+### Image acceptance record inspection
+
+For [OPS-002/046/040/039/050/052](../../sdd/spec/operations.md) and [SEC-011](../../sdd/spec/security.md), use existing completed image records under [pipeline prerequisites](#pipeline-record-inspection). Record source/attempt, selection, registry, tag/digest, reuse and artifact identities. Missing cases are unavailable. Do not dispatch, rebuild, inject defects or publish. Reuse requires original producing/scanned provenance; it is not a new scan.
+
+| Scope | Required existing observation |
+|---|---|
+| OPS-002 cache | Compare same-input/same-week records with and without cache bust, plus a registry-missing tag case. Tag identity stays equal while the cache-busted case rebuilds. Changed inputs/week cannot prove this. |
+| OPS-046 overlays | Correlate integrity verification before extraction with fixed-version/load/operation smoke for every affected overlay. Include both node-tar archive round trips, brace expansion and HTTP-body behavior. Validator fixtures alone do not establish immutable-image acceptance. |
+| OPS-040 selection | Compare `agentVersions`, selected launcher pins and absent omitted launchers, including with/without-Antigravity records and complete-image pruning. |
+| OPS-039 reduced images | For a selection omitting shared Pi, inspect prewarm, native Pi/official Claude inventories, shared tools and selected/omitted launcher results. Record same-image bytes; inspect publication policy for no fixed byte ceiling. A full selection cannot substitute. |
+| OPS-050 caching | Compare exact extension-only and IDE/seed-only diffs with same-cache-scope predecessors. Plain BuildKit logs must show affected late assembly rebuilt and unrelated dependencies cached. Require `buildkit-timing-*` plus plain output; expired fourteen-day evidence or mixed dependency changes cannot qualify. |
+| OPS-052 preparation | Require one Trivy DB preparation, then scan/SBOM/registry preparation completed before enforcement/publication. Actual overlap needs child timing/output, not a background operator or parent duration alone. Missing timing stays unavailable. |
+| OPS-052 cache | Inspect isolated writable scratch/cache, clean daily DB restore without ownership/timestamp warnings or lock collision, bounded enforcement, and uploaded SBOM before push. A cache miss cannot prove restored-cache safety. |
+| OPS-002; SEC-011 gates | Match HIGH/CRITICAL ignore-unfixed scanning, runtime floors and reviewed bounded exceptions to the exact revision; inspect scanner paths/PURLs. Require passing gates before selected-registry publication and downstream digest binding. Retained rejection cases prove refusal; clean scans alone do not. |
+
+Existing prerequisite-failure tests supplement actual failed-image records. Never manufacture a failure. A missing full scan artifact is not supplied by the SBOM, and one registry's publication does not establish another's bypass path. [Security](security.md#container-image-scanning-req-sec-011) owns exception expiry and retired tuples.
+
 ### PR Checks timing acceptance
 
 Method for [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance). Use an existing completed run; this procedure does not authorize a new workflow, deployment or protected test run.
@@ -250,6 +281,10 @@ Method for [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-ch
 1. Select the PR Checks run and attempt for the exact candidate SHA. Confirm classification included the affected workloads and their required results completed successfully; a cancelled, wrong-head or skipped-workload run cannot qualify.
 2. Record run ID, attempt, SHA, workflow start/completion and affected-gate durations from GitHub's recorded timing. Report queued time separately and retain the observations with the existing run/PR evidence, not as current-success prose in this lane.
 3. PASS requires both the complete run duration and affected-gate durations below the existing three-minute target. An over-target duration is FAIL; unavailable timing or incomplete affected-workload evidence is BLOCKED. Do not add timeout caps or omit workloads to pass.
+
+### Attached monitor artifact acceptance
+
+For [OPS-049 AC4](../../sdd/spec/operations.md), inspect an existing attached Claude monitor task's exact repo/PR/head, result and before/during/after filesystem/process metadata. Its entry point is the shipped `ci-monitoring/scripts/monitor-ci.mjs monitor` command, not a generated detached script. Require `CI_RESULT` in the attached task with no task-created script, PID or result-log file in its temporary areas. Separate concurrent writers by provenance. Missing during-task inventories or uncertain attribution makes absence unverified. Do not launch the monitor, dump unrelated contents or delete artifacts for this inspection.
 
 ### PR Exact-Head Monitoring
 
@@ -418,6 +453,12 @@ Setup normalizes target, requires public provider discovery 200 and authenticate
 
 <a id="unsupported-all-selector"></a>
 **Unsupported `all`:** Source defaults to and selects all four jobs, which share one unchanged target and opposite intended modes. It cannot prove both intended high-load and enforcement contracts. Load scripts themselves do not assert bypass; their 429 short-circuits/counter floors can allow partial measurements under limits. A green `all` must not be interpreted as high-load saturation plus enforcement proof. No runtime/workflow fix is proposed here.
+
+### Stress acceptance record inspection
+
+For [OPS-008](../../sdd/spec/operations.md), inspect existing authorized Integration records under [Execution Runbooks](#execution-runbooks): target revision/mode/profile, suite, redacted service identity, concurrency, k6 results and summary. Require separate mode-compatible load and limiter records; `all` cannot establish opposing bypass modes. Unset/zero concurrency uses baseline VUs; positive input scales VUs. Record actual fixed thresholds: this method cannot pass the currently contradictory loosened-threshold clause.
+
+Correlate existing bypass-enabled HTTP/WebSocket and warning evidence, plus a separately prepared SaaS-and-stress rejection returning 503. Missing mode or WebSocket cases stay unavailable. Existing authentication-fallback, cleanup and partial-measurement limits remain; this inspection sends no traffic and performs no cleanup.
 
 <a id="test-suites"></a>
 ### Suite Contracts

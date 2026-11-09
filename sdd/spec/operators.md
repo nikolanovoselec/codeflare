@@ -2217,7 +2217,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface), [REQ-OPERATOR-032](#req-operator-032-secret-safe-administration-readback)
 
-**Verification:** Automated test: Enterprise operator administration is covered by the adjacent component and client tests.
+**Verification:** Automated: [AdministrationLayout.test.tsx](../../web-ui/src/__tests__/components/AdministrationLayout.test.tsx), [operator-management.test.tsx](../../web-ui/src/__tests__/operators/operator-management.test.tsx), [operator-promotion.test.ts](../../src/__tests__/operators/operator-promotion.test.ts), [operator-catalog.test.ts](../../src/__tests__/operators/operator-catalog.test.ts), [operator-management-redesign.test.tsx](../../web-ui/src/__tests__/operators/operator-management-redesign.test.tsx), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx); Manual: [Operator management interface acceptance](../../documentation/lanes/operators.md#operator-management-interface-acceptance)
 
 **Status:** Implemented
 
@@ -2239,6 +2239,8 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 5. Operator ceilings remain editable separately from installation restrictions; changes disable installations without discarding saved policies. <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: source default resets update only the selected ceiling or installation draft) --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (separates verified package identity from the category and keeps source replacement out of restrictions) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (edits the operator capability ceiling after registration without silently editing an installation or keeping it enabled) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (keeps saved missing grants, distinguishes unverified choices and shows local save feedback) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (explains global action limits and scope labels without raw capability keys or suggesting that an ID provisions resources) -->
 6. Responsive controls retain focus and scrolling for long names and errors. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (retains the registration control and visible long error on a narrow viewport) --> <!-- @manual: Verify keyboard focus and scrolling on narrow and wide browser viewports. -->
 7. Mobile sections remain horizontal and retain save feedback beside the action without silently enabling installations. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (confirms a restriction save beside its action without silently enabling the installation) -->
+
+**Notes:** Guided-launcher acceptance remains separately qualified under [REQ-OPERATOR-058](#req-operator-058-guided-dispatcher-invocation); component tests do not establish deployed responsive/visual acceptance.
 
 **Constraints:**
 
@@ -2262,7 +2264,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-046](#req-operator-046-explicit-release-promotion), [REQ-OPERATOR-107](#req-operator-107-exact-normal-dispatcher-activation)
 
-**Verification:** Management route/UI tests; historical Enabled/Disabled copy coverage passed. Guided-launcher acceptance remains pending under REQ-OPERATOR-058; responsive Enterprise Integration visual acceptance is separate.
+**Verification:** Automated: [operator-access.test.ts](../../src/__tests__/operators/operator-access.test.ts), [operator-management-redesign.test.tsx](../../web-ui/src/__tests__/operators/operator-management-redesign.test.tsx), [operator-management.test.tsx](../../web-ui/src/__tests__/operators/operator-management.test.tsx), [operator-management-flow.test.tsx](../../web-ui/src/__tests__/operators/operator-management-flow.test.tsx), [operator-catalog.test.ts](../../src/__tests__/operators/operator-catalog.test.ts), [operator-source-response-suite.tsx](../../web-ui/src/__tests__/operators/operator-source-response-suite.tsx), [operator-management-inference.test.tsx](../../web-ui/src/__tests__/operators/operator-management-inference.test.tsx); Manual: [Operator management interface acceptance](../../documentation/lanes/operators.md#operator-management-interface-acceptance)
 
 **Status:** Implemented
 
@@ -2331,7 +2333,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-008](#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Automated test: Installed-selection and first-installation tests at the adjacent anchors; retained release metadata/fallback rendering remains manual, with current-head regression/CI pending.
+**Verification:** Automated: [operator-catalog.test.ts](../../src/__tests__/operators/operator-catalog.test.ts), [operator-management.test.tsx](../../web-ui/src/__tests__/operators/operator-management.test.tsx); Manual: [Operator management interface acceptance](../../documentation/lanes/operators.md#operator-management-interface-acceptance)
 
 **Status:** Implemented
 
@@ -2369,7 +2371,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-008](#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Automated test: Configured-identity selection is covered by the adjacent public form/save test. Explanatory action/resource wording remains manual, not established by selector or source assertions; current-head CI is pending.
+**Verification:** Automated: [operator-management.test.tsx](../../web-ui/src/__tests__/operators/operator-management.test.tsx), [operator-access.test.ts](../../src/__tests__/operators/operator-access.test.ts), [operator-management-flow.test.tsx](../../web-ui/src/__tests__/operators/operator-management-flow.test.tsx), [operator-management-inference.test.tsx](../../web-ui/src/__tests__/operators/operator-management-inference.test.tsx); Manual: [Operator management interface acceptance](../../documentation/lanes/operators.md#operator-management-interface-acceptance)
 
 **Status:** Implemented
 

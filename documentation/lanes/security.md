@@ -167,6 +167,19 @@ Session IDs are strict bounded lowercase alphanumeric values before routing. Req
 <a id="body-limit"></a>
 Oversized bounded API bodies fail before handler parsing. File upload boundaries have their own size/streaming contract in the API/Storage owners rather than inheriting an unsafe unlimited exemption.
 
+### Boundary and storage-policy acceptance
+
+For [SEC-009/018/022](../../sdd/spec/security.md), inspect existing operator-authorized Integration records under private deployment-testing prerequisites. Record revision, route, authentication class, nonsecret case identity, result and observed effect. Missing controls/records are unavailable. These definitions authorize no requests, storage access, credential handling or mutations. Auth/CSRF rejection is not input-validation evidence.
+
+| Contract | Required existing observation |
+|---|---|
+| SEC-009 validation | Starting from valid authorized Setup/upload cases, compare one invalid domain, email or origin at a time and malformed base64. Require structured validation errors before configuration/object writes, with matching UI rejection where applicable. Unrelated policy/auth guards cannot count as decoding rejection. |
+| SEC-009 body limit | Compare authenticated schema-valid preferences bodies padded to 65,536 and 65,537 UTF-8 bytes: the larger returns 413, not parsing success or masked 500. An existing successful upload over 64 KiB with exact downloaded bytes establishes its separate upload limit. |
+| SEC-018 representation | Inspect existing nonsecret preference/user/setup/stats records and retained legacy-session records against configured-key policy. Expected JSON/text lacks the encrypted envelope; a synthetic protected-secret record has one. Do not decrypt/export secrets, remove keys or create KV sessions after D1 migration. |
+| SEC-022 raw ports | On one existing live lifecycle, correlate raw drain-port headerless and wrong-Bearer requests with 401 before server parsing, then normal DO-authenticated success with route processing. Public user-auth endpoints, another lifecycle or a mocked bearer are not substitutes. |
+
+Raw-port credential use remains private-operator-owned; never copy it into browser requests or reports. A 401 alone does not establish parsing order. Missing reachability, safe access or parser observation leaves SEC-022 unqualified. Preserve its existing Partial status and limitations; bounded host/DO tests do not establish deployed acceptance. Export-list assertions and absent records likewise do not prove SEC-018 storage representation.
+
 ### Push notification capabilities
 
 Authenticated notification routes isolate enrollment to the current user, accept only bounded exact-shape subscriptions for reviewed HTTPS Push providers, and never return or log endpoint or encryption-key capability material. User deletion removes that user's enrollments. The public VAPID key is the only sender configuration returned to the browser; the private key remains deployment-only ([REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries)). <!-- @impl: src/routes/notifications.ts::app --> <!-- @impl: src/routes/notifications.ts::parsePushSubscription -->

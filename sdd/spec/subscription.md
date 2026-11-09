@@ -107,7 +107,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test ([subscription](../../src/__tests__/lib/subscription.test.ts))
+**Verification:** Automated: [subscription.test.ts](../../src/__tests__/lib/subscription.test.ts), [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -139,7 +139,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-003](#req-sub-003-free-tier-requires-no-payment)
 
-**Verification:** Automated test
+**Verification:** Automated: [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx), [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts); Manual: [Checkout and provider lifecycle acceptance](../../documentation/lanes/billing.md#checkout-and-provider-lifecycle-acceptance)
 
 **Status:** Implemented
 
@@ -288,7 +288,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test
+**Verification:** Automated: [admin-tiers.test.ts](../../src/__tests__/routes/admin-tiers.test.ts), [SubscriptionManagement.test.tsx](../../web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx), [subscription-req-sub-gaps.test.ts](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -345,7 +345,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** Automated: [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts), [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [subscription-req-sub-gaps.test.ts](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -407,7 +407,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test ([container-lifecycle](../../src/__tests__/routes/container-lifecycle.test.ts))
+**Verification:** Automated: [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [subscription-req-sub-gaps.test.ts](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -435,7 +435,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-009](#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -497,7 +497,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test
+**Verification:** Automated: [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts); Manual: [Checkout and provider lifecycle acceptance](../../documentation/lanes/billing.md#checkout-and-provider-lifecycle-acceptance)
 
 **Status:** Implemented
 
@@ -578,7 +578,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-013](#req-sub-013-concurrent-session-limits)
 
-**Verification:** Automated test ([Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx))
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -635,7 +635,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Automated test
+**Verification:** Automated: [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts); Manual: [Checkout and provider lifecycle acceptance](../../documentation/lanes/billing.md#checkout-and-provider-lifecycle-acceptance)
 
 **Status:** Implemented
 
@@ -773,7 +773,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management)
 
-**Verification:** Automated authorization, deletion-race, reactivation, retention, cursor, aggregate, and JSON/CSV-equivalence tests; UI manual validation on Integration
+**Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts), [AnalyticsPage.test.tsx](../../web-ui/src/__tests__/components/AnalyticsPage.test.tsx), [admin-usage.test.ts](../../src/__tests__/lib/admin-usage.test.ts), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts); Manual: [Integration analytics and report presentation acceptance](../../documentation/lanes/billing.md#integration-analytics-and-report-presentation-acceptance)
 
 **Status:** Implemented
 
@@ -805,7 +805,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SETUP-018](setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution)
 
-**Verification:** Automated timezone, claim, retry, email, CSV, and delivery-history tests; UI manual validation on Integration
+**Verification:** Automated: [usage-reports.test.ts](../../src/__tests__/lib/usage-reports.test.ts), [usage-report-delivery.test.ts](../../src/__tests__/lib/usage-report-delivery.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [admin-usage-reports.test.ts](../../src/__tests__/routes/admin-usage-reports.test.ts); Manual: [Integration analytics and report presentation acceptance](../../documentation/lanes/billing.md#integration-analytics-and-report-presentation-acceptance)
 
 **Status:** Implemented
 
@@ -941,7 +941,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-014](#req-sub-014-session-mode-gating-by-tier), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Automated test ([enterprise-mode](../../src/__tests__/lib/enterprise-mode.test.ts))
+**Verification:** Automated: [enterprise-mode.test.ts](../../src/__tests__/lib/enterprise-mode.test.ts), [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts); Manual: [Enterprise binding ownership review](../../documentation/lanes/billing.md#enterprise-binding-ownership-review)
 
 **Status:** Implemented
 

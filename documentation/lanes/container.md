@@ -247,6 +247,17 @@ After each successful host observation, `collectMetrics: idle policy decision` r
 
 Card/header warnings appear below ten minutes (warning), below five (critical), hidden for stopped/no timestamp. Running projections use current-run `lastInputAt` or current-run start, never prior-run input; non-running context retains lifecycle `lastActiveAt`. Countdown changes cannot grant Stop/restart authority. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @impl: src/routes/session/lifecycle.ts::app --> [REQ-SESSION-013](../../sdd/spec/session-lifecycle.md#req-session-013-sleep-timer-countdown-ui), [REQ-SESSION-036](../../sdd/spec/session-lifecycle.md#req-session-036-header-sleep-countdown-presentation).
 
+### Session policy and preference record acceptance
+
+For [SESSION-004/005/016/017](../../sdd/spec/session-lifecycle.md), inspect existing authorized Integration captures with matching revision, owner, generation and bounded UTC window. Keep transport, D1 projection, policy decisions and positive exit separate. Missing paired observations are unavailable. No start/stop, preference change, fault injection or raw input/credential capture is authorized.
+
+| Contract | Action and required outcome |
+|---|---|
+| SESSION-004 AC5 | Correlate the platform sleep sentinel, metrics policy/expiry logs and positive exit. Resolved timeout and input/reference/check times must show metrics owning the stop, not the 24-hour platform sentinel or PTY safety net. |
+| SESSION-005 AC5 | Compare host input timestamps, projected status and metrics reference across no-input/output/reconnection, terminal-input and client-to-server IDE-frame records. Only qualifying input advances the host timestamp. Browser countdowns or projections alone cannot prove host ownership. |
+| SESSION-016 AC2 | Compare an existing successful timezone update with same-owner GET after reload and an independently authorized restart. Preserve the IANA value unless a later update changed it; account for browser synchronization. An old running-container environment is not a persistence failure. |
+| SESSION-017 AC6 | Pair an existing startup-status response with its unexpected-computation-error record. Require caught error stage, zero progress and readable failure—not an unhandled 500. Normal readiness, probe retries and failed sync do not substitute for this case. |
+
 ### Managed curation startup boundary
 
 Worker startup requires applied digest/sequence/resolved mode matching active verified release. Transient cache failure permits prior verified last-known-good only in the current resolved mode; fresh/mismatched buckets fail `MANAGED_ENVIRONMENT_UPDATE_PENDING`, never silently substitute baked state. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer -->
@@ -384,6 +395,10 @@ These limits preserve the lifecycle requirements and their existing open qualifi
 
 These methods are not acceptance evidence. Record exact source/image/seed/mode and redacted outcomes; missing prerequisites remain blocked. Marked manual observations are not replaced by supplemental tests. Runtime, inference, protected access, state changes and publication need separate current authorization with existing disposable resources. Never replay uncertain operations or expose secrets. Static guidance review does not prove deterministic obedience or deployed behavior; CI/image/publication/deployment gates remain separately owned.
 
+### Selected-agent image acceptance
+
+For [AGENT-001 AC4/7](../../sdd/spec/agents.md), compare existing same-candidate image records with and without selected Claude CLI. Record image digest and selection. Require dedicated Pi compile/Jiti preparation and skipped Codex/Copilot V8 baking. Selected Claude CLI startup succeeds; the omitted case does not require it. Both images independently verify official Claude IDE inventory. Missing selection, warm or smoke records are unavailable. Do not rebuild or substitute another revision; package pins, Goal caches and credentials remain unchanged.
+
 ### Agent packaged-runtime acceptance
 
 Use an already-built exact candidate image and its existing image-construction, warm/replay and packaged-smoke records. CI/image construction/scanning/provenance/publication remain with CI/CD and deployment owners; no local build or new image test project is required by this procedure. Record real path/status/timestamp observations where named. Missing controlled-negative-build evidence remains unverified, and protected/live operations require separate approval.
@@ -398,6 +413,19 @@ Use an already-built exact candidate image and its existing image-construction, 
 | [REQ-AGENT-017](../../sdd/spec/agents.md#req-agent-017-bubblewrap-sandbox-for-codex) | In the exact candidate image run command -v bwrap and bwrap --version without invoking a sandbox; compare the resolved path with Codex's documented upstream sandbox ownership. Binary availability does not establish privileged sandbox success. | bwrap resolves on packaged PATH and executes its version command; actual sandbox invocation remains upstream Codex's responsibility. |
 | [REQ-AGENT-215](../../sdd/spec/agents.md#req-agent-215-managed-graphify-skill-ownership) | In the separately authorized candidate image inspect GRAPHIFY_NO_AUTO_REFRESH=1, record managed skill file identities, invoke an existing non-install Graphify command and compare bytes afterward. Do not use install/update/refresh or mutate a graph to prove managed skill ownership. | Candidate image defaults GRAPHIFY_NO_AUTO_REFRESH to 1 and the approved non-install command leaves every recorded managed skill byte unchanged. |
 | [REQ-OPS-011](../../sdd/spec/agents.md#req-ops-011-container-base-image-is-debian-bookworm-slim) | Use existing exact-image construction and smoke evidence to inspect Debian bookworm/glibc Node26 identity, developer-tool execution, Node22.21.1 IDE dependency guard, Node26.12.0 tooling-stage guards, immutable source/platform manifests and mirror layer availability. Compare emitted-extension probe on Node22 and IDE bundled interpreter plus scan-before-upload and provenance-before-use gates. Do not rebuild, switch mirror, probe registries or publish here. | Exact packaged runtime is Debian bookworm/glibc Node26 with executable developer tools; IDE dependency/tooling guards retain Node22.21.1/26.12.0 and immutable source/platform manifests. Emitted extensions work on Node22 and bundled interpreter; build/smoke/scan gate upload; successful provenance attestation additionally gates deployment and reuse. Upload alone is not qualification. |
+
+### Startup and packaged-image record acceptance
+
+For [SESSION-015](../../sdd/spec/session-lifecycle.md) and [IDE-010](../../sdd/spec/browser-ide.md), inspect existing candidate build artifacts and authorized startup/browser captures under [pipeline prerequisites](ci-cd.md#pipeline-record-inspection). Record source, attempt, image digest, inventory and generation. Reused images require producing-run provenance. Missing artifacts or negative cases are unavailable. Do not rebuild, rerun CI, change flags/cache, inject faults or deploy.
+
+| Contract | Action and required outcome |
+|---|---|
+| SESSION-015 AC1–5 | Correlate cold-start port/health, sync, configuration, autostart and init-complete records before normal prewarm/admission. Existing delayed-init records must show the 130-second degraded fallback and retriable warming/1013 admission; distinguish the separate 120-second sync timeout. A final flag alone cannot prove ordering. |
+| SESSION-015 AC6–7 | Inspect producing Jiti-layer logs and manifests: required local/package entries, nonempty cache and completed verification. Cached layers need provenance. Existing empty-cache/missing-extension failure records must stop publication; absent failures remain unavailable. |
+| IDE-010 AC1–3 | Match `browser-ide-image-evidence`, packaged checks and installed manifests/version. Require Pi/Claude/empty inventories, pinned identities, no staged VSIX and compatible API floors for every extension, including Claude. A Pi-only floor check is insufficient. |
+| IDE-010 AC4–7 | Compare same-image host activation, process checks and pre-use browser captures. Require no blocking permission/account prompts, lazy agent processes and accepted Pi proposal registration. Controlled collaborator checks or absent log lines alone cannot establish native/browser outcomes. |
+
+Image evidence does not certify deployed browser behavior, provider login or live inference.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map

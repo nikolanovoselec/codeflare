@@ -316,7 +316,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([setup-010-og-metadata](../../web-ui/src/__tests__/setup-010-og-metadata.test.ts))
+**Verification:** Automated: [setup-010-og-metadata.test.ts](../../web-ui/src/__tests__/setup-010-og-metadata.test.ts); Manual: [Share card interface acceptance](../../documentation/lanes/configuration.md#share-card-interface-acceptance)
 
 **Status:** Implemented
 
@@ -638,7 +638,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-AUTH-023](authentication.md#req-auth-023-admin-user-browsing-and-mode-specific-controls), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
 
-**Verification:** Automated route, mode, composition, and backend mode-gate tests; user-owned manual terminology and responsive acceptance on Integration
+**Verification:** Automated: [App.test.tsx](../../web-ui/src/__tests__/components/App.test.tsx), [AdministrationLayout.test.tsx](../../web-ui/src/__tests__/components/AdministrationLayout.test.tsx), [AdministrationOverview.test.tsx](../../web-ui/src/__tests__/components/AdministrationOverview.test.tsx); Manual: [Administration and setup interface acceptance](../../documentation/lanes/configuration.md#administration-and-setup-interface-acceptance)
 
 **Status:** Implemented
 
@@ -735,7 +735,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
 
-**Verification:** Automated filtering behavior and user-owned manual empty-result acceptance on Integration
+**Verification:** Automated: [environment-areas.test.ts](../../web-ui/src/__tests__/components/environment-areas.test.ts), [McpEnvironment.test.tsx](../../web-ui/src/__tests__/components/admin/McpEnvironment.test.tsx); Manual: [Administration and setup interface acceptance](../../documentation/lanes/configuration.md#administration-and-setup-interface-acceptance)
 
 **Status:** Implemented
 
@@ -781,7 +781,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
 
-**Verification:** Manual check
+**Verification:** Manual: [Administration and setup interface acceptance](../../documentation/lanes/configuration.md#administration-and-setup-interface-acceptance)
 
 **Status:** Implemented
 
@@ -839,7 +839,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes)
 
-**Verification:** Automated test
+**Verification:** Automated: [enterprise-mode.test.ts](../../src/__tests__/lib/enterprise-mode.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [access.test.ts](../../src/__tests__/routes/setup/access.test.ts); Manual: [Setup credential boundary record acceptance](../../documentation/lanes/configuration.md#setup-credential-boundary-record-acceptance)
 
 **Status:** Implemented
 
@@ -968,7 +968,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
 
-**Verification:** Automated test
+**Verification:** Automated: [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [aig-config.test.ts](../../src/__tests__/lib/aig-config.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [setup.test.ts](../../src/__tests__/routes/setup.test.ts); Manual: [Administration and setup interface acceptance](../../documentation/lanes/configuration.md#administration-and-setup-interface-acceptance)
 
 **Status:** Implemented
 
@@ -1759,7 +1759,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-AGENT-029](agents.md#req-agent-029-deploy-credential-propagation-to-container)
 
-**Verification:** Manual check
+**Verification:** Manual: [Setup credential boundary record acceptance](../../documentation/lanes/configuration.md#setup-credential-boundary-record-acceptance)
 
 **Status:** Implemented
 

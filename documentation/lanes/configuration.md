@@ -598,6 +598,35 @@ Supplement the [timezone option](../../sdd/spec/setup.md#req-setup-020-administr
 
 Open Administration → Environment. Report timezone must render as a dropdown of bundled IANA names and preserve an already accepted stored value outside bundled choices; backend canonical-timezone validation remains authoritative. Compare existing configured/enabled, configured/disabled and unconfigured managed-environment states: the summary must show its selected release, disabled state or absence distinctly, without inventing release freshness. Pass each observation only against its actual stored/prefilled state; screenshots without that correlation do not qualify. This is supplemental browser evidence, not replacement automation or permission to generate missing states.
 
+### Interface acceptance prerequisites
+
+Use the exact candidate revision, mode and user-approved Integration target under [Integration acceptance](deployment.md#integration-acceptance-checklist). Record viewport/theme and each pass, fail or unavailable result. Browser acceptance remains user-owned. Missing permissions, states or captured requests are unavailable; these methods authorize no provisioning, apply, credential mutation, fixture creation, fault injection, billing or deployment. Keep private observations in the operator evidence store.
+
+### Administration and Setup interface acceptance
+
+Methods for [Setup](../../sdd/spec/setup.md), using existing readonly UI controls and correlated records rather than replaying applies.
+
+| Contract | Action and required outcome |
+|---|---|
+| SETUP-019 navigation | Open Administration, Environment, Analytics, Reports and Activity in available deployment modes. Compare composed pages, mode-specific Users/Tiers entries and routine Environment terminology with the accepted design. Existing loading/empty/error/conflict/reconnect captures must preserve it. |
+| SETUP-019 AC6; ENTERPRISE-017 AC6 | Inspect one existing first-run capture through applicable setup stages, review, apply and result. Match executed Access/routing/Gateway/Browser/egress NDJSON steps with their friendly Configuring Codeflare labels. Inapplicable stages need not appear; final success alone proves no sequence. |
+| SETUP-023 | Filter loaded Environment by label, description, summary, mixed case and a no-match string, then clear. Require stable match order, case-insensitive results, visible empty state and restored catalog. |
+| SETUP-025 | At mobile/tablet/desktop widths, reach the final control on a long Administration page with pointer/touch scrolling and keyboard focus. No clipping, trapped scrolling or inaccessible content. Record dimensions; an empty page does not qualify. |
+
+### Share-card interface acceptance
+
+For SETUP-010 inspect the candidate home response and referenced image in browser Network/Image preview. Require actual PNG dimensions 1200×630 and resource size ≤1 MB, not merely HTML dimensions or compressed transfer size. Check visible wordmark, tagline and CODEFLARE.CH footer; verify OG/Twitter references match. The canonical share description prefixes the page description, followed by its short descriptor. Missing/mismatched/clipped content fails. This does not certify third-party cached unfurls or require a public post.
+
+### Setup credential-boundary record acceptance
+
+Use existing authorized configuration/prefill, private binding/storage and negative-case records. Inspect metadata and equality verdicts only; never expose credentials or ciphertext. Do not create clients, rotate immutable keys, reconfigure bindings or start sessions. Private registration/runbook permissions remain separate.
+
+| Contract | Required comparison |
+|---|---|
+| ENTERPRISE-006 | Check secret Gateway bindings versus nonsecret Enterprise mode; independently compare KV-owned catalog/default and masked prefill. Paired container evidence must omit real Gateway values. Existing dispatch records distinguish both Enterprise targets and permitted non-main refs. |
+| ENTERPRISE-092 | Privately compare expected deployment/owner credential inventory with existing Enterprise/non-Enterprise container environments. Deployment tokens stay excluded; Enterprise R2/Browser mediation uses placeholders, while permitted owner credentials remain correct. Record only presence/equality results, not values or inferred provider connectivity. |
+| AGENT-230 | Match admin Cloudflare OAuth configuration/prefill to plain client-ID and encrypted-secret storage; verify presence-only readback. Existing unauthorized and nonblank-secret/missing-key rejections must leave configuration unchanged. A masked field alone cannot prove encryption. |
+
 <a id="runtime-ownership"></a>
 ### Environment Runtime Ownership
 

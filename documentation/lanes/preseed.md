@@ -1667,6 +1667,31 @@ Use the existing measure-pi-runtime-context.mjs, measure-seed-tokens.mjs, verify
 | [REQ-AGENT-156](../../sdd/spec/agents.md#req-agent-156-bounded-lossless-pi-prompt) | Read the existing prompt baseline fixture and ownership ledger, then inspect existing verify-pi-prompt receipts for fallback and signed default/advanced resource loading in isolated directories. Compare baseline components/retained destinations, <=14,000 controlled prompt chars, separate schema reporting and one system/global/invocation owner. Before any publication compare a separately recorded complete eligible checkpoint by bytes/modes/manifest additions/removals/retirements, image exclusions and protected CI; do not publish here. | Baseline remains 32416 chars with named components; real fallback/signed both-mode loading is <=14000 controlled chars with schemas separate. Every baseline category has a retained owner/destination; one system/global/invocation owner survives and complete checkpoint bytes/modes/retirements/image exclusions/protected publication alignment are evidenced separately. |
 | [REQ-AGENT-158](../../sdd/spec/agents.md#req-agent-158-bounded-initial-pi-tool-exposure) | Inspect existing real-runtime measurement and verify-pi-prompt receipts for registered versus initially active names and separately serialized schemas, including rejected invalid initial active set. Only read/bash/edit/write/capability may be initially active when registered; keep schema sizes diagnostic with no new fixed token threshold. Deployed both-mode behavior remains separate from faux-provider measurements. | Real diagnostics separate registered/initially-active names and schema bytes and reject an invalid initial set; schema size stays diagnostic. Fresh deployed Standard/Advanced observations establish initial bootstrap, additive requested activation and new-prompt reset independently of measurement/source receipts. |
 
+### Memory manifest and prompt delivery acceptance
+
+For [Memory](../../sdd/spec/memory.md), compare existing candidate default/advanced payloads, canonical manifests and installed inventories at the same revision. Missing artifacts make delivery observations unavailable. This is read-only: no rebuild, capture, counter change, credential operation or rescue is authorized. Source/projection review and actual runtime delivery are distinct results.
+
+| Contract | Action and required outcome |
+|---|---|
+| REQ-MEM-006 AC2–4 | Compare complete mode key sets: advanced is a strict superset carrying memory/Vault machinery. Fresh default settings register none of it. Downgrade leftovers whose absent plugin files are skipped do not count as executing machinery. |
+| REQ-MEM-008 pipeline | Join every memory-plugin manifest entry to source, generated Worker payload and installed target. Capture prompt, hook/prefilter scripts and capture subagent follow the same pipeline as architect/code-reviewer, with overridable Sonnet defaults. Unlisted source is not payload. |
+| REQ-MEM-008 modes | Check every memory-plugin entry is advanced-only, settings merge owns hook registration, and non-Claude inventories contain no generic adaptation of the Claude memory plugin. |
+| REQ-MEM-014 AC1–3 | Compare both full deployed Pi prompts with canonical files and trace actual `memory-vault.ts` loading. Both are advanced-only prompt-directory projections, not generated stubs. Retain fixed budgets, citation rescue, optional model selection, frozen inputs and root-owned public delivery/progress. |
+
+### Turnstile bounded-request source review
+
+For [REQ-AGENT-138](../../sdd/spec/agents.md), enumerate every request in delivered and canonical `turnstile-spin/scripts/{auth-probe,widget-create,validate}.sh`, including cleanup DELETE and siteverify. Each curl path needs `--connect-timeout 10 --max-time 30`. Trace parsed error code 10000 through HTTP 200, 400/422, 401/403 and unexpected-status paths: it must select `missing_scope` before success; unrelated validation errors must not be mislabeled. Record source branches, not tokens. This does not authorize auth probes, widget creation or cleanup; offline regressions remain separate evidence.
+
+### Impeccable next-hand source review
+
+For [REQ-AGENT-165](../../sdd/spec/agents.md), read the exact [pinned source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/serve_question.rs). Compare existing installed engine identities and image/patch records without installing or launching a server. Missing pin bytes or image correspondence is unavailable; source review is not native acceptance.
+
+| Contract | Review action and required outcome |
+|---|---|
+| AC1/2 | Trace update validation: missing/empty options reject before delivery writes; valid options for the retained key reach its next hand, not another session. Use existing update/wait interfaces as source entry points, not execution instructions. |
+| AC3/4 | Read the actual closure window and evaluate just-inside, equality and outside boundaries. Fresh delivery suppresses closure only within the defined window; expired delivery cannot suppress it. |
+| AC5/6 | Follow atomic delivery consumption into page-claim state after the delivery file disappears. Fresh claims preserve only bounded suppression; expired claims cannot renew it. No live timestamp or delivery-file mutation is permitted. |
+
 ### Impeccable native acceptance
 
 Use the installed image-pinned launcher and existing approved disposable assets/session only, following the current visualize/new-work commands. Preserve the requirement-linked [question source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/serve_question.rs) and [raster source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs) pins as evidence scope, not an execution receipt or permission to update it. Match the actual engine version to its existing image/impeccable-engine*.json pin; source inspection of another version is not installed-runtime proof. No image generation, engine installation, live question service, timestamp editing, no-replay exception or new UI harness is authorized.

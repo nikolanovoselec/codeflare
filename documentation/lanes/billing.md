@@ -170,6 +170,46 @@ Historical pricing assumptions are not current price guarantees; the [original d
 
 The [original design-source review](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/administration-analytics.md#design-source-review) and [Integration checklist](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/administration-analytics.md#integration-acceptance-checklist) preserve the historical checkpoint and its outstanding browser/manual checks. They are not current reference procedures or evidence that acceptance completed. Active status and verification qualifiers remain in SDD.
 
+## Account acceptance methods
+
+These [Subscription](../../sdd/spec/subscription.md) methods inspect existing authorized candidate records, not create accounts, charge customers or change configuration. Record revision, mode, redacted case identity and each result. Missing states or provider observations are unavailable, never passing. Future mutations require separate owner permission under the private runbook; never replay uncertain effects or disclose credentials.
+
+### Direct activation and tier acceptance
+
+Use the existing Subscribe, Subscription Management and Dashboard surfaces with their corresponding [API responses](api-reference.md). Compare intentionally configured and unconfigured provider environments, not outages masquerading as absent configuration.
+
+| Contract | Action and required outcome |
+|---|---|
+| REQ-SUB-003 AC1/3 | Compare free activation in both provider configurations. Auth status becomes active without checkout or provider interaction; require browser and provider-side observations, not browser silence alone. |
+| REQ-SUB-011 AC1 | Check every selection in the existing eight-tier direct-activation matrix without a provider. Record rejections explicitly: existing blocked/pending admission controls remain binding, but cannot silently exempt an all-tiers requirement. Missing rows are unavailable. |
+| REQ-SUB-009 AC1/6 | Compare an authorized tier-array PUT with GET after its 60-second cache. Values persist; anonymous/inactive/non-admin requests preserve the array. In management, identity, order, defaults and provider prices remain read-only. |
+| REQ-SUB-014 AC1–4 | Compare configured modes with `getDefaultTiers`, `getAllowedSessionModes`, rejected preference requests and existing stale-preference startup records. Free/trial default-only; standard/advanced/max/unlimited permit both modes. Unsupported saved modes clamp to an allowed default. Never corrupt preferences to manufacture a case. |
+| REQ-SUB-013 AC4; REQ-SUB-019 AC3 | Compare effective tier, displayed maximum and one complete Dashboard response cycle. Record exactly which batch/ancillary response supplies `maxSessions`. Ancillary-only evidence cannot pass a literal batch-response requirement; no extra entitlement request may be hidden. |
+
+### Checkout and provider lifecycle acceptance
+
+Use existing authorized checkout, signed-event, portal and invoice records, matched to the same candidate and identity. Do not confirm payment, replay webhooks, switch plans or flood endpoints for this inspection. Missing historical invoices or negative cases stay unavailable.
+
+| Contract | Action and required outcome |
+|---|---|
+| REQ-SUB-004 AC4 | Follow an existing `checkout=success` trace through pending activation and five minutes. Auth polls every three seconds; report-problem appears without ending polling. Activation ends the flow. Read `SubscribePage.tsx` to verify no total polling deadline. |
+| REQ-SUB-004 AC5/7 | Match completed/updated/deleted signed-event histories to authoritative synchronization. Inspect `stripe-webhook.ts`: successful events get the 72-hour marker; failures do not. Compare duplicate receipts for no second application. Eventual KV deduplication is not atomic exactly-once delivery. |
+| REQ-SUB-016 AC2/6 | Match hosted plan confirmation to selected price/subscription item. Portal creation is authenticated, customer-bound and limited to five per minute. Existing unauthorized/no-customer/over-limit cases return no portal URL. |
+| REQ-SUB-021 AC2/3/5 | Compare new/trial-end subscriptions and invoices: initial charge prorates to the next UTC month; later monthly anchors fall on its first day. A pre-change subscription retains its recorded anniversary. Checkout parameters alone cannot prove recurring billing. |
+
+### Integration analytics and report presentation acceptance
+
+This current method does not relabel historical checklist evidence. On an authorized Integration candidate, use existing admin/non-admin identities and dated histories. Do not delete/reactivate users, test-send/resend reports or change schedules.
+
+| Contract | Action and required outcome |
+|---|---|
+| REQ-SUB-026 AC1 | Inspect Analytics and user detail across closed UTC periods, filters, sorting and cursor pages. Compare rendered rows/totals/download with matching JSON/CSV; CSV omits only pagination. Verify result-owned freshness, `dataSince` and access denials across available modes. Backend tests alone do not establish rendering. |
+| REQ-SUB-027 AC6 | Compare Reports history with authenticated pending/sending/accepted/failed responses after explicit Refresh/navigation. Labels preserve provider-acceptance semantics; accepted never means inbox-delivered and missing provider IDs remain absent. |
+
+### Enterprise binding ownership review
+
+For REQ-ENTERPRISE-001 AC4, search candidate production `src/` for `ENTERPRISE_MODE` and inspect every result. Separate type/configuration plumbing from interpretation. Pass only when `src/lib/subscription.ts::isEnterpriseMode` owns raw interpretation and runtime callers use it; another raw conditional or request-controlled override fails. Record paths, not binding values. This source review neither changes deployment mode nor invokes a rollout.
+
 ## Failure Posture and Residual Risk
 
 | Boundary | Posture | Consequence / owner |
