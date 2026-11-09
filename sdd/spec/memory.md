@@ -267,7 +267,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 **Acceptance Criteria:**
 
 1. The capture prompt is preseeded into the session-installed memory plugin alongside its scripts. <!-- @manual -->
-2. The memory plugin's scripts (hook, prompt, prefilter) and the capture subagent definition (pinned to sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)) are all delivered via the manifest pipeline that seeds named subagents like architect and code-reviewer ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start)). <!-- @impl: preseed/agents/claude/manifest.json::modes --> <!-- @manual -->
+2. The memory plugin's scripts (hook, prompt, prefilter) and the capture subagent definition (with overridable Sonnet defaults per [AD124](../../documentation/decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)) are all delivered via the manifest pipeline that seeds named subagents like architect and code-reviewer ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start)). <!-- @impl: preseed/agents/claude/manifest.json::modes --> <!-- @manual -->
 3. All memory-plugin entries are marked advanced-only in the manifest. <!-- @manual -->
 4. The hook script is delivered via the plugin but registered via the session settings merge, not the plugin loader. <!-- @manual -->
 5. Memory-plugin source lives in the single preseed source tree. <!-- @manual -->
