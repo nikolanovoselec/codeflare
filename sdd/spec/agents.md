@@ -2690,7 +2690,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite), [REQ-AGENT-136](#req-agent-136-design-truth-precedence)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3561,7 +3561,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3585,7 +3585,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual source and routing review
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3609,7 +3609,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3634,7 +3634,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3664,7 +3664,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual managed-projection inspection and fresh-context activation review.
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3700,7 +3700,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing)
 
-**Verification:** Manual portability inspection and fresh-context frontend review.
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3734,7 +3734,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-135](#req-agent-135-unsafe-design-preset-exclusion), [REQ-AGENT-194](#req-agent-194-evidence-bound-impeccable-policy)
 
-**Verification:** Automated updater test and manual check
+**Verification:** Automated: [impeccable-runtime-policy.test.js](../../host/__tests__/impeccable-runtime-policy.test.js); Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3761,7 +3761,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing)
 
-**Verification:** Manual projection inspection and fresh-context dual-axis routing review.
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3789,7 +3789,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3816,7 +3816,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority)
 
-**Verification:** Manual review
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3840,7 +3840,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-181](#req-agent-181-design-specialist-compatibility)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3867,7 +3867,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3895,7 +3895,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-183](#req-agent-183-native-mobile-design-authority), [REQ-AGENT-184](#req-agent-184-operational-information-design), [REQ-AGENT-185](#req-agent-185-component-system-and-registry-boundaries), [REQ-AGENT-186](#req-agent-186-conditional-complex-motion-delegation), [REQ-AGENT-188](#req-agent-188-external-design-dependency-safety)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3920,7 +3920,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-181](#req-agent-181-design-specialist-compatibility)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -4553,7 +4553,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Pi prompt and exposure measurement review](../../documentation/lanes/preseed.md#pi-prompt-and-exposure-measurement-review)
 
 **Status:** Implemented
 
@@ -5426,7 +5426,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Manual review
+**Verification:** Manual: [Pi prompt and exposure measurement review](../../documentation/lanes/preseed.md#pi-prompt-and-exposure-measurement-review)
 
 **Status:** Implemented
 
@@ -5461,7 +5461,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions), [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt), [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows)
 
-**Verification:** Automated lifecycle, capability, public fallback, and signed managed projection tests; deployed Standard and Advanced acceptance
+**Verification:** Automated: [pi-capabilities.test.ts](../../src/__tests__/lib/pi-capabilities.test.ts); Manual: [Pi prompt and exposure measurement review](../../documentation/lanes/preseed.md#pi-prompt-and-exposure-measurement-review)
 
 **Status:** Implemented
 
@@ -5563,7 +5563,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Automated behavioral test; manual review of the linked pinned upstream implementation for AC1–AC2.
+**Verification:** Automated: [impeccable-engine-source.py](../../scripts/ci/impeccable-engine-source.py), [impeccable-engine.py](../../scripts/ci/impeccable-engine.py); Manual: [Impeccable native acceptance](../../documentation/lanes/preseed.md#impeccable-native-acceptance)
 
 **Status:** Implemented
 
@@ -5586,7 +5586,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs))
+**Verification:** Manual: [Impeccable native acceptance](../../documentation/lanes/preseed.md#impeccable-native-acceptance)
 
 **Status:** Implemented
 
@@ -5609,7 +5609,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs))
+**Verification:** Manual: [Impeccable native acceptance](../../documentation/lanes/preseed.md#impeccable-native-acceptance)
 
 **Status:** Implemented
 
