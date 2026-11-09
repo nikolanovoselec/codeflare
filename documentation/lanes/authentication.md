@@ -67,7 +67,7 @@ For onboarding sign-in assets, `ONBOARDING_LANDING_PAGE=active` together with `S
 
 The Worker creates a signed OAuth state carrying a nonce and bounded return target, redirects to GitHub, validates the callback state, exchanges the code, and accepts only a verified primary email. Callback-local provider credentials are used only for that flow and are not returned to the browser. Successful authentication issues `codeflare_session` with `HttpOnly`, `Secure`, and `SameSite=Lax`; the session has a one-hour lifetime and is refreshed when less than fifteen minutes remain. <!-- @impl: src/routes/github-auth.ts::app -->
 
-State validation and nonce/single-use behavior prevent callback replay and open redirects. Provider errors fail the callback; they do not fall back to Cloudflare Access inside the same request.
+State signature, expiry, account binding and spent-nonce checks reject invalid states and sequential replay. The current KV read/write pair does not atomically exclude concurrent callbacks carrying different valid provider codes. [Issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386) records this additional limitation and the deferred complete application-owned auth/authz migration to D1; no nonce-only migration is part of cleanup. Provider errors fail the callback; they do not fall back to Cloudflare Access inside the same request.
 <!-- @impl: src/routes/github-auth.ts::app -->
 
 <a id="auth-flow"></a>
@@ -122,6 +122,8 @@ The Access flow diagram illustrates Access-backed SaaS activation. Enterprise ad
 ### Session issuance and refresh
 
 Browser JavaScript cannot read either authentication cookie. API requests carry credentials automatically. Session refresh reissues the same secure cookie attributes; identity is normalized before durable lookup.
+
+**Known non-Enterprise limitation:** SaaS/onboarding session-cookie renewal currently runs inside Hono; early terminal, Vault, IDE and static-response paths can bypass it. This is not an Enterprise CF Access session-refresh gap: Enterprise browser authentication is managed by Access, and this app-owned cookie refresher is inactive. Upstream provider credentials refreshed or injected by container interceptors are a separate mechanism. The non-Enterprise correction is deferred outside cleanup.
 
 ### Logout
 
@@ -362,7 +364,7 @@ For REQ-AUTH-007 AC3/AC5 and REQ-AUTH-015 AC3/AC4, use existing approved pending
 
 ### Session refresh acceptance
 
-For REQ-AUTH-008 AC1/AC3/AC4, allow an approved SaaS session to age naturally into the final fifteen minutes of its one-hour lifetime. Observe ordinary application/API responses without copying cookies. An observed refresh passes only if it retains secure cookie attributes, grants a fresh one-hour lifetime and leaves the UI uninterrupted without redirects or re-authentication.
+This procedure targets non-Enterprise SaaS/onboarding sessions, not Enterprise CF Access. The known early-return limitation above remains unresolved; this method does not certify universal current coverage. For REQ-AUTH-008 AC1/AC3/AC4, allow an approved SaaS session to age naturally into the final fifteen minutes of its one-hour lifetime. Observe ordinary application/API responses without copying cookies. An observed refresh passes only if it retains secure cookie attributes, grants a fresh one-hour lifetime and leaves the UI uninterrupted without redirects or re-authentication.
 
 Trace `src/index.ts` dispatch and post-handler middleware, including early-return terminal/Vault/IDE paths. The every-response requirement fails if any eligible response bypasses refresh. Do not narrow it to Hono routes, forge cookies, replay expired sessions or treat one successful response as universal proof.
 
