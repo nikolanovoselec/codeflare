@@ -417,6 +417,8 @@ Authenticated onboarding users without active tier become pending access request
 <a id="github-clone-data-flow-req-github-004"></a>
 ### GitHub Clone Data Flow
 
+The clone root resolves from `USER_WORKSPACE`, otherwise `<HOME>/workspace`, otherwise `/home/user/workspace`. The validated repository basename is appended verbatim as one direct child of the normalized root; an existing target is refused without overwrite ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) AC3).
+
 Creation clone directives persist with the session and reapply before every start; configuration failure blocks startup, while clone itself preserves existing targets and is best effort for missing ephemeral workspaces. A running-session clone uses the authenticated private host and records successful panel clones immediately. Metrics reports bounded top-level repository inventory only after post-restore clone work completes; resume restores absent tracked repositories within per-repository/overall budgets and continues past failures. Enterprise stamps GitHub credentials Worker-side; other modes retain existing container transport.
 
 **Contracts:** [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume), [REQ-GITHUB-015](../../sdd/spec/github.md#req-github-015-workspace-repository-tracking), [REQ-GITHUB-016](../../sdd/spec/github.md#req-github-016-tracked-repository-restoration). [API Reference](api-reference.md#github-integration) owns validation/outcomes.
