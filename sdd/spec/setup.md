@@ -1162,7 +1162,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Verification:** Automated: [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1178,7 +1178,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. A checked gateway connection can be saved without any Dynamic Route, group assignment, or fallback route. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (accepts an AI Gateway connection before routes or access policies exist) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044: reviews a checked connection change before routes or access policies exist) -->
 2. Invalid inactive context inputs do not block Save or discard valid retained draft windows. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (preserves valid inactive draft context windows and ignores invalid replacements without exposing inactive routes) -->
-3. Any editable draft that differs semantically from saved state can reach authoritative Review validation without a client-side readiness gate. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044/057: connection drafts preserve saved policies before and after checking (%s)) -->
+3. Any editable draft that differs semantically from saved state can reach authoritative Review validation without a client-side readiness gate. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::ConfigurationAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044/057: connection drafts preserve saved policies before and after checking (%s)) -->
 
 **Constraints:**
 
@@ -1194,7 +1194,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1228,7 +1228,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Verification:** Automated: [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 ---
 
 ### REQ-ENTERPRISE-045: Pi Compatibility Profile Communication
@@ -1330,7 +1330,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 2. Selecting a saved custom profile stores that exact immutable revision reference in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: selects the exact %s profile revision in the target draft) -->
 3. Advanced Discover Profile retains compatibility matching without automatic draft adoption. Normal Bedrock Discover instead verifies/adopts the exact target under REQ-ENTERPRISE-075. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: invokes native compatibility discovery for the current target draft) -->
 4. Verify Profile verifies the exact selected profile and records only the returned server-issued check and target identity in the draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: verifies the exact selected profile and records its server-issued draft state) -->
-5. Eligible selected profiles, including generated contracts, may be explicitly administrator-confirmed through an exact server-issued receipt without inventing automated evidence or generated-profile cache permission. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: verification automatically enables the native target draft) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: confirms selected Native $profile.id through endpoint, Save and runtime without borrowing tools or cache evidence) -->
+5. Eligible selected profiles, including generated contracts, may be explicitly administrator-confirmed through an exact server-issued receipt without inventing automated evidence or generated-profile cache permission. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: #105 confirms a generated Native selection without inventing automated facts or assigning access) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: confirms selected Native $profile.id through endpoint, Save and runtime without borrowing tools or cache evidence) -->
 6. Successful verification or administrator confirmation makes the target Ready automatically. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: verification automatically enables the native target draft) -->
 7. Remove target deletes that target from the editable draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: removes a native target from the editable draft) -->
 
@@ -1342,7 +1342,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/routes/target-capability-discovery.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1360,6 +1360,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 3. Targets without current proof show orange Not ready status; ready targets distinguish green Verified from Administrator-confirmed without a fresh check. <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-043: saved Native %s authority has a distinct visible basis without a fresh check) --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
 4. Only targets with current proof and valid context are ready for access policies. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
 5. Access-policy checkboxes and default-route choices show each native target's provider and trimmed user label, falling back to its exact model when the label is absent or blank. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
+
+**Notes:** The client readiness predicate does not enforce the server's maximum context window; an otherwise verified target above that bound remains policy-selectable until server validation rejects it.
 
 **Constraints:** Readiness has no separate toggle while editing and lifecycle remain with [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace) and [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration).
 
@@ -1484,6 +1486,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 2. Configured and assignable native targets display as `Native Route - <provider> - <user label>`, using the exact model only when the trimmed label is empty or absent. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
 3. Policy submission retains the selected route name or opaque native handle rather than its presentation label. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
 4. Built-in compatibility profile labels begin with `Dynamic Route` or `Native Route` and identify the provider and supported model family without transport mechanics in the profile name. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: web-ui/src/__tests__/components/pi-profile-presentation.test.ts (presents the three Bedrock choices by route category and model family without transport jargon) -->
+
+**Notes:** Policy options use the user label, but the configured native row's primary title and Configure label still use the model. The configured-row labeling criterion remains unmet.
 
 **Constraints:** Presentation labels do not change route names, profile references, native target identities, or submitted policy values.
 
