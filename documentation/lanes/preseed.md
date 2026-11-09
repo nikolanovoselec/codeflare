@@ -1483,6 +1483,10 @@ Compare already-existing canonical and compiled inventories; do not generate, in
 
 ### Review packet and ownership acceptance
 
+Implementation ownership for [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill): Claude's `commands/review.md` supplies the user-invoked workflow; Pi delivers `skills/review/SKILL.md` through its advanced-mode manifest. This dedicated workflow is distinct from `git-review-pipeline` boundary enforcement.
+
+The native debug/deploy/brainstorm commands carry adapted workflow text directly rather than loading `SKILL.md`, because no corresponding Pi skill file exists ([REQ-AGENT-051](../../sdd/spec/agents.md#req-agent-051-pi-debug-deploy-and-brainstorm-commands)). Defer/ignore/debt dispositions use the existing `sdd/.review-decisions.md` history, not another tracker ([REQ-AGENT-088](../../sdd/spec/agents.md#req-agent-088-user-invoked-review-ownership-and-triage)).
+
 Read existing completed report/packet/launch evidence first. For an explicitly authorized later workflow observation use an existing disposable repository and supported review entrypoint; do not launch reviewers manually, synthesize a boundary plan, create a PR or push to cause a boundary. Preserve exact-head ancestry, incremental scope, report-only lanes, root-only triage/fixes and explicit approval. Missing historical evidence remains unverified, not a reason to reconstruct it with new infrastructure.
 
 
