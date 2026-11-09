@@ -23,6 +23,10 @@ Apply these generated, canonical skill documents directly; do not retrieve them 
 
 <!-- @include-skill spec-enforce-truth -->
 
+## Review/cleanup separation
+
+Apply shared enforcement with `purpose=review`. Cleanup's mutation stages and completion-with-escalations outcome never apply to this report-only lane or relax its blocked verdict, resolved scope or user-consent gates. Reuse evidence across checks; ID comments/names locate tests but actual owning-path outcomes establish coverage. Never rename tests for traceability or commission adjacent acceptance work.
+
 ## Required field checks
 
 Enforce the embedded canonical Verification/Dependencies grammar on every in-scope REQ. Verification names real linked automated suites and/or concrete manual procedures; Dependencies contains only linked prerequisite REQ/CON IDs or `None.`. Legitimate manual verification supports `Implemented`; never demote for missing automation on manual ACs. Mixed REQs retain the embedded coverage rules for non-manual ACs. Report malformed, missing, unrelated or unresolved targets; prose, historical CI receipts and safety boundaries cannot substitute for either field. Preserve underlying obligations in proposed fixes; formatting never proves implementation or execution.

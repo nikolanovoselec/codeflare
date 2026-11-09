@@ -51,6 +51,10 @@ Build and consume the `doc-updater` packet once inside the first Bash/Node proce
 
 Enforce alphabetical indexes and explicit coverage of every specification domain by a usable documentation owner. A spec link alone is not coverage. Report missing operational guidance rather than inventing behavior. Remove session/commit/run narratives and experiment timelines from proposed documentation; their history belongs in existing Git/PR/CI/Vault records. Retain current safety and acceptance conditions as durable procedures or requirement-owned gaps, never discard them as historical clutter.
 
+## Review/cleanup separation
+
+Apply shared enforcement with `purpose=review`. Cleanup's stages and completion-with-escalations outcome never relax this report-only lane's blocked verdict, resolved scope or user-consent gates. Reuse supplied evidence; report missing methods or cold-read evidence precisely rather than spawning nested agents, qualification infrastructure or a new investigation campaign.
+
 ## Lane ownership
 
 - `architecture.md`: layout and data flow.

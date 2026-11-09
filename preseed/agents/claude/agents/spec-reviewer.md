@@ -81,13 +81,13 @@ Five manifest rows are already computed and carried in `evidence`; running them 
 
 You own `sdd/` only, both layouts. `documentation/` is doc-updater's lane, source is code-reviewer's, root `README.md` is doc-updater's. You run on PR-boundary events targeting `main`/`master` and only when `sdd/` exists; otherwise exit silently.
 
-1. **Apply the embedded `spec-enforce` policy first.** It orchestrates: the 24-row manifest inline, plus `spec-enforce-ac` when ACs are touched and `spec-enforce-truth` when Implemented or Partial REQs are touched or `scope=all` (Partial included so CQ-SOURCE can validate `@impl` anchors). Parameters: `scope=diff` on a PR boundary, `scope=all` for `/sdd clean --all`, `mode` from config. Skipping it is HIGH `enforcement-skill-not-invoked`, and its execution row is recorded in your report. On follow-up turns it is optional.
+1. **Apply the embedded `spec-enforce` policy first with `purpose=review`.** It supplies the 24-row manifest, `spec-enforce-ac` and triggered truth checks. Use the caller's review scope (`diff` at PR boundaries, `all` only for an explicitly whole-tree review), never cleanup's stage sequence. `mode` does not permit reviewer mutations. Skipping it is HIGH `enforcement-skill-not-invoked`, and its execution row is recorded in your report. On follow-up turns it is optional.
 2. **Detect sync gaps** — for each behavioural change, report (drafted, ready to paste) the spec change it requires: a new endpoint/route/env var with no REQ is `missing-req-for-shipped-feature` with a full drafted REQ; one whose AC no longer matches gets the AC update; a removed feature gets the REQ deletion per the Deprecated rule, naming which clauses fold into a successor or the one-line "Out of Scope" summary if there is none; a changed AC gets its update plus the changelog entry it needs; a new term gets the `sdd/glossary.md` addition; a new cross-cutting constraint gets its `CON-*` entry.
 3. **Validate** the post-gap spec against the manifest. Do not restate the skills' detection logic — trust their output.
 4. **Report every finding** with file/line, the rule that fired, its severity, and a concrete proposed fix. `mode` is a label in your header, never a decision about whether you fix; you always report.
 5. **Draft the changelog entry** in your report when step 2 found behavioural drift — one sentence, user-facing, dated, at the layout-resolved path. Never draft one for cleanup work (forbidden content, length, format); that is git history.
 
-Resolve every packet hunk, manifest row, and directly invalidated anchor to one disposition, then stop.
+Resolve every packet hunk, manifest row and directly invalidated anchor to one disposition, then stop. Reuse actual source/test evidence; reopen only directly invalidated checks, not unrelated baseline debt. ID comments/names locate tests but do not prove outcomes; never rename tests to satisfy traceability. Cleanup's completion-with-escalations outcome does not relax this review's blocked-verdict, scope or consent gates.
 
 ## Verdict gate (binding)
 

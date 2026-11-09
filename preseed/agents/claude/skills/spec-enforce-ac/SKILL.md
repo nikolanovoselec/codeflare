@@ -1,7 +1,7 @@
 ---
 name: spec-enforce-ac
 description: SDD spec AC quality and splitting enforcement — the canonical cross-agent contract. Runs AC granularity triggers 1-10, run-on safety net, per-AC verbosity cap, Constraints conciseness, actor coherence, sub-bullets ban, splitting by actor/sub-feature/concern, accretion guard, chain enforcement, mechanism leakage. Invoked conditionally by spec-enforce when diff touches any AC bullet OR any Constraints bullet OR scope=all.
-version: 4.0.0
+version: 4.1.0
 ---
 
 # Spec Enforcement — AC quality and splitting
@@ -37,6 +37,8 @@ Returns findings array + auto-fix actions (per mode) — each finding names the 
 
 ## Acceptance criteria
 
+**Lossless cleanup boundary.** Inspect each parent once and resolve its actual findings. Multiple edge-case tests do not imply multiple behaviors. Keep a protected action with its identity/authorization guards, ordering and failure exceptions; do not sever a guard from its effect to satisfy a split heuristic. Detectors locate candidates, while the complete predicate decides whether an actor or concern really differs. Preserve all checks and severity floors; if no lossless correction is established, retain the contract and escalate rather than paraphrasing it to fit a cap. No new runtime behavior or acceptance machinery is authorized by these rules.
+
 ### Cap and basic shape
 
 - Each AC is **binary pass/fail**, testable in principle.
@@ -60,7 +62,7 @@ Returns findings array + auto-fix actions (per mode) — each finding names the 
 
 ### Granularity — one behaviour per AC (binding)
 
-**An AC MUST encode exactly one observable behaviour. If an AC can be split into >=2 distinct test names, it MUST be split.** Hard triggers below; any one fires the rule. Agent MUST attempt a split and only abandon when the AC encodes one behaviour with sentences 2..N as pure rationale.
+**An AC MUST encode exactly one observable behavior. Split independent contractual outcomes, not multiple tests of the same outcome.** Apply the lossless boundary before the lexical triggers below: a guard, ordered effect and its failure exception can form one predicate. For genuine multi-behavior findings, attempt a lossless split; if equivalence cannot be established, preserve the clauses and escalate at the original severity.
 
 1. **Sentence count >= 3** in one AC. Sentence = run ending `.`/`!`/`?` + whitespace + capital. Escape: sentences 2..N are rationale (`so`/`so that`/`because`) AND share the subject AND introduce no new contractual verb.
 2. **Word count > 130** in a single-sentence AC. Split at the load-bearing conjunction.
@@ -71,7 +73,7 @@ Returns findings array + auto-fix actions (per mode) — each finding names the 
 7. **Multi-path contract**: `regardless of (path|order|whether)` + substantive contract clause: one positive-path AC and one negative-path AC.
 8. **Transform + downstream effect** in one bullet: transform (canonicalisation, normalisation, parsing, validation) AND effect (idempotency, dedup, cache hit, retry).
 9. **>=2 distinct verb phrases joined by `and` / `then` / `before`** with own subjects or distinct objects (outside comma-enumerations).
-10. **Reviewer can write >=2 test-name candidates** exercising distinct code paths. Borderline tiebreaker.
+10. **Independent observable postconditions** corroborated by distinct test candidates. Positive/negative cases, boundary values or different paths enforcing the same guarded predicate are not independently sufficient split triggers.
 
 Binding examples:
 - VALID (escape): "Articles older than 48 hours are dropped before LLM summarisation so stale items do not consume LLM budget." Sentence 2 is rationale, same subject. No split.
@@ -90,7 +92,7 @@ The granularity triggers permit a rationale tail (`so`/`because`) on a single-be
 
 Detection (per AC, counting prose words only - exclude trailing `<!-- @impl/@test -->` anchors and markdown link URLs): **prose word count > 45** = MEDIUM `ac-verbose`. The rationale-tail escape from the granularity rule does NOT exempt this: an escape-qualified rationale sentence that pushes the AC past 45 words still fires `ac-verbose`.
 
-Auto-fix in `auto`/`unleashed`: trim the AC to the bare testable assertion. The stripped rationale, if it is not already in the REQ's Intent, moves to the `sdd/changes.md` entry for the change (one sentence) or, for a design tradeoff, to the relevant ADR - never back into the AC. If the over-length came from two behaviours rather than rationale, defer to the granularity split instead. Reporting an `ac-verbose` AC as "fine / single-behaviour / acceptable" without trimming is `finding-downgraded-to-skip` (HIGH), per the no-silent-downgrade rule.
+Auto-fix in `auto`/`unleashed`: retain the complete testable predicate. Move only genuine rationale to the existing Intent, documentation or relevant ADR; record cleanup history in the commit body, never the product changelog. Conditions, exceptions, accepted risks, numerical bounds and privacy/security guarantees are not disposable rationale. If the over-length came from two behaviours rather than rationale, defer to the granularity split instead. Reporting an `ac-verbose` AC as "fine / single-behaviour / acceptable" without trimming is `finding-downgraded-to-skip` (HIGH), per the no-silent-downgrade rule.
 
 ### Constraints conciseness (one terse boundary per bullet)
 
@@ -100,7 +102,7 @@ Detection (per Constraints bullet, prose words excluding cross-ref link URLs):
 - **bullet > 45 words** OR **>= 2 sentences** OR contains a rationale-narrative connective chaining a justification (`because`, `so that`, `for the same reason`, `rather than ... which would`, `the same ... follows`, `and for the same reason`) = MEDIUM `constraint-bloat` on that bullet.
 - **any single bullet > 80 words**, OR the whole `**Constraints:**` section prose > 150 words = HIGH `constraint-section-bloat` (the paragraph-bible failure mode).
 
-Auto-fix in `auto`/`unleashed`: reduce each bullet to its boundary statement; move the stripped rationale to the `sdd/changes.md` entry or the relevant ADR (with a one-clause pointer left in the bullet only if a reader needs the reference). Never delete a genuine boundary, only the narration around it. A Constraint that is purely narration with no boundary (pure "we tried X then Y" history) is deleted, not trimmed (that belongs in git history per `spec-driven-development` "What is NOT a requirement"). Reporting a fired `constraint-bloat`/`constraint-section-bloat` as LOW/intentional/acceptable is `finding-downgraded-to-skip` (HIGH).
+Auto-fix in `auto`/`unleashed`: preserve each complete boundary, relocating genuine rationale to its existing documentation/ADR owner with a pointer when needed. Cleanup history stays in the commit body. If no lossless trim/split is established, retain the text and escalate the original finding; never drop a condition to meet a word count. Never delete a genuine boundary, only the narration around it. A Constraint that is purely narration with no boundary (pure "we tried X then Y" history) is deleted, not trimmed (that belongs in git history per `spec-driven-development` "What is NOT a requirement"). Reporting a fired `constraint-bloat`/`constraint-section-bloat` as LOW/intentional/acceptable is `finding-downgraded-to-skip` (HIGH).
 
 Writes evidence row to the spine manifest: `Per-AC verbosity + Constraints conciseness: ran (N REQs, M findings)`.
 
@@ -112,7 +114,7 @@ Detection: parse the first 8 words of each AC for an actor keyword (`user`, `adm
 
 Severity: HIGH when 2+ ACs target a different actor. MEDIUM when 1 AC targets a different actor.
 
-Auto-fix: split the REQ along the actor axis. The AC subjects declare the boundary mechanically; SAFE refactor, not JUDGMENT.
+The keyword scan proposes a candidate, not a semantic verdict: a host/Worker implementing a user's outcome is not automatically a second product actor. Confirm distinct observable actors from the full REQ before splitting. A lossless actor split is SAFE; ambiguity escalates without inventing actors or rewriting intent.
 
 ### Sub-bullets banned
 
@@ -188,7 +190,7 @@ SAFE when ALL hold:
 3. Each resulting REQ has a coherent single actor and a coherent single job.
 4. Tests and doc cross-refs update by ID renaming alone.
 
-Mechanics: original REQ ID stays with the largest coherent piece; new REQs get next free IDs (cross-cutting in the cross-cutting domain). Update **every** cross-ref in the same commit. The complete cross-ref set (not just REQ bodies + `documentation/` backlinks + `sdd/changes.md`) is: (1) other REQs citing old AC numbers, (2) `documentation/lanes/**` + `documentation/decisions/README.md` by-number AC mentions (`REQ-X-NNN ACn`), (3) this REQ's own `<!-- @test: ... -> ACn -->` and `<!-- @impl: ... -->` anchor descriptions, (4) the moved ACs' inline `@impl` comments travel WITH the AC to its new REQ, (5) `sdd/changes.md` entries that name the moved ACs by number. Commit body MUST include an AC-mapping table (old REQ ACn -> new REQ ACm). After the rewrite, re-grep `REQ-X-NNN AC[0-9]` and the new REQ ID across `sdd/` + `documentation/`; any dangling old-number ref is HIGH `ac-renumber-orphaned-crossref` and blocks the commit. Commit: `[spec-reviewer] split: REQ-X-NNN by actor/concern -> ...`. Tests NOT renamed in the same commit; substring matching keeps coverage green.
+Mechanics: original REQ ID stays with the largest coherent piece; new REQs get next free IDs (cross-cutting in the cross-cutting domain). Update **every** cross-ref in the same commit. The complete cross-ref set (not just REQ bodies + `documentation/` backlinks + `sdd/changes.md`) is: (1) other REQs citing old AC numbers, (2) `documentation/lanes/**` + `documentation/decisions/README.md` by-number AC mentions (`REQ-X-NNN ACn`), (3) this REQ's own `<!-- @test: ... -> ACn -->` and `<!-- @impl: ... -->` anchor descriptions, (4) the moved ACs' inline `@impl` comments travel WITH the AC to its new REQ, (5) `sdd/changes.md` entries that name the moved ACs by number. Commit body MUST include an AC-mapping table (old REQ ACn -> new REQ ACm). After the rewrite, re-grep `REQ-X-NNN AC[0-9]` and the new REQ ID across `sdd/` + `documentation/`; any dangling old-number ref is HIGH `ac-renumber-orphaned-crossref` and blocks the commit. In clean mode the root records the mapping in its `docs: [sdd-clean] ...` commit; review mode returns a proposal only. Tests remain unchanged; ID matching is traceability, never behavioral GREEN.
 
 ### Splitting by sub-feature (binding-cap safety net)
 
@@ -196,7 +198,7 @@ When AC count cap binds (>10, or 8-10 with no axis) AND no actor or cross-cuttin
 
 Cluster identification: tokenise each AC's first 12 words (content-words only); cluster greedily; two ACs share cluster when they share >=2 tokens (Jaccard >=0.25). Dominant cluster keeps the original REQ ID; remaining clusters become new REQs; singletons join the dominant. If all ACs land in one cluster: **median split**; ACs 1..N/2 stay; N/2+1..N become a sibling REQ with `-extended` suffix, Intent copied verbatim.
 
-Mechanics: original REQ ID stays with dominant cluster; new REQs get next free IDs in same domain. Each new REQ inherits parent's `Applies To:`, `Constraints:`, `Priority:`, `Verification:` verbatim; Intent rewritten per sub-feature; parent-child via `Dependencies:` (NOT Notes). Cross-refs update in same commit; commit body MUST include AC-mapping table. Commit: `[spec-reviewer] split: REQ-X-NNN by sub-feature -> ...`. Tests NOT renamed.
+Mechanics: original REQ ID stays with dominant cluster; new REQs get next free IDs in same domain. Each new REQ inherits parent's `Applies To:`, `Constraints:`, `Priority:`, `Verification:` verbatim; Intent rewritten per sub-feature; parent-child via `Dependencies:` (NOT Notes). Cross-refs update in same commit; commit body MUST include AC-mapping table. In clean mode use the root-owned `docs: [sdd-clean] ...` commit; review mode proposes only. Test filenames, titles and logic remain unchanged.
 
 SAFE when ALL hold:
 1. No AC rewritten; every AC moves verbatim.
@@ -211,4 +213,4 @@ An AC describes WHAT the user observes, not HOW. Move to `documentation/`: cooki
 
 A user observes "JavaScript on the page cannot read the session token", not `HttpOnly`.
 
-Severity: MEDIUM. Auto-fix: rewrite AC to user-observable consequence; move mechanism to the relevant `documentation/` lane file with a backlink.
+Severity: MEDIUM. Auto-fix only when the user-observable consequence retains the complete original predicate and the mechanism has an established owner/backlink. A public ABI, user-controlled identity/path or security-strength requirement is not disposable implementation prose; apply the existing contract allowlist or escalate a rule conflict. Never anonymize away a permission, algorithm guarantee, boundary or failure condition merely to remove a token.

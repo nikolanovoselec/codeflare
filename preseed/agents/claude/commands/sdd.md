@@ -75,13 +75,13 @@ Parse `$ARGUMENTS`. Match the first token and dispatch:
 | `add <domain>` | `spec-driven-development` skill (§ /sdd add) |
 | `mode [name]` | `spec-driven-development` skill (§ /sdd mode) |
 
-For `init` and `clean`, the sub-command skills reference `spec-driven-development` in their descriptions so REQ format, Status semantics, and templates surface alongside.
+For `init` and `clean`, the sub-command skills reference `spec-driven-development` for format, Status and templates. `sdd-clean` alone owns cleanup's eight-stage execution order; enforcement skills supply checks, not another loop. Resolve validation/publication conditions in preflight. A continuation resumes the same run's unfinished stage; explicit stop survives automatic reminders and delayed results.
 
 Unknown sub-command: print the help screen, exit.
 
 ## Hard gates (apply before any sub-command runs)
 
-1. `git status --porcelain` must be empty (clean working tree). Refuse otherwise with the dirty-tree message.
+1. On a new invocation, `git status --porcelain` must be empty; refuse otherwise. A same-run continuation uses its existing manifest and known owned edits, reconciling unrelated changes without overwriting them; it is not a fresh invocation.
 2. If sub-command is `clean` or `mode`: `sdd/` must exist; otherwise tell the user to run `/sdd init` first.
 3. If sub-command is `init` and `sdd/` already exists: enter Resume Mode if `sdd/.init-triage.md` has open items, else inform the user `/sdd init` has already run and suggest `/sdd edit` or `/sdd add`.
 

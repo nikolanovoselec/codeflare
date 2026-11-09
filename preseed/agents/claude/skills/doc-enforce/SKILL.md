@@ -1,7 +1,7 @@
 ---
 name: doc-enforce
 description: SDD documentation enforcement orchestrator — the canonical cross-agent contract. Runs the 16-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
-version: 4.2.0
+version: 4.3.0
 ---
 
 # Documentation Enforcement (orchestrator)
@@ -35,6 +35,8 @@ Read surrounding sections for consistency, but do not scan unrelated files or re
 
 ## Execution contract (binding)
 
+For `/sdd clean`, this is stage 8 of the parent's single ordered run: register all rows once, reuse spec/source evidence, batch compatible corrections and reopen only directly invalidated checks. An accounted-for spec with explicit escalations can feed this stage; unresolved findings remain unresolved. Missing methods or operational controls are precise gaps, not permission to invent procedures, infrastructure or product behavior. Review remains report-only/static with its supplied scope, existing consent and blocked-verdict gates; clean's completion-with-escalations outcome is never a clean review verdict. `/sdd init` keeps its separate existing pipeline.
+
 Every row of the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip. Manifest written FIRST with all rows `pending`, updated as each pass completes, finalised at run end. Pending rows at finalize emit HIGH `manifest-pending-at-finalize`. Status rows without concrete evidence counts emit HIGH `manifest-bare-evidence-count`. "skipped (looked clean)" is dishonest.
 
 Audit location by trigger:
@@ -62,13 +64,14 @@ Audit location by trigger:
 | Pass 15 — Doc source-anchor truth-check | Invoke `doc-enforce-truth` UNCONDITIONALLY for every lane file or ADR file in diff OR scope=all. Never gated. | `ran (D docs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | Pass 16 — Doc index integrity | Run the mandated index command and the complete specification-domain/owner join and alphabetical-order checks above; every lane/support file is indexed, every link resolves and every SDD domain has usable documentation ownership. Non-empty output = finding; no eyeballing. | `ran (F files, D domains, R index rows, M unresolved/order findings)` |
 
-Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit on SHA <sha>)`; that IS execution. Cache amortises cost across Stop hooks; never skips the pass.
+Pass 12 reuses its supplied evidence. Review caches retain their commit/file identity. Within a clean run, the same document content and simulated task need one cold read; unrelated commits do not invalidate it. Refresh only a changed document/task, record the evidence identity in the existing manifest and never claim an unperformed read.
 
 ## Domain coverage, index order and durable content (binding)
 
 - `documentation/README.md` carries a Specification coverage table linking every concrete REQ-bearing SDD domain to its actual documentation owner(s). Each owner must exist, be indexed, and provide usable current guidance for that domain; a spec backlink or generic index alone is not coverage. Shared owners are allowed when responsibilities are explicit. Report MEDIUM `doc-spec-domain-uncovered` for missing/empty mappings or missing operational guidance; do not create a redundant lane merely for a repair or implementation phase. A user-requested dedicated domain lane becomes an explicit owner, with old links/aliases preserved and other lanes cross-referencing rather than duplicating it.
 - Sort lane, package-reference and specification-coverage index rows case-insensitively by visible title, with path as tie-breaker; keep table headers and section semantics. Report MEDIUM `doc-index-not-alphabetical`. Pass 16 must compute the complete spec-domain/index/owner join and order check, not eyeball it; report domain/owner/row counts and every unresolved mapping.
 - Documentation describes current behavior, operation, compatibility, limitations and durable decisions—not session reports. Remove commit/CI-run receipts, exact-head pass/fail narratives, experiment timelines, delivery campaigns and historical Activity observations from lanes and ADR prose. Preserve that evidence in its existing Git/PR/CI/Vault home, not a new execution-report lane. Current reproducible commands, protocol/version pins, intentional wire examples and ADR decision dates remain valid; do not confuse those with execution history. Report MEDIUM `doc-execution-history` per affected element, HIGH when it asserts unsupported current success.
+- Accepted ADR Context/Consequences and historical incidents explaining a still-governing decision are durable rationale, not disposable execution receipts. Never erase them merely for past tense or a date.
 - Before removing history, identify any genuine acceptance, privacy, authority, recovery or no-replay condition it carries. Retain that condition in the owning requirement, a concrete named operational/acceptance procedure or the live gap queue. Strip the historical receipt, not the load-bearing boundary; never mark a feature verified because the narrative was shortened. Passes 4/14 enforce this across all documentation under scope=all; preservation remains Pass 11.
 - Manual procedures linked by REQ Verification must contain concrete actions and observable pass/fail outcomes, with relevant REQ backlinks. They are methods, not passing receipts; do not invent evidence, private values or new acceptance requirements. Required protected operations keep their existing authorization prerequisites.
 
@@ -81,7 +84,7 @@ Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit o
    - IF any first-level lane file indexed by `documentation/README.md` or `documentation/decisions/README.md` is touched in diff OR scope=all: invoke `doc-enforce-shape` (covers Pass 5 + Pass 6 + Pass 7). This includes canonical lanes, `api-reference-*` siblings, indexed project lanes, and ADR index/state rendering.
    - **Always invoke `doc-enforce-truth` Pass 15** for every lane file or `decisions/README.md` in the diff, OR any path matched by `src_globs` (from the layout-resolved config; default defined in `spec-enforce-truth/SKILL.md` § Inputs) in the diff, OR scope=all. Source-touching diffs trigger invocation because source changes can orphan existing `@impl` anchors in unchanged lane files — Pass 15 must re-validate. Source-anchor truth-check is never gated. The other passes in `doc-enforce-truth` (Pass 8, Pass 9, Pass 10, Pass 11, Pass 12) fire only when Implemented REQ docs touched OR scope=all, as before.
 4. **Aggregate** findings from sub-skill invocations into the unified manifest.
-5. **Apply mode** (`purpose=clean` only; `purpose=review` returns findings without editing):
+5. **Apply mode** (`purpose=clean` only; `purpose=review` returns findings without editing). Apply only deterministic, lossless representation/traceability repairs. Truth conflicts preserve both sides and escalate unless directly applicable authorized evidence settles them; mode does not authorize changed product contracts:
    - `interactive`: confirm each fix; CRITICAL/HIGH/MEDIUM blocking, LOW deferred.
    - `auto`: silently apply CRITICAL/HIGH/MEDIUM; defer LOW to `/sdd clean`.
    - `unleashed`: apply everything including LOW; per-category commits.

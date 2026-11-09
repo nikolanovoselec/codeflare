@@ -1,7 +1,7 @@
 ---
 name: sdd-clean
 description: Workflow for /sdd clean — rescuing a rotted spec. Mode-aware behaviors (interactive/auto/unleashed), safety nets, what gets cleaned (incl. per-AC @impl AND @test anchor backfill at parity, gated by enforce_tdd), JUDGMENT auto-resolution rules. Invoked when /sdd clean runs. Requires the spec-driven-development skill for REQ format and Status semantics, and the spec-enforce skill family for the detection mechanics.
-version: 1.2.0
+version: 1.3.0
 ---
 
 # /sdd clean — rescuing a rotted spec
@@ -12,12 +12,24 @@ The rescue command for projects whose spec has accumulated implementation leakag
 
 `/sdd clean` is a root-session mutation workflow in every mode. The root invokes `spec-enforce` and then `doc-enforce` inline, applies changes with its own file tools, and owns every commit and push. Never spawn the report-only `spec-reviewer` or `doc-updater` agents to perform cleanup.
 
-**First action (binding):** invoke the `spec-enforce` skill (spine) with `purpose=clean` and `scope=all` or `scope=diff` per the user's flag. Pass `purpose=clean` explicitly — the round-limit row keys its user-invoked exemption off it, and an inferred input is the class of judgment that row exists to remove. The skill runs the 24-row execution manifest and conditionally invokes `spec-enforce-ac` (when ACs touched) and `spec-enforce-truth` (when Implemented or Partial REQs touched — Partial included so CQ-SOURCE can validate `@impl` anchors). This file describes what `/sdd clean` does on top of the skill's findings.
+**Preflight once:** resolve the repository, baseline, layout, scope, mode, existing decisions and validation/publication authorization. Refuse a dirty tree on a new invocation. Identify required checks and their supported execution route; surface unavailable dependencies, protected operations or validation-before-push conflicts before substantial mutation. Never install, bypass guards or publish a validation ref without authorization.
+
+Invoke `spec-enforce` with explicit `purpose=clean` and the selected scope. Register its 24 rows, then execute them at the numbered cleanup stages below—not as an independent, competing sequence. After spec enforcement is accounted for, invoke `doc-enforce` inline for stage 8. Every applicable check still runs.
+
+## Finite execution contract (binding)
+
+- The eight numbered stages below are the single execution order. Track the active stage, evidence and finding dispositions in the existing manifest; finish each stage before advancing. A stage is accounted for when its checks ran and each finding is fixed or explicitly escalated, not when every product gap has been implemented.
+- Inspect each in-scope item once per applicable check. Reuse source/test evidence across rows and batch compatible corrections. Reopen only checks directly invalidated by subsequent edits; do not restart discovery after commits or handoffs. Existing backlog entries are re-triaged once; newly emitted findings receive dispositions without recursively becoming new investigations.
+- Cleanup changes representation, traceability and demonstrably stale metadata—not product behavior. No feature implementation, new test logic, acceptance infrastructure, SDK investigation, dependency change or deployment is implied. Explicitly requested remediation needs its own bounded approved behavior plan; do not silently grow this command into that work.
+- Preserve contractual meaning during extraction, splitting and trimming. Existing implementation alone cannot authorize weakening the spec. Use a directly applicable user decision or accepted contract to resolve a conflict; otherwise preserve it and escalate with evidence and blast radius. Unleashed mode and an advisor do not enlarge authorization.
+- A supported existing manual procedure may be linked or documented concisely. Missing observation controls or unclear coverage are findings, not invitations to invent probes, credentials, fixtures or qualification campaigns. Preserve the requirement's status and unresolved obligation; never fabricate a valid-looking field.
+- Continuation resumes the same run at its first unfinished stage, retaining completed evidence. Known run-owned edits are not a new dirty-tree invocation; unrelated edits require reconciliation without overwriting them. Explicit stop pauses owned work and result adoption. Automatic Goal continuations and delayed notifications never authorize resumption.
+- Finish with **Clean**, **Completed with escalations — not clean**, or **Blocked**, including checks actually run, unresolved findings and publication state. No pending required row or missing execution result may be represented as clean. An explicit user requirement to resolve every finding remains unsatisfied until those findings are resolved or the user changes scope. Validation failures reopen only affected checks; publish only under the preflight authorization. Local checkpoints are not passing validation.
 
 ## Parallel execution (binding)
 
-- While independent work remains, keep useful background assignments active and replenish lanes as they finish. Delegate bounded investigation, test/documentation drafts and verification preparation; the root continues independent work rather than serializing assignments or waiting idly. Do not create busywork when dependencies prevent useful parallelism.
-- As each agent finishes, the root validates its artifacts against the actual requirements, owning source, callers, fixtures and applicable checks before applying changes, closing findings or changing Status. A report or draft is not passing evidence. Recover useful artifacts from interrupted assignments rather than blindly repeating their investigation.
+- Delegate independent named findings or manifest rows from the active stage while the root continues other stage work. Give each assignment an exact input set, permitted output and completion condition. Do not create assignments merely to replenish agents, repackage unresolved questions or explore adjacent features.
+- Consume completed handoffs against retained evidence and actual changed regions before commissioning replacement work. Read additional bodies only for unresolved or invalidated evidence. Reports are not passing execution. Recover interrupted artifacts rather than repeating their investigation.
 - Enforcement, repository mutations, commits and pushes remain root-owned. Do not substitute report-only cleanup agents. Existing authorization, TDD and CI gates remain binding; inherit model/reasoning settings unless the user explicitly requests otherwise. Leave `max_turns` unset unless the user requests a limit. Resume budget-interrupted assignments with retained context instead of restarting their investigation.
 - Native completion notifications drive handoffs. Collect terminal results without polling in-flight agents, and validate each completed lane without waiting for all lanes to finish.
 
@@ -27,22 +39,22 @@ The rescue command for projects whose spec has accumulated implementation leakag
 
 **auto** — applies SAFE and RISKY fixes silently on the current branch. JUDGMENT items go to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested, `sdd/.review-needed.md` flat).
 
-**unleashed** — applies SAFE + RISKY + JUDGMENT on the current branch (conservative defaults for JUDGMENT), commits per category, pushes directly. No new branch, no PR. If `enforce_tdd: false`, unleashed refuses to run and emits a finding asking the user to either flip the value or use `auto` instead. Commits land where the user pushed from.
+**unleashed** — applies SAFE + RISKY fixes and only the conservative JUDGMENT resolutions below, with per-category commits on the current branch. No new branch or PR. If `enforce_tdd: false`, refuse without changing it; ask the user to change the setting or use `auto`. User validation/publication conditions override automatic pushing.
 
 ## Safety nets (all modes)
 
-- **Working tree must be clean** before running (refuses if `git status --porcelain` is non-empty).
+- **Working tree must be clean** before a new run; same-run continuation follows the finite execution contract above.
 - **Backup files** before any RISKY operation (e.g. `sdd/spec/changes.md` → `sdd/spec/changes-archive-YYYY-MM.md`; flat: `sdd/changes.md` → `sdd/changes-archive-YYYY-MM.md`).
 - **Per-category commits** for selective revert.
 - **`[sdd-clean]` commit prefix** that bypasses round-detection in spec-reviewer.
 - **Sequential inline enforcement** — the root runs `spec-enforce` first, then `doc-enforce`; PR-boundary reviewer agents are not involved.
 
 Unleashed-specific:
-- Pushes commits directly to the current branch (no new branch, no PR).
+- Publishes directly to the selected current branch only when user authorization and required validation permit; no implicit new branch or PR.
 - Each commit is per-category and tagged `[sdd-clean]` — `git revert <sha>` is the rollback surface.
 - Audit log lives in per-category commit bodies (`git log --grep='\[sdd-clean\]' -p`); no separate dotfile.
 
-Both `auto` and `unleashed` push to whatever branch is checked out. User is responsible for the right branch before invoking.
+Both `auto` and `unleashed` publish only to the selected current branch under the user's authorization and validation conditions. Local commits do not require a fabricated GREEN result; missing execution blocks qualification and any validation-gated push, not truthful local checkpoints.
 
 ## Conservative JUDGMENT auto-resolution (unleashed only)
 
@@ -50,10 +62,10 @@ When unleashed mode encounters a JUDGMENT call, it never picks a winner that ove
 
 | JUDGMENT type | Conservative resolution |
 |---|---|
-| Doc-vs-spec conflict | Mark BOTH the REQ and the related doc as `Status: Partial` with `Notes:` describing the conflict. Log to `sdd/spec/.review-queue.md` (nested) / `sdd/.review-needed.md` (flat). **Never overwrite either side.** |
+| Doc-vs-spec conflict | Preserve both sides and record the exact conflict in the live queue. Resolve only from a directly applicable authorized decision; do not invent a documentation Status field or demote implementation merely because evidence is ambiguous. |
 | Oversized REQ by **line count** (>50 lines, bloated by implementation prose) | Shrink in place — extract implementation prose to the relevant lane file (`documentation/lanes/{file}.md` nested, `documentation/{file}.md` flat), leave Intent + AC verbatim. **This row does NOT cover oversize-by-AC-count.** REQs with >7 ACs are handled deterministically by `spec-enforce-ac` § Splitting by sub-feature (which DOES auto-split in `auto`/`unleashed`); they never enter the JUDGMENT path. |
-| Fake-Deprecated REQ (no Replaced By) | Move REQ definition to README's `## Out of Scope` section, remove from domain file. Content preserved. |
-| Truly ambiguous content | Mark `Partial` with `Notes:`, log to triage file. |
+| Deprecated REQ | Follow `spec-enforce`'s single deletion/successor rule. Preserve live clauses in the successor; retain only a one-line never-built idea in Out of Scope. Unclear removal authority escalates without deletion. |
+| Truly ambiguous content | Preserve the contract and status; record the precise unanswered question, evidence and blast radius in triage. Actual implementation/coverage defects follow the shared Status rules, not uncertainty alone. |
 | CQ-SOURCE Truth findings (anchor orphaned, value drift) | NEVER auto-resolve. Always escalate to triage with the searched anchor + actual source state. Truth is JUDGMENT by construction. |
 
 The user comes back to new commits on the current branch, inspects per-category commits and the triage file, and can `git revert <sha>` per-category. No PR, no merge step.
@@ -84,7 +96,7 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 1. Create `sdd/spec/` directory and `documentation/lanes/` directory via `mkdir -p`.
 2. Move every `sdd/*.md` file EXCEPT `sdd/README.md` into `sdd/spec/`. Use `git mv` so history follows (per-file rename detection).
 3. Move `sdd/config.yml` into `sdd/spec/config.yml`. Same for `sdd/.init-triage.md` if present.
-4. Consolidate prior dotfiles into `sdd/spec/.review-queue.md`: concatenate any non-empty contents of `sdd/.review-needed.md`, `sdd/.coverage-report.md`, `sdd/.last-clean-run.md`, `sdd/.review-decisions.md` under labelled sections (`## Escalations (from .review-needed.md)`, `## Coverage gaps (from .coverage-report.md)`, etc.). Then `git rm` the four dotfiles.
+4. Consolidate unresolved findings from `sdd/.review-needed.md`, `sdd/.coverage-report.md` and `sdd/.last-clean-run.md` into `sdd/spec/.review-queue.md`, preserving their obligations. Existing Git/audit history is not live debt. Keep append-only `sdd/.review-decisions.md` at its original path; never merge or delete decision history. Remove a replaced legacy queue only after every unresolved entry has a destination.
 5. Move every `documentation/*.md` file EXCEPT `documentation/README.md` into `documentation/lanes/`. Use `git mv`. Keep `documentation/decisions/` as sibling (no move).
 6. Rewrite cross-file backlinks throughout `sdd/spec/**/*.md`, `documentation/lanes/**/*.md`, `documentation/decisions/README.md`, root `README.md`. Use the Edit tool, never `sed`. Patterns:
    - `(../sdd/{file}.md)` → `(../sdd/spec/{file}.md)` (from documentation lanes pointing into spec)
@@ -92,10 +104,10 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
    - `(../documentation/{file}.md)` → `(../../documentation/lanes/{file}.md)` (from sdd/spec/*.md pointing into lanes)
    - `(documentation/{file}.md)` → `(documentation/lanes/{file}.md)` (from sdd/README.md pointing into lanes)
    - `(../documentation/decisions/README.md)` → `(../../documentation/decisions/README.md)` (relative depth increased by one)
-7. Add migration entry to `sdd/spec/changes.md` under today's date (`SDD layout migrated from flat to nested. Single-commit mechanical move; cross-file backlinks rewritten.`).
+7. Record the layout migration and backlink mapping in the migration commit body, not the product changelog.
 8. Commit as a single commit with subject `[sdd-clean] migrate sdd to nested layout` and a body that lists every moved file + the count of rewritten backlinks. The `[sdd-clean]` prefix bypasses the spec-reviewer round counter.
 
-**Idempotency.** Re-running `/sdd clean` on an already-nested layout: migration step is a no-op and exits silently before normal cleanup begins.
+**Idempotency.** On an already-nested layout, mark migration inert and advance to stage 2. Only migration is a no-op; do not exit the cleanup command.
 
 **Rollback surface.** Single commit; `git revert <sha>` restores flat layout. The framework continues to support flat-layout projects after rollback (skills are layout-aware).
 
@@ -106,13 +118,13 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 **Cleanup order (binding).** Categories run in this fixed order; later passes consume earlier passes' output. Each pass commits independently with subject `[sdd-clean] <category>` so individual passes are revertable.
 
 1. Layout migration (flat → nested, when applicable).
-2. Shape rewrite (heading level, blank lines, field order, numbered ACs, anchor-linked cross-refs) — `spec-enforce` row 3 mechanics.
-3. AC-cap split (>7 ACs) — `spec-enforce-ac` § Splitting by sub-feature.
-4. **REQ anchor backfill** (legacy-spec @impl injection) — described below. Outputs feed pass 5.
-5. **Test-anchor backfill** (REQ-ID comments on the test `describe`/`it` blocks of every annotated symbol, AND per-AC `<!-- @test: ... -->` anchors written into the spec at parity with `@impl`, gated by `enforce_tdd`) — described below.
-6. Status revaluation — CQ-TEST runs on the now-anchored spec + now-annotated tests. Implemented REQs whose tests now reference the REQ ID pass; the residual flows to Coverage gaps triage. Status drift caught here is the TRUE coverage gap, not an artefact of the legacy anchor-less shape.
-7. Implementation leakage extraction, false-positive ADR reclassification, changelog archival, doc backlink generation, fake-Deprecated cleanup.
-8. Documentation normalization through `doc-enforce`, using the bundled `spec-driven-development/references/templates/documentation-*.md` files as the target shapes.
+2. Mechanical shape repair: headings, blank lines, field order, numbered ACs and linked references. Record field defects now; source/test/method truth depends on stages 4–6, not an invented target to satisfy shape.
+3. AC quality: run all `spec-enforce-ac` rows, including cap, granularity, actor and concern checks; perform only lossless supported splits with complete reference mapping.
+4. Source-anchor backfill and CQ-SOURCE: validate existing anchors/claims once, retrofit unambiguous missing owners and escalate actual contradictions. Outputs feed stage 5.
+5. Test-anchor backfill and Verification methods: inspect actual eligible blocks, add traceability comments/precise spec-side anchors and normalize established automated/manual links. Preserve test titles/logic; unresolved coverage or methods go to live gaps.
+6. Status revaluation and remaining truth checks: CQ-TEST/CQ-1 use the now-anchored spec and real behavioral evidence, never ID presence alone; run CQ-2/CQ-3 as applicable. Preserve legitimate manual status; record residual coverage and contract gaps without manufacturing closure.
+7. Remaining spec cleanup: implementation leakage, ADR reclassification, changelog archival, backlinks, Deprecated handling and all remaining manifest rows, including structural integrity and one backlog re-triage. Confirm all 24 rows have evidence/dispositions before stage 8; escalations remain visible, not pending investigations.
+8. Documentation normalization through `doc-enforce` and its 16 rows, using existing templates. Report newly discovered product/owner gaps rather than restarting spec discovery. Verify the resulting edits and directly invalidated checks, then report the finite execution outcome.
 
 Passes 4 and 5 are the legacy-import bridge. On a project where every REQ already carries `@impl` anchors, every AC carries a `@test` anchor (when `enforce_tdd: true`), and every test already mentions its REQ IDs they are both inert no-ops.
 
@@ -122,7 +134,7 @@ Before any documentation rewrite, account for every paragraph, table row, list i
 
 ### Strict field and documentation cleanup
 
-Dependencies normalize during shape repair to exact linked prerequisite REQ/CON IDs or `None.`; never retain constraint paragraphs, implementation prose or verification evidence in that field. After the anchor bridge, normalize Verification to the canonical linked-method forms in `spec-enforce`, using independently established tests and concrete named manual procedures. Preserve every genuine acceptance obligation before removing free prose; locate or author the actual procedure from the existing contract, or record the precise gap rather than inventing a target. Reformatting never promotes Status. Legitimate manual verification supports `Implemented`: do not demote implemented behaviour merely because its ACs use manual checks or lack automated tests. In mixed REQs, automated-coverage rules apply only to non-manual ACs. Missing or malformed verification guidance is a verification finding, not proof that behaviour is unimplemented; neither a marker nor an authored procedure proves execution.
+Dependencies normalize during shape repair to exact linked prerequisite REQ/CON IDs or `None.`; never retain constraint paragraphs, implementation prose or verification evidence in that field. After the anchor bridge, normalize Verification from independently established tests and concrete existing methods. Reuse supported procedures rather than creating one acceptance project per REQ. If a method cannot be established, preserve the obligation and status, record the exact gap and advance; leave the unresolved field visibly nonconforming rather than inventing a target or an Implemented opt-out. Reformatting never promotes Status. Legitimate manual verification supports `Implemented`: do not demote implemented behaviour merely because its ACs use manual checks or lack automated tests. In mixed REQs, automated-coverage rules apply only to non-manual ACs. Missing or malformed verification guidance is a verification finding, not proof that behaviour is unimplemented; neither a marker nor an authored procedure proves execution.
 
 Documentation normalization also enforces the complete SDD-domain/documentation-owner join and alphabetical indexes under `doc-enforce`. Preserve old links and aliases when creating or consolidating an owner. Remove session, commit, CI-run and experiment chronology from operational docs, retaining its existing Git/PR/CI/Vault history and routing current safety or qualification conditions to their proper requirements/procedures/live gaps. Never create an execution-report lane, duplicate normative authority, or delete load-bearing conditions to satisfy shape.
 
@@ -131,16 +143,16 @@ Documentation normalization also enforces the complete SDD-domain/documentation-
 - **Strikethrough text** → stripped (git history is the strikethrough), except the ID and decision cells of a fully superseded ADR index row.
 - **Prose Status fields** (multi-line status notes) → truncated to one word, prose moved to `pending.md` or `Notes:` field for `Partial` status.
 - **Implementation leakage** (hex codes, CSS classes, file paths, function names, env vars) → moved to appropriate `documentation/` files.
-- **Fake-Deprecated REQs** (Deprecated without `Replaced By:`) → moved to `## Out of Scope` in domain README (per the escalation rules above).
+- **Deprecated REQs** → use `spec-enforce`'s deletion/successor rule; preserve live clauses, keep only a one-line never-built idea in Out of Scope, and escalate unclear removal authority.
 - **Oversized REQs by line count** (>50 lines, typically bloated by implementation prose) → flagged; in `unleashed`, implementation prose extracted to `documentation/` while Intent + AC stay verbatim. This rule fires on body size only.
-- **Oversized REQs by AC count** (>7 ACs) → handled deterministically by `spec-enforce-ac` § Splitting by sub-feature, invoked from row 5 of the spec-enforce manifest. In `auto`/`unleashed`: 8-10 ACs are MEDIUM with auto-fix (attempt sibling merge, else split by sub-feature); >10 ACs are HIGH with mandatory auto-split. Split mechanics: Jaccard-cluster ACs by first-12-content-word overlap (≥0.25), dominant cluster keeps the original REQ ID, remaining clusters become sibling REQs with the next free IDs. Cross-refs in `documentation/` and `sdd/changes.md` rewrite in the same commit. Tests are NOT renamed (substring matching keeps coverage green).
+- **Oversized REQs by AC count** (>7 ACs) → handled deterministically by `spec-enforce-ac` § Splitting by sub-feature, invoked from row 5 of the spec-enforce manifest. In `auto`/`unleashed`: 8-10 ACs are MEDIUM with auto-fix (attempt sibling merge, else split by sub-feature); >10 ACs are HIGH with mandatory auto-split. Split mechanics: Jaccard-cluster ACs by first-12-content-word overlap (≥0.25), dominant cluster keeps the original REQ ID, remaining clusters become sibling REQs with the next free IDs. Cross-refs in `documentation/` and `sdd/changes.md` rewrite in the same commit. Test filenames/titles remain unchanged; substring matching establishes traceability, never behavioral GREEN.
 - **Bloated `changes.md`** (verification log entries, commit SHAs, multi-paragraph entries) → archived to `sdd/changes-archive-YYYY-MM.md`, new file with user-facing entries only.
 - **REQs missing `@impl` source anchors** (legacy specs that predate the anchor convention) → backfill from source in `auto`/`unleashed`. Mechanics:
   1. For each AC bullet without a trailing `<!-- @impl: ... -->` comment, extract candidate symbols from the bullet body: PascalCase identifiers, camelCase identifiers, `backtick`-quoted tokens, and explicit file path mentions.
   2. For each candidate, grep the source globs from `sdd/config.yml` `src_globs:` (defaults to `src/** lib/** app/** pkg/** cmd/** internal/**` minus test/build dirs) for declaration patterns: `class X`, `function X`, `def X`, `const X =`, `interface X`, `export function X`, `func X(`, `fn X(`, etc. (language-aware by file extension).
   3. If exactly one declaration site matches: emit `<!-- @impl: <repo-relative-path>::<symbol> -->`. For ACs asserting a concrete numeric/string value, additionally grep the symbol body for the literal value pattern; on match, emit the `= <value-pattern>` tail.
   4. If multiple sites match: rank by Jaccard overlap (≥0.25) between the AC's first 12 content-words and each candidate's surrounding 50-token window. Pick the highest scorer. If a tie remains, defer to triage rather than guess.
-  5. If zero sites match: leave the AC anchorless and emit MEDIUM `ac-anchor-unresolvable` to the layout-resolved triage file with Context = AC text + candidate symbols tried + globs scanned, Recommendation = "rewrite AC against the actual implementing symbol OR confirm the AC describes intent that no current code satisfies (Status -> Partial)".
+  5. If zero sites match: leave the AC anchorless and emit MEDIUM `ac-anchor-unresolvable` with the AC, candidates and searched globs. Recommend establishing its owner or adjudicating the implementation gap; never rewrite the intended behavior merely to fit a found symbol.
   6. ADR `Context:` blocks get the same treatment.
 
   Severity: MEDIUM `req-missing-impl-anchors` per anchorless AC. Auto-fix in `auto`/`unleashed`: the backfill above. Interactive prompts per REQ before writing. Runs BEFORE test-anchor backfill below — the @impl anchors are that pass's input.
@@ -151,7 +163,7 @@ Documentation normalization also enforces the complete SDD-domain/documentation-
   3. For each matching test file, locate the outermost `describe(...)` / `test(...)` / `it(...)` block whose body references the symbol. If no `describe` wraps the relevant `it`/`test`, target the `it`/`test` directly.
   4. Insert a comment line immediately preceding the located block: `// REQ-X-NNN: <REQ title>`. If a same-REQ comment already precedes the block, no-op (idempotent).
   5. For language-specific cases: Dart uses `///`, Python uses `#`, Go uses `//`, Ruby uses `#`. Plain `// REQ-...` is the canonical form for JS/TS.
-  6. Test files are NOT renamed and `describe` titles are NOT mutated; the comment is the contract anchor that CQ-TEST greps. spec-enforce-truth's test-coverage check is a substring match on the REQ-ID literal, not a parser, so comments suffice.
+  6. Test files and block titles remain unchanged. REQ-ID comments provide discovery/traceability only; they do not establish coverage. CQ-TEST/CQ-1 require independently verified behavioral assertions and actual resolving blocks. Repair spec-side block references when needed, never rename tests merely to satisfy an ID check.
 
   Severity: MEDIUM `req-test-anchor-missing` per REQ that had matchable symbols but no current REQ-ID mention. Auto-fix in `auto`/`unleashed`: the backfill above. Interactive prompts per test file before writing. REQs with zero matchable symbols in any test fall through to the `Coverage gaps` triage entry below — there is no test to annotate, the spec is genuinely uncovered.
 
