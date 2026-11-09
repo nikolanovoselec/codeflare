@@ -518,14 +518,16 @@ Under [REQ-GITHUB-015](../../sdd/spec/github.md#req-github-015-workspace-reposit
 
 ## Cloudflare Integration
 
-Per-user "Connect to Cloudflare" OAuth (non-enterprise only). Mounted at `/api/cloudflare` (`src/routes/cloudflare.ts`); the OAuth callback is mounted separately under `/auth/cloudflare` (`src/routes/cloudflare-auth.ts`). All routes are `authMiddleware`-only (any authenticated user) and **not** tier-gated — connect is reachable from Guided Setup + the Settings accordion. `getCloudflareProvider` returns null in **enterprise**, so every route fails closed there (`503 CLOUDFLARE_NOT_CONFIGURED`). The token is never returned to the browser ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)).
+Per-user "Connect to Cloudflare" OAuth (non-enterprise only). Mounted at `/api/cloudflare` (`src/routes/cloudflare.ts`), whose routes use `authMiddleware` (`requireActiveUser`); pending/blocked users are rejected in app-owned OIDC modes. The callback is mounted separately under `/auth/cloudflare` (`src/routes/cloudflare-auth.ts`) and reauthenticates the live session. Guided Setup and Settings expose connection without an advanced-session entitlement.
+
+`getCloudflareProvider` returns null in **enterprise**: `/api/cloudflare/connect` returns `503 CLOUDFLARE_NOT_CONFIGURED`, and a callback with no provider redirects to `?cloudflare=unavailable` (provider-denial callbacks retain `?cloudflare=denied`). Status, account selection and disconnection helpers are not uniformly unavailable; they retain their own credential-dependent behavior. The token is never returned to the browser ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)).
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/cloudflare/status` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connection state (`configured`, `connected`, `accountId`, `source`); when connected without a selected account, also the accessible `accounts`; never the token |
 | GET | `/api/cloudflare/connect` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Start the OAuth authorize flow (302 to `dash.cloudflare.com/oauth2/auth`); `?tier=minimal\|recommended\|advanced` maps to the OAuth scope (always incl. `offline_access`); `503 CLOUDFLARE_NOT_CONFIGURED` when no client configured (rate-limited 20/min) |
 | POST | `/api/cloudflare/account` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Select the account `{accountId}` for a connected token; `400 ACCOUNT_INVALID` when the token cannot access it (rate-limited 20/min) |
-| POST | `/api/cloudflare/disconnect` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Revoke at Cloudflare and clear the stored token (rate-limited 20/min) |
+| POST | `/api/cloudflare/disconnect` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | For OAuth, revoke before clearing; unavailable provider or failed revocation retains local retry state. Non-OAuth/absent credentials can clear without a provider (rate-limited 20/min) |
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
