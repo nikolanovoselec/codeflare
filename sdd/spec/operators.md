@@ -1677,7 +1677,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle)
 
-**Verification:** Automated test: Structured Pi conversation behavior is covered by the adjacent host tests.
+**Verification:** Automated: [operator-pi.test.js](../../host/__tests__/operator-pi.test.js), [operator-pi-isolated-runner.test.js](../../host/__tests__/operator-pi-isolated-runner.test.js), [operator-pi-http.test.js](../../host/__tests__/operator-pi-http.test.js), [operator-pi-sdk.test.js](../../host/__tests__/operator-pi-sdk.test.js), [operator-pi-service.test.js](../../host/__tests__/operator-pi-service.test.js), [operator-pi-router.test.js](../../host/__tests__/operator-pi-router.test.js), [request-router.test.js](../../host/__tests__/request-router.test.js)
 
 **Status:** Planned
 
@@ -1698,7 +1698,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 4. A stop under valid authority drains explicit persistence. <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync) -->
 5. Expired authority blocks persistence before an upload is accepted. <!-- @impl: src/operators/activity.ts::prepareSync --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-003: instrumented activity state outcomes) -->
 6. Expired authority blocks persistence during shutdown drain. <!-- @impl: entrypoint.sh::drain_operator_sync_shutdown --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync) -->
-7. Stop awaits owned SDK cancellation and reports unsynced output honestly. <!-- @impl: host/src/operator-pi.ts::OperatorPiConversation --> <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @test: host/__tests__/operator-pi.test.js (REQ-OPERATOR-021: creates once, persists exact identity and reopens only the recorded file) -->
+7. Stop awaits owned SDK cancellation and reports unsynced output honestly. <!-- @impl: host/src/operator-pi.ts::OperatorPiConversation --> <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @test: host/__tests__/operator-pi.test.js (REQ-OPERATOR-022 AC7: stop waits for owned SDK cancellation and active prompt settlement) --> <!-- @test: src/__tests__/operators/owned-session.test.ts (stops only the owned session and keeps drain policy explicit) -->
 
 **Constraints:** Ordinary non-operator persistence remains unchanged.
 
@@ -1706,7 +1706,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle), [REQ-OPERATOR-021](#req-operator-021-structured-owned-pi-conversation)
 
-**Verification:** Automated test: Restricted startup and shutdown selection is covered by the adjacent tests. Deployed stop acceptance remains unverified.
+**Verification:** Automated: [entrypoint-operator-startup.test.js](../../host/__tests__/entrypoint-operator-startup.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [owned-session-runtime.test.ts](../../src/__tests__/operators/owned-session-runtime.test.ts), [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts), [operator-pi.test.js](../../host/__tests__/operator-pi.test.js), [owned-session.test.ts](../../src/__tests__/operators/owned-session.test.ts)
 
 **Status:** Planned
 

@@ -111,6 +111,28 @@ test('REQ-OPERATOR-021: exposes bounded sequenced events with explicit cursor ga
   assert.equal(next.events.every((entry, index) => index === 0 || entry.sequence > next.events[index - 1].sequence), true);
 });
 
+test('REQ-OPERATOR-022 AC7: stop waits for owned SDK cancellation and active prompt settlement', async () => {
+  for (const held of ['cancellation', 'prompt']) {
+    const cancellation = deferred();
+    const f = fixture({ session: { abort: () => cancellation.promise } });
+    await f.adapter.ensure();
+    await f.adapter.send({ taskId: 'task-1', digest: 'a'.repeat(64), text: 'start', mode: 'prompt' });
+    let stopped = false;
+    const stopping = f.adapter.stop().then(() => { stopped = true; });
+    if (held === 'cancellation') f.run.resolve();
+    else cancellation.resolve();
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(stopped, false, `stop must await ${held}`);
+    } finally {
+      cancellation.resolve();
+      f.run.resolve();
+      await stopping;
+    }
+    assert.equal(stopped, true);
+  }
+});
+
 test('REQ-OPERATOR-021: awaits SDK abort and records cancellation without claiming a fresh prompt', async () => {
   const f = fixture();
   await f.adapter.ensure();

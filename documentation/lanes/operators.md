@@ -591,6 +591,8 @@ CPU/memory hard kills, restarts and pre-code termination may lack a JavaScript o
 
 Restricted PID1 validates paired Pi/sync identity, creates private Activity tree and `~/Operators`, skips whole-home/managed-policy restore, bisync/baseline daemon/Vault/clone. Shutdown drains only accepted explicit upload under unexpired authority, never starts persistence; awaits owned SDK cancellation and reports unsynced output honestly. See [Container](container.md#restricted-operator-lifecycle), [Host APIs](api-reference.md#internal-operator-host-apis).
 
+Structured Pi and restricted startup/shutdown tests use injected SDK sessions, controlled runtime boundaries and shell path callouts. The host stop regression holds SDK cancellation and active-prompt settlement independently and observes the public stop promise. It does not establish composed unsynced-output reporting, deployed authority expiry or physical cessation. Owned stop/drain-policy cases and conversation-reopen cases are separate evidence, not substitutes for that complete lifecycle. Host tests require the normal CI build; source parsing is not execution qualification. [REQ-OPERATOR-021](../../sdd/spec/operators.md#req-operator-021-structured-owned-pi-conversation), [REQ-OPERATOR-022](../../sdd/spec/operators.md#req-operator-022-restricted-container-startupshutdown) remain Planned.
+
 <a id="opaque-package-attachment-restore-req-operator-052"></a>
 ### Opaque package attachment restore
 
