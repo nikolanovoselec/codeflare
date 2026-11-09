@@ -134,7 +134,7 @@ describe('REQ-OPERATOR-080/081: authenticated normal-host public capture', () =>
     await start(f);
     const payload = report(); payload.records[0].submissionId = [...f.normalTransport!.admissions.values()][0].receipt.submissionId;
     if (fault === 'foreign-submission') payload.records[0].submissionId = 'foreign';
-    const headers = fault === 'foreign-generation' ? { 'x-codeflare-operator-generation': '2' }
+    const headers: Record<string, string> | undefined = fault === 'foreign-generation' ? { 'x-codeflare-operator-generation': '2' }
       : fault === 'foreign-deployment' ? { 'x-codeflare-operator-worker-version': 'foreign' } : undefined;
     const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'diagnostic/runtime', payload, headers));
     expect(response.status).toBeGreaterThanOrEqual(400);
