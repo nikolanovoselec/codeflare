@@ -36,7 +36,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-AUTH-003](authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments)
 
-**Verification:** Signed-token behavioral tests; enterprise admission is separate and this primitive does not establish deployed Operator acceptance.
+**Verification:** Automated: [jwt.test.ts](../../src/__tests__/lib/jwt.test.ts)
 
 **Status:** Implemented
 
@@ -91,7 +91,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Automated test: Policy parsing and immutable policy snapshots are covered by the adjacent tests. Runtime enforcement and deployed allowed/denied acceptance remain separate requirements.
+**Verification:** Automated: [policy.test.ts](../../src/__tests__/operators/policy.test.ts), [inference-selection.test.ts](../../src/__tests__/operators/inference-selection.test.ts), [interception-policy.test.ts](../../src/__tests__/operators/interception-policy.test.ts), [registry-policy.test.ts](../../src/__tests__/operators/registry-policy.test.ts)
 
 **Status:** Planned
 
@@ -309,7 +309,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
 
-**Verification:** Automated test: Discovery and bundle parser behavior passed exact-head CI 35285707512 at `137ffcb5`; historical fixture registration does not prove current installed-release execution.
+**Verification:** Automated: [distribution.test.ts](../../src/__tests__/operators/distribution.test.ts)
 
 **Status:** Implemented
 
@@ -346,7 +346,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-010](#req-operator-010-bounded-operator-discovery-document)
 
-**Verification:** Automated test: Existing parser and Loader tests cover the original bundle boundary. Explicit normal-host deployment metadata, exact deployed-version reconciliation and rejection of package-supplied resource authority remain pending the mapped behavioral suite and exact-source CI.
+**Verification:** Automated: [distribution.test.ts](../../src/__tests__/operators/distribution.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts)
 
 **Status:** Planned
 
@@ -692,7 +692,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-035](#req-operator-035-approved-artifact-transport)
 
-**Verification:** Automated test: Worker Loader runtime-boundary behavior is covered by the adjacent tests. Deployed acceptance remains unverified.
+**Verification:** Automated: [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts)
 
 **Status:** Implemented
 
@@ -1081,7 +1081,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
 
-**Verification:** The anchored regressions passed exact-head CI42135374391 at a6408679; this relocation changes no behavior. Automatic-collection deployment remains pending.
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -1732,7 +1732,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
 
-**Verification:** Automated test: R2 transport behavior passed exact-head CI 35285707512 at `137ffcb5` and deployed activity `e44f0abe-8097-46d5-9265-8a4750024b8e` independently verified the exact uploaded marker bytes.
+**Verification:** Automated: [egress-controller.test.ts](../../src/__tests__/egress-controller.test.ts), [interception-policy.test.ts](../../src/__tests__/operators/interception-policy.test.ts), [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts)
 
 **Status:** Implemented
 
@@ -1787,7 +1787,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-023](#req-operator-023-explicit-operator-synchronization)
 
-**Verification:** Automated test: Independent byte verification is covered by the adjacent tests. Exact-head CI 35169456503 at `0ce22c80` is GREEN. Deployed file-to-R2 restoration remains unverified.
+**Verification:** Automated: [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts), [egress-controller.test.ts](../../src/__tests__/egress-controller.test.ts), [sync-verification.test.ts](../../src/__tests__/operators/sync-verification.test.ts)
 
 **Status:** Implemented
 
@@ -2058,7 +2058,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity)
 
-**Verification:** Automated test: Managed bypass behavior is covered by the adjacent tests. Exact-head CI 35171737437 at `2ac5a5c0` is GREEN.
+**Verification:** Automated: [EnvironmentAreaFields.test.tsx](../../web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx), [access.test.ts](../../src/__tests__/routes/setup/access.test.ts)
 
 **Status:** Implemented
 
@@ -2325,7 +2325,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-007](#req-operator-007-operator-aware-inference-selection), [REQ-OPERATOR-032](#req-operator-032-secret-safe-administration-readback), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface), [REQ-OPERATOR-070](#req-operator-070-installation-configuration-retention), [REQ-OPERATOR-075](#req-operator-075-installation-permission-choices-and-explanation)
 
-**Verification:** Saved-selection behavior has adjacent backend/frontend coverage and owner readback on the qualified 0dd420b4 deployment. The revised card/pill copy retains those semantic contracts; its new exact-head CI, delivery and narrow/wide presentation checks remain pending. Typography and contrast retain REQ-OPERATOR-049's manual qualification.
+**Verification:** Automated: [operator-management-inference.test.ts](../../src/__tests__/routes/operator-management-inference.test.ts), [operator-management-inference.test.tsx](../../web-ui/src/__tests__/operators/operator-management-inference.test.tsx)
 
 **Status:** Implemented
 
@@ -3594,7 +3594,7 @@ Child receives scoped parent transport/inference and required scheduler bridge o
 
 **Dependencies:** [REQ-OPERATOR-062](#req-operator-062-repository-only-dispatcher-transport), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
 
-**Verification:** Authored parent-boundary regressions require exact-head CI; package qualification and hosted acceptance remain separate.
+**Verification:** Automated: [dispatcher-retained-source.test.ts](../../src/__tests__/operators/dispatcher-retained-source.test.ts)
 
 **Status:** Implemented
 
