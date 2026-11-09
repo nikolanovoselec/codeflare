@@ -918,7 +918,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Manual check
+**Verification:** Manual: [Bundle-size gate inspection](../../documentation/lanes/ci-cd.md#bundle-size-gate-inspection)
 
 **Status:** Implemented
 

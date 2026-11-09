@@ -203,6 +203,22 @@ Zizmor gate exits nonzero on surviving findings; justified suppressions stay on 
 
 Actionlint 1.7.12 predates GitHub’s `$/…` self-repository syntax. The version-bound input bridge uses the locked YAML parser to change only actual action/reusable-workflow `uses` prefixes from `$` to `.` in memory. Original files, script text, comments and diagnostic positions stay intact; `-stdin-filename` retains original-path local metadata validation. Zizmor still audits untouched sources. There is no diagnostic suppression, binary patch or newer-version fallback. A pin change requires requalification. The audit lane checks valid references and negative target/input/expression/shell cases with the checksum-verified real binary. <!-- @impl: scripts/ci/actionlint-input.mjs::actionlintInput -->
 
+### Bundle-size gate inspection
+
+For [REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy), distinguish authentic measurement provenance from controlled negative probes. Prerequisites are an exact-SHA completed CI record and explicit authorization for a disposable checker copy in CI. Do not build locally, modify the tracked budget, dispatch a protected run or invent a new harness to define this method.
+
+1. Inspect that SHA's **Bundle size** job, **Measure the Worker bundle** and **Check against the budget** steps. Correlate Wrangler's `Total Upload: … / gzip: …` output with the piped log path passed to `node scripts/ci/check-bundle-size.mjs <log>` and the checker's gzip summary. Require the same value, not an independently compressed estimate. Missing provenance is unverified.
+2. In the authorized disposable copy, use the existing log positional argument and `BUDGETS.worker.budgetKiB` source setting; these are not new CLI flags. Keep the candidate source identity recorded and do not change the repository's tracked configuration. Run probes in CI, not this session container.
+3. Record exit status and output for the following cases. Controlled inputs test rejection behavior only; they never prove a real Wrangler measurement, container build or successful deployment.
+
+| Scope | Input/control and required outcome |
+|---|---|
+| AC2 | One well-formed measurement above a positive budget must exit nonzero and report over-budget; an in-budget positive control must succeed. |
+| AC3 | Zero measurements and two measurements must each exit nonzero rather than selecting or estimating a size. |
+| AC4 | Omit the budget property, use a non-number, zero and a negative number in separate disposable configurations: each must fail. Literal `null` must produce the explicit opt-out notice and succeed for an otherwise valid measurement. |
+
+Missing authorized copies or retained outputs blocks those observations, not the procedure definition. Existing CI/type/security gates remain separate; this check grants no budget increase or deployment authorization.
+
 ### PR Checks timing acceptance
 
 Method for [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance). Use an existing completed run; this procedure does not authorize a new workflow, deployment or protected test run.
