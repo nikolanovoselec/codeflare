@@ -709,6 +709,9 @@ Legacy preserved-clause and contract-detail fragment aliases above now lead to t
 <a id="verification"></a>
 ## Verification boundaries
 
+<a id="owned-activity-cancellation-acceptance"></a>
+**Owned activity cancellation acceptance.** Verify owned compute stops, cleanup receipts and no post-expiry uploads on a separately authorized fresh activity; a cancellation fence alone is insufficient. Abort delivery and SDK release bookkeeping do not establish physical cessation. Do not replay an unknown historical activity to perform this check.
+
 Signed-token/parsers prove identity and input boundaries; native Loader/generated SDK fixtures prove only exercised native composition. Instrumented parent transport is not authenticated upstream or deployed end-to-end evidence. Host upload is not independent durability, fencing is not physical cessation, child warning is not root-cause diagnosis, compatible assessment is not merge readiness. Owning requirements separately qualify exact-head CI, native eviction/alarm, deployed effects/collection/cleanup, browser/manual and protected Action evidence. No campaign head or prior deployment is asserted as current.
 
 The retired Miniflare/ProxyWorker large, submission-limit, recovered-attempt and composed ordinary/supplemental, committed-reset, duplicate-inference and precommit-reset/incomplete/native-error table workloads provide no current coverage. The one-attempt persistent-interruption case is retired; its two-attempt control remains active but does not restore one-attempt native coverage. Saved-submission-limit1/17 and recovered-attempt-limit workloads are retired too. Do not retry, instrument, recreate, rename or replace retired workloads. Retirement and deletion prove neither default-budget behavior nor recovery, a Dispatcher repair or hosted acceptance. Historical SDK storage, uncertain Activities and their operations remain untouched; bookkeeping release is not physical cessation.

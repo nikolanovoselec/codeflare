@@ -93,7 +93,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [policy.test.ts](../../src/__tests__/operators/policy.test.ts), [inference-selection.test.ts](../../src/__tests__/operators/inference-selection.test.ts), [interception-policy.test.ts](../../src/__tests__/operators/interception-policy.test.ts), [registry-policy.test.ts](../../src/__tests__/operators/registry-policy.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -114,6 +114,8 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. Approved inference, platform and storage access remains distinct from general Internet permission; native model traffic requires current parent-bound source, model and destination authority. <!-- @impl: src/operators/interception-policy.ts::decideOperatorNetwork --> <!-- @impl: src/operators/interception-policy.ts::decideOperatorGithub --> <!-- @impl: src/operators/interception-policy.ts::decideOperatorStorage --> <!-- @impl: src/container/container-interception.ts::getNativeOperatorPiSession --> <!-- @test: src/__tests__/operators/interception-policy.test.ts (REQ-OPERATOR-004: shared operator restriction decisions) -->
 7. Existing SWG transport remains intact. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-OPERATOR-004: operator restrictions precede egress and R2 credentials) -->
 
+**Notes:** Deployed direct and owned-session egress acceptance remains unverified; implementation tests do not establish that operational outcome.
+
 **Constraints:**
 
 - Operator policy can only narrow current human authority.
@@ -123,9 +125,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-014](#req-operator-014-restrictive-operator-policy)
 
-**Verification:** Automated test: Shared interception and Browser denial are covered by the adjacent transport tests. Deployed direct and session egress acceptance remains unverified.
+**Verification:** Automated: [interception-policy.test.ts](../../src/__tests__/operators/interception-policy.test.ts), [egress-controller.test.ts](../../src/__tests__/egress-controller.test.ts), [github-interceptor.test.ts](../../src/__tests__/github-interceptor.test.ts), [cloudflare-browser-interceptor.test.ts](../../src/__tests__/cloudflare-browser-interceptor.test.ts), [operator-env.test.ts](../../src/__tests__/container/operator-env.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -166,9 +168,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception), [REQ-OPERATOR-100](#req-operator-100-owner-credential-renewal-boundary)
 
-**Verification:** Selection and interceptor behavior is covered by adjacent tests; Dispatcher-only R2 reasoning inheritance, the single Gateway UI/atomic explicit approval-save and collapsed Advanced regressions are authored together, with combined current-head CI pending. No deployed acceptance is claimed for this slice. Reviewed Root `86f52d8b` passed exact-head CI `41301371958` and Enterprise Integration deployment, but fresh Native Activity `d47cf396` fenced `settlement-failed`; neither deployment nor older Host-dependent coverage qualifies the required hosted Native/Gateway pair.
+**Verification:** Automated: [inference-selection.test.ts](../../src/__tests__/operators/inference-selection.test.ts), [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [generic-profile-admission.test.ts](../../src/__tests__/operators/generic-profile-admission.test.ts), [operator-inference.test.js](../../host/__tests__/operator-inference.test.js), [operator-pi-isolated-runner.test.js](../../host/__tests__/operator-pi-isolated-runner.test.js)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -196,7 +198,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -346,9 +348,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-010](#req-operator-010-bounded-operator-discovery-document)
 
-**Verification:** Automated: [distribution.test.ts](../../src/__tests__/operators/distribution.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts)
+**Verification:** Automated: [distribution.test.ts](../../src/__tests__/operators/distribution.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts), [operator-package-compiler.test.ts](../../src/__tests__/operators/operator-package-compiler.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -508,7 +510,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 5. The package compiler rejects unsafe paths and package-supplied authority rather than inferring policy or bindings. <!-- @impl: scripts/operator-package/compiler.mjs::compileOperatorPackage --> <!-- @test: src/__tests__/operators/operator-package-compiler.test.ts (shared operator package compiler) -->
 6. Discovery retains the verified GitHub release tag and publication time for display. Re-discovery may enrich missing legacy display metadata only after comparing the immutable release identity; installed pins and enablement remain unchanged. <!-- @impl: src/operators/github-release-management.ts::acquireRelease --> <!-- @impl: src/operators/registry.ts::replaceManagementReleases --> <!-- @test: src/__tests__/operators/github-release-source.test.ts (stores a canonical repository identity) --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (enriches a legacy retained release) -->
 
-**Notes:** Evidence history and acceptance limitations remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
+**Notes:** Evidence history and acceptance limitations remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details). Live installation remains unverified; existing CDN cases cover exercised allowlist outcomes, not an exhaustive artifact-only redirect matrix.
 
 **Constraints:**
 
@@ -525,9 +527,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Automated test: Existing acquisition, compiler and retention suites cover the baseline. Artifact-only host-family boundary regression coverage and final exact-head GREEN CI remain required; no new host is authorized by this prose correction, and live installation is a separate acceptance receipt.
+**Verification:** Automated: [github-release-source.test.ts](../../src/__tests__/operators/github-release-source.test.ts), [operator-package-compiler.test.ts](../../src/__tests__/operators/operator-package-compiler.test.ts), [operator-promotion.test.ts](../../src/__tests__/operators/operator-promotion.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -630,9 +632,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-044](#req-operator-044-github-immutable-package-acquisition)
 
-**Verification:** Existing promotion and normal-activation HTTP/platform-wire regressions cover these contracts. CI has demonstrated the missing-handoff RED state; the implementation and corrected coverage require exact-head GREEN. Hosted lifecycle acceptance remains separate.
+**Verification:** Automated: [operator-promotion.test.ts](../../src/__tests__/operators/operator-promotion.test.ts), [dispatcher-activation.test.ts](../../src/__tests__/operators/dispatcher-activation.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -658,9 +660,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-044](#req-operator-044-github-immutable-package-acquisition)
 
-**Verification:** Existing promotion and normal-activation HTTP/platform-wire regressions cover these contracts. CI has demonstrated the missing-handoff RED state; the implementation and corrected coverage require exact-head GREEN. Hosted lifecycle acceptance remains separate.
+**Verification:** Automated: [dispatcher-activation.test.ts](../../src/__tests__/operators/dispatcher-activation.test.ts), [operator-promotion.test.ts](../../src/__tests__/operators/operator-promotion.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -737,7 +739,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 3. Admission consumes start authority only after a matching receipt and fresh expiry check. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
 4. Concurrent starts queue once, and uncertain responses reconcile against the same receipt. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
 5. Disable-first admission remains unqueued, and unknown external mutations are never replayed automatically. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
-6. Cancellation or expiry stops only owned compute and records actual pending, failed or unknown cleanup without final uploads after expiry. <!-- @impl: src/operators/activity.ts::cancelDrive --> <!-- @manual: Verify owned compute stops, cleanup receipts and no post-expiry uploads on an authorized fresh activity; a cancellation fence alone is insufficient. -->
+6. Cancellation or expiry stops only owned compute and records actual pending, failed or unknown cleanup without final uploads after expiry. <!-- @impl: src/operators/activity.ts::cancelDrive --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-016: AC6 normal abort is intent only and retains SDK state without claiming settlement or collection) --> <!-- @manual: Verify owned compute stops, cleanup receipts and no post-expiry uploads on an authorized fresh activity; a cancellation fence alone is insufficient. -->
 7. Overview reads use non-waking safe projections. <!-- @impl: src/operators/registry.ts::listOwnedActivities --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
 **Constraints:**
@@ -749,9 +751,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-011](#req-operator-011-serialized-operator-admission), [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context)
 
-**Verification:** Automated test: Activity admission behavior is covered by the adjacent tests. Physical owned-compute cessation, cleanup and post-expiry uploads remain unverified; no unknown activity is replayed for this check.
+**Verification:** Automated: [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts); Manual: [Owned activity cancellation acceptance](../../documentation/lanes/operators.md#owned-activity-cancellation-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -861,7 +863,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. Independent task sessions receive finite approved input and resources, share only the admitted inference binding, and receive no principal, storage or publisher credentials. <!-- @impl: src/operators/session-initialization.ts::parseOperatorPiInitialization --> <!-- @impl: host/src/operator-pi-isolated.ts::createIsolatedPiTools --> <!-- @impl: host/src/operator-pi-isolated-runner.ts::runApprovedTasks --> <!-- @test: src/__tests__/operators/session-initialization.test.ts (REQ-OPERATOR-021: finite parent-approved Pi initialization) --> <!-- @test: host/__tests__/operator-pi-review.test.js (REQ-OPERATOR-021: Review composition exposes only fixed sandboxed read and write tools) --> <!-- @test: host/__tests__/operator-pi-isolated.test.js (REQ-OPERATOR-021: each SDK child sees only its declared inputs and can stage one immutable bounded output) --> <!-- @test: host/__tests__/operator-pi-isolated-runner.test.js (REQ-OPERATOR-021: one structured task creates independently isolated SDK sessions and durable identities) -->
 7. Closed refusals preserve existing status and distinguish local failure, unavailable authority, exhausted capacity, uncertain effects and required Pi login. Authentication failure survives logging OFF without granting retry, fallback or collection. <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-047: expired cached native %s stops with logging OFF and survives cold reconstruction despite updated saved auth) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-047: native auth rejection crosses real egress and persists safe recovery with logging OFF (HTTP %s)) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: immutable argument conflict is operation-local and cannot replace the original receipt) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-062: missing own receipt is operation-local while stale receipt callers learn no operation state) --> <!-- @impl: src/operators/dispatcher-refusal.ts::dispatcherRefusal --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: malformed $name is operation-local and permits a corrected authorized source) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: configured fetch refusal is policy-local and never grants the refused effect) --> <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: exhausted shared operation capacity remains authority-denied while exact receipts stay readable) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-047: exhausted target inference attempts are operation-local while independent work retains original authority) --> <!-- @test: src/__tests__/operators/conductor-production-inference.test.ts (REQ-OPERATOR-047: missing or expired Conductor native auth remains actionable with logging OFF) --> <!-- @test: src/__tests__/operators/conductor-production-inference.test.ts (REQ-OPERATOR-047: Conductor retains safe rejected child auth failure instead of generic 403 with logging OFF) -->
 
-**Notes:** Evidence history and acceptance limitations remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
+**Notes:** Evidence history and acceptance limitations remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details). Hosted research, judgments, effects, settlement/collection and physical cleanup remain separately unverified; retired workloads provide no passing evidence.
 
 **Constraints:**
 
@@ -880,9 +882,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations), [REQ-OPERATOR-102](#req-operator-102-native-dispatcher-profile-authority), [REQ-OPERATOR-103](#req-operator-103-dispatcher-operation-accounting)
 
-**Verification:** Historical host tests; new inference-attempt accounting and composed native recovery coverage awaits exact-head CI. The #109 Activity/Egress tokenless-native, serial-token, raw replay/canonical-wire, uncertainty, cached-expiry/auth-stop and zstd cases are authored but unexecuted; codec availability and behavior remain CI gates. Live research, judgments, effects, settlement/collection and physical cleanup remain separate gates.
+**Verification:** Automated: [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [generic-profile-admission.test.ts](../../src/__tests__/operators/generic-profile-admission.test.ts), [operator-live-identity.test.ts](../../src/__tests__/operators/operator-live-identity.test.ts), [operator-pi-isolated-runner.test.js](../../host/__tests__/operator-pi-isolated-runner.test.js)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
