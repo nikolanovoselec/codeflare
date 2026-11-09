@@ -1113,7 +1113,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
 
-**Verification:** Authored cursor recovery and binding regressions require corrected-head CI; deployment and hosted acceptance remain unverified.
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
 **Status:** Planned
 
@@ -1173,7 +1173,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-062](#req-operator-062-repository-only-dispatcher-transport)
 
-**Verification:** Behavioral coverage is authored but unexecuted; exact-head CI, deployment and fresh hosted acceptance remain pending. No historical unknown is resolved or relabelled.
+**Verification:** Automated: [dispatcher-phases.test.ts](../../src/__tests__/operators/dispatcher-phases.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
 **Status:** Planned
 
@@ -1201,7 +1201,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-062](#req-operator-062-repository-only-dispatcher-transport)
 
-**Verification:** Behavioral coverage is authored but unexecuted; exact-head CI, deployment and fresh hosted acceptance remain pending. No historical unknown is resolved or relabelled.
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
 **Status:** Planned
 
@@ -1322,7 +1322,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
 
-**Verification:** The zero-send permit retirement and Root journal diagnosis repair has authored behavioral coverage only; no local execution, exact-head CI, deployment or fresh hosted acceptance is claimed. Historical unknown Activities and their operations remain unchanged. Complete observable behavioral coverage and exact-source CI are required before implementation qualification. Existing version1 delivery is not version2 evidence. Hosted template activation and distinct-use-case qualification require their own receipts; legacy v24 failure identification cannot be inferred from future instrumentation. Host implementation, SDK artifact activation, hosted qualification and historical-case resolution remain separate claims.
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts)
 
 **Status:** Planned
 
@@ -1362,7 +1362,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
 
-**Verification:** The zero-send permit retirement and Root journal diagnosis repair has authored behavioral coverage only; no local execution, exact-head CI, deployment or fresh hosted acceptance is claimed. Historical unknown Activities and their operations remain unchanged. Complete observable behavioral coverage and exact-source CI are required before implementation qualification. Existing version1 delivery is not version2 evidence. Hosted template activation and distinct-use-case qualification require their own receipts; legacy v24 failure identification cannot be inferred from future instrumentation. Host implementation, SDK artifact activation, hosted qualification and historical-case resolution remain separate claims.
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
 
 **Status:** Planned
 
@@ -1402,7 +1402,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
 
-**Verification:** The zero-send permit retirement and Root journal diagnosis repair has authored behavioral coverage only; no local execution, exact-head CI, deployment or fresh hosted acceptance is claimed. Historical unknown Activities and their operations remain unchanged. Complete observable behavioral coverage and exact-source CI are required before implementation qualification. Existing version1 delivery is not version2 evidence. Hosted template activation and distinct-use-case qualification require their own receipts; legacy v24 failure identification cannot be inferred from future instrumentation. Host implementation, SDK artifact activation, hosted qualification and historical-case resolution remain separate claims.
+**Verification:** Automated: [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts)
 
 **Status:** Planned
 
@@ -1432,7 +1432,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-081](#req-operator-081-retained-dispatcher-causal-evidence), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback), [REQ-OPERATOR-084](#req-operator-084-activity-causal-diagnosis)
 
-**Verification:** Authored behavioral coverage; execution, deployment and hosted qualification remain separate and pending.
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
 
 **Status:** Planned
 
