@@ -467,7 +467,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     it('AC4: private recovery persistence refusal retains ownership without reset', async () => {
       runningSession();
       testState.beforeHealthResponse = () => { throw new Error(`Connection refused ${privatePayload}`); };
-      const put = storage().put.bind(storage());
+      const put = vi.mocked(storage().put).getMockImplementation()!;
       vi.spyOn(storage(), 'put').mockImplementation(async (key, value) => {
         if (key === TRANSPORT_FAILURE_STREAK_KEY) throw new Error(privatePayload);
         await put(key, value);
@@ -515,7 +515,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
           return get<T>(key);
         });
       } else {
-        const put = storage().put.bind(storage());
+        const put = vi.mocked(storage().put).getMockImplementation()!;
         vi.spyOn(storage(), 'put').mockImplementation(async (key, value) => {
           if (key === 'containerStartedAt') throw privatePayload;
           await put(key, value);
@@ -875,7 +875,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('collectMetrics: container R2 sync unhealthy', { syncStatus: 'failed' });
+      expect(mockLogger.warn).toHaveBeenCalledWith('collectMetrics: container R2 sync unhealthy', {
+        sessionId: 'testsession123456', lifecycleGeneration: 0, incidentId: null, syncStatus: 'failed',
+      });
 
       // A healthy sync must NOT warn (no alert noise on the steady state).
       mockLogger.warn.mockClear();

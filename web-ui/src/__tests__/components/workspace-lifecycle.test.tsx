@@ -5,7 +5,7 @@ import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import * as api from '../../api/client';
 import SessionStatCard from '../../components/SessionStatCard';
-import type { SessionWithStatus } from '../../types';
+import type { Session } from '../../types';
 
 vi.mock('../../api/client', async original => ({
   ...await original<typeof import('../../api/client')>(),
@@ -20,7 +20,7 @@ vi.mock('../../lib/vault-cache', () => ({
 }));
 
 const id = 'abcdef0123456789';
-const base: SessionWithStatus = {
+const base: Session = {
   id, name: 'Lifecycle fixture', workspace: 'terminal',
   createdAt: '2026-11-08T00:00:00Z', lastAccessedAt: '2026-11-08T00:00:00Z',
   status: 'running', lifecycle: 'running', generation: 7, revision: 10,
