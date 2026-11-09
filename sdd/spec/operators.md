@@ -1271,9 +1271,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
 
-**Verification:** The zero-send permit retirement and Root journal diagnosis repair has authored behavioral coverage only; no local execution, exact-head CI, deployment or fresh hosted acceptance is claimed. Historical unknown Activities and their operations remain unchanged. Automated test: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [flue-native-cases.ts](../../src/__tests__/operators/fixtures/flue-native-cases.ts), [dispatcher-native.test.ts](../../src/__tests__/operators/dispatcher-native.test.ts), [dispatcher-tail.test.ts](../../src/__tests__/operators/dispatcher-tail.test.ts).
+**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-result.test.ts](../../src/__tests__/operators/dispatcher-result.test.ts), [dispatcher-tail.test.ts](../../src/__tests__/operators/dispatcher-tail.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1351,7 +1351,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1389,9 +1389,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
 
-**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1430,7 +1430,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1443,7 +1443,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Acceptance Criteria:**
 
-1. Accessible timeline/details and one-action multipart export expose provenance, loss and capabilities. <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: compact OAuth diagnosis distinguishes upstream400 from wrapper403 and links safe retained evidence) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: a private inference conflict shows HTTP409 and safe recovery without claiming a vendor failure) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (reads a record detail with verified source links, bounded error lineage and uncertain affected effects without offering replay) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (announces record-detail loading without replacing the retained timeline or Activity result) -->
+1. Accessible timeline/details and one-action multipart export expose provenance, loss and capabilities. <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task116: one action retrieves sixteen parts and all 508 retained records in one ordered download) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task116: %s aborts traversal visibly without any partial download) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: compact OAuth diagnosis distinguishes upstream400 from wrapper403 and links safe retained evidence) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: a private inference conflict shows HTTP409 and safe recovery without claiming a vendor failure) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (reads a record detail with verified source links, bounded error lineage and uncertain affected effects without offering replay) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (announces record-detail loading without replacing the retained timeline or Activity result) -->
 2. Bulk timeline, identifiers, correlation, SDK-import/retention and source versions stay in collapsed technical details; empty correlation and missing source versions are omitted. <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: empty correlation and missing source versions stay omitted when technical details are opened) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (labels all eighteen capture capabilities and Codeflare-derived SDK provenance without claiming historical qualification) -->
 
 **Constraints:**
@@ -1465,7 +1465,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1493,9 +1493,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-081](#req-operator-081-retained-dispatcher-causal-evidence), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback), [REQ-OPERATOR-084](#req-operator-084-activity-causal-diagnosis), [REQ-OPERATOR-108](#req-operator-108-accessible-activity-details-and-export)
 
-**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1574,7 +1574,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-result.test.ts](../../src/__tests__/operators/dispatcher-result.test.ts), [inference-diagnostics.test.ts](../../src/__tests__/lib/inference-diagnostics.test.ts), [bedrock-native-diagnostics.test.ts](../../src/__tests__/lib/bedrock-native-diagnostics.test.ts), [operator-access.test.ts](../../src/__tests__/operators/operator-access.test.ts), [operator-management-flow.test.tsx](../../web-ui/src/__tests__/operators/operator-management-flow.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1610,9 +1610,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Automated test: Named pipeline, lifecycle, native and owner-inspection tests above; hosted CI and deployed acceptance remain separate.
+**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [inference-diagnostics.test.ts](../../src/__tests__/lib/inference-diagnostics.test.ts), [bedrock-native-diagnostics.test.ts](../../src/__tests__/lib/bedrock-native-diagnostics.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2547,6 +2547,8 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 4. Released detail displays **SDK release confirmed**, never an unknown or physically stopped cleanup label. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-085: renders confirmed SDK release without an unknown or stopped cleanup label) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-085: pending cleanup is not rendered as confirmed release) -->
 5. Ordinary owner-detail cleanup refresh preserves newer execution/collection state, result bytes and unread-admission identity. <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-085: owner detail reconciles the retained release summary without a new admission) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-085: delayed %s cannot regress concurrent %s) -->
 
+**Notes:** Same-Activity hosted release readback remains unobserved. This does not equate SDK bookkeeping release with physical cessation or claim actual derived-SDK capture qualification.
+
 **Constraints:**
 
 - Release proof uses the existing current-generation or exact fenced-predecessor matcher with original input/artifact binding.
@@ -2561,9 +2563,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback)
 
-**Verification:** The original 13-instance cleanup batch preceded implementation; RED run38797398842 failed on the intended projection, wire and label contracts. Run38805420931 passed candidate0566fa47, but review identified a retained-summary race. Exact-head RED run38808111567 failed all six added AC5 concurrency instances at retained-page preservation, covering collection/completion/cancellation across delayed reads/writes with equal timestamps; the shard's other465 tests passed. The correction now re-reads admission after observing the retained row and conditionally publishes against that row inside the Registry transaction. Final exact-head GREEN and same-Activity hosted readback remain pending.
+**Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
