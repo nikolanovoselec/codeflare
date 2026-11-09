@@ -140,11 +140,11 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Explicit cancellation or execution abort releases the active wait without defaulting unanswered questions. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
-2. An already-aborted execution opens no questionnaire. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
-3. Missing UI and invalid-question outcomes remain errors, never automatic answers. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (absent UI remains an error, not automatic approval) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
-4. One invocation's completion or expiry cannot finish or cancel a questionnaire in another invocation or SDK session. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (independent SDK sessions retain independent deadlines) -->
-5. Cancellation retains answers completed before the execution abort. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (abort preserves completed answers without defaulting unanswered questions) -->
+1. Explicit cancellation or execution abort releases the active wait without defaulting unanswered questions. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC2 / REQ-AGENT-219 AC1/AC4: ${mode} preserves ${action} before timeout and isolates the next invocation) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC1/AC5: ${mode} abort preserves completed answers without defaulting unanswered questions) -->
+2. An already-aborted execution opens no questionnaire. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC2/AC3: ${mode} never manufactures answers for aborted or invalid questions) -->
+3. Missing UI and invalid-question outcomes remain errors, never automatic answers. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC3: absent UI remains an error, not automatic approval) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC2/AC3: ${mode} never manufactures answers for aborted or invalid questions) -->
+4. One invocation's completion or expiry cannot finish or cancel a questionnaire in another invocation or SDK session. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC2 / REQ-AGENT-219 AC1/AC4: ${mode} preserves ${action} before timeout and isolates the next invocation) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC3: ${mode} retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC4: independent SDK sessions retain independent deadlines) -->
+5. Cancellation retains answers completed before the execution abort. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC1/AC5: ${mode} abort preserves completed answers without defaulting unanswered questions) -->
 
 **Constraints:**
 
@@ -154,7 +154,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
 
-**Verification:** SDK-wrapped questionnaire tests with actual TUI input, native-dialog responses and a platform clock.
+**Verification:** Automated: [questionnaire-timeout.test.mjs](../../preseed/agents/pi/test/questionnaire-timeout.test.mjs)
 
 **Status:** Implemented
 
