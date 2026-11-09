@@ -504,17 +504,48 @@ None.
 <a id="req-auth-018-admin-user-management"></a>
 ### REQ-AUTH-018: User management admin panel
 
-**Intent:** Admins can manage users, approve access and configure tiers without CLI tools. Approval changes a user's tier; the control surface adapts to deployment mode: SaaS exposes the full subscription-tier picker, while onboarding, with no paid tiers, uses a plain Approve / Block decision.
+**Intent:** Admins can approve access, configure tiers and request user deletion without CLI tools. Approval changes a user's tier; onboarding bulk approval grants the same full-access tier as its per-user approval control.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. An admin can approve pending users. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
+2. An admin can change tiers. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
+3. Deleting a user removes all owned settings, sessions, notification enrollments, R2 data, and scoped tokens. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
+4. An admin can request user deletion. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
+5. In onboarding mode the bulk action approves all pending users to the same full-access tier as the per-user Approve control. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
+
+**Notes:** Partial pending manual SaaS/onboarding checks for grouping, search, approval, tier/session-mode changes, capacity, deletion presentation, and mode-specific bulk approval. Push-subscription cleanup is automated.
+
+**Constraints:**
+
+- Tier mutation approves access only in app-owned OIDC modes gated by `isSessionOidcMode`.
+- Enterprise mode returns 403 through [REQ-ENTERPRISE-009](security.md#req-enterprise-009-enterprise-backend-route-hardening); default CF Access mode has no tier-gated access and returns 400.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware)
+
+**Verification:** Automated: [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [users.test.ts](../../src/__tests__/routes/users.test.ts); Manual: [Admin user panel acceptance](../../documentation/lanes/authentication.md#admin-user-panel-acceptance)
+
+**Status:** Partial
+
+---
+
+<a id="req-auth-023-admin-user-browsing-and-mode-specific-controls"></a>
+### REQ-AUTH-023: Admin user browsing and mode-specific controls
+
+**Intent:** Admins can browse users and capacity without CLI tools. The control surface adapts to deployment mode: SaaS exposes the full subscription-tier picker, while onboarding, with no paid tiers, uses a plain Approve / Block decision.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. Admin user management shows all users grouped by tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with users in multiple tiers and confirm every user appears under the correct tier heading. -->
-2. An admin can search displayed users, approve pending users, change tiers, and request user deletion. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
-3. Deleting a user removes all owned settings, sessions, notification enrollments, R2 data, and scoped tokens. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
-4. The admin page displays the user count against configured capacity. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with a configured capacity and confirm the current and maximum user counts are displayed. -->
-5. In SaaS mode the admin panel renders the full tier + session-mode selectors per user; in onboarding mode it renders a per-user Approve / Block (`blocked` tier) control, and the bulk action approves all pending users to that same full-access tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
+2. An admin can search displayed users. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
+3. The admin page displays the user count against configured capacity. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with a configured capacity and confirm the current and maximum user counts are displayed. -->
+4. In SaaS mode the admin panel renders the full tier + session-mode selectors per user; in onboarding mode it renders a per-user Approve / Block (`blocked` tier) control. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
 
 **Notes:** Partial pending manual SaaS/onboarding checks for grouping, search, approval, tier/session-mode changes, capacity, deletion presentation, and mode-specific bulk approval. Push-subscription cleanup is automated.
 

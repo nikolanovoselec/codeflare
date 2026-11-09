@@ -1052,6 +1052,7 @@ describe('Setup AC Coverage', () => {
     });
   });
 
+  // REQ-SETUP-018 AC5: historical test title below uses pre-split AC7.
   it('REQ-SETUP-018 AC7: Setup refuses to overlap an active Environment run', async () => {
     const app = createTestApp();
     await mockKV.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({

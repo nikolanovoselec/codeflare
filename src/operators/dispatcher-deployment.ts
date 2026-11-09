@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-030/044/045/046: platform facts, not caller metadata, qualify a normal deployment. */
+/** REQ-OPERATOR-030/044/045/046/107: platform facts, not caller metadata, qualify a normal deployment. */
 import type { Env } from '../types';
 import { CF_API_BASE } from '../lib/constants';
 import { SETUP_KEYS } from '../lib/kv-keys';
@@ -14,7 +14,7 @@ export interface DispatcherDeploymentVerification {
 }
 const denied = (): never => { throw new Error('Dispatcher deployment could not be verified'); };
 
-/** REQ-OPERATOR-046 AC4/6/7: one new shared installation candidate; never overwrite SDK storage.
+/** REQ-OPERATOR-107 AC1/3/4: one new shared installation candidate; never overwrite SDK storage.
  * The authorized caller owns Registry selection. An uncertain upload is not retried or deleted. */
 export async function provisionDispatcherDeployment(env: Env,
   pin: Omit<DispatcherConnectionMetadata, 'workerName' | 'workerVersionId'>,

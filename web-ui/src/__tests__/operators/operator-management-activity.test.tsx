@@ -673,6 +673,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
+  // REQ-OPERATOR-108 AC1: historical test title below uses pre-split REQ-OPERATOR-084 AC3.
   it('REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     const operation = diagnosticOperation();
@@ -856,6 +857,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(panel.queryByText(/run stopped|attempt recovered|OAuth|A tool failed\./)).not.toBeInTheDocument();
   });
 
+  // REQ-OPERATOR-084 AC1/AC2/AC6: historical AC1/2/7; REQ-OPERATOR-057 AC3 unchanged.
   it('REQ-OPERATOR-057 AC3 / 084 AC1/2/7: presents the supplied later failure without promoting an older citation failure to the current cause', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     state.summary.diagnosis = { state: 'observed-failure', code: 'settlement-failed', executionStatus: 'failed',
@@ -887,6 +889,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
+  // REQ-OPERATOR-084 AC1/AC5: historical AC1/6; REQ-OPERATOR-057 AC3 unchanged.
   it('REQ-OPERATOR-057 AC3 / 084 AC1/6: an old running snapshot is not a child failure or an OOM diagnosis', async () => {
     const { state } = ownedDiagnosticFixture();
     state.summary.capturedAt = 1;
@@ -904,6 +907,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
+  // REQ-OPERATOR-084 AC3; REQ-OPERATOR-108 AC1/AC2: historical REQ-OPERATOR-084 AC3/5.
   it('REQ-OPERATOR-084 AC3/5: routine records use available boundary and outcome labels while bulk metadata stays collapsed', async () => {
     const { state } = ownedDiagnosticFixture();
     state.history.records = [diagnosticEvent(1, 'scheduling', 'accepted'), diagnosticEvent(2, 'delivery', 'completed')];

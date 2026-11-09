@@ -619,11 +619,36 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 1. Discovery never approves or enables, and approval never enables. <!-- @impl: src/operators/registry.ts::replaceManagementReleases --> <!-- @impl: src/operators/registry.ts::promoteManagementInstallation --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
 2. Mutations require the current revision and persist exact approved release and configuration bytes. <!-- @impl: src/operators/registry.ts::promoteManagementInstallation --> <!-- @impl: src/operators/registry.ts::configureManagementInstallation --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
-3. A source or trust change disables subsequent starts, and a retained approved release can be selected for rollback. <!-- @impl: src/operators/registry.ts::setManagementSource --> <!-- @impl: src/operators/registry.ts::promoteManagementInstallation --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
-4. Enabling an approved normal Dispatcher provisions its exact acquired deployment when no matching connection exists, protects the installation-only secret and independently verifies platform facts before enabling. <!-- @impl: src/operators/dispatcher-deployment.ts::provisionDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
-5. A matching existing connection is verified and reused without replacing its runtime. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (matching connection verifies and reuses) -->
-6. Stale or lost authority, upload uncertainty and verification failure cannot enable work or overwrite a previously selected runtime. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
-7. Upgrades retain original deployment endpoints, configuration history and SDK storage. <!-- @impl: src/operators/dispatcher-deployment.ts::provisionDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
+3. A source or trust change disables subsequent starts. <!-- @impl: src/operators/registry.ts::setManagementSource --> <!-- @impl: src/operators/registry.ts::promoteManagementInstallation --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
+4. A retained approved release can be selected for rollback. <!-- @impl: src/operators/registry.ts::setManagementSource --> <!-- @impl: src/operators/registry.ts::promoteManagementInstallation --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
+
+**Notes:** Activation and its qualification boundary are documented in [Trusted Dispatcher hosting](../../documentation/lanes/operators.md#normal-dispatcher-hosting).
+
+**Constraints:** Promotion never expands installation policy or caller authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-044](#req-operator-044-github-immutable-package-acquisition)
+
+**Verification:** Existing promotion and normal-activation HTTP/platform-wire regressions cover these contracts. CI has demonstrated the missing-handoff RED state; the implementation and corrected coverage require exact-head GREEN. Hosted lifecycle acceptance remains separate.
+
+**Status:** Planned
+
+---
+
+<a id="req-operator-107-exact-normal-dispatcher-activation"></a>
+### REQ-OPERATOR-107: Exact normal Dispatcher activation
+
+**Intent:** Enabling an approved normal Dispatcher provisions or reuses its exact verified deployment without overwriting a selected runtime or losing retained deployment state.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Enabling an approved normal Dispatcher provisions its exact acquired deployment when no matching connection exists, protects the installation-only secret and independently verifies platform facts before enabling. <!-- @impl: src/operators/dispatcher-deployment.ts::provisionDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
+2. A matching existing connection is verified and reused without replacing its runtime. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (matching connection verifies and reuses) -->
+3. Stale or lost authority, upload uncertainty and verification failure cannot enable work or overwrite a previously selected runtime. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
+4. Upgrades retain original deployment endpoints, configuration history and SDK storage. <!-- @impl: src/operators/dispatcher-deployment.ts::provisionDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
 
 **Notes:** Activation and its qualification boundary are documented in [Trusted Dispatcher hosting](../../documentation/lanes/operators.md#normal-dispatcher-hosting).
 
@@ -1281,7 +1306,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback), [REQ-OPERATOR-084](#req-operator-084-activity-causal-diagnosis)
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback), [REQ-OPERATOR-084](#req-operator-084-activity-causal-diagnosis), [REQ-OPERATOR-108](#req-operator-108-accessible-activity-details-and-export)
 
 **Verification:** The zero-send permit retirement and Root journal diagnosis repair has authored behavioral coverage only; no local execution, exact-head CI, deployment or fresh hosted acceptance is claimed. Historical unknown Activities and their operations remain unchanged. Complete observable behavioral coverage and exact-source CI are required before implementation qualification. Existing version1 delivery is not version2 evidence. Hosted template activation and distinct-use-case qualification require their own receipts; legacy v24 failure identification cannot be inferred from future instrumentation. Host implementation, SDK artifact activation, hosted qualification and historical-case resolution remain separate claims.
 
@@ -1379,11 +1404,45 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 1. The existing Activity surface presents the observed cause or precise evidence gap in plain language, last confirmed success, retained failed/unfulfilled transition, source/attempt distinctions, uncertainty without asserting earliest cause, affected effects and a safe next evidence action. <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (requires correlated platform evidence for platform-only termination instead of inventing a JavaScript cause) -->
 2. Without later productive work, a generic settlement wrapper cannot hide a concrete service/refusal cause. <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: an earlier citation failure followed by later work is continued, not recovered or a new fatal cause) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) -->
-3. Default diagnostics show a concrete safe cause, next action and evidence control; accessible timeline/details and one-action multipart export expose provenance, loss and capabilities. <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: compact OAuth diagnosis distinguishes upstream400 from wrapper403 and links safe retained evidence) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: a private inference conflict shows HTTP409 and safe recovery without claiming a vendor failure) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (reads a record detail with verified source links, bounded error lineage and uncertain affected effects without offering replay) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (announces record-detail loading without replacing the retained timeline or Activity result) -->
+3. Default diagnostics show a concrete safe cause, next action and evidence control. <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: compact OAuth diagnosis distinguishes upstream400 from wrapper403 and links safe retained evidence) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: a private inference conflict shows HTTP409 and safe recovery without claiming a vendor failure) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (reads a record detail with verified source links, bounded error lineage and uncertain affected effects without offering replay) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (announces record-detail loading without replacing the retained timeline or Activity result) -->
 4. Platform-only termination requires authoritative correlated platform evidence or an explicit missing-evidence classification. <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (requires correlated platform evidence for platform-only termination instead of inventing a JavaScript cause) -->
-5. Bulk timeline, identifiers, correlation, SDK-import/retention and source versions stay in collapsed technical details; empty correlation and missing source versions are omitted. <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: empty correlation and missing source versions stay omitted when technical details are opened) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (labels all eighteen capture capabilities and Codeflare-derived SDK provenance without claiming historical qualification) -->
-6. Bounded metadata gaps alone never establish loss of separately stored protected runtime logs. <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (exposes retained loss counters and unknown quantities instead of claiming a complete history or zero loss) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (presents SDK import pending after retirement honestly and never advertises a locally captured cause as host-persisted) -->
-7. Later productive work establishes continuation, not recovery; cleanup alone is not productive work. <!-- @test: src/__tests__/operators/dispatcher-diagnostics-read.test.ts (reports the current fence rather than a continued citation failure, optional fence event=%s) --> <!-- @test: src/__tests__/operators/dispatcher-diagnostics-read.test.ts (keeps an unknown effect visible after later work and an execution fence) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: an earlier citation failure followed by later work is continued, not recovered or a new fatal cause) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) -->
+5. Bounded metadata gaps alone never establish loss of separately stored protected runtime logs. <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (exposes retained loss counters and unknown quantities instead of claiming a complete history or zero loss) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (presents SDK import pending after retirement honestly and never advertises a locally captured cause as host-persisted) -->
+6. Later productive work establishes continuation, not recovery; cleanup alone is not productive work. <!-- @test: src/__tests__/operators/dispatcher-diagnostics-read.test.ts (reports the current fence rather than a continued citation failure, optional fence event=%s) --> <!-- @test: src/__tests__/operators/dispatcher-diagnostics-read.test.ts (keeps an unknown effect visible after later work and an execution fence) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: an earlier citation failure followed by later work is continued, not recovered or a new fatal cause) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) -->
+
+**Constraints:**
+
+- Version1 endpoint, selection/scan semantics, ten-second wait and64KiB response limit follow [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback) unchanged.
+- Version2 authorization, selector rejection, no-store responses and sealed binding/high-water/epoch cursors follow the [API contract](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2).
+- [Retention bounds](../../documentation/lanes/operators.md#retained-diagnostics-storage-bounds) govern allocation, reserved capacities, independent routine eviction and explicit exhaustion.
+- [API paging](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2) preserves record/byte/deadline ceilings and progress for every valid retained record.
+- Export only private-safe closed metadata and opaque digests under the [privacy/source contract](../../documentation/lanes/operators.md#source-owned-sdk-observations).
+- Diagnostic presentation grants no execution or replay controls.
+- Status distinctions follow [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference) AC6; export validation follows [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback) AC7.
+- No new TTL, cleanup scheduler or deletion authority.
+- [Noninterference](../../documentation/lanes/operators.md#retained-diagnostics-noninterference) prohibits authorization-boundary diagnostic awaits, reentrant awaits, invented acknowledgements, renewal, resurrection and speculative repair.
+- [SDK provenance](../../documentation/lanes/operators.md#source-owned-sdk-observations) preserves published identity, historical artifacts and successful/uncertain effects.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
+
+**Verification:** Automated: [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts)
+
+**Status:** Planned
+
+---
+
+<a id="req-operator-108-accessible-activity-details-and-export"></a>
+### REQ-OPERATOR-108: Accessible Activity details and export
+
+**Intent:** Owners can inspect accessible retained diagnostic detail and export provenance, loss and capabilities without granting execution controls or inventing missing evidence.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Accessible timeline/details and one-action multipart export expose provenance, loss and capabilities. <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: compact OAuth diagnosis distinguishes upstream400 from wrapper403 and links safe retained evidence) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: a private inference conflict shows HTTP409 and safe recovery without claiming a vendor failure) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (reads a record detail with verified source links, bounded error lineage and uncertain affected effects without offering replay) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (announces record-detail loading without replacing the retained timeline or Activity result) -->
+2. Bulk timeline, identifiers, correlation, SDK-import/retention and source versions stay in collapsed technical details; empty correlation and missing source versions are omitted. <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (Task127: empty correlation and missing source versions stay omitted when technical details are opened) --> <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (labels all eighteen capture capabilities and Codeflare-derived SDK provenance without claiming historical qualification) -->
 
 **Constraints:**
 
@@ -1430,7 +1489,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-081](#req-operator-081-retained-dispatcher-causal-evidence), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback), [REQ-OPERATOR-084](#req-operator-084-activity-causal-diagnosis)
+**Dependencies:** [REQ-OPERATOR-081](#req-operator-081-retained-dispatcher-causal-evidence), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback), [REQ-OPERATOR-084](#req-operator-084-activity-causal-diagnosis), [REQ-OPERATOR-108](#req-operator-108-accessible-activity-details-and-export)
 
 **Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
 
@@ -2187,7 +2246,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-046](#req-operator-046-explicit-release-promotion)
+**Dependencies:** [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-046](#req-operator-046-explicit-release-promotion), [REQ-OPERATOR-107](#req-operator-107-exact-normal-dispatcher-activation)
 
 **Verification:** Management route/UI tests; historical Enabled/Disabled copy coverage passed. Guided-launcher acceptance remains pending under REQ-OPERATOR-058; responsive Enterprise Integration visual acceptance is separate.
 

@@ -580,7 +580,7 @@ MCP portals use the existing Environment Name/URL list for unique public HTTPS d
 
 [Model Context Protocol](mcp.md) owns owner Connect/Disconnect, credential-isolated transport, browser recovery, CIMD reachability, upstream authorization, discovery and execution. Configuration owns the saved registration; saving is not owner authentication or hosted acceptance.
 
-User Management and Subscription Tiers reuse established components and `/api/users` and `/api/admin/tiers`; the shell does not create a new entitlement or user mutation authority. ([REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel)) <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions --> <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement -->
+User Management and Subscription Tiers reuse established components and `/api/users` and `/api/admin/tiers`; the shell does not create a new entitlement or user mutation authority. ([REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-AUTH-023](../../sdd/spec/authentication.md#req-auth-023-admin-user-browsing-and-mode-specific-controls), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel)) <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions --> <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement -->
 
 ### Administration display inspection
 
@@ -591,7 +591,7 @@ Open Administration → Environment. Report timezone must render as a canonical-
 <a id="runtime-ownership"></a>
 ### Environment Runtime Ownership
 
-KV owns current Environment values, revisions, active-run admission, and sanitized Activity records. A configuration run stops at its first failed task; external provider work is not rolled back automatically. Activity expires after 90 days. ([REQ-SETUP-018](../../sdd/spec/setup.md#req-setup-018-bounded-routine-environment-changes)) <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask -->
+KV owns current Environment values, revisions, active-run admission, and sanitized Activity records. A configuration run stops at its first failed task; external provider work is not rolled back automatically. Activity expires after 90 days. ([REQ-SETUP-018](../../sdd/spec/setup.md#req-setup-018-bounded-routine-environment-changes), [REQ-SETUP-029](../../sdd/spec/setup.md#req-setup-029-retained-environment-run-history)) <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask -->
 
 Activity reads on navigation, filters, explicit refresh, or run reconnect and does not background-poll. [Billing](billing.md#historical-accounting-and-analytics) owns Analytics/Reports and historical D1 usage, not configuration-run state. [Architecture](architecture.md#state-ownership-and-durability) distinguishes D1 session authority from historical accounting and from live Timekeeper/KV quota.
 

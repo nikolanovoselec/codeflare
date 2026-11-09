@@ -565,12 +565,37 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. Preview accepts one closed section, complete values, and base revision; it persists nothing and returns normalized changes, exact tasks, warnings, and exclusions. <!-- @impl: src/routes/admin/configuration-previews.ts::default --> <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (POST /admin/configuration-previews (REQ-SETUP-018)) -->
 2. Apply recomputes validation, uses best-effort KV admission, rechecks revision before external work, and returns typed `409` conflicts before streaming. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-3. Runs persist sanitized versioned state, named task transitions, initiator, revisions, and terminal outcomes for 90 days; values and secrets never enter records, streams, or logs. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-4. Reconnect returns the same run shape, and Activity lists newest-first with a stable cursor. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-5. Task failure stops dependent work, marks remaining tasks skipped, records operator action, and never performs automatic rollback or replay. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-6. A stale 15-minute active pointer is recovered as `interrupted`; the accepted cross-isolate KV race remains bounded by idempotent operations and revision checks. <!-- @impl: src/routes/admin/configuration-runs.ts::recoverInterruptedRun --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-7. Setup and routine execution check each other's existing admission pointers, while first-run Setup configuration keeps its observable sequence and outcome. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-018 AC7: Setup refuses to overlap an active Environment run) -->
+3. Task failure stops dependent work, marks remaining tasks skipped, records operator action, and never performs automatic rollback or replay. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+4. A stale 15-minute active pointer is recovered as `interrupted`; the accepted cross-isolate KV race remains bounded by idempotent operations and revision checks. <!-- @impl: src/routes/admin/configuration-runs.ts::recoverInterruptedRun --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+5. Setup and routine execution check each other's existing admission pointers, while first-run Setup configuration keeps its observable sequence and outcome. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-018 AC7: Setup refuses to overlap an active Environment run) -->
 
+**Constraints:**
+
+- Eleven known sections use one discriminated union.
+- No JSON Patch, stored preview, workflow engine, coordinator Durable Object, or generic rollback layer.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-004](#req-setup-004-setup-is-idempotent), [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
+
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
+
+**Status:** Implemented
+
+---
+
+<a id="req-setup-029-retained-environment-run-history"></a>
+### REQ-SETUP-029: Retained Environment run history
+
+**Intent:** An administrator can reconnect to the same sanitized Environment run and browse retained Activity in a stable order.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Runs persist sanitized versioned state, named task transitions, initiator, revisions, and terminal outcomes for 90 days; values and secrets never enter records, streams, or logs. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+2. Reconnect returns the same run shape. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+3. Activity lists newest-first with a stable cursor. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
 
 **Constraints:**
 
@@ -611,7 +636,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
+**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-AUTH-023](authentication.md#req-auth-023-admin-user-browsing-and-mode-specific-controls), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
 
 **Verification:** Automated route, mode, composition, and backend mode-gate tests; user-owned manual terminology and responsive acceptance on Integration
 
@@ -777,7 +802,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management)
+**Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-AUTH-023](authentication.md#req-auth-023-admin-user-browsing-and-mode-specific-controls)
 
 **Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx)
 
