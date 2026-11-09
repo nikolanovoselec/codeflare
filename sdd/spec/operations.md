@@ -243,7 +243,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated tests ([tls-legacy-probe](../../host/__tests__/tls-legacy-probe.test.js), [normalize-https-origin](../../host/__tests__/normalize-https-origin.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js))
+**Verification:** Automated: [tls-legacy-probe.test.js](../../host/__tests__/tls-legacy-probe.test.js), [normalize-https-origin.test.js](../../host/__tests__/normalize-https-origin.test.js), [ci-workflow-hardening.test.js](../../host/__tests__/ci-workflow-hardening.test.js); Manual: [Pentest record inspection](../../documentation/lanes/ci-cd.md#pentest-record-inspection)
 
 **Status:** Implemented
 
@@ -568,7 +568,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated protected-branch trigger and shared-installer contracts; CI evidence for the extended iteration count and scheduled/manual routes.
+**Verification:** Automated: [develop-required-checks.test.js](../../host/__tests__/develop-required-checks.test.js), [ci-workflow-hardening.test.js](../../host/__tests__/ci-workflow-hardening.test.js), [install-deps.test.js](../../host/__tests__/install-deps.test.js), [runtime-config.fuzz.test.ts](../../src/__tests__/fuzz/runtime-config.fuzz.test.ts); Manual: [Fuzz record inspection](../../documentation/lanes/ci-cd.md#fuzz-record-inspection)
 
 **Status:** Implemented
 
@@ -599,7 +599,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated protected-branch CodeQL trigger contract for AC6 and release-coherence contract for AC7; manual verification for AC1 through AC5.
+**Verification:** Automated: [develop-required-checks.test.js](../../host/__tests__/develop-required-checks.test.js); Manual: [CodeQL and Scorecard record inspection](../../documentation/lanes/ci-cd.md#codeql-and-scorecard-record-inspection)
 
 **Status:** Implemented
 

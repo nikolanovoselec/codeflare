@@ -241,6 +241,40 @@ Method for [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-ch
 
 Distinct named owner for current security-probe methods formerly in `pentest.md` (REQ-OPS-005). Monday 05:00 UTC/manual `pentest.yml` uses a production-environment `PENTEST_TARGET`; one target job normalizes the origin and six external jobs consume that exact output. Probes use lightweight curl, openssl and the owned Python legacy-TLS handshake helper, not a heavy scanner. <!-- @impl: .github/workflows/pentest.yml::jobs -->
 
+### Scheduled workflow record inspection
+
+Read-only methods for [REQ-OPS-005](../../sdd/spec/operations.md#req-ops-005-weekly-pentest) AC1–AC3, [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) AC2–AC4 and [REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows) AC1–AC5. Prerequisites: authorized access to existing Actions metadata, logs and applicable Security analyses; retained completed records for each required native event; workflow/test bodies at each record's exact SHA. Do not dispatch, rerun, attack a target or change settings. Use existing PR/CI records, not a new report lane.
+
+For each execution record repository, workflow path, run URL/ID, attempt, event, branch/SHA, timestamps, conclusion and relevant job/step outcomes. Inspect that revision's workflow, not current YAML. Missing/expired records or denied access leave observations unverified. Failed, cancelled or skipped required execution never passes. Native push/schedule/dispatch records are not interchangeable. Cron is UTC; scheduler delay is not a change of configured cadence.
+
+#### Pentest record inspection
+
+Select separate completed `.github/workflows/pentest.yml` schedule and dispatch records. Verify Monday `0 5 * * 1`, production environment on **Validate target** and all probes, and **Normalize target URL** against the configured production target and consumed normalized output. Retain no private target values. AC1 passes only with both native event records against the intended configured target, not a workflow definition or historical target alone.
+
+In that revision's `.github/workflows/pentest.yml` graph, **Security headers**, **TLS configuration**, **Authentication gate**, **Information disclosure**, **Injection attacks** and **HTTP methods** must depend on **Validate target**, not each other. Correlate timestamps for demonstrated overlap; graph fan-out alone is not executed parallelism. Inspect executed curl, openssl, shell and owned Python-helper commands, not an active scanner. A serialized graph or no observed overlap does not qualify AC2.
+
+For AC3 open each probe's executed step logs and compare outcomes with the [header](#security-header-probe), [TLS](#tls-probe), [authentication](#authentication-gate-probe), [disclosure](#information-disclosure-probe), [injection](#injection-probe) and [method](#http-method-probe) boundaries below. All six categories must execute and pass; green labels or **Report failures** alone are insufficient. These are [REQ-OPS-005](../../sdd/spec/operations.md#req-ops-005-weekly-pentest) observations on one unauthenticated origin, not authenticated/exhaustive certification. Legacy TLS inconclusive results cannot pass. Certificate/CL-TE steps require the intended default HTTPS port; do not infer authenticated storage validation.
+
+#### Fuzz record inspection
+
+Select completed `.github/workflows/fuzz.yml` records with distinct native schedule and dispatch events. Verify Sunday `0 4 * * 0` and completion of **Property-based fuzzing** and all three suites. AC3 requires the native scheduled record; AC4 requires native dispatch. A PR run or YAML alone substitutes for neither.
+
+For AC2 trace `.github/workflows/fuzz.yml`'s `FAST_CHECK_NUM_RUNS: '50000'` through **Run backend fuzz tests (extended iterations)**, **Run frontend fuzz tests** and **Run host fuzz tests**. Inspect root/frontend Vitest commands and host `node --test __tests__/fuzz-host.test.js` following **Build host**. At that SHA verify the actual environment-derived `NUM_RUNS` reaches `fc.assert` as `numRuns`, then correlate completed passing named cases with those suite logs.
+
+Uncapped witnesses are `src/__tests__/fuzz/input-validation.fuzz.test.ts` / **decode(escape(s)) === s for all strings**, `web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts` / **always produces a 32-char hex string**, and `host/__tests__/fuzz-host.test.js` / **returns { command: null } for non-array / empty inputs**. Preserve their source/run/step identity; environment text without executed callers, default local 1,000 runs or a generic green summary cannot establish this chain.
+
+This [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) method establishes the configured budget in completed uncapped calls, not an independently instrumented count. Deterministic/capped input-validation, runtime-config, Vault asynchronous and frontend terminal-link cases retain their limits. It does not establish 50,000 trials for every property. A stronger every-case interpretation needs separate judgment, not invented counters or a silently broadened claim.
+
+#### CodeQL and Scorecard record inspection
+
+For `.github/workflows/codeql.yml`, select separate completed native main-push and schedule records; verify Monday `0 6 * * 1` and push SHA. **Analyze (worker)** and **Analyze (container-ui)** must complete **Initialize CodeQL**, **Autobuild** and **Perform CodeQL Analysis**. The stable **Analyze** gate must require every shard and pass, but is not itself analysis evidence. AC1/AC2 require their respective native routes, not PR evidence. Historical revisions use their actual topology, not today's shard names.
+
+For AC3 correlate `.github/workflows/codeql.yml`'s upload/processing logs with accepted GitHub Security analyses at the same repository/SHA/tool. Current categories are `/language:javascript-typescript/worker` and `/language:javascript-typescript/container-ui`; every configured shard must be processed. A local SARIF filename, permission, green aggregate or absence of alerts does not prove upload. An accepted analysis may contain findings.
+
+For `.github/workflows/scorecard.yml`, select distinct completed native main-push and schedule records; verify Monday `0 6 * * 1`. Inspect **Run Scorecard**, `results.sarif`, SARIF format/publication, then **Upload to GitHub Security** consuming that file. Correlate accepted Security tool/analysis identity and source SHA. AC4/AC5 require completed assessment on the corresponding native route, not a minimum score.
+
+The `.github/workflows/scorecard.yml` **unsupported-ref** / **Explain default-branch requirement** path is a successful no-scan notice, never assessment evidence. Manual default-branch runs or unrelated CodeQL uploads cannot substitute for native Scorecard push/schedule records. These method definitions are not completed-run or Security receipts.
+
 ### Target normalization
 
 `normalize-https-origin.mjs` accepts HTTP, HTTPS or a bare DNS host, normalizes to HTTPS and rejects credentials, non-root paths, query/fragment, controls/padded whitespace, IP/single-label/malformed DNS names and invalid port zero. This is syntax normalization, not an allowlist or proof of DNS/port reachability. Use the configured intended public target; do not infer deployment identity from a historical report. Target/TLS jobs receive repository-read permission; the separate report job also has read plus issues-write. Other probes receive no repository permission.
