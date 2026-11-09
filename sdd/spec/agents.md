@@ -202,10 +202,10 @@ These compatibility anchors resolve dated changelog references to retired review
 2. Image construction rejects missing path-correct caches for local TypeScript extensions, Open TUI and the RPIV trio. The native JavaScript web-access entrypoint follows AC4's required native-import evidence. <!-- @impl: Dockerfile::advisor_source --> <!-- @impl: Dockerfile::open_tui_source --> <!-- @impl: Dockerfile::web_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a local cache warmed at the wrong path despite a matching basename) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 3. A second fresh warm-up process must report a JITI cache hit for every TypeScript entrypoint and no cache misses, including imported dependencies; construction fails without that evidence or when either process reports an extension-load error, even with exit code zero. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (REQ-AGENT-210: image extension cache reuse) -->
 4. Native JavaScript entrypoints and declared helper dependencies are warmed without requiring a JITI artifact; their native import must be observed. Helpers are imported through their owning extension, not registered as extension factories, and warming never runs transcript maintenance. <!-- @impl: Dockerfile::context_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (warms native JavaScript without requiring a nonexistent JITI artifact) -->
-5. Managed extension dependency compatibility survives image construction, startup updates and repair without changing unrelated package metadata. <!-- @impl: scripts/patch-rpiv-host-peers.mjs::patchRpivHostPeers --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs::verifyRpivExtensionStartup --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-host-peers.test.js (REQ-AGENT-210: RPIV declares host TypeBox as a wildcard peer without changing other package contracts) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies) --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump leaves the remote branch absent when shared startup fails:) -->
+5. Managed extension dependency compatibility survives image construction, startup updates and repair without changing unrelated package metadata. <!-- @impl: scripts/patch-rpiv-host-peers.mjs::patchRpivHostPeers --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs::verifyRpivExtensionStartup --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-host-peers.test.js (REQ-AGENT-210: RPIV declares host TypeBox as a wildcard peer without changing other package contracts) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies) -->
 
 6. Packaged startup loads advisor, questionnaire and todo tools without dependency warnings or extension errors. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-AGENT-210 AC6: image-prepared RPIV packages load actual pinned tools without warnings) -->
-7. Incompatible managed-extension candidates fail before remote branch publication. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump leaves the remote branch absent when shared startup fails:) -->
+7. Incompatible managed-extension candidates fail before remote branch publication. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump leaves the remote branch absent when shared startup fails: ${failure} (${packageName})) -->
 
 **Constraints:**
 
@@ -217,7 +217,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Real-JITI replay tests, executable image-warming fixture tests and deployment image build
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [jiti-warm-reuse.test.js](../../host/__tests__/jiti-warm-reuse.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [rpiv-bump-gate.test.js](../../host/__tests__/rpiv-bump-gate.test.js), [rpiv-host-peers.test.js](../../host/__tests__/rpiv-host-peers.test.js), [enterprise-routing.test.mjs](../../preseed/agents/pi/test/enterprise-routing.test.mjs)
 
 **Status:** Implemented
 
@@ -1793,9 +1793,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. The GitHub connect card offers three scope tiers (Minimal, Recommended, Advanced) with Recommended pre-selected; the selection is sent to the server as the connect URL's `tier` query param. <!-- @impl: web-ui/src/lib/token-scopes.ts::GITHUB_TIERS --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes) -->
-2. The Cloudflare connect card offers the same three-tier selector with Recommended pre-selected, sent the same way. <!-- @impl: web-ui/src/lib/token-scopes.ts::CLOUDFLARE_TIERS --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes) -->
-3. The server maps the requested tier to the OAuth `scope` parameter from a backend scope catalog (the catalog never leaves the server); higher tiers are supersets of lower tiers, and the Cloudflare scope always includes `offline_access`. <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token template) -->
+1. The GitHub connect card offers three scope tiers (Minimal, Recommended, Advanced) with Recommended pre-selected; the selection is sent to the server as the connect URL's `tier` query param. <!-- @impl: web-ui/src/lib/token-scopes.ts::GITHUB_TIERS --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes / REQ-AGENT-028) -->
+2. The Cloudflare connect card offers the same three-tier selector with Recommended pre-selected, sent the same way. <!-- @impl: web-ui/src/lib/token-scopes.ts::CLOUDFLARE_TIERS --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes / REQ-AGENT-028) -->
+3. The server maps the requested tier to the OAuth `scope` parameter from a backend scope catalog (the catalog never leaves the server); higher tiers are supersets of lower tiers, and the Cloudflare scope always includes `offline_access`. <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (githubScopeForTier) --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (always requests offline_access and escalates capability with tier) --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (normalizeScopeTier) -->
 
 **Constraints:**
 
@@ -1806,7 +1806,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-018](#req-agent-018-push--deploy-credential-management-ui), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
 
-**Verification:** Automated test ([Tier catalog test](../../web-ui/src/__tests__/lib/token-scopes.test.ts) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope mapping test](../../src/__tests__/lib/oauth-scopes.test.ts))
+**Verification:** Automated: [token-scopes.test.ts](../../web-ui/src/__tests__/lib/token-scopes.test.ts), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
 
 **Status:** Implemented
 
@@ -5114,7 +5114,7 @@ None.
 
 1. Read-only release preparation pins a full compiler commit, rebuilds deterministic gzip bytes, and passes that exact artifact to signing. <!-- @impl: scripts/agent-seed-release.mjs::createReleaseBundle --> <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-148 AC1: emits deterministic gzip and signs its exact bytes) -->
 2. Production signing rejects a private key whose derived public key is not the configured active public key. <!-- @manual: Confirm the signing job's configured-public-key comparison in the private release workflow and its green protected run. -->
-3. Publication verifies the exact draft release identity, asset set, and per-asset digests, and re-verifies them immediately before leaving draft. <!-- @manual: Confirm the draft-identity and post-publish recheck steps in the private release workflow and its green protected run. -->
+3. Publication verifies the exact draft release identity, asset set, and per-asset digests, and re-verifies them immediately before leaving draft. <!-- @manual: Confirm draft identity, the immediate pre-publication asset recheck and final immutable-release identity assertion in the private release workflow and its green protected run. -->
 4. Publication succeeds only when the resulting release is immutable at the sequence derived from published history. <!-- @manual: Confirm the immutability assertion and derived-sequence step in the private release workflow and its green protected run. -->
 5. Compiler-pin automation advances only for a changed compiler script or managed npm lockfile among its six inputs from an exact successful Codeflare deployment. <!-- @manual: Inspect codeflare-curation's compiler-pin workflow for a successful main/develop deployment's exact SHA and the three-script/three-lockfile comparison; verify unchanged inputs do not advance the pin. -->
 
@@ -5128,7 +5128,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated deterministic-byte test and protected-environment acceptance
+**Verification:** Automated: [agent-seed-release.test.js](../../host/__tests__/agent-seed-release.test.js); Manual: [Managed release evidence inspection](../../documentation/lanes/preseed.md#managed-release-evidence-inspection)
 
 **Status:** Implemented
 

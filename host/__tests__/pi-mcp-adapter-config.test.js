@@ -225,6 +225,43 @@ for (const regenerate of [false, true]) {
   });
 }
 
+for (const mode of ['stock', 'native']) {
+  test(`REQ-BROWSER-009 AC5: archive failure leaves ${mode} timeout configuration unchanged`, async t => {
+    const f = await fixture(t);
+    const active = mode === 'native' ? f.legacy : f.target;
+    const archiveName = mode === 'native' ? 'mcp-adapter.json.migrated' : 'mcp.json.migrated';
+    const archive = join(f.directory, archiveName);
+    const original = JSON.stringify({ settings: { custom: true, requestTimeoutMs: 60000 }, mcpServers: {
+      'chrome-devtools': { command: 'custom-browser', lifecycle: 'lazy-keep-alive', requestTimeoutMs: 600000,
+        args: ['--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/synthetic-account/browser-rendering/devtools/browser?keep_alive=180000',
+          '--wsHeaders={"Authorization":"Bearer synthetic-user-token"}'] },
+    } });
+    writeFileSync(active, original, { mode: 0o600 });
+    const prepare = () => mode === 'native' ? f.native(true) : f.prepare(true);
+    const write = fs.writeFileSync;
+    let prepared;
+    try {
+      fs.writeFileSync = (path, ...args) => {
+        if (path === archive || typeof path === 'string' && path.startsWith(`${archive}.`)) {
+          throw Object.assign(new Error('Synthetic archive storage failure'), { code: 'ENOSPC' });
+        }
+        return write(path, ...args);
+      };
+      syncBuiltinESMExports();
+      prepared = prepare();
+    } finally {
+      fs.writeFileSync = write;
+      syncBuiltinESMExports();
+    }
+    assert.equal(prepared, false);
+    assert.equal(readFileSync(active, 'utf8'), original);
+    assert.equal(readdirSync(f.directory).some(name => name.endsWith('.tmp')), false);
+    assert.equal(prepare(), true);
+    assert.equal(JSON.parse(readFileSync(active, 'utf8')).settings.requestTimeoutMs, 360000);
+    assertArchived(f, archiveName, original);
+  });
+}
+
 for (const endpoint of [
   'wss://example.test/?keep_alive=180000',
   'wss://api.cloudflare.com:8443/client/v4/accounts/a/browser-rendering/devtools/browser?keep_alive=180000',

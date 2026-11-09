@@ -360,6 +360,8 @@ The native `mcp` proxy supports status, explicit connection, cached search/descr
 
 Managed request timeout is `360000` ms, resetting on progress in this adapter; supported elicitation pauses it and task requests have individual timeouts. It is not a fixed total workflow deadline. Navigation guidance uses `120000` ms where supported. Ten-minute adapter idle cleanup, twenty-minute provider `keep_alive=1200000`, Chrome SDK/CDP operation budgets and owner website authentication are independent. Active calls are not idle-killed; no health-ping workaround is added. [REQ-BROWSER-009](../../sdd/spec/browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) owns the profile.
 
+Configuration/startup fixtures and locked-extension synthetic servers qualify their respective boundaries, not deployed authenticated browser behavior. Changed revisions require exact-head CI and separately authorized deployed acceptance; method links and authored fixtures do not supply either.
+
 Native stdio secret literals reserve leading `!`; generated literal values escape it with `!!`. Stock-to-native preparation escapes literals once and rejects unsupported expressions without evaluation. OAuth stores are not imported between clients. New package installation, signed curation delivery and runtime adoption require separate verification; changing source does not update this active Pi process.
 
 **Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
@@ -488,6 +490,28 @@ Behavior required in both timelines receives explicit source edits; no automatic
 The shared compiler and runtime ABI remain Codeflare-owned. Compiler-pin automation compares three compiler scripts and three managed npm lockfiles from an exact successful `main` or `develop` deployment. It advances only when one of those six inputs differs, then curation CI validates that exact checkout ([REQ-AGENT-148 AC5](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication)). A newer source checkpoint or native-only image change does not by itself move the pin. Never copy dirty or untracked compiler files into the private repository.
 
 After a relevant private content change reaches `main`, the protected release workflow derives the next sequence from verified immutable history and publishes fixed signed assets. Codeflare discovers releases through its normal five-minute dashboard refresh. No image rebuild, webhook, or container clone participates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+
+### Managed release evidence inspection
+
+This is a read-only method for [REQ-AGENT-148](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication), not permission to publish or a receipt of protected acceptance. Follow curation's existing [Publish a release](https://github.com/nikolanovoselec/codeflare-curation/blob/main/docs/operator-runbook.md#publish-a-release) and compiler-automation runbook. Inspect an already-completed **Publish managed seed** run at its exact curation SHA, that SHA's `.github/workflows/release.yml`, and the associated existing **Sync Codeflare compiler** evidence. Prerequisites are owner-authorized read access to the protected run/environment identity and non-secret release/comparison records, including the unchanged-input case. Do not obtain signing secrets, dispatch workflows, create a negative release, alter a draft, or retrieve new protected evidence merely to define this method. Missing access or retained records blocks acceptance, not definition of this procedure.
+
+| Scope | Concrete inspection | Pass/fail |
+|---|---|---|
+| AC2: protected signing | In `release.yml`, follow **Validate identity and sign with the environment key** in the `managed-seed-production` job. Check the Ed25519 type check and comparison of the private key's derived raw public bytes with `MANAGED_SEED_PUBLIC_KEY_HEX` before `sign`; correlate the exact job and configured active-public-key identity with its existing protected green run. Never display or retrieve the private key. | Unequal keys must throw before signing; the accepted run must execute this guard against the configured active key. Missing environment/key-identity correlation or a skipped signing job is unverified, not a pass. Source inspection is not an observed mismatched-key trial. |
+| AC3: draft and asset binding | Follow **Create draft and attach both fixed assets by release id**, **Download and revalidate exact draft bytes**, then **Recheck exact draft IDs and publish by release ID**. Correlate run SHA, tag, release/asset IDs, names and digests. Inspect byte comparisons, signature verification and final draft GET/equality before publish PATCH. | Exact draft identity and `seed-v1.json.gz` plus raw 64-byte `seed-v1.sig` must pass the immediate pre-publication digest recheck. Unrelated green runs/current metadata are insufficient. Final PATCH checks immutable status and release ID, not another complete post-publication digest recheck. |
+| AC4: immutable sequence | Trace **Derive the next sequence from immutable history** and **Refuse a sequence whose tag already exists** into the signed bundle/tag of the same completed publication. Compare the existing verified-history maximum and derived next sequence with `seed-v<sequence>`, embedded source identity, and resulting nondraft immutable release ID. | A new publication uses the history-derived next sequence and the same release ID, and its publication result asserts `immutable: true`. The already-published-source reuse branch is a no-publication outcome, not fresh signing evidence. Missing history inputs leaves sequence derivation unverified. |
+| AC5: deployment and six-input comparison | In `sync-compiler.yml`, follow **Resolve eligible Codeflare candidate** against `config/compiler.json` and `scripts/compiler-config.mjs`. Tie the exact candidate SHA to successful `main`/`develop` deployment. Compare base/candidate blob IDs for the six inputs below. Inspect existing all-equal `changed=false`/skip with no pin advance and changed-input pin advancement through exact-head Managed seed CI. | Advancement requires at least one changed input plus that exact successful deployment; newer checkpoints/native-only changes/failed deployment/unbound SHAs are insufficient. `compiler-comparison-evidence` is failure-only, not promised on green runs. Missing retained successful comparison evidence blocks that observation. |
+
+The six compared inputs are:
+
+- `scripts/agent-seed-core.mjs`
+- `scripts/agent-seed-release.mjs`
+- `scripts/agent-seed-release-limits.mjs`
+- `preseed/npm-tools/package-lock.json`
+- `preseed/agents/claude/browser-run-mcp/package-lock.json`
+- `preseed/agents/pi/package-lock.json`
+
+Record only non-secret run/source identities, observed outcomes and missing prerequisites in existing release records. This method neither establishes runtime activation nor replaces deterministic-byte tests or protected-environment acceptance. The private signing key remains outside Codeflare and user storage; rollback remains a higher immutable sequence under the existing environment approval policy.
 
 ### Spotlight: how `runtimeDependencyHash` binds a release to its image
 
