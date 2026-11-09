@@ -108,6 +108,7 @@ const defaultSessionProps = {
 // REQ-AUTH-017: Gravatar integration
 // REQ-VAULT-018: Vault control gating and on-demand prewarm trigger
 
+// REQ-VAULT-033: Vault button availability and opening
 describe('Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

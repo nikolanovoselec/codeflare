@@ -367,7 +367,7 @@ const AiRoutingFields: Component<Props> = (props) => {
       return undefined;
     }
   };
-  // REQ-ENTERPRISE-034/044/052: only server-applied removals change retained
+  // REQ-ENTERPRISE-034/099/044/052: only server-applied removals change retained
   // draft references. A missing route/provider in a read is not deletion proof.
   const reconcileSavedDraft = (result: ReasoningCatalogReconciliation) => {
     if (result.status !== 'applied') return;

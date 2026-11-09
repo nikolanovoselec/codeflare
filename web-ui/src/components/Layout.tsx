@@ -98,7 +98,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // probe produced while SB warmed up. Keyed per session so a switch resets it.
   //
   // Lifecycle: warm-up probes every WARMUP_INTERVAL_MS forever until the
-  // first success (REQ-VAULT-012 AC5). After first success we switch to a
+  // first success (REQ-VAULT-018 AC2). After first success we switch to a
   // steady re-probe to catch SB crashing mid-session (container still
   // "running", proxy returns 502); a failed re-probe clears the latch so
   // the button disables itself and the warmup chain restarts.

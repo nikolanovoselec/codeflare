@@ -484,7 +484,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   });
 
   // =========================================================================
-  // CF-075 // REQ-VAULT-012 / REQ-VAULT-018: advanced-mode affordance + readiness gates.
+  // CF-075 // REQ-VAULT-033 / REQ-VAULT-018: advanced-mode affordance + readiness gates.
   //
   // The Header renders its vault button only when it receives an onVaultOpen
   // prop. Layout passes onVaultOpen only when there is an active session AND

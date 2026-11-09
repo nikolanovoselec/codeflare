@@ -208,7 +208,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 ### REQ-VAULT-005: Worker proxy exposes the in-container vault editor
 
-**Intent:** Clicking the Vault button in the codeflare UI opens SilverBullet in a new tab, behind the same auth + rate-limit boundary as every other tier-gated session feature. This REQ covers the in-container server, the auth/rate-limit proxy plumbing, and the host-side HTTP+WS branch; UX integration lives in [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing), and browser readiness gating lives in [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger).
+**Intent:** Clicking the Vault button in the codeflare UI opens SilverBullet in a new tab, behind the same auth + rate-limit boundary as every other tier-gated session feature. This REQ covers the in-container server, the auth/rate-limit proxy plumbing, and the host-side HTTP+WS branch; Dashboard integration lives in [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing), and control availability/opening lives in [REQ-VAULT-033](#req-vault-033-vault-button-availability-and-opening), and browser readiness gating lives in [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger).
 
 **Applies To:** User
 
@@ -296,7 +296,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 ### REQ-VAULT-008: Zero-UI vault encryption
 
-**Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. This REQ covers encryption-at-rest with a deterministic, bucket-stable key derived by the Worker (no user passphrase prompt). The key's derivation and its role in persisting the IndexedDB index across sessions is [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key); IDB lifecycle cleanup on session DELETE and dashboard-mount sweeping lives in [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters); delivering the key to the browser and keeping it available in the service worker is [REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention). The threat model is BitLocker-grade: it defeats offline disk attacks (profile theft, backup leak, ransomware scan) and does NOT defeat anyone with an authenticated browser tab. Because the key is bucket-stable (not per-session), it deliberately relinquishes per-session forward secrecy in exchange for cross-session IndexedDB persistence (see Constraints).
+**Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. This REQ covers encryption-at-rest with a deterministic, bucket-stable key derived by the Worker (no user passphrase prompt). The key's derivation and its role in persisting the IndexedDB index across sessions is [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key); Legacy session-marker cleanup on session DELETE and successful authoritative session-list sweeping lives in [REQ-VAULT-034](#req-vault-034-legacy-session-vault-marker-cleanup); delivering the key to the browser and keeping it available in the service worker is [REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention). The threat model is BitLocker-grade: it defeats offline disk attacks (profile theft, backup leak, ransomware scan) and does NOT defeat anyone with an authenticated browser tab. Because the key is bucket-stable (not per-session), it deliberately relinquishes per-session forward secrecy in exchange for cross-session IndexedDB persistence (see Constraints).
 
 **Applies To:** User
 
@@ -415,17 +415,15 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 ### REQ-VAULT-012: Vault button render and dashboard landing
 
-**Intent:** The Vault button appears only for active advanced sessions, and each click opens SilverBullet on the codeflare dashboard. The dashboard leads users toward durable notes and references before broader recent-content widgets.
+**Intent:** The editor opens on the codeflare dashboard, which leads users toward durable notes and references before broader recent-content widgets.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The app shell passes a Vault opener to the header only for active advanced-mode sessions. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
-2. On a cold available control, the first click prepares the current session's proxied editor and arms the control; the second click opens it. An already armed/ready control opens on the first click. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
-3. The editor opens on the codeflare dashboard page. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
-4. The dashboard links to the README near the top. <!-- @manual -->
-5. The dashboard surfaces `Notes/` and `References/` before generic recent-content widgets. <!-- @manual -->
+1. The editor opens on the codeflare dashboard page. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
+2. The dashboard links to the README near the top. <!-- @manual -->
+3. The dashboard surfaces `Notes/` and `References/` before generic recent-content widgets. <!-- @manual -->
 
 **Constraints:**
 
@@ -435,7 +433,32 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [REQ-VAULT-012 procedure](../../documentation/lanes/vault.md#req-vault-012-manual-qualification)
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js); Manual: [REQ-VAULT-012 procedure](../../documentation/lanes/vault.md#req-vault-012-manual-qualification)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-033: Vault button availability and opening
+
+**Intent:** The Vault button is available only for active advanced sessions. A cold available control prepares the current session’s proxied editor before opening; an already armed/ready control opens on the first click.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The app shell passes a Vault opener to the header only for active advanced-mode sessions. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
+2. On a cold available control, the first click prepares the current session's proxied editor and arms the control; the second click opens it. An already armed/ready control opens on the first click. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
+
+**Constraints:**
+
+- The dashboard is codeflare-authoritative preseed content.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing)
+
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -503,7 +526,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 ### REQ-VAULT-015: Vault IDB lifecycle and listing filters
 
-**Intent:** SilverBullet's on-disk listings would otherwise expose derived/internal directories to the user, and stale per-session bookkeeping would otherwise accumulate in browser storage. This REQ covers per-session localStorage-marker cleanup on session DELETE, authoritative session-list sweeping of orphaned markers, and the listing filters that keep derived output and internal preseed pages out of the vault tree. As reconciled by [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap), the SilverBullet IndexedDB stores and the vault service worker are bucket-stable (one per user, persisting across sessions) and are therefore NOT torn down by this cleanup.
+**Intent:** SilverBullet listings and navigation hide derived output and internal preseed pages. Client mutation protection keeps hidden machine-owned content intact.
 
 **Applies To:** User
 
@@ -511,19 +534,43 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 1. The editor's filesystem listing hides the derived graph-output directory, generated graph HTML visualizations and machine-owned session-capture memory from browser listing and SilverBullet client sync/index; client mutations to those hidden namespaces are rejected. <!-- @impl: src/lib/vault-view.ts::filterVaultFsListing --> <!-- @impl: src/lib/vault-view.ts::isFilteredVaultMutation --> <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (CF-045: vault-html direct unit tests) -->
 2. The preseed configuration page declares a treeview-exclusions block hiding the plug library, the library-manager mirror, the derived graph-output directory, and the four codeflare-authoritative root pages from the navigation tree. <!-- @test: host/__tests__/preseed-config-treeview.test.js (treeview rules hide every entry that should be hidden (REQ-VAULT-015 AC2)) --> <!-- @manual -->
-3. The frontend runs session-vault-cache cleanup on session delete (not on stop), removing only legacy session-scoped localStorage markers. SilverBullet IndexedDB stores remain bucket-stable and are not deleted on per-session delete. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache --> <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)) -->
-4. After an authoritative session-list fetch succeeds, the frontend sweeps persisted localStorage markers and, for any session no longer in the user's active sessions list, drops the corresponding marker entries. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) -->
 
 **Constraints:**
 
 - The library-manager mirror is the editor's own runtime-managed clone tree; the user does not curate it directly; The editor's internal config directory is dot-prefixed and hidden by the editor's default behavior; it requires no explicit rule.
-- Cleanup and sweep use only localStorage markers and never enumerate or delete browser databases; after [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) reconciliation they do not touch IndexedDB.
+- Cleanup and sweep use only localStorage markers and never enumerate or delete browser databases; after [REQ-VAULT-035](#req-vault-035-bucket-stable-vault-runtime-preservation) reconciliation they do not touch IndexedDB.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated: [preseed-config-treeview.test.js](../../host/__tests__/preseed-config-treeview.test.js), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [vault-cache.test.ts](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [REQ-VAULT-015 procedure](../../documentation/lanes/vault.md#req-vault-015-manual-qualification)
+**Verification:** Automated: [preseed-config-treeview.test.js](../../host/__tests__/preseed-config-treeview.test.js), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts); Manual: [REQ-VAULT-015 procedure](../../documentation/lanes/vault.md#req-vault-015-manual-qualification)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-034: Legacy session vault marker cleanup
+
+**Intent:** Session deletion and successful authoritative session-list fetches clean up only legacy session-scoped localStorage markers. Bucket-stable IndexedDB stores and the vault service worker remain durable per-user resources and are not torn down by this cleanup.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The frontend runs session-vault-cache cleanup on session delete (not on stop), removing only legacy session-scoped localStorage markers. SilverBullet IndexedDB stores remain bucket-stable and are not deleted on per-session delete. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache --> <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)) -->
+2. After an authoritative session-list fetch succeeds, the frontend sweeps persisted localStorage markers and, for any session no longer in the user's active sessions list, drops the corresponding marker entries. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) -->
+
+**Constraints:**
+
+- The library-manager mirror is the editor's own runtime-managed clone tree; the user does not curate it directly; The editor's internal config directory is dot-prefixed and hidden by the editor's default behavior; it requires no explicit rule.
+- Cleanup and sweep use only localStorage markers and never enumerate or delete browser databases; after [REQ-VAULT-035](#req-vault-035-bucket-stable-vault-runtime-preservation) reconciliation they do not touch IndexedDB.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters)
+
+**Verification:** Automated: [vault-cache.test.ts](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -648,7 +695,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing)
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing), [REQ-VAULT-033](#req-vault-033-vault-button-availability-and-opening)
 
 **Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [browser-storage-persistence.test.ts](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [vault-readiness.test.ts](../../web-ui/src/__tests__/lib/vault-readiness.test.ts)
 
@@ -778,7 +825,33 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 ### REQ-VAULT-023: Bucket-stable vault store persistence and content bootstrap
 
-**Intent:** Once the vault's IndexedDB stores and service worker are bucket-stable, they must actually behave like durable per-user resources rather than per-session scratch: session cleanup and the orphan sweep must never delete them, and the sync engine must not mistake a still-warming in-container SilverBullet server for an empty vault and wipe the local store. The vault initializer also keeps the codeflare-authoritative config pages' metadata stable across boots and seeds the landing pages a fresh or upgrading vault needs, so the persisted store never gets stuck fighting a spurious "changed on secondary" conflict.
+**Intent:** The vault initializer keeps codeflare-authoritative config pages’ metadata stable across boots and seeds missing landing pages without overwriting user edits, preventing spurious secondary-change conflicts while preserving editor-normalized dashboard content through R2.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Each boot stamps CONFIG, README and STYLES with preseed-source modification times, even when content equality skips rewriting, so the editor reports identical times across sessions; the create-if-missing dashboard is exempt. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (stamps codeflare-authoritative config pages with the deterministic preseed mtime even when cmp-skip leaves content untouched) -->
+2. Notes and References landing pages are created only if missing so the dashboard's bare `[[Notes]]` / `[[References]]` wikilinks resolve to real pages; user edits are never overwritten. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
+3. The dashboard is seeded only if missing, rather than force-overwritten; editor-normalized content persists through R2 to a stable no-conflict fixed point, and an existing dashboard differing from preseed is never overwritten. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (seeds Index.md create-if-missing but NEVER force-overwrites an existing differing Index.md (prevents the 2nd-start sync conflict)) -->
+
+**Constraints:**
+
+- The deterministic preseed-mtime stamp (REQ-VAULT-023 AC1) only equalizes the SECONDARY-side mtime for CONFIG/README/STYLES; it cannot fix a PRIMARY-side (client save) conflict, which is why `Index.md` moved to create-if-missing (REQ-VAULT-023 AC3) instead of being covered by the stamp.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
+
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-035: Bucket-stable vault runtime preservation
+
+**Intent:** Bucket-stable IndexedDB stores and canonical workers remain durable per-user resources. Ordinary cleanup preserves them, and sync aborts and retries instead of deleting a non-empty local store when the remote list is empty or unreadable.
 
 **Applies To:** User
 
@@ -786,19 +859,16 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 1. Ordinary session cleanup preserves bucket-stable databases and canonical workers; only the versioned cutover may unregister them ([REQ-VAULT-029](#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety)). <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache --> <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches --> <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)) -->
 2. Sync never deletes a non-empty local store while the remote list is empty or unreadable; it aborts and retries later ([REQ-VAULT-025](#req-vault-025-silverbullet-native-service-worker-runtime-graft)). <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (CF-045: vault-native-sw direct unit tests) -->
-3. Each boot stamps CONFIG, README and STYLES with preseed-source modification times, even when content equality skips rewriting, so the editor reports identical times across sessions; the create-if-missing dashboard is exempt. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (stamps codeflare-authoritative config pages with the deterministic preseed mtime even when cmp-skip leaves content untouched) -->
-4. Notes and References landing pages are created only if missing so the dashboard's bare `[[Notes]]` / `[[References]]` wikilinks resolve to real pages; user edits are never overwritten. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
-5. The dashboard is seeded only if missing, rather than force-overwritten; editor-normalized content persists through R2 to a stable no-conflict fixed point, and an existing dashboard differing from preseed is never overwritten. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (seeds Index.md create-if-missing but NEVER force-overwrites an existing differing Index.md (prevents the 2nd-start sync conflict)) -->
 
 **Constraints:**
 
-- The deterministic preseed-mtime stamp (AC3) only equalizes the SECONDARY-side mtime for CONFIG/README/STYLES; it cannot fix a PRIMARY-side (client save) conflict, which is why `Index.md` moved to create-if-missing (AC5) instead of being covered by the stamp.
+- The deterministic preseed-mtime stamp (REQ-VAULT-023 AC1) only equalizes the SECONDARY-side mtime for CONFIG/README/STYLES; it cannot fix a PRIMARY-side (client save) conflict, which is why `Index.md` moved to create-if-missing (REQ-VAULT-023 AC3) instead of being covered by the stamp.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
+**Dependencies:** [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap), [REQ-VAULT-034](#req-vault-034-legacy-session-vault-marker-cleanup)
 
-**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js), [vault-native-sw-direct.test.ts](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [vault-cache.test.ts](../../web-ui/src/__tests__/lib/vault-cache.test.ts)
+**Verification:** Automated: [vault-native-sw-direct.test.ts](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [vault-cache.test.ts](../../web-ui/src/__tests__/lib/vault-cache.test.ts)
 
 **Status:** Implemented
 
@@ -827,7 +897,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-022](#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap)
+**Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-022](#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap), [REQ-VAULT-035](#req-vault-035-bucket-stable-vault-runtime-preservation)
 
 **Verification:** Automated: [access.test.ts](../../src/__tests__/lib/access.test.ts), [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-bucket-token.test.ts](../../src/__tests__/lib/vault-bucket-token.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts)
 

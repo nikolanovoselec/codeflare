@@ -237,7 +237,7 @@ const upgradeRecovery = sessionStore as typeof sessionStore & {
 };
 
 // REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
-// REQ-VAULT-015: Vault IDB lifecycle and listing filters
+// REQ-VAULT-034: Legacy session vault marker cleanup
 
 describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   const defaultProps = {

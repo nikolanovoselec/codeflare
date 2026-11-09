@@ -1012,7 +1012,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Administration lists live gateway routes. Explicit saved-connection reconciliation permanently removes authoritatively absent Dynamic settings and owned Native policy references without widening access. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+1. Administration lists live gateway routes. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) -->
 2. Normal Discover automatically adopts a qualified shared contract and server receipt, without a profile chooser, naming step or separate Verify. Manual controls remain under Advanced. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCapabilityDiscovery --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (automatically adopts the generated contract and receipt without choosing, naming or verifying a profile) -->
 3. Detected models load automatically through read-only inventory and appear inside the selected route, outside advanced technical details. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route) -->
 4. Group, default, preview, and Apply controls require neither editable JSON nor manual route duplication. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-034: adds a discovered route only after verification and policy assignment and preserves apply-to-all) -->
@@ -1036,6 +1036,39 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](models-and-routing.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence)
+
+**Verification:** Route administration and saved-policy reconciliation have automated behavioral coverage, including saved-source compatibility and safe check failure recovery. The current gap fixes await exact-head CI and deployed acceptance; historical qualification is not evidence for the new diff.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-099: Saved-connection routing reconciliation
+
+**Intent:** Explicit saved-connection reconciliation removes only authoritatively absent Dynamic settings and owned Native policy references, preserving access boundaries, independent preferences, shared evidence and revision ownership.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Explicit saved-connection reconciliation permanently removes authoritatively absent Dynamic settings and owned Native policy references without widening access. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+
+**Constraints:**
+
+- Prune absent Dynamic assignments/contexts/defaults/policies; retain shared revisions/receipts and valid independent source/permission preferences. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/live-routing-reconciliation.ts::prepareSavedRoutingReconciliation --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+- Native-looking names stay Dynamic without a saved Native owner.
+- Existing admission/revision ownership applies; revision/connection/Setup/ownership drift aborts writes. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
+- Applied cleanup advances revision/invalidates previews.
+- Accept `data.page`/`data.per_page` without mandatory totals; complete inventories cap at ten pages/1,000 routes. <!-- @impl: src/lib/ai-gateway-management.ts::listDynamicRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)) -->
+- Failed pages/pagination drift/duplicates/exhausted bounds never authorize deletion. <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)) -->
+- Only `POST /catalog {reconcileSaved:true,baseRevision}` reconciles complete saved-Gateway inventories; GET/ordinary POST/overlays stay read-only. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
+- Reject reconciliation overlays/deletion lists.
+- Never force/infer Gateway-owned routes/backends; manual assignment needs no discovery; UI checks never automatically retry/escalate.
+- Advanced discovery retains 32–16,384 tokens, default 4,096, independently of target discovery.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](models-and-routing.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration)
 
 **Verification:** Route administration and saved-policy reconciliation have automated behavioral coverage, including saved-source compatibility and safe check failure recovery. The current gap fixes await exact-head CI and deployed acceptance; historical qualification is not evidence for the new diff.
 

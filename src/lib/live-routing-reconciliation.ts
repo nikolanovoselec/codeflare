@@ -64,7 +64,7 @@ const windowSchema = z.record(dynamicRouteSchema, z.union([
 const settingKeys = [SETUP_KEYS.DYNAMIC_ROUTES, SETUP_KEYS.DEFAULT_ROUTE, SETUP_KEYS.ROUTE_CONTEXT_WINDOWS,
   SETUP_KEYS.NATIVE_AI_TARGETS, SETUP_KEYS.REASONING_CONFIGURATION, SETUP_KEYS.GROUP_ROUTING] as const;
 
-/** REQ-ENTERPRISE-034/044/047/055: derive only deletions from complete saved-connection inventories. */
+/** REQ-ENTERPRISE-034/099/044/047/055: derive only deletions from complete saved-connection inventories. */
 export async function prepareSavedRoutingReconciliation(env: Env) {
   const gateway = await resolveGatewayConnection(env);
   const fingerprint = connectionFingerprint(gateway);

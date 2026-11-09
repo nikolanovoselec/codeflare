@@ -94,7 +94,7 @@ const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",n.message)";
 // prevent treating a transient empty response as authoritative remote deletions.
 // `syncSpace` emits the sync error and rethrows; `run()` warns and retries later.
 // Once a real list arrives reconciliation resumes. Only a valid empty array with
-// empty primary AND snapshot is a safe no-op. (REQ-VAULT-025 AC2, REQ-VAULT-023 AC2.)
+// empty primary AND snapshot is a safe no-op. (REQ-VAULT-025 AC2, REQ-VAULT-035 AC2.)
 //
 // CRITICAL — The remote list is one binding in a single `let r=...,s=...,c=...,a=...,l=...` declarator
 // list (the minified sync-cycle declaration). The guard MUST wrap the `s=`
