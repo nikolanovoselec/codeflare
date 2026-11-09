@@ -174,6 +174,14 @@ Zizmor gate exits nonzero on surviving findings; justified suppressions stay on 
 
 Actionlint 1.7.12 predates GitHub’s `$/…` self-repository syntax. The version-bound input bridge uses the locked YAML parser to change only actual action/reusable-workflow `uses` prefixes from `$` to `.` in memory. Original files, script text, comments and diagnostic positions stay intact; `-stdin-filename` retains original-path local metadata validation. Zizmor still audits untouched sources. There is no diagnostic suppression, binary patch or newer-version fallback. A pin change requires requalification. The audit lane checks valid references and negative target/input/expression/shell cases with the checksum-verified real binary. <!-- @impl: scripts/ci/actionlint-input.mjs::actionlintInput -->
 
+### PR Checks timing acceptance
+
+Method for [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance). Use an existing completed run; this procedure does not authorize a new workflow, deployment or protected test run.
+
+1. Select the PR Checks run and attempt for the exact candidate SHA. Confirm classification included the affected workloads and their required results completed successfully; a cancelled, wrong-head or skipped-workload run cannot qualify.
+2. Record run ID, attempt, SHA, workflow start/completion and affected-gate durations from GitHub's recorded timing. Report queued time separately and retain the observations with the existing run/PR evidence, not as current-success prose in this lane.
+3. PASS requires both the complete run duration and affected-gate durations below the existing three-minute target. An over-target duration is FAIL; unavailable timing or incomplete affected-workload evidence is BLOCKED. Do not add timeout caps or omit workloads to pass.
+
 ### PR Exact-Head Monitoring
 
 [Preseed — Review completion prompt or FIX is missing](preseed.md#review-completion-prompt-or-fix-is-missing) owns session boundary eligibility, exact-head resolution and recovery, not this workflow lane. Retired checkpoint files are not a recovery mechanism.

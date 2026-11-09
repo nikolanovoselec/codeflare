@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-08
 
-- Defer background storage re-encryption while D1 records a workload-owning session, including an unreachable runtime, and recheck ownership before mutating objects after drain attempts. Preserve bounded recovery when a fresh check confirms no owner ([REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine)).
+- Defer background storage re-encryption while D1 records a workload-owning session, including an unreachable runtime, and recheck ownership before mutating objects after drain attempts. Preserve bounded recovery when a fresh check confirms no owner ([REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-021](storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)).
 
 - Refuse protected container forwarding without lifecycle credentials, retire IDE backends blocked on cancelled prompt writes, and retain generation/incident context when required recovery alarms fail. Preserve internal routes, ordinary completed-turn reuse and retry ownership ([REQ-SEC-022](security.md#req-sec-022-container-proxy-bearer-validation), [REQ-IDE-008](browser-ide.md#req-ide-008-ide-agent-process-lifecycle), [REQ-SESSION-026](session-lifecycle.md#req-session-026-lifecycle-scheduling-and-persistence-failures-remain-actionable)).
 

@@ -428,6 +428,16 @@ Record the exact build, requirement/AC, synthetic fixture identity, nonsecret di
 2. Use normal `POST /api/sessions/:id/stop`, not Kill or direct signals. Observe successful final sync and confirmed lifecycle stop; a stop response alone is not durability evidence.
 3. Independently download the exact key after shutdown. PASS requires matching bytes and publication attributable to the final drain, not an earlier periodic sync. Missing/corrupt bytes fails; unsuccessful sync or unavailable independent readback cannot pass this success case.
 
+### REQ-STOR-006 quota admission acceptance
+
+Use an authorized isolated SaaS/non-enterprise fixture with prepared tier and cache state. Changing billing/tier configuration needs separate permission; a missing cache or enterprise bypass cannot qualify this check.
+
+1. With known-size objects and a finite resolved quota, request `GET /api/storage/stats`. Verify usage and maximum against the fixture, then confirm an otherwise eligible under-limit New Session request succeeds. Use approved traces to verify cached usage supplies admission.
+2. Refresh an over-limit fixture's stats, then request New Session. PASS requires an understandable storage-quota refusal and no new record. Another admission error or an empty cache does not establish quota enforcement.
+3. Use a prepared resolved-unlimited fixture whose usage exceeds the finite case. PASS requires an unlimited readout and no storage-quota refusal. Do not erase a stored field to simulate unlimited when default merging would restore a finite cap.
+
+Wrong totals, over-limit admission or cross-user state is FAIL. Missing trace access is BLOCKED for the cache-source predicate. Automated default-inheritance coverage remains separate; these checks cover manual AC1–4 only.
+
 ### REQ-STOR-007 upload and preview acceptance
 
 1. Upload known nonempty bytes with authenticated `POST /api/storage/upload` JSON `{key, content}`, where content is base64. Independently download the encoded exact key. PASS requires matching bytes, key and reported size; rejection does not qualify storage.
@@ -440,6 +450,27 @@ Record the exact build, requirement/AC, synthetic fixture identity, nonsecret di
 2. PASS requires independently observed stored-part bytes or matching completed-download bytes. A returned upload ID/ETag alone is insufficient. Keep ordinary fixture keys outside managed namespaces and retain only nonsecret evidence.
 3. In a fresh A window, interleave legitimate upload phases against the shared 60-per-60-second allowance. Prepare valid phase inputs before exhaustion. PASS requires alternate phases to return 429 with retry/limit guidance after aggregate exhaustion, not separate allowances.
 4. Verify B's independent first request remains eligible and A recovers after its actual window expires. Unrelated errors or crossing a window boundary cannot qualify throttling. Abort only known disposable incomplete uploads when permitted, under explicit cleanup authorization.
+
+### REQ-STOR-009 tutorial recreation acceptance
+
+Use an authorized disposable bucket with no concurrent session writes. Authorize the exact tutorial keys and overwrite explicitly; automatic non-overwriting startup seeding is a separate method, not a selectable flag on the recreation endpoint.
+
+1. Make a known synthetic edit to one tutorial, then fetch storage stats to warm a fresh cache reflecting that edit. Keep the following operations inside that cache window.
+2. Use Recreate Docs & Examples or authenticated `POST /api/storage/seed/getting-started`. PASS requires success, reported written keys and independently readable recreated tutorial content replacing the synthetic edit; a success response alone is insufficient.
+3. Read stats before the original cache expires. PASS requires the recreated content's current totals, not the pre-recreation cached totals. Wrong content/totals is FAIL; unavailable independent readback or an expired observation window is BLOCKED.
+
+No ordinary user edits, other object keys, seed-complete marker or upload state is cleared for this check. Automatic retry, idempotency and rate-limit evidence remain the linked automated methods.
+
+### REQ-STOR-014 cached statistics acceptance
+
+Use an authorized isolated bucket with a prepared inventory exceeding one listing page and known total bytes. Keep one Worker location and record the cache window; external fixture writes and tutorial overwrites require their own authorization. No instrumentation or protected run is authorized here.
+
+1. Request `GET /api/storage/stats` from a fresh cache. PASS requires complete inventory counts/bytes across pages, not just the first page.
+2. Make an authorized external fixture-object change without using an invalidating application endpoint. Before cache expiry, the stats read retains cached totals; after expiry, it reflects the change. Wrong totals or indefinite stale results fail.
+3. Separately warm the cache before a successful upload, delete and authorized tutorial recreation. The next stats read within that cache window reflects each mutation; timeout-driven refresh alone cannot qualify invalidation.
+4. On a cache hit, compare the returned quota with the cached fixture and use existing authorized observations to confirm no tier-configuration resolution. If those observations are unavailable, record BLOCKED for that internal predicate rather than inferring it from latency.
+
+The ancillary-consumer method is the linked route test, not hot batch polling. These manual checks cover AC1/3/4; authored steps are not passing evidence.
 
 ### REQ-STOR-015 per-user sync limit acceptance
 
@@ -461,6 +492,16 @@ Record the exact build, requirement/AC, synthetic fixture identity, nonsecret di
 3. Confirm proper partial effects without applied-B publication. Remove only the fixture fault and use Retry upgrade with the same target. PASS requires verified completed objects skipped, remaining changes written, unchanged user edits retained and success-only final B publication.
 4. Verify applied/current state and bytes/metadata independently of POST success. Bad-marker skips, replayed completed writes, overwritten unchanged edits or premature publication fails. Do not substitute Recreate, changed identity or manufactured provenance.
 5. Existing automated fallback/admission/Recreate checks remain separate. Record concurrency against the six-operation ceiling only when approved traces expose it. If real interruption, scope or observation is unavailable, mark BLOCKED; add no product failpoint or infrastructure.
+
+### REQ-ENTERPRISE-021 migration progress acceptance
+
+Manual AC5 observes an already authorized, isolated migration fixture prepared under the existing owner runbook. Do not toggle a shared environment, create faults or modify regime state for this procedure. Missing progressing/halted fixtures are BLOCKED, not permission to build them.
+
+1. Open or reload the dashboard during the prepared migration. Observe the ancillary response and New Session control; known progress is within 0–99, and the disabled control displays `Migrating N%` for that value.
+2. Keep the page visible and record successive migration ancillary updates. Verify the existing five-second scheduling and non-overlap, distinguishing request duration from timer delay. If migration ends before that observation is possible, record BLOCKED for cadence.
+3. Observe the prepared halted fixture: percentage is omitted, New Session remains disabled, and the UI does not invent a percentage. Enabled creation, out-of-range/mismatched progress or invented halted progress is FAIL.
+
+Record build, nonsecret fixture identity, response timing and observed labels. These checks do not establish encryption conversion, drain completion or live storage preservation; their automated methods and separate acceptance boundaries remain unchanged.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map

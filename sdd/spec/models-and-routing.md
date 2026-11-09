@@ -776,8 +776,10 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 - Unavailable or expired receipts may use unchanged current saved proof. <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-065: an unavailable old Native receipt cannot block unchanged current saved target authority) -->
 - Explicit null clears proof.
 - Present mismatched receipts reject.
-- Existing multi-key KV writes are not transactional. Reconciliation reports persistence failures rather than claiming committed cleanup. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: a failed %s write cannot report committed cleanup) -->
-- Reconciliation removes a Native target only when its exact stored provider binding is authoritatively absent. Ambiguous, unsupported or alias-changed present bindings remain stored without regaining readiness; replacement bindings cannot retain a deleted target. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-055: exact binding presence retains ambiguous or unsupported targets but a replacement binding cannot retain a deleted target) -->
+- Existing multi-key KV writes are not transactional.
+- Reconciliation reports persistence failures rather than claiming committed cleanup. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: a failed %s write cannot report committed cleanup) -->
+- Reconciliation removes a Native target only when its exact stored provider binding is authoritatively absent.
+- Ambiguous, unsupported or alias-changed present bindings remain stored without regaining readiness; replacement bindings cannot retain a deleted target. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-055: exact binding presence retains ambiguous or unsupported targets but a replacement binding cannot retain a deleted target) -->
 
 **Priority:** P1
 
@@ -915,7 +917,9 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 **Constraints:**
 
 - Policy defaults require eligible live-verified or administrator-confirmed routes; profile selection alone remains a draft operation. <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-043: explicit administrator confirmation enables access without claiming live-check results) -->
-- Catalog hydration preserves existing selections, including supported Off; changing the route/profile replaces only unsupported selections. Native configurable defaults must match the resolved canonical profile and evidence on Save, not rely on runtime fallback. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues -->
+- Catalog hydration preserves existing selections, including supported Off.
+- Changing the route/profile replaces only unsupported selections.
+- Native configurable defaults must match the resolved canonical profile and evidence on Save, not rely on runtime fallback. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues -->
 - Provider-default Off is a selectable preference, not verified disabled; the Worker sends no reasoning override. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-045: %s receipt permits an Off default preference and access without inventing cache or saving) -->
 
 **Priority:** P1

@@ -2636,7 +2636,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - Unknown, foreign and newly revoked installation cursors fail closed. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (rejects unknown, foreign and newly revoked installation cursors without leaking hidden records) -->
 - Insertions do not skip original remaining installation identities. <!-- @test: src/__tests__/operators/operator-catalog.test.ts (keeps original remaining installation identities reachable when another installation arrives between pages) -->
 - No new scheduler, invocation schema, installation permission, default repository, global theme, imported font, dashboard shell or screenshot-coordinate positioning is introduced.
-- Status/diagnostics reads do not start, restart, renew, replay or collect work. SDK release does not prove physical cessation.
+- Status/diagnostics reads do not start, restart, renew, replay or collect work.
+- SDK release does not prove physical cessation.
 - Existing catalog/management and full activity surfaces remain available; unsupported manual invocation is explained rather than invented.
 
 **Priority:** P0
@@ -3173,7 +3174,9 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 - Every manual and automatic run requires the configured repository, without fallback or override. <!-- @impl: src/operators/orchestrator.ts::prepareOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-061: configured Renovate run settings) -->
 - Settings retain unrelated installation configuration. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (REQ-OPERATOR-061: intent %s run settings save the public wire contract, reload retained values and isolate other installations until explicit re-enable) --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (REQ-OPERATOR-061: intent %s exposes the saved repository and Save action without a read mutation) -->
-- An accessible MDI repeat toggle immediately follows Enable/Disable and edits the existing draft. Save run settings applies it; OFF hides interval/help while retaining the saved interval. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (REQ-OPERATOR-061: repeat follows Enable or Disable and edits only the unsaved run-settings draft) -->
+- An accessible MDI repeat toggle immediately follows Enable/Disable and edits the existing draft.
+- Save run settings applies the repeat draft.
+- OFF hides interval/help while retaining the saved interval. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (REQ-OPERATOR-061: repeat follows Enable or Disable and edits only the unsaved run-settings draft) -->
 - Automatic observation uses the configured positive interval, defaulting to one hour. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: configured Renovate run settings) -->
 - Disabling automation preserves manual invocation and fences queued callbacks before observation, admission or rearming. <!-- @impl: src/container/index.ts::container --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (retain the interval when automatic runs are switched off) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: configured Renovate run settings) -->
 - Settings changes invalidate old callback/admission authority; ordinary installation enablement cannot reactivate an old registration. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (configuration save and ordinary separate enable cannot refresh an old admitted generation) -->

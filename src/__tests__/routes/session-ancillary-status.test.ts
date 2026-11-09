@@ -50,6 +50,7 @@ describe('REQ-SESSION-010 AC7: ancillary session polling owner', () => {
     });
   }
 
+  // REQ-STOR-014 AC2: ancillary consumers reuse the actual cached storage value.
   it('returns cached storage and entitlement state outside the D1 hot path', async () => {
     const response = await app().request('/sessions/ancillary-status');
     expect(response.status).toBe(200);

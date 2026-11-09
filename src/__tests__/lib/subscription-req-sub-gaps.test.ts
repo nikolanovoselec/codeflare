@@ -213,6 +213,7 @@ describe('REQ-SUB-009: getTierConfig KV-first with default fallback', () => {
     expect(config.find((t) => t.id === 'standard')!.monthlySeconds).toBe(144000);
   });
 
+  // REQ-STOR-006 AC5: persisted legacy tiers inherit new storage-field defaults.
   it('REQ-SUB-009 AC4: admin-stored values take priority via merge (stored overrides default)', async () => {
     // Simulate stored config missing a new field (maxStorageBytes added after deploy)
     const storedWithoutStorage = getDefaultTiers().map(({ maxStorageBytes: _ms, ...rest }) => rest);
