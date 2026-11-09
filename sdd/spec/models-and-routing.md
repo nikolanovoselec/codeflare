@@ -2,7 +2,7 @@
 
 ## Scope and ownership
 
-This domain owns model routing, authorization, discovery, capability profiles, wire compatibility, replay, caching and container publication. Relocated REQ-ENTERPRISE identifiers retain their whole-record obligations, traceability comments, verification qualifiers, statuses and legacy aliases. Section headings organize existing contracts; they introduce no behavior or status change.
+This domain owns model routing, authorization, discovery, capability profiles, wire compatibility, replay, caching and container publication.
 
 Setup and Administration configuration remains in [Setup](setup.md); tier behavior in [Subscription](subscription.md); agent availability in [Agents](agents.md); identity in [Authentication](authentication.md); network and governance policy in [Security](security.md); storage behavior in [Storage](storage.md).
 

@@ -3,13 +3,13 @@
 # Operators
 
 <a id="domain-dependencies"></a>
-Enterprise-only Operator identity, installation, admission, execution, confinement, persistence, webhook and user-surface contracts. This is the single owner of REQ-OPERATOR-001–097. Existing authentication, enterprise authorization, session admission/lifecycle, storage, setup and provider routing remain their own authorities: Operator restrictions can narrow but never extend those permissions. Root sessions and existing human/local-review behavior remain unchanged. Required merge-check activation remains out of scope.
+Enterprise-only Operator identity, installation, admission, execution, confinement, persistence, webhook and user-surface contracts. This is the single owner of Operator requirements. Existing authentication, enterprise authorization, session admission/lifecycle, storage, setup and provider routing remain their own authorities: Operator restrictions can narrow but never extend those permissions. Root sessions and existing human/local-review behavior remain unchanged. Required merge-check activation remains out of scope.
 
 **Domain owner:** Backend (Worker), container host and enterprise frontend
 
-Codeflare owns the generic Worker/container platform, compiler, runtime, baked seed, Operator Interface and publication fences. Conductor owns Review packet, orchestration, result, history and publication policy; Dispatcher owns Renovate policy. Generic host-side Pi confinement remains Codeflare-owned. Managed content belongs to curation; non-default operational values and secrets belong to the private operator library. This consolidation changes no ABI, compiler pin, capability or acceptance status.
+Codeflare owns the generic Worker/container platform, compiler, runtime, baked seed, Operator Interface and publication fences. Conductor owns Review packet, orchestration, result, history and publication policy; Dispatcher owns Renovate policy. Generic host-side Pi confinement remains Codeflare-owned. Managed content belongs to curation; non-default operational values and secrets belong to the private operator library.
 
-Requirement IDs, obligations and verification qualifications remain stable. Historical evidence is not current-head or deployment acceptance. The normative appendix owns the concrete shared registry contract; its schemas and capability wires are subordinate to the corresponding authorization and lifecycle requirements. Legacy record fragments remain explicit aliases in this canonical owner.
+Historical evidence is not current-head or deployment acceptance. The normative appendix owns the concrete shared registry contract; its schemas and capability wires are subordinate to the corresponding authorization and lifecycle requirements. Legacy record fragments remain explicit aliases in this canonical owner.
 
 ## Human identity, policy and protected authority
 

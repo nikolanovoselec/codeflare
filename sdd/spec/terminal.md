@@ -29,7 +29,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 - **Session Lifecycle** (container must be running) -- Terminal connections require an active, running container. Backend lifecycle authority is distinct from device-local connectivity.
 - **Authentication** (WebSocket auth) -- WebSocket upgrade requests are authenticated via the Worker middleware and container auth token.
-- **Terminal compatibility implementation** -- Mobile features extend xterm rendering/input through mobile.ts, touch-gestures.ts and terminal-mobile-input.ts; REQ-MOB identifiers and verification qualifiers are retained, not renumbered or promoted.
+- **Terminal compatibility implementation** -- Mobile features extend xterm rendering/input through mobile.ts, touch-gestures.ts and terminal-mobile-input.ts.
 
 ---
 
