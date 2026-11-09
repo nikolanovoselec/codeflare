@@ -16,8 +16,8 @@
  * AC2. account id + gateway id are derived from AIG_GATEWAY_URL (account in the
  *      URL path; gateway in the cf-aig-gateway-id header).
  * AC3. The upstream response (text/event-stream) is streamed back, status +
- *      content-type preserved; a missing terminal finish_reason chunk is
- *      synthesized before [DONE] (idempotent; tool_calls vs stop).
+ *      content-type preserved. Former AC3 terminator repair is now
+ *      REQ-ENTERPRISE-097 AC1–AC3 (idempotent; tool_calls vs stop).
  * AC4. Authorization: Bearer <AIG_TOKEN> carries the gateway token (standard
  *      header, not cf-aig-authorization); cf-aig-metadata carries props.user
  *      stamped verbatim — the user's email (per-user gateway analytics).
@@ -540,6 +540,7 @@ describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {
   });
 });
 
+// REQ-ENTERPRISE-097 AC1–AC3: extracted from REQ-ENTERPRISE-004 AC3; legacy test titles remain unchanged.
 describe('REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route finish_reason fix)', () => {
   const dataLine = (obj: unknown): string => `data: ${JSON.stringify(obj)}\n\n`;
   const sse = (chunks: string[]): Response => {
@@ -599,6 +600,7 @@ describe('REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route
     );
     const text = await res.text();
     expect(text).toContain('"finish_reason":"tool_calls"');
+    expect(text.indexOf('"finish_reason":"tool_calls"')).toBeLessThan(text.indexOf('data: [DONE]'));
   });
 
   it('does not touch a non-chat-completions stream (e.g. /responses passes through unchanged)', async () => {

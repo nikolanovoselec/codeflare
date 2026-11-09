@@ -18,7 +18,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 1. The container DO routes outbound HTTPS for the real LLM provider host (`api.openai.com`) through a session-bound Worker interceptor. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD74 amendment)) -->
 2. The interceptor receives Worker-resolved gateway coordinates and credentials without exposing them through the container or a public route. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: enabled personal permission preserves sanctioned Dynamic Route routing) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: enabled personal permission preserves sanctioned managed Native Route routing) -->
-3. Streaming responses are preserved end-to-end. A streamed chat-completions response whose terminal `finish_reason` chunk is missing as the AI Gateway dynamic-route wrapper omits it on the wire. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route finish_reason fix)) -->
+3. Streaming responses are preserved end-to-end. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: streaming passthrough (no buffering)) -->
 4. Forwarded requests stamp gateway ID plus user email or bucket fallback; up to four matched groups become deterministic metadata tags, and the session's first configured matching group controls route restrictions. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @impl: src/lib/access.ts::resolveSessionAccessGroup --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 5. The container's placeholder credential (`Authorization` / `x-api-key`) is stripped before forwarding so it never reaches the gateway; gateway auth is stamped separately. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: placeholder-auth stripping) -->
 6. For sanctioned Gateway routing, the interceptor maps only the known provider host (`api.openai.com`); an unmapped host (including `api.anthropic.com`, which is not an enterprise agent host) fails closed (400) and an unconfigured/unparseable gateway fails closed (503) — neither forwards anywhere. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004 / REQ-ENTERPRISE-006 AC4: fail-closed guards) -->
@@ -37,6 +37,37 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)
 
 **Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-097: Intercepted Chat Stream Terminator Repair
+
+**Intent:** Preserve complete streamed chat-completions turns when the AI Gateway omits a terminal completion chunk.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When `[DONE]` arrives without a preceding non-null `finish_reason`, a chat-completions stream without tool-call deltas receives a synthetic `finish_reason: "stop"` chunk before `[DONE]`. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (injects a finish_reason:"stop" chunk before [DONE] when the upstream omits it (dynamic-route bug)) -->
+2. When `[DONE]` arrives without a preceding non-null `finish_reason`, a chat-completions stream carrying tool-call deltas receives a synthetic `finish_reason: "tool_calls"` chunk before `[DONE]`. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (synthesizes finish_reason:"tool_calls" when the stream carried tool-call deltas) -->
+3. A chat-completions stream with a non-null upstream `finish_reason` receives no additional terminator. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (is idempotent: does not add a second terminator when the upstream already sends finish_reason) -->
+
+**Constraints:**
+
+- Interception uses `interceptOutboundHttps` with `ctx.exports` and requires container trust in the platform CA ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
+- Provider hosts are fixed in code; request parameters cannot add one.
+- REST transport maps the provider path under `/ai`; model-route 404s replay through compat with its authorization header after stripping unsupported `store` and `prompt_cache_key` fields.
+- Metadata is capped at user plus four configured-order group tags; excess groups produce a warning.
+- AI Gateway always egresses directly, never through strict `cf1:network` egress.
+- Generic terminator repair is limited to non-null `text/event-stream` bodies on paths ending `/chat/completions`, outside native Bedrock transport; native Bedrock retains completion ownership.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)
+
+**Verification:** Automated: [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 
