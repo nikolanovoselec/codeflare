@@ -2,6 +2,8 @@
 
 PTY management, immutable classic or Herdr terminal ownership, WebSocket transport, MultiView workspaces, browser terminal boundaries, and mobile/browser compatibility.
 
+Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime](../../documentation/lanes/container.md).
+
 **Domain owner:** Frontend (SolidJS + xterm.js) + Container (terminal server)
 
 ### Key Concepts
@@ -343,7 +345,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 1. Herdr writes its official structural session snapshot beneath the R2-synced `.codeflare` home directory while sockets, locks, logs, and other runtime state remain under the ephemeral runtime root. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps the maximum-length session client socket within the Linux path limit) -->
 2. Normal home restore makes the snapshot available before Herdr prewarm, and normal periodic, manual, and final sync carry later snapshots to R2 without a separate upload channel. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists only Herdr structural session snapshots under .codeflare) -->
-3. Restoring `session.json` may recover workspaces, tabs, panes, layout, cwd, focus, and supported native agent session references; it does not claim to preserve running shells, arbitrary processes, or terminal output. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) --> <!-- @manual: Replace a stopped Herdr container after a successful sync and confirm structural topology restores without prior pane output. -->
+3. Restoring persisted session structure may recover workspaces, tabs, panes, layout, cwd, focus, and supported native agent session references; it does not claim to preserve running shells, arbitrary processes, or terminal output. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) --> <!-- @manual: Replace a stopped Herdr container after a successful sync and confirm structural topology restores without prior pane output. -->
 4. Pane history, client and API sockets, updater state, logs, and user-edited Herdr configuration remain excluded from R2. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists only Herdr structural session snapshots under .codeflare) -->
 5. With the pinned Pi integration, restored Pi panes delay readiness until every resumed Pi session has loaded its transcript and established live lifecycle authority. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration before completing restored bootstrap) -->
 6. If the versioned Pi readiness signal is unavailable, restored metadata retains the compatibility path to readiness. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) -->

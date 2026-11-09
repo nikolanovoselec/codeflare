@@ -2,6 +2,8 @@
 
 Vault-based cross-session memory, automatic capture, hook delivery, and session-mode gating.
 
+Persistence and derived-graph artifact identities are documented in [Vault](../../documentation/lanes/vault.md).
+
 **Domain owner:** vault subsystem, entrypoint.sh, memory-capture.sh, preseed pipeline
 
 ### Key Concepts
@@ -207,11 +209,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. In advanced mode, the user's vault directory and cumulative `vault-graph.json` source of truth are included in R2 sync. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
+1. In advanced mode, the user's vault directory and cumulative Vault graph source of truth are included in R2 sync. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
 2. On container boot, the vault is pulled from R2 before any initialization runs so returning sessions inherit their persisted content untouched. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 3. Vault directory initialization is idempotent; re-running on a populated vault creates nothing. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (init_user_vault does not clobber existing user vault content on re-run (REQ-MEM-004 AC3)) -->
 4. Vault changes are pushed back to R2 on three triggers: the regular sync cadence ([REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)), the Sync-now button ([REQ-STOR-015](storage.md#req-stor-015-explicit-sync-trigger-from-ui)), and the final shutdown bisync ([REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)). <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-003 AC2 / REQ-STOR-015 AC5 / REQ-MEM-004 AC4: SIGUSR1 trigger)) -->
-5. The ephemeral unified-graph layer and derived Vault `graph.json`/`graph.html` outputs are rebuilt locally and not synced; the served visualization persists at `Vault/Raw/Graphs/vault-graph.html`. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: excludes the per-run derived vault graph.json but keeps the cumulative one (REQ-MEM-004 AC5: derived layer not synced)) -->
+5. The ephemeral unified-graph layer and derived Vault graph/visualization intermediates are rebuilt locally and not synced; the served visualization remains durably stored in the Vault. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: excludes the per-run derived vault graph.json but keeps the cumulative one (REQ-MEM-004 AC5: derived layer not synced)) -->
 6. The shutdown handler watchdog allows the final bisync up to 120s to drain pending writes before forced termination. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 
 **Constraints:**
