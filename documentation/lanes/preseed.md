@@ -601,7 +601,7 @@ redirection, cannot turn an allowed wrapper invocation into a write. Builds, pac
 test scripts, broad integration suites, type checks, Knip and other dependency-graph
 analysis, installs, servers, and authoritative verification remain CI-only. Both Pi and Claude guards allow only the
 exact wrapper path, and direct blocked commands point agents to the skill; the
-user-only one-shot bypass remains unchanged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand -->
+user-only one-shot bypass remains unchanged. Its exact sentinel is `/tmp/local-build-bypass`: only the user may create it, successful consumption deletes it before allowing one guarded command, failed consumption keeps blocking, and the block message names that same path. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand -->
 
 The `agents/` tree is advanced-only: architect, build-error-resolver,
 code-reviewer, deep-reviewer, doc-updater, memory-capture, refactor-cleaner,
@@ -671,7 +671,7 @@ signed curation publication and runtime activation are verified separately.
 
 `browser-run.ts` plus pure `browser-run-helpers.ts` (advanced only) register native
 `browser_markdown`, `browser_content`, and `browser_scrape` tools that call the
-Cloudflare Browser Run REST Quick Actions. That cheap one-shot READ surface is
+Cloudflare Browser Run REST Quick Actions `/markdown`, `/content` and `/scrape`, respectively. Markdown is the Readability-clean HTML-to-Markdown one-shot surface, not an accessibility snapshot or raw DOM; Claude's sibling MCP server supplies the same read capability for the landing's “open web, distilled to Markdown” scenario. That cheap one-shot READ surface is
 self-gated on `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 
 Browser Run has two surfaces and both agents have both. The READ surface above is

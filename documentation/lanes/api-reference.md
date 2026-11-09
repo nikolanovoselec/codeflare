@@ -380,6 +380,10 @@ The pre-Hono, pre-auth 400 keeps the full default security-header set; every oth
 
 ## User Management
 
+When the Enterprise binding is set, GET/PUT/DELETE/PATCH under `/api/users` return 403 without mutation. POST `/api/billing/checkout`, `/api/billing/portal` and `/api/billing/switch` reject before their route-specific limiters; GET `/api/billing/status` returns empty/disabled state without Stripe. User administration remains delegated to Cloudflare Access ([REQ-ENTERPRISE-009](../../sdd/spec/security.md#req-enterprise-009-enterprise-backend-route-hardening)).
+
+POST `/api/auth/subscribe` and `/api/auth/request-access` likewise return 403 before their specific limiters and send no email. `PATCH /api/preferences` is the explicit exception: Enterprise bypasses the SaaS advanced-mode entitlement gate, permits Pro selection and forces effective Pro regardless of stored mode ([REQ-ENTERPRISE-009](../../sdd/spec/security.md#req-enterprise-009-enterprise-backend-route-hardening)).
+
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC1, [REQ-ENTERPRISE-003](../../sdd/spec/agents.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) AC4, [REQ-AGENT-123](../../sdd/spec/agents.md#req-agent-123-installed-agent-runtime-availability) AC3 | Authenticated user info (includes `onboardingActive`, `onboardingComplete`, `allowedAgents` — the build-installed, policy-filtered creation set) |
@@ -530,6 +534,8 @@ Per-user "Connect to Cloudflare" OAuth (non-enterprise only). Mounted at `/api/c
 The Connect-Cloudflare callback re-derives identity from the live session, verifies the bucket-bound single-use OAuth state, exchanges the code, persists the token, and auto-selects the account when exactly one is accessible; otherwise it redirects to a picker. It never mints a session cookie. The OAuth client registers this exact URL.
 
 ## Public (Unauthenticated)
+
+In SaaS mode, unauthenticated `GET /` serves prerendered landing assets through the Worker's `/landing/` rewrite. Default mode instead redirects `GET /` to `/app/` and never serves that landing. The canonical marketing URL remains `https://codeflare.ch/`, not `/landing/`; same-origin full-page landing↔`/login` navigation uses cross-document view transitions ([REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata), [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)).
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
