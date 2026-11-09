@@ -1847,7 +1847,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array or comma-separated names according to the target schema). <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
+1. Agent definitions use each target’s correct frontmatter format: tool permissions use a record for OpenCode and arrays or comma-separated names where required by the target schema. <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
 2. `model` field is removed from frontmatter for non-CC agents where the target runtime resolves model selection independently. <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
 3. Path references use target-specific configuration locations, including Pi's native subagent location. <!-- @impl: scripts/agent-seed-core.mjs::adaptPaths --> <!-- @manual -->
 4. File extensions match each supported agent's conventions. <!-- @manual -->
