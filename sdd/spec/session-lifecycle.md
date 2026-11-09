@@ -365,12 +365,12 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Acceptance Criteria:**
 
-1. Before Start, one owner-indexed D1 query counts other sessions in `starting`, `running`, `unreachable`, or `stopping`. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/routes/container/lifecycle-validation.ts::countsTowardSessionLimit --> <!-- @impl: src/lib/session-repository.ts::listSessions -->
-2. A count at or above the configured tier cap rejects Start; an explicit zero cap blocks it. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
-3. Existing SaaS tier limits, non-SaaS role defaults, deployment overrides and stress-test bypass remain unchanged. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
-4. Create in `stopped` does not consume capacity. <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/routes/container/lifecycle-validation.ts::countsTowardSessionLimit -->
-5. D1 query failure fails Start closed rather than using KV, SDK state or stale client data. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
-6. Enforcement remains best effort: concurrent Starts may both pass and exceed the nominal cap. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/lib/session-repository.ts::start -->
+1. Before Start, one owner-indexed D1 query counts other sessions in `starting`, `running`, `unreachable`, or `stopping`. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/routes/container/lifecycle-validation.ts::countsTowardSessionLimit --> <!-- @impl: src/lib/session-repository.ts::listSessions --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC1/2: %s denies another Start at cap without counting another owner) -->
+2. A count at or above the configured tier cap rejects Start; an explicit zero cap blocks it. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC1/2: %s denies another Start at cap without counting another owner) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC2/4: zero blocks empty capacity while stopped creation consumes no slot) -->
+3. Existing SaaS tier limits, non-SaaS role defaults, deployment overrides and stress-test bypass remain unchanged. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC3: existing non-SaaS stress bypass preserves the zero-cap exception) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC3: SaaS tier capacity wins over role cap and preserves explicit zero) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC3: role defaults and deployment overrides do not lose explicit zero) -->
+4. Create in `stopped` does not consume capacity. <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/routes/container/lifecycle-validation.ts::countsTowardSessionLimit --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC2/4: zero blocks empty capacity while stopped creation consumes no slot) -->
+5. D1 query failure fails Start closed rather than using KV, SDK state or stale client data. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC5: unavailable D1 rejects admission without changing durable authority) -->
+6. Enforcement remains best effort: concurrent Starts may both pass and exceed the nominal cap. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC6: concurrent validations and later Start claims retain the specified best-effort semantics) -->
 
 **Constraints:**
 
@@ -383,7 +383,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
