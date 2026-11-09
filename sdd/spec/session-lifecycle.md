@@ -561,9 +561,9 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record)
 
-**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts). The focused legacy-preservation and outage cases await CI. These route cases supplement the retained consumer wiring review; they are not a new hosted qualification gate.
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts). Route cases cover legacy preservation and D1 outage without fallback; other consumers retain their source-wiring review and AC5's manual rollback procedure.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -592,7 +592,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -616,9 +616,9 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-028](#req-session-028-session-authority-has-no-kv-compatibility-path)
 
-**Verification:** Automated: [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts), [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts), [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts). The new conflicting-legacy preservation cases await CI; deployment execution is a separate qualification.
+**Verification:** Automated: [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts), [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts), [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts). These establish migration/admission and legacy-preservation behavior; deployment execution is a separate qualification.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1253,7 +1253,7 @@ None.
 
 **Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

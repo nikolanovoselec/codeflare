@@ -2725,9 +2725,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-033](#req-operator-033-activity-surface-resilience), [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation), [REQ-OPERATOR-042](#req-operator-042-activity-overview-sizing-follows-working-state), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-057](#req-operator-057-readable-owned-activity-results), [REQ-OPERATOR-058](#req-operator-058-guided-dispatcher-invocation)
 
-**Verification:** The two-correction behavior plan is mapped to [REQ-OPERATOR-086](#req-operator-086-dropdown-runs-and-installed-workspace) AC2/5 and [REQ-OPERATOR-099](#req-operator-099-installed-review-invocation-and-presentation) AC5. Test-only RED at `1c8e5a08` is confirmed by [CI39119495798](https://github.com/nikolanovoselec/codeflare/actions/runs/39119495798): old page sizes/cursors, navigation copy and client response bound fail the intended contracts. The user accepts the other dropdown functionality. Final GREEN CI and deployed visual acceptance of these two corrections remain required; static checks and component tests do not establish rendered focus visibility.
+**Verification:** Automated: [OperatorDropdown.test.tsx](../../web-ui/src/__tests__/components/OperatorDropdown.test.tsx), [OperatorActivityButton.test.tsx](../../web-ui/src/__tests__/components/OperatorActivityButton.test.tsx), [operator-activities.test.ts](../../web-ui/src/__tests__/api/operator-activities.test.ts), [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts). Responsive layout and rendered focus visibility retain their manual acceptance boundary; component tests do not establish deployed visual behavior.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3332,7 +3332,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. Child reports and protected-request fields cannot assert host preparation metadata. <!-- @impl: src/operators/activity.ts::dispatcherDiagnosticReport --> <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC2 child %s cannot supply host preparation metadata) -->
 7. Retained preparation metadata survives reconstructed owner history, detail, export and linked-capsule readback. <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (retains originating overflow evidence only when logging=%s, without changing execution) --> <!-- @impl: src/operators/dispatcher-diagnostics-store.ts::appendDiagnostic --> <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-083: AC2/4/5/7 preparation cause survives reconstruction in passive owner history detail and export) -->
 
-**Notes:** Existing authority and qualification boundaries remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details). The normal-host overflow observer and its regression cases are implemented; behavioral CI validation remains pending.
+**Notes:** Existing authority and qualification boundaries remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details). The normal-host path shares the bounded reader's originating overflow observation without changing refusal or cancellation behavior.
 
 **Constraints:**
 - Activity/generation and label selection remain parent-owned; export no raw bodies, prompts, credentials, tokens, URLs, child values or exception text.
@@ -3347,7 +3347,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
