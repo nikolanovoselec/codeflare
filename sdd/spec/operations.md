@@ -398,7 +398,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test ([entrypoint-shutdown](../../host/__tests__/entrypoint-shutdown.test.js))
+**Verification:** Automated: [entrypoint-shutdown](../../host/__tests__/entrypoint-shutdown.test.js); Manual: [Final persistence acceptance](../../documentation/lanes/storage-and-sync.md#req-stor-005-final-persistence-acceptance)
 
 **Status:** Implemented
 
@@ -457,7 +457,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated tests ([seed-service-user](../../host/__tests__/seed-service-user.test.js), [notification deployment contract](../../host/__tests__/deploy-requires-tests.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js)); deployment evidence
+**Verification:** Automated: [seed-service-user](../../host/__tests__/seed-service-user.test.js), [notification deployment contract](../../host/__tests__/deploy-requires-tests.test.js); Manual: [Standard deployment verification](../../documentation/lanes/deployment.md#standard-deployment)
 
 **Status:** Partial
 

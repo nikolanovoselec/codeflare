@@ -752,7 +752,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
 
-**Verification:** Automated compaction and graph-relocation tests plus manual instruction review
+**Verification:** Automated: [session-capture-compaction.test.js](../../host/__tests__/session-capture-compaction.test.js), [vault-extract-merge.test.js](../../host/__tests__/vault-extract-merge.test.js), [entrypoint-session-capture-compaction.test.js](../../host/__tests__/entrypoint-session-capture-compaction.test.js); Manual: [Archive ownership instruction review](../../documentation/lanes/vault.md#req-vault-032-manual-qualification)
 
 **Status:** Implemented
 

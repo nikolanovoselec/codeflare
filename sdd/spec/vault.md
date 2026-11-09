@@ -719,6 +719,8 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 6. Once armed, the control remains green across dashboard departure/return and the mobile visibility-return dashboard bounce while authoritative session status remains running. <!-- @impl: web-ui/src/components/Layout.tsx::vaultButtonStatus --> <!-- @impl: web-ui/src/components/Layout.tsx::pruneNonRunningSessionState --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC6: preserves a running session readiness latch across dashboard departure and return) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC6: preserves armed state through the mobile visibility-return dashboard bounce) -->
 7. The ready tooltip auto-surfaces only on the genuine preparing-to-armed transition, so dashboard departure/return does not re-pop it. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (a fresh already-armed remount does not re-pop the ready tooltip) -->
 
+**Notes:** Rendered armed color under sticky touch hover remains a protected-browser observation separate from component and bundle tests.
+
 **Constraints:**
 
 - No persistent readiness marker or automatic prewarm may bypass the explicit first click after a page load.
@@ -727,7 +729,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-VAULT-019](#req-vault-019-vault-key-recoverable-open-gate), [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption)
 
-**Verification:** Automated tests ([layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts)); sticky-hover color is verified against the protected deployment through the agent-driven browser-e2e lane.
+**Verification:** Automated: [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts), [bundled browser behavior](../../src/__tests__/lib/vault-browser-bundle.test.ts)
 
 **Status:** Implemented
 

@@ -51,7 +51,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test ([access](../../src/__tests__/lib/access.test.ts))
+**Verification:** Automated: [access](../../src/__tests__/lib/access.test.ts); Manual: [Authentication-gate probe](../../documentation/lanes/ci-cd.md#authentication-gate-probe)
 
 **Status:** Implemented
 
@@ -171,7 +171,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/lib/r2-sse.test.ts))
+**Verification:** Automated: [r2-sse](../../src/__tests__/lib/r2-sse.test.ts), [container-env](../../src/__tests__/container/container-env.test.ts), [entrypoint-governed-sync](../../host/__tests__/entrypoint-governed-sync.test.js); Manual: [Same-bucket session replacement acceptance](../../documentation/lanes/storage-and-sync.md#session-replacement-storage-acceptance)
 
 **Status:** Implemented
 

@@ -152,7 +152,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-012](setup.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)
 
-**Verification:** Automated test
+**Verification:** Automated: [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts); Manual: [Admin group mode isolation acceptance](../../documentation/lanes/authentication.md#admin-group-mode-isolation-acceptance)
 
 **Status:** Implemented
 
@@ -316,6 +316,8 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 6. Strict personal transport requires its binding and cannot use platform exemptions or stale direct hints. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: strict personal transport requires its binding and does not use platform exemption) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: warm strict activation cannot use a stale direct transport hint) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: native OAuth traffic is bound and warm-strict gated: %s) -->
 7. Credential-bearing provider redirects cannot cross origins automatically. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC6: personal credentials cannot follow a cross-origin provider redirect) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-088 AC6: pinned native OAuth login and refresh destinations reach the policy boundary) -->
 
+**Notes:** Release qualification follows [Standard deployment](../../documentation/lanes/deployment.md#standard-deployment); component tests do not certify deployed provider behavior.
+
 **Constraints:**
 
 - Exited generations deny native effects despite failed Review cleanup. <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @test: src/__tests__/routes/terminal-native-pi-authority.test.ts (REQ-ENTERPRISE-090: confirmed exit still denies provider access when %s cleanup rolls back) -->
@@ -334,7 +336,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-088](setup.md#req-enterprise-088-group-scoped-native-pi-providers), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress)
 
-**Verification:** Anchored policy/interceptor/runtime tests describe the source repair; current-head acceptance/regression execution and exact-head CI remain pending. No deployment or live-fix verification is claimed.
+**Verification:** Automated: [personal-pi-policy.test.ts](../../src/__tests__/lib/personal-pi-policy.test.ts), [personal-pi-interception.test.ts](../../src/__tests__/personal-pi-interception.test.ts), [terminal-native-pi-authority.test.ts](../../src/__tests__/routes/terminal-native-pi-authority.test.ts)
 
 **Status:** Implemented
 
@@ -578,6 +580,8 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 5. Explicit confirmed Save persists attached evidence through configuration GET. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-038: saves %s verification through Review, Back, confirmation and reload) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-ENTERPRISE-038: retains exact %s verification through confirmed Save and configuration GET) -->
 6. Reloaded verification status requires matching fresh inventory and current server-owned verification. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (copies inventory verification only while current connection and topology still match) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-038: saves %s verification through Review, Back, confirmation and reload) -->
 
+**Notes:** Component tests do not establish deployed visual behavior; [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist) owns that observation.
+
 **Constraints:**
 
 - Selected-profile verdicts stay visible outside Technical check details. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-038: Advanced verification updates the same visible result without requiring the disclosure to stay open) -->
@@ -591,7 +595,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](setup.md#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection)
 
-**Verification:** Behavioral tests are anchored above; CI is pending. Browser and visual acceptance are not claimed.
+**Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [ReasoningProfileEditor.test.tsx](../../web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx)
 
 **Status:** Implemented
 

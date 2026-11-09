@@ -113,7 +113,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated test
+**Verification:** Automated: [r2-admin.test.ts](../../src/__tests__/lib/r2-admin.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js); Manual: [Initial-sync timeout check](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start)
 
 **Status:** Implemented
 
@@ -561,7 +561,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record)
 
-**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts). Route cases cover legacy preservation and D1 outage without fallback; other consumers retain their source-wiring review and AC5's manual rollback procedure.
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts); Manual: [D1-compatible rollback review](session-lifecycle.md#req-session-028-session-authority-has-no-kv-compatibility-path)
 
 **Status:** Implemented
 
@@ -616,7 +616,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-028](#req-session-028-session-authority-has-no-kv-compatibility-path)
 
-**Verification:** Automated: [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts), [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts), [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts). These establish migration/admission and legacy-preservation behavior; deployment execution is a separate qualification.
+**Verification:** Automated: [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts), [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts), [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts)
 
 **Status:** Implemented
 

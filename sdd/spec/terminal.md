@@ -1023,6 +1023,8 @@ None.
 6. Unmatched trailing closing parentheses are excluded from detected URLs and their clickable ranges. <!-- @impl: web-ui/src/lib/terminal-url-delimiters.ts::trimTerminalUrlParentheses --> <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::getLastUrlFromBuffer --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: opens only the URL and excludes unmatched closing cells in %s) --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: excludes a wrapped closing parenthesis from controller activation) --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) -->
 7. HTTP(S) links hosted at auth.openai.com are offered through the existing auth-link controls regardless of path. <!-- @impl: web-ui/src/lib/constants.ts::ACTIONABLE_URL_PATTERNS --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) -->
 
+**Notes:** Automated link, pointer and touch tests do not establish physical-browser acceptance; that observation remains separate.
+
 **Constraints:**
 
 - URL reconstruction and opening remain owned by the existing terminal link provider.
@@ -1033,7 +1035,7 @@ None.
 
 **Dependencies:** [REQ-TERM-036](#req-term-036-browser-pointer-interaction-with-herdr), [REQ-AGENT-013](agents.md#req-agent-013-browser-shim-for-oauth-flows)
 
-**Verification:** Automated link lookup, desktop pointer, and mobile touch tests plus manual browser verification.
+**Verification:** Automated: [herdr-mouse.test.ts](../../web-ui/src/__tests__/lib/herdr-mouse.test.ts), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [terminal-link-provider.test.ts](../../web-ui/src/__tests__/lib/terminal-link-provider.test.ts), [terminal-url-detection.test.ts](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts)
 
 **Status:** Implemented
 
@@ -1070,7 +1072,7 @@ None.
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated host, Worker, frontend, and service-worker tests plus deployed suppression, pickup, and no-wake checks.
+**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [terminal-agent-events.test.js](../../host/__tests__/terminal-agent-events.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [push-sender.test.ts](../../src/__tests__/lib/push-sender.test.ts), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [agent-notifications.test.ts](../../web-ui/src/__tests__/lib/agent-notifications.test.ts), [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts)
 
 **Status:** Partial
 
@@ -1100,7 +1102,7 @@ None.
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated host queue and Session protocol tests plus deployed reconnect acceptance.
+**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js)
 
 **Status:** Partial
 
@@ -1132,7 +1134,7 @@ None.
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries)
 
-**Verification:** Automated enrollment tests plus deployed desktop/mobile acceptance.
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [agent-notifications.test.ts](../../web-ui/src/__tests__/lib/agent-notifications.test.ts)
 
 **Status:** Partial
 
@@ -1162,7 +1164,7 @@ None.
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-025](#req-term-025-per-device-notification-enrollment), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated worker and navigation tests plus deployed desktop/mobile acceptance.
+**Verification:** Automated: [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Partial
 
@@ -1181,7 +1183,7 @@ None.
 2. One foreground run emits at most one input-required signal. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (emits at most one needs-input event per foreground run) -->
 3. Pi registers no notification behavior and writes no terminal bytes in RPC mode. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC3: registers nothing and writes no bytes in RPC mode) -->
 
-**Notes:** Herdr completion authority is documented at [Herdr attention and completion](../../documentation/lanes/terminal-and-ide.md#herdr-attention-and-completion).
+**Notes:** Herdr completion authority is documented at [Herdr attention and completion](../../documentation/lanes/terminal-and-ide.md#herdr-attention-and-completion). Deployed interactive-run verification remains separate from the extension tests.
 
 **Constraints:** Prompts, model output, tool data, commands, file content, and credentials never enter producer payloads.
 
@@ -1189,7 +1191,7 @@ None.
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery)
 
-**Verification:** Automated Pi extension tests plus deployed interactive-run verification.
+**Verification:** Automated: [pi-native-notifications.test.ts](../../src/__tests__/lib/pi-native-notifications.test.ts)
 
 **Status:** Implemented
 
@@ -1271,13 +1273,15 @@ None.
 4. Local display retains `Task completed` for Claude completion. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC4: keeps local Claude completion copy task-oriented) -->
 5. Push display retains `Task completed` for Claude completion. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-039 AC5: keeps Claude Push completion copy task-oriented) -->
 
+**Notes:** Deployed browser verification remains separate from automated status transport and local/Push display tests.
+
 **Constraints:** Display reason text remains fixed and excludes provider, task, and tool content.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary), [REQ-TERM-038](#req-term-038-herdr-semantic-status-owns-completion-readiness)
 
-**Verification:** Automated Herdr status transport, local-display, and Push-display tests plus deployed browser verification.
+**Verification:** Automated: [herdr-agent-status.test.js](../../host/__tests__/herdr-agent-status.test.js), [agent-notifications.test.ts](../../web-ui/src/__tests__/lib/agent-notifications.test.ts), [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts)
 
 **Status:** Implemented
 
@@ -1306,7 +1310,7 @@ None.
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary)
 
-**Verification:** Automated host parser, Session input, and entrypoint settings tests plus deployed permission verification.
+**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js)
 
 **Status:** Partial
 

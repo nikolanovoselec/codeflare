@@ -172,7 +172,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Manual check
+**Verification:** Manual: [Post-setup authentication and admin-gate checks](#req-setup-005-post-setup-reconfiguration-requires-admin-auth)
 
 **Status:** Implemented
 
@@ -201,7 +201,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
+**Verification:** Automated: [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts); Manual: [Configure-response newline inspection](#req-setup-006-setup-streams-progress-via-ndjson)
 
 **Status:** Implemented
 
@@ -491,7 +491,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-015](#req-setup-015-managed-resource-persistence-controls), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress)
 
-**Verification:** Automated policy-shape, availability, rolling-activation, update-pending, reconciliation, and trust-fingerprint tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [setup-managed-environment.test.ts](../../src/__tests__/routes/setup-managed-environment.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [managed-storage-guard.test.ts](../../src/__tests__/lib/managed-storage-guard.test.ts)
 
 **Status:** Implemented
 
@@ -711,7 +711,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
 
-**Verification:** Automated hydration-order, recovery-action, and failure-state behavior plus user-owned manual UI acceptance on Integration
+**Verification:** Automated: [SetupWizard.test.tsx](../../web-ui/src/__tests__/components/SetupWizard.test.tsx), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts); Manual: [User-owned Integration navigation acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist)
 
 **Status:** Implemented
 
@@ -1020,6 +1020,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 6. Historical Advanced mapping and selected-profile checks retain their fixed 4,096-token budget. Normal capability discovery and generated-Native verification use the bounded campaign in REQ-ENTERPRISE-035/075. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (starts on mount with fixed 4096 and offers no second start or token input, including after incomplete results) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-038: Verify Profile uses fixed 4096 and attaches the server receipt only to the exact route draft) -->
 7. A verified existing-profile assignment can be saved independently of unfinished gateway routes. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/lib/admin-configuration.ts::normalizeValues --> <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: one working group route permits Save despite incomplete inactive routes) -->
 
+**Notes:** [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist) is separate from component coverage and historical receipts.
+
 **Constraints:**
 
 - Prune absent Dynamic assignments/contexts/defaults/policies; retain shared revisions/receipts and valid independent source/permission preferences. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/live-routing-reconciliation.ts::prepareSavedRoutingReconciliation --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
@@ -1037,7 +1039,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](models-and-routing.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence)
 
-**Verification:** Route administration and saved-policy reconciliation have automated behavioral coverage, including saved-source compatibility and safe check failure recovery. The current gap fixes await exact-head CI and deployed acceptance; historical qualification is not evidence for the new diff.
+**Verification:** Automated: [admin-reasoning.test.ts](../../src/__tests__/routes/admin-reasoning.test.ts), [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx), [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [ReasoningProfileEditor.test.tsx](../../web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx), [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts)
 
 **Status:** Implemented
 
@@ -1052,6 +1054,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. Explicit saved-connection reconciliation permanently removes authoritatively absent Dynamic settings and owned Native policy references without widening access. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+
+**Notes:** [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist) is separate from component coverage and historical receipts.
 
 **Constraints:**
 
@@ -1070,7 +1074,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](models-and-routing.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration)
 
-**Verification:** Route administration and saved-policy reconciliation have automated behavioral coverage, including saved-source compatibility and safe check failure recovery. The current gap fixes await exact-head CI and deployed acceptance; historical qualification is not evidence for the new diff.
+**Verification:** Automated: [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts)
 
 **Status:** Implemented
 
@@ -1526,7 +1530,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-098](#req-enterprise-098-enterprise-pi-access-policy-resolution), [REQ-ENTERPRISE-055](models-and-routing.md#req-enterprise-055-native-target-authority-and-save)
 
-**Verification:** Anchored backend behavioral test; execution is CI-only.
+**Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts)
 
 **Status:** Implemented
 
@@ -1552,7 +1556,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-041](#req-enterprise-041-enterprise-pi-administrator-workspace)
 
-**Verification:** Manual verification on the protected Enterprise Integration deployment.
+**Verification:** Manual: [Protected Enterprise Integration section-navigation inspection](#req-enterprise-067-enterprise-pi-section-navigation-layout)
 
 **Status:** Implemented
 
@@ -1575,7 +1579,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-041](#req-enterprise-041-enterprise-pi-administrator-workspace)
 
-**Verification:** Manual verification on the protected Enterprise Integration deployment.
+**Verification:** Manual: [Protected Enterprise Integration connection-control inspection](#req-enterprise-068-enterprise-pi-connection-control-layout)
 
 **Status:** Implemented
 
@@ -1607,7 +1611,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-043](models-and-routing.md#req-enterprise-043-enterprise-pi-verified-route-activation), [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-098](#req-enterprise-098-enterprise-pi-access-policy-resolution)
 
-**Verification:** Anchored behavioral fixture; execution is CI-only.
+**Verification:** Automated: [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx), [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [AiRoutingReview.test.tsx](../../web-ui/src/__tests__/components/AiRoutingReview.test.tsx)
 
 **Status:** Implemented
 
@@ -1654,6 +1658,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 5. An omitted Pi source resolves to managed for both group and enabled-fallback policies. <!-- @impl: src/lib/personal-pi-policy.ts::resolvePersonalPiPolicy --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC5: omitted group and fallback sources resolve to managed) -->
 6. Choosing a Native default never grants personal-provider permission when that permission is false or omitted. <!-- @impl: src/lib/personal-pi-policy.ts::resolvePersonalPiPolicy --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC6: a native default never grants permission when permission is %s) -->
 
+**Notes:** Administration tests do not establish live startup, provider or Operator acceptance; those boundaries remain with [Container Environment](../../documentation/lanes/configuration.md#container-environment).
+
 **Constraints:**
 
 - Additive `allowPersonalPiProviders`, default off.
@@ -1669,7 +1675,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-058](models-and-routing.md#req-enterprise-058-native-model-container-publication)
 
-**Verification:** Administration, saved-reconciliation and shared editor tests cover persistence/payloads; separate actual Review component regressions cover grant/revocation rendering without changing sanctioned defaults. Current gap-fix test execution and exact-head CI remain unverified; startup/provider/Operator evidence belongs to the siblings below.
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [personal-pi-policy.test.ts](../../src/__tests__/lib/personal-pi-policy.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [AiRoutingReview.test.tsx](../../web-ui/src/__tests__/components/AiRoutingReview.test.tsx), [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts)
 
 **Status:** Implemented
 
@@ -1687,6 +1693,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 2. A failed check preserves the connection for an explicit retry. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-093 AC1/AC2: saved connection failures show safe recovery guidance and preserve the connection for retry) -->
 3. Unexpected exceptions retain generic recovery guidance without exposing raw private error details. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-093 AC3: unexpected connection exceptions retain a safe fallback without exposing raw error details) -->
 
+**Notes:** [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist) remains separate from component recovery tests.
+
 **Constraints:**
 
 - No automatic retry or escalation.
@@ -1696,7 +1704,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration)
 
-**Verification:** Existing component recovery regressions cover safe errors, retained connection and explicit retry; exact-head CI and hosted acceptance remain required.
+**Verification:** Automated: [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx)
 
 **Status:** Implemented
 
