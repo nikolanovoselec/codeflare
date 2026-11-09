@@ -44,6 +44,12 @@ describe('DeployKeysSection (OAuth connect surface)', () => {
         expect(screen.getByTestId(`${p}-tier-${t}`)).toBeInTheDocument();
       }
       expect(screen.getByTestId(`${p}-tier-desc`).textContent).toBeTruthy();
+      expect(screen.getByTestId(`${p}-tier-recommended`)).toBeChecked();
+      expect(screen.getByTestId(`${p}-connect-btn`)).toHaveAttribute('data-href', `/api/${p}/connect?tier=recommended`);
+      fireEvent.click(screen.getByTestId(`${p}-tier-advanced`));
+      expect(screen.getByTestId(`${p}-tier-advanced`)).toBeChecked();
+      expect(screen.getByTestId(`${p}-tier-recommended`)).not.toBeChecked();
+      expect(screen.getByTestId(`${p}-connect-btn`)).toHaveAttribute('data-href', `/api/${p}/connect?tier=advanced`);
     }
     expect(screen.getByTestId('deploy-keys-hint')).toBeInTheDocument();
   });

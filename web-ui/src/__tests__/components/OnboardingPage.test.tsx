@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import OnboardingPage from '../../components/OnboardingPage';
 
 // api/client: only the non-connect endpoints OnboardingPage still uses.
@@ -81,13 +81,22 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
     });
   });
 
+  // REQ-AGENT-028: both provider parents own the recommended default and selected-tier navigation.
   it('shows the connect affordance (with the connect URL) for both providers when disconnected', async () => {
     render(() => <OnboardingPage />);
     await waitFor(() => {
       expect(screen.getByTestId('github-connect-btn')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('github-connect-btn').getAttribute('data-href')).toContain('/api/github/connect');
-    expect(screen.getByTestId('cloudflare-connect-btn').getAttribute('data-href')).toContain('/api/cloudflare/connect');
+    for (const provider of ['github', 'cloudflare']) {
+      expect(screen.getByTestId(`${provider}-tier-recommended`)).toBeChecked();
+      fireEvent.click(screen.getByTestId(`${provider}-connect-btn`));
+      expect(mockLocation.href).toBe(`/api/${provider}/connect?tier=recommended`);
+      fireEvent.click(screen.getByTestId(`${provider}-tier-minimal`));
+      expect(screen.getByTestId(`${provider}-tier-minimal`)).toBeChecked();
+      expect(screen.getByTestId(`${provider}-tier-recommended`)).not.toBeChecked();
+      fireEvent.click(screen.getByTestId(`${provider}-connect-btn`));
+      expect(mockLocation.href).toBe(`/api/${provider}/connect?tier=minimal`);
+    }
   });
 
   it('renders the six installable coding agents and replaces Gemini with Antigravity', async () => {
