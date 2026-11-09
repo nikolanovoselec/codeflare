@@ -210,7 +210,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-044](setup.md#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save)
+**Dependencies:** [REQ-ENTERPRISE-044](setup.md#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-098](setup.md#req-enterprise-098-enterprise-pi-access-policy-resolution), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save)
 
 **Verification:** Automated: [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 

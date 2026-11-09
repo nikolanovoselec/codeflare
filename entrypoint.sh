@@ -395,7 +395,7 @@ SYNC_MODE="${SYNC_MODE:-none}"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # Vault syncs, but Vault/graphify-out/ is mostly derived. Persist ONLY the
     # cumulative graph (vault-graph.json - REQ-MEM-009 source of truth; the
-    # global graph is rebuilt from it at boot), the vault-extract content-hash
+    # global graph is rebuilt from it at boot under REQ-MEM-034), the vault-extract content-hash
     # manifest, and its durable first-initialization record (REQ-VAULT-026: both
     # MUST survive restart so a missing restore cannot be mistaken for a fresh
     # vault and rebaseline unextracted edits). The per-run graph.json, chunks, labels,
@@ -2782,7 +2782,8 @@ init_user_vault() {
     # (e.g. graphify plugin disabled), continue.
     #
     # Source is vault-graph.json, the cumulative graph the capture and
-    # vault-extract pipelines read back and merge into (REQ-MEM-009). The
+    # vault-extract pipelines read back and merge into (REQ-MEM-009); boot publication
+    # follows REQ-MEM-034. The
     # sibling graph.json is a copy those merges refresh for the local
     # visualization, and the scaffold created below leaves it empty until the
     # first extraction runs. Seeding from it therefore republished user_vault

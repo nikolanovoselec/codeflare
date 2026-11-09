@@ -900,6 +900,7 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
   });
 });
 
+// REQ-ENTERPRISE-044/098: current ownership; historical test title unchanged.
 describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
   it('saves one verified group route despite inactive drafts and invalid inactive context inputs', async () => {
     const f = setup(); const body = await (await f.check()).json() as any;

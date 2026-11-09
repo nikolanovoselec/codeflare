@@ -594,6 +594,7 @@ describe('entrypoint.sh vault global-graph seed (real init_user_vault) / REQ-MEM
     };
   }
 
+  // REQ-MEM-034 AC1: current ownership; historical test title unchanged.
   it('publishes vault-graph.json under the user_vault tag, never the empty scaffold (REQ-MEM-009)', () => {
     const { res, vault, calls } = runSeed({ withCumulativeGraph: true });
     assert.equal(res.status, 0, `init_user_vault must run cleanly; stderr: ${res.stderr}`);
@@ -614,6 +615,7 @@ describe('entrypoint.sh vault global-graph seed (real init_user_vault) / REQ-MEM
     );
   });
 
+  // REQ-MEM-034 AC2: current ownership; historical test title unchanged.
   it('publishes nothing when no cumulative vault graph exists yet (REQ-MEM-009)', () => {
     const { res, vault, calls } = runSeed({ withCumulativeGraph: false });
     assert.equal(res.status, 0, `init_user_vault must run cleanly; stderr: ${res.stderr}`);

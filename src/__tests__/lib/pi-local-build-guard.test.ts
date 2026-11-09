@@ -43,6 +43,7 @@ function bypassFs(consumable = true) {
   };
 }
 
+// REQ-AGENT-052 AC1: current ownership; historical test title unchanged.
 describe('REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not staged filenames', () => {
   it.each([
     'git add vitest.node.config.ts sdd/spec/changes.md',
@@ -116,6 +117,7 @@ describe('REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not stag
   });
 });
 
+// REQ-AGENT-052 AC2: current ownership; historical test title unchanged.
 describe('REQ-AGENT-052 AC5: user-only consume-on-use build override', () => {
   it.each(['npm test', ...guardedExecutionRegressions])('allows exactly one guarded command after successful consumption: %s', (command) => {
     const fs = bypassFs();

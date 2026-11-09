@@ -301,9 +301,7 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 2. Each pass emits at most one graph node for each node ID. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1/AC2: successive merges preserve prior nodes and deduplicate IDs) -->
 3. Duplicate ordinary edge evidence collapses. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple) -->
 4. Structurally malformed edge entries are ignored without aborting the merge. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::node_link_edges --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::node_link_edges --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC4: malformed edge entries are ignored without crashing) -->
-5. The boot seed publishes the cumulative vault graph under the `user_vault` tag, never the derived sibling graph that is empty until the first extraction. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes vault-graph.json under the user_vault tag, never the empty scaffold (REQ-MEM-009)) -->
-6. A first boot with no captures yet, and therefore no cumulative vault graph on disk, publishes nothing to the global graph and reports no failure. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes nothing when no cumulative vault graph exists yet (REQ-MEM-009)) -->
-7. Evidence from separate archived captures remains distinct through later merges. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
+5. Evidence from separate archived captures remains distinct through later merges. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
 
 **Constraints:**
 
@@ -318,10 +316,38 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)
 
-**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js), [vault-extract-merge.test.js](../../host/__tests__/vault-extract-merge.test.js)
+**Verification:** Automated: [vault-extract-merge.test.js](../../host/__tests__/vault-extract-merge.test.js)
 
 **Status:** Implemented
 
+---
+
+### REQ-MEM-034: Cumulative Vault Graph Boot Publication
+
+**Intent:** Boot publishes the cumulative vault contribution without replacing it with an empty derived scaffold or failing before the first capture.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. The boot seed publishes the cumulative vault graph under the `user_vault` tag, never the derived sibling graph that is empty until the first extraction. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes vault-graph.json under the user_vault tag, never the empty scaffold (REQ-MEM-009)) -->
+2. A first boot with no captures yet, and therefore no cumulative vault graph on disk, publishes nothing to the global graph and reports no failure. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes nothing when no cumulative vault graph exists yet (REQ-MEM-009)) -->
+
+**Constraints:**
+
+- Vault is always-on in the global graph.
+- Missing or unreadable graph files retain the established fresh-graph recovery path.
+- Vault graph merges share the capture-pipeline/global-graph lock; its short timeout prevents a crashed holder from blocking extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
+- Each merge copies the cumulative `vault-graph.json` to the sibling `graph.json`; only `vault-graph.json` is read back and published, and an empty `graph.json` at boot is not evidence there is nothing to publish.
+- No HTML visualization is generated for the unified global graph; structural queries are the interface; only the curated vault subset receives a rendered visualization shipped to users.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)
+
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js)
+
+**Status:** Implemented
 ---
 
 ### REQ-MEM-010: Memory capture hook plumbing

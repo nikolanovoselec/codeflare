@@ -275,6 +275,7 @@ describe('Administrator route workspace', () => {
     expect(values(view.container).dynamicRoutes).toEqual(['general_usage']);
     expect(values(view.container).routeContextWindows).toEqual({ general_usage: 256000 });
   });
+  // REQ-ENTERPRISE-098 AC3: current ownership; historical test title unchanged.
   it('REQ-ENTERPRISE-044: fallback can be disabled or restricted to explicitly selected checked routes', async () => {
     const view = mount(); await ready(view); await section(view, 'Access & fallback');
     expect(values(view.container).fallbackRouting).toEqual({ enabled: false });
@@ -288,6 +289,7 @@ describe('Administrator route workspace', () => {
   });
   it.each([
     [['medium', 'high'], 'medium'], [['off'], 'off'], [['high'], 'high'],
+  // REQ-ENTERPRISE-098 AC1/AC2: current ownership; historical test title unchanged.
   ] as const)('REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s', async (levels, expected) => {
     const list = catalog(); list.profiles[0].supportedLevels = [...levels]; api.catalog.mockResolvedValueOnce(list);
     const data = current(); data.groupRouting = []; data.reasoningConfiguration.routeAssignments.general_usage.verification.supportedLevels = [...levels];
