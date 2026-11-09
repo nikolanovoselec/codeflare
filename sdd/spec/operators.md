@@ -917,7 +917,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [operator-inference.test.js](../../host/__tests__/operator-inference.test.js), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -946,7 +946,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -967,7 +967,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. One installation-authenticated connection identifies ordinary run/generation requests; server-derived owner/installation authority and the original grants, revisions, deadlines, budgets and cancellation gate protected work. <!-- @impl: src/operators/activity.ts::#normalDispatcherConnection --> <!-- @impl: src/operators/activity.ts::dispatcherInstalledCallback --> <!-- @impl: src/operators/operator-runtime-capability.ts::authorizeDispatcherPlan --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-047: AC2/3 connection refuses foreign %s without protected effects) -->
 7. Flue owns normal-run inference, persistence, alarms, scheduling and cold recovery without a running user session or container; historical identities/storage, Gate 1, default-entrypoint and Conductor behavior remain unchanged. Admission-time provenance labels only new Dispatcher Activities, never re-inferred historical identities or installation-origin labels. <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (Native OFF returns installation Gateway without Pi R2 access (stale native preference: %s)) --> <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/activity-state.test.ts (historical Dispatcher native identity and installation provenance survive read-only cold projection unchanged) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (later owner R2 reasoning changes do not replace the original admitted identity across reconstruction) -->
 
-**Notes:** See [trusted Dispatcher hosting](../../documentation/lanes/operators.md#normal-dispatcher-hosting) and [verification boundaries](../../documentation/lanes/operators.md#verification-boundaries).
+**Notes:** Parent admission, authority, observation and collection are implemented. Qualification of the approved release executing through actual generated Flue hosting and SDK-owned persistence, alarms and cold recovery remains open; controlled normal-host wire fixtures do not establish it. See [trusted Dispatcher hosting](../../documentation/lanes/operators.md#normal-dispatcher-hosting) and [verification boundaries](../../documentation/lanes/operators.md#verification-boundaries).
 
 **Constraints:**
 
@@ -1021,7 +1021,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1048,7 +1048,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts), [operator-activities-native.test.ts](../../web-ui/src/__tests__/api/operator-activities-native.test.ts), [OperatorActivityButton.test.tsx](../../web-ui/src/__tests__/components/OperatorActivityButton.test.tsx), [operator-management-activity.test.tsx](../../web-ui/src/__tests__/operators/operator-management-activity.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1081,7 +1081,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1142,7 +1142,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1157,7 +1157,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 1. Approved repository-only packages select bounded GET/POST/PUT requests with immutable arguments. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exposes the configured API origin only to repository-only Loader code) -->
 2. Unknown mutations retain generation for authorized readbacks; only verified original-request and completed-read receipts may resolve uncertainty without replay. Inference recovery neither repeats nor erases them. Closed uncertainty metadata cannot turn a possibly attempted write into a retryable no-effect failure. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: generic Activity mutation receipts and resolution) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-062: uncertain actual mutation keeps its original ID unknown and forbids blind replay) -->
-3. Normal SDK job configuration and phase context supply validated nonsecret origins, response limits and immutable target restrictions; package settings cannot widen host policy or disclose credentials. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: AC1/6 trusted installation starts through public keyed control without a per-Activity Loader) -->
+3. Normal SDK job configuration and phase context supply validated nonsecret origins, response limits and immutable target restrictions; package settings cannot widen host policy or disclose credentials. <!-- @impl: src/operators/activity.ts::admitDispatcher --> <!-- @impl: src/operators/activity.ts::dispatcherPhaseContext --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048: AC1/6 trusted installation starts through public keyed control without a per-Activity Loader) -->
 4. Mutations use only the configured authenticated GitHub API transport. <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exposes the configured API origin only to repository-only Loader code) -->
 5. Model admission atomically binds actual context/options and any declared phase proof to the active authorized scope using a Root-computed commitment. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048/062: projected model permits retain the admitted phase on replay and reject stale phases) -->
 6. Replayed model permits retain their original identity, expiry and admitted phase without adopting later phases. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048/062: projected model permits retain the admitted phase on replay and reject stale phases) -->
@@ -1173,9 +1173,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission)
 
-**Verification:** The zero-send permit retirement and Root journal diagnosis repair has authored behavioral coverage only; no local execution, exact-head CI, deployment or fresh hosted acceptance is claimed. Historical unknown Activities and their operations remain unchanged. Existing Loader-origin/target and source-limit tests cover historical environment injection and same-generation receipt/no-replay fences, not normal SDK job-context delivery. The new public-control contract tests nonsecret initial-data admission; exact origin/limit/target mapping and intent4 deferred coverage remain unverified. No cross-run interlock or historical index is claimed.
+**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1202,7 +1202,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-phases.test.ts](../../src/__tests__/operators/dispatcher-phases.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1230,7 +1230,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
