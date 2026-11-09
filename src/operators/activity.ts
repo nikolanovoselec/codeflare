@@ -7,6 +7,7 @@
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { projectDispatcherOperationEvidence } from './dispatcher-runtime-diagnostics';
+import { publicSdkReportSchema, projectPublicSdkRecords, readPublicSdkDiagnostics } from './dispatcher-public-diagnostics';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { readDispatcherSdkConfiguration, dispatcherSdkCredentials, forwardDispatcherSdkHttp } from './dispatcher-sdk-services';
 import { dispatcherSdkOwnerContext } from './dispatcher-owner-inference';
@@ -215,6 +216,8 @@ interface DispatcherLease {
   submissionId: string | null; settledSubmissionId?: string; sdkReleased?: boolean;
   rootDigest?: string;
   sdkProvenance?: SdkProvenance;
+  /** Original stock SDK version for public capture; absent on historical leases. */
+  publicSdkVersion?: string;
   projection?: DispatcherResultProjection;
   /** Future intent4 admission only; never inferred from a historical lease. */
   serial?: DispatcherPhaseState;
@@ -1929,6 +1932,7 @@ export class OperatorActivity extends Agent {
           { deliveryToken: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) } : {}) };
       if (normal) {
         lease.hosting = 'normal';
+        if (approved.versions.runtime === '2.3.0') lease.publicSdkVersion = approved.versions.runtime;
         const connection = await this.#normalDispatcherConnection(lease, plan);
         const { connectionSecretCiphertext: _secret, ...deployment } = connection;
         lease.deployment = deployment;
@@ -1989,7 +1993,7 @@ export class OperatorActivity extends Agent {
       });
       leaseCommitted = true;
       this.#enqueueDiagnostic(async () => {
-        await this.ctx.storage.transaction(tx => initializeDiagnostics(tx, lease, !!lease.sdkProvenance));
+        await this.ctx.storage.transaction(tx => initializeDiagnostics(tx, lease, !!lease.sdkProvenance || !!lease.publicSdkVersion));
       });
       this.#recordDiagnostic(generation, 'artifact', 'accepted');
       this.#recordDiagnostic(generation, 'admission', 'accepted');
@@ -2369,6 +2373,9 @@ export class OperatorActivity extends Agent {
         return await this.#dispatcherSdkCallback(generation, request, lease);
       }
       if (lease !== active) return dispatcherRefusal('execution-inactive');
+      // Diagnostic imports authenticate the original deployment but never enter
+      // runtime-plan recovery or acquire execution authority.
+      if (path === '/v1/dispatcher/diagnostic/runtime') return this.dispatcherRuntimeDiagnostic(generation, request);
       // SDK startup can enter before the original 202 receipt is bound. The
       // context handler waits for that admission and then rechecks live authority;
       // comparing this pre-acknowledgement snapshot would reject a valid handoff.
@@ -2376,7 +2383,6 @@ export class OperatorActivity extends Agent {
       // Other callbacks retain the existing immutable-snapshot check.
       // getRuntimePlan reopens only recorded owner context, never an owner/bucket from headers/body.
       await this.#normalDispatcherCurrent(lease);
-      if (path === '/v1/dispatcher/diagnostic/runtime') return this.dispatcherRuntimeDiagnostic(generation, request);
       if (path === '/v1/dispatcher/diagnostic') return this.dispatcherDiagnosticReport(generation, request);
       // Deliberately no native-binding/result, arbitrary outbound or private SDK-method route.
       return await this.dispatcherOperation(generation, request);
@@ -3860,7 +3866,7 @@ export class OperatorActivity extends Agent {
     const state = await this.ctx.storage.get<AdmissionState>('admission').catch(() => undefined);
     const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE).catch(() => undefined);
     if (!state || !lease || !this.#diagnosticBindingValid(state, lease) || lease.generation !== generation) return response(409);
-    if (!lease.sdkProvenance) return response(403);
+    if (!lease.sdkProvenance && !lease.publicSdkVersion) return response(403);
     if (request.method !== 'POST' || new URL(request.url).href !== 'https://operator.internal/v1/dispatcher/diagnostic/runtime'
       || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') return response(400);
     let value: unknown;
@@ -3869,6 +3875,28 @@ export class OperatorActivity extends Agent {
       this.#enqueueDiagnostic(() => this.ctx.storage.transaction(tx => diagnosticLoss(tx, lease, 'rejected')));
       return response(error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 413 : 400);
     }
+    if (lease.hosting === 'normal' && lease.publicSdkVersion && (value as { version?: unknown } | null)?.version === 2) {
+      const parsed = publicSdkReportSchema.safeParse(value);
+      if (!parsed.success) return response(400);
+      try {
+        await this.#diagnosticQueue;
+        await this.ctx.storage.transaction(async tx => {
+          const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          const admission = await tx.get<AdmissionState>('admission');
+          if (!current || !admission || current.generation !== generation || current.hosting !== 'normal'
+            || current.publicSdkVersion !== lease.publicSdkVersion || !this.#diagnosticBindingValid(admission, current)
+            || !sameDispatcherPhaseValue(current.deployment, lease.deployment)) throw new Error('Public SDK binding changed');
+          const rootUid = current.receipt?.uid ?? current.serial?.uid;
+          const submissionIds = [current.submissionId, current.receipt?.submissionId, current.serial?.current.receipt?.submissionId,
+            ...(current.serial?.previous.map(previous => previous.submissionId) ?? [])].filter((id): id is string => typeof id === 'string');
+          const projected = projectPublicSdkRecords(parsed.data, { sdkVersion: current.publicSdkVersion!, rootUid, submissionIds });
+          if (!executionLoggingEnabled(admission.receipt)) return;
+          for (const entry of projected) await appendDiagnostic(tx, current, entry.observation, { captureId: entry.captureId });
+        });
+        return response(204);
+      } catch { return response(409); }
+    }
+    if (!lease.sdkProvenance) return response(403);
     const parsed = runtimeSchema.safeParse(value);
     if (!parsed.success) {
       this.#enqueueDiagnostic(() => this.ctx.storage.transaction(tx => diagnosticLoss(tx, lease, 'rejected')));
@@ -5118,7 +5146,7 @@ export class OperatorActivity extends Agent {
             logging: executionLoggingEnabled(admission.receipt), status: admission.drive?.status,
             operations: journal?.generation === lease?.generation && typeof journal?.nextOrdinal === 'number'
               && Number.isSafeInteger(journal.nextOrdinal) && journal.nextOrdinal >= 0 ? journal.nextOrdinal : null,
-            provenance: lease?.sdkProvenance ?? null, rootDigest: lease?.rootDigest
+            provenance: lease?.sdkProvenance ?? null, publicSdkVersion: lease?.publicSdkVersion, rootDigest: lease?.rootDigest
               ?? (lease?.serial?.current.receipt?.uid ? hashDiagnostic(lease.serial.current.receipt.uid) : undefined),
             submissionId: lease?.submissionId, fence: admission.diagnosticFence,
             recorderUnavailable: admission.diagnosticRecorderUnavailable,
@@ -5204,7 +5232,9 @@ export class OperatorActivity extends Agent {
     let sdk = sdkUnavailable('unbound');
     if (!admission.receipt || !isManagementReceipt(admission.receipt)
       || admission.receipt.selection.operator.profile !== 'dispatcher') sdk = sdkUnavailable('not-dispatcher');
-    else if (lease?.hosting === 'normal') sdk = sdkUnavailable('unsupported-storage');
+    else if (lease?.hosting === 'normal') sdk = lease.publicSdkVersion && lease.receipt
+      ? await readPublicSdkDiagnostics(this.ctx.storage, lease, lease.receipt, lease.publicSdkVersion, inspectionDeadline,
+        executionLoggingEnabled(admission.receipt)) : sdkUnavailable('unsupported-storage');
     else if (lease?.sdkReleased || lease && (lease.status === 'unknown' || lease.status === 'settled')
       || lease && admission.drive?.generation !== lease.generation) sdk = sdkUnavailable('retired');
     else if (lease?.status === 'running' && lease.submissionId && lease.serial?.current.receipt

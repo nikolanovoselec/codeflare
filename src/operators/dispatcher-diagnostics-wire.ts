@@ -24,6 +24,32 @@ export const sdkAdmissionTypes = ['invalid_request', 'invalid_json', 'unsupporte
   'persisted_format_version_unsupported', 'internal_error', 'conversation_stream_store_failure', 'runtime_unavailable'] as const;
 export const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 export const counter = z.number().int().nonnegative().safe();
+/** Public SDK observations are not private SQL coordinates or a contiguous outbox. */
+export const publicSdkMetadataSchema = z.strictObject({
+  kind: z.enum(['event', 'message', 'tool', 'data', 'settlement', 'history']),
+  eventType: z.enum(['submission_queued', 'submission_running', 'submission_recovery', 'submission_settled',
+    'turn_start', 'turn_request', 'turn', 'tool_start', 'tool', 'turn_messages']).optional(),
+  eventIndex: counter.optional(), sdkTimestamp: z.string().datetime().optional(),
+  attemptCount: counter.positive().optional(), maxAttempts: counter.positive().optional(),
+  outcome: z.enum(['completed', 'failed', 'aborted']).optional(),
+  recoveryOperation: z.enum(['materialize_submission', 'finalize_settlement', 'reconcile_submission', 'start_submission',
+    'process_submission', 'reconcile_pass', 'enforce_deadline']).optional(),
+  recoveryOutcome: z.enum(['deferred', 'agent_unavailable', 'attempt_cap_deferred', 'terminated']).optional(),
+  messageDigest: digestSchema.optional(), turnDigest: digestSchema.optional(), toolCallDigest: digestSchema.optional(),
+  nameDigest: digestSchema.optional(), offsetDigest: digestSchema.optional(), answeredByDigest: digestSchema.optional(),
+  role: z.enum(['user', 'assistant', 'system']).optional(),
+  purpose: z.enum(['user', 'assistant', 'dispatch', 'advisory', 'agent', 'compaction', 'compaction_prefix']).optional(),
+  display: z.enum(['visible', 'hidden', 'diagnostic']).optional(),
+  toolState: z.enum(['input-available', 'output-available', 'output-error']).optional(),
+  dataPresent: z.boolean().optional(), errorPresent: z.boolean().optional(), durationMs: counter.optional(),
+  stopReason: z.enum(['stop', 'length', 'toolUse', 'error', 'aborted', 'unknown']).optional(),
+  recordsOmitted: counter.optional(), messageCount: counter.optional(), settlementCount: counter.optional(),
+}).refine(value => (value.kind === 'event' ? value.eventType !== undefined && value.eventIndex !== undefined
+  : value.eventType === undefined && value.eventIndex === undefined)
+  && (value.eventType !== 'submission_running' || value.attemptCount !== undefined && value.maxAttempts !== undefined)
+  && (value.attemptCount === undefined || value.maxAttempts === undefined || value.attemptCount <= value.maxAttempts)
+  && (value.eventType !== 'submission_settled' && value.kind !== 'settlement' || value.outcome !== undefined));
+export type PublicSdkMetadata = z.infer<typeof publicSdkMetadataSchema>;
 export const bindingSchema = z.strictObject({ generation: counter, artifactDigest: digestSchema, inputDigest: digestSchema });
 const sourceFrameSchema = z.strictObject({ repository: z.enum(['nikolanovoselec/codeflare',
   'nikolanovoselec/codeflare-operator-dispatcher', 'withastro/flue', 'cloudflare/agents']),
@@ -91,8 +117,14 @@ export const eventSchema = z.strictObject({ kind: z.literal('event'), id: z.stri
   boundary: z.enum(boundaries), outcome: z.enum(['started', 'accepted', 'applied', 'committed', 'completed', 'failed', 'recovered', 'unknown', 'released', 'suppressed']),
   code: z.enum(reasonCodes), evidence: z.enum(['observed', 'unavailable']), origin: z.enum(['originating', 'catching', 'state-transition']),
   correlation: correlationSchema, source: sourceSchema, error: errorSchema.optional(), preparation: preparationSchema.optional(),
+  publicSdk: publicSdkMetadataSchema.optional(),
   capsuleId: z.string().regex(/^(f-[1-9][0-9]*|t-[0-9]+)$/).optional()
 }).refine(record => record.id === `e-${record.sequence}` && record.boundary === record.source.boundary
+  && (!record.publicSdk || record.owner === 'sdk' && record.source.package === '@flue/runtime'
+    && record.source.patchSetDigest === null && record.source.status === 'partial' && record.source.frames.length === 0
+    && record.correlation.sdkAttemptDigest === undefined && record.correlation.sdkBatchSequence === undefined
+    && record.correlation.sdkProducerEpoch === undefined && record.correlation.sdkProducerSequence === undefined
+    && record.correlation.sdkRecordIndex === undefined)
   && (record.code !== 'journal-unaccounted' || record.owner === 'host' && record.boundary === 'settlement')
   && (!record.error?.journal || record.owner === 'host' && record.boundary === 'settlement' && record.code === 'journal-unaccounted'
     && record.error.publicCode === 'journal-unaccounted')

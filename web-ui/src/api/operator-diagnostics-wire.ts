@@ -105,12 +105,41 @@ const preparationSchema = z.strictObject({ step: z.enum(['parse', 'capability'])
   && (value.failureClass === 'body-limit'
     ? value.byteLimit !== undefined && value.observedBytesLowerBound !== undefined && value.observedBytesLowerBound > value.byteLimit
     : value.byteLimit === undefined && value.observedBytesLowerBound === undefined));
+const publicSdkMetadata = z.strictObject({
+  kind: z.enum(['event', 'message', 'tool', 'data', 'settlement', 'history']),
+  eventType: z.enum(['submission_queued', 'submission_running', 'submission_recovery', 'submission_settled',
+    'turn_start', 'turn_request', 'turn', 'tool_start', 'tool', 'turn_messages']).optional(),
+  eventIndex: integer.optional(), sdkTimestamp: z.string().datetime().optional(),
+  attemptCount: positive.optional(), maxAttempts: positive.optional(), outcome: z.enum(['completed', 'failed', 'aborted']).optional(),
+  recoveryOperation: z.enum(['materialize_submission', 'finalize_settlement', 'reconcile_submission', 'start_submission',
+    'process_submission', 'reconcile_pass', 'enforce_deadline']).optional(),
+  recoveryOutcome: z.enum(['deferred', 'agent_unavailable', 'attempt_cap_deferred', 'terminated']).optional(),
+  messageDigest: digest.optional(), turnDigest: digest.optional(), toolCallDigest: digest.optional(),
+  nameDigest: digest.optional(), offsetDigest: digest.optional(), answeredByDigest: digest.optional(),
+  role: z.enum(['user', 'assistant', 'system']).optional(),
+  purpose: z.enum(['user', 'assistant', 'dispatch', 'advisory', 'agent', 'compaction', 'compaction_prefix']).optional(),
+  display: z.enum(['visible', 'hidden', 'diagnostic']).optional(),
+  toolState: z.enum(['input-available', 'output-available', 'output-error']).optional(),
+  dataPresent: z.boolean().optional(), errorPresent: z.boolean().optional(), durationMs: integer.optional(),
+  stopReason: z.enum(['stop', 'length', 'toolUse', 'error', 'aborted', 'unknown']).optional(),
+  recordsOmitted: integer.optional(), messageCount: integer.optional(), settlementCount: integer.optional(),
+}).refine(value => (value.kind === 'event' ? value.eventType !== undefined && value.eventIndex !== undefined
+  : value.eventType === undefined && value.eventIndex === undefined)
+  && (value.eventType !== 'submission_running' || value.attemptCount !== undefined && value.maxAttempts !== undefined)
+  && (value.attemptCount === undefined || value.maxAttempts === undefined || value.attemptCount <= value.maxAttempts)
+  && (value.eventType !== 'submission_settled' && value.kind !== 'settlement' || value.outcome !== undefined));
 const event = z.strictObject({ kind: z.literal('event'), id: eventId, sequence: positive, generation: integer,
   timestamp, owner: z.enum(['host', 'sdk', 'producer', 'platform', 'recorder']), boundary: diagnosticBoundarySchema,
   outcome: z.enum(['started', 'accepted', 'applied', 'committed', 'completed', 'failed', 'recovered', 'unknown', 'released', 'suppressed']),
   code: reason, evidence: z.enum(['observed', 'unavailable']), origin: z.enum(['originating', 'catching', 'state-transition']),
   correlation, source, error: diagnosticErrorSchema.optional(), preparation: preparationSchema.optional(), capsuleId: capsuleId.optional(),
+  publicSdk: publicSdkMetadata.optional(),
 }).refine(value => withinBytes(value, 4096) && value.id === `e-${value.sequence}` && value.source.boundary === value.boundary
+  && (!value.publicSdk || value.owner === 'sdk' && value.source.package === '@flue/runtime'
+    && value.source.patchSetDigest === null && value.source.status === 'partial' && value.source.frames.length === 0
+    && value.correlation.sdkAttemptDigest === undefined && value.correlation.sdkBatchSequence === undefined
+    && value.correlation.sdkProducerEpoch === undefined && value.correlation.sdkProducerSequence === undefined
+    && value.correlation.sdkRecordIndex === undefined)
   && (value.code !== 'journal-unaccounted' || value.owner === 'host' && value.boundary === 'settlement')
   && (!value.error?.journal || value.owner === 'host' && value.boundary === 'settlement' && value.code === 'journal-unaccounted'
     && value.error.publicCode === 'journal-unaccounted')

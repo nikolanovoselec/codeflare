@@ -4,6 +4,7 @@ import { createComponent } from 'solid-js';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
 import { acknowledgeOperatorActivities, cancelOperatorActivity, getOperatorActivity, listOperatorActivities } from '../../api/operator-activities';
 import { listOperatorInstallations } from '../../api/operator-management';
+import { diagnosticRecordSchema } from '../../api/operator-diagnostics-wire';
 
 const detail = { activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'completed',
   cleanupStatus: 'stopped', collectionStatus: 'ready', attention: false, sessionId: null, source: null,
@@ -11,6 +12,21 @@ const detail = { activityId: 'activity-1', operatorId: 'reviewer', executionStat
   result: { originalReports: [{ lane: 'code-reviewer', findings: [{ message: 'Review finding' }] }] } };
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+describe('REQ-OPERATOR-080/081: public SDK diagnostic browser wire', () => {
+  const record = { kind: 'event', id: 'e-1', sequence: 1, generation: 1, timestamp: 1700000000000,
+    owner: 'sdk', boundary: 'delivery', outcome: 'started', code: 'none', evidence: 'observed', origin: 'state-transition',
+    correlation: { submissionDigest: 'a'.repeat(64), rootDigest: 'b'.repeat(64) },
+    source: { package: '@flue/runtime', boundary: 'delivery', baseVersion: '2.3.0', patchSetDigest: null, status: 'partial', frames: [] },
+    publicSdk: { kind: 'event', eventType: 'submission_running', eventIndex: 1, attemptCount: 2, maxAttempts: 4 } };
+  it('accepts bounded public counters without claiming private SDK coordinates', () => {
+    expect(diagnosticRecordSchema.parse(record)).toEqual(record);
+  });
+  it('rejects a public observation claiming an unrelated native attempt identity', () => {
+    expect(diagnosticRecordSchema.safeParse({ ...record,
+      correlation: { ...record.correlation, sdkAttemptDigest: 'c'.repeat(64) } }).success).toBe(false);
+  });
+});
 
 describe('REQ-OPERATOR-086 AC2/5: five-entry installation page wire', () => {
   const installation = (index: number) => ({ id: `installation-${index}`, operatorId: 'operator-1', name: 'Review',
