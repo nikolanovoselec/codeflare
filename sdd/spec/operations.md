@@ -1111,9 +1111,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-037: Develop direct fast-forward repairs
+<a id="req-ops-037-develop-direct-fast-forward-repairs"></a>
+### REQ-OPS-037: Develop direct repairs
 
-**Intent:** Maintainers can repair the integration branch directly without weakening production promotion or allowing destructive history changes.
+**Intent:** Maintainers can repair the integration branch directly, including force pushes, without changing production promotion or branch-deletion protection.
 
 **Applies To:** Maintainer
 
@@ -1122,9 +1123,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The active `develop` ruleset permits direct pushes without a pull-request requirement. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm no pull_request rule. -->
 2. The active `develop` ruleset does not require pre-push status contexts. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm no required_status_checks rule. -->
 3. The active `develop` ruleset blocks branch deletion. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm the deletion rule. -->
-4. The active `develop` ruleset blocks non-fast-forward updates. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm the non_fast_forward rule. -->
-
-**Notes:** Non-fast-forward update prevention is not enforced; inspected direct-push and deletion controls are present.
+4. The `develop` branch permits force pushes. <!-- @manual: Inspect effective develop protection and confirm force pushes are permitted. -->
 
 **Constraints:** Production promotion remains governed by [REQ-OPS-036](#req-ops-036-develop-only-main-promotion).
 
@@ -1134,7 +1133,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Manual: [Branch-protection inspection](../../documentation/lanes/ci-cd.md#branch-protection-inspection)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
