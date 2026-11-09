@@ -333,9 +333,9 @@ Turnstile skill is refreshed from
 then locally hardens API calls with bounded deadlines and behavioral tests
 ([REQ-AGENT-138](../../sdd/spec/agents.md#req-agent-138-bundled-turnstile-scripts-fail-closed));
 obsolete deployment templates are retired in favor of the current siteverify-first
-runbook and scripts. Codeflare keeps the mega-skill reference
-tree slimmed and excludes upstream MCP configuration as specified by
-[REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed).
+runbook and scripts. Codeflare retains the mega-skill's decision-tree `SKILL.md`, removes dangling `references:` frontmatter and excludes the `references/` tree. The recorded slimming rationale avoids a 319-file reference snapshot (~2.2 MB per agent); these figures are not a runtime ceiling or new measurement.
+
+The `paths:`-scoped `rules/cloudflare-workers.md` carries retrieval-first WebFetch guidance for `developers.cloudflare.com` only on Workers files, not always-on. Upstream `.mcp.json` is not bundled: its remote-MCP/interactive-OAuth approach is incompatible with enterprise strict egress. These artifact choices implement [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed); the manifest pipeline, complete platform scope and Apache attribution remain unchanged.
 
 Skills are preseeded to `~/.claude/skills/<name>/SKILL.md` and adapted equivalents
 for agents that support skills. `consult-llm` is scoped to Claude + Pi only. On
@@ -351,6 +351,8 @@ Claude receives consult-llm through `~/.claude.json`; Pi receives it through
 `~/.pi/agent/mcp-adapter.json` using the native adapter proxy/deferred tools. The [Pi manifest and
 lock](../../preseed/agents/pi/package.json) own the exact package and SDK pins.
 Builtin MCP remains disabled so there is one managed lifecycle owner.
+
+The active native adapter root is `.pi/agent/mcp-adapter.json` relative to the user's home; preserved originals, recovery copies and nested files retain their existing baseline/bisync eligibility ([REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration)).
 
 Managed startup selects the native adapter and prepares `mcp-adapter.json` after restore. Valid native definitions remain authoritative over proven generated duplicates; missing supported legacy servers are imported. The exact obsolete `mcp.json` is archived before its active filename is retired. Genuine custom conflicts, unsupported expressions and unsafe paths fail closed. Stock-only loading and dual/unknown-selection guards remain unchanged. Native configuration, passive archives and nested files remain sync-eligible. Only successful handoff excludes the obsolete root from subsequent baseline/bisync; initial restore and failed handoff retain its eligibility. No bucket objects or OAuth stores are deleted. [REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration) owns the guards.
 
