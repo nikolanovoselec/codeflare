@@ -576,6 +576,48 @@ const backgroundInitBlock = extractBetween(
 );
 
 describe('REQ-STOR-017: background init yields CPU/disk to pi pre-warm (entrypoint.sh)', () => {
+  it('REQ-STOR-017 AC5: real background and child priorities change without changing the foreground', t => {
+    const env = { ...process.env, LC_ALL: 'C' };
+    const available = spawnSync('bash', ['-c', 'command -v ps && command -v renice && command -v ionice'], { encoding: 'utf8', env });
+    if (available.status !== 0) { t.skip('Required native priority utilities unavailable; qualification remains pending'); return; }
+    const permitted = spawnSync('bash', ['-c', 'renice -n 19 "$BASHPID" >/dev/null && ionice -c 3 -p "$BASHPID"'], { encoding: 'utf8', env });
+    if (permitted.status !== 0) { t.skip('Native priority changes unavailable; qualification remains pending'); return; }
+    const dir = mkdtempSync(join(tmpdir(), 'background-priority-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const script = `set -euo pipefail
+RCLONE_CONFIG_RESULT=0
+STEP1_RESULT=0
+export OBS_DIR
+ps -o ni= -p "$BASHPID" > "$OBS_DIR/foreground-before-nice"
+ionice -p "$BASHPID" > "$OBS_DIR/foreground-before-io"
+establish_bisync_baseline() {
+  ps -o ni= -p "$BASHPID" > "$OBS_DIR/baseline-nice"
+  ionice -p "$BASHPID" > "$OBS_DIR/baseline-io"
+  bash -c 'ps -o ni= -p "$BASHPID" > "$OBS_DIR/child-nice"; ionice -p "$BASHPID" > "$OBS_DIR/child-io"'
+  exit 0
+}
+# Fail closed if the extracted block ever reaches unrelated initialization.
+init_user_vault() { exit 97; }
+run_daily_vault_session_compaction() { exit 97; }
+start_sync_daemon() { exit 97; }
+start_silverbullet_supervisor() { exit 97; }
+start_openvscode_supervisor() { exit 97; }
+${backgroundInitBlock}
+fi
+wait "$BISYNC_INIT_PID"
+ps -o ni= -p "$BASHPID" > "$OBS_DIR/foreground-after-nice"
+ionice -p "$BASHPID" > "$OBS_DIR/foreground-after-io"
+`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...runtimeEnv(dir), LC_ALL: 'C', OBS_DIR: dir } });
+    assert.equal(result.status, 0, result.stderr);
+    const observed = name => readFileSync(join(dir, name), 'utf8').trim();
+    assert.equal(observed('baseline-nice'), '19');
+    assert.equal(observed('child-nice'), '19');
+    assert.match(observed('baseline-io'), /^idle(?:\s|$)/);
+    assert.match(observed('child-io'), /^idle(?:\s|$)/);
+    assert.equal(observed('foreground-after-nice'), observed('foreground-before-nice'));
+    assert.equal(observed('foreground-after-io'), observed('foreground-before-io'));
+  });
   it('renices the background subshell to lowest priority (nice 19)', () => {
     assert.match(backgroundInitBlock, /renice -n 19 "\$BASHPID"/, 'background init not reniced — it can contend with pi pre-warm');
   });
