@@ -2109,9 +2109,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
     it.each([undefined, 'Bearer caller-supplied'])('REQ-SEC-022 AC1: missing lifecycle credentials refuse protected forwarding (%s)', async (authorization) => {
       mockContainerRuntime.running = true;
-      mockStorage.get.mockImplementation(async (key: string) => key === 'bucketName' ? 'test-bucket' : null);
+      // No restored configuration: a bucket would generate a lifecycle token during hydration.
+      mockStorage.get.mockResolvedValue(null);
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => expect(instance.envVars?.R2_BUCKET_NAME).toBe('test-bucket'));
+      await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
       const upstreamState = { syncRequested: false };
       const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
       const upstream = vi.spyOn(proto, 'fetch').mockImplementation(async () => {
@@ -2862,7 +2863,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(superDestroySpy).toHaveBeenCalled();
       expect(loggerWarn).toHaveBeenCalledWith(
         'Forced destroy failed or exceeded teardown deadline',
-        { error: forcedError.message },
+        { sessionId: null, lifecycleGeneration: null, incidentId: null, reason: 'unknown', errorClass: 'native_destroy_failed' },
       );
     });
 
@@ -2889,14 +2890,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         expect(superDestroySpy).toHaveBeenCalled();
         expect(loggerWarn).toHaveBeenCalledWith(
           'Forced destroy failed or exceeded teardown deadline',
-          { error: 'teardown deadline exceeded' },
+          { sessionId: null, lifecycleGeneration: null, incidentId: null, reason: 'unknown', errorClass: 'teardown_deadline_exceeded' },
         );
 
         rejectForcedDestroy(new Error('late provider rejection'));
         await vi.advanceTimersByTimeAsync(0);
         expect(loggerWarn).toHaveBeenCalledWith(
           'Forced destroy failed after teardown deadline',
-          { error: 'late provider rejection' },
+          { sessionId: null, lifecycleGeneration: null, incidentId: null, reason: 'unknown', errorClass: 'native_destroy_failed' },
         );
       } finally {
         vi.useRealTimers();
