@@ -543,6 +543,14 @@ Cache inventory continues in [Configuration](configuration.md#module-level-cache
 <a id="setup-wizard-resilience"></a>
 Setup retry and domain-recovery implementation belongs to [Configuration](configuration.md#setup-wizard-resilience); exact endpoint outcomes belong to [API Reference](api-reference.md).
 
+## GitHub clone verification
+
+### GitHub clone acceptance
+
+For REQ-GITHUB-004 AC2/AC5, obtain separate approval for disposable session creation/start, workspace writes, GitHub reads and any R2 sync. Use an existing accessible repository and the Clone picker for a new session and an existing running session. Observe startup ordering and the authenticated Worker-to-container path: new-session clone must precede agent start; running clone must require owner-scoped access and internal authentication. Do not start inference merely to prove ordering.
+
+Verify the default workspace is ephemeral. In an already sync-enabled approved workspace, verify cloning participates in existing sync and persisted files survive the authorized lifecycle. Pass only with ordering, authentication and lifecycle observations; file presence alone proves neither ordering nor durability. Keep credentials out of evidence. Missing safe observation or lifecycle targets remain unverified; this procedure grants no new infrastructure or mutation authority.
+
 <a id="specification-coverage"></a>
 <a id="manual-verification-checklist"></a>
 ## Decision and Requirement Map

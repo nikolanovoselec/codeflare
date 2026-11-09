@@ -971,6 +971,12 @@ GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited; onboardi
 
 The landing contact surface ([REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline)). Both endpoints are gated on SaaS **or** onboarding mode and return `404` in default/enterprise mode.
 
+### Contact relay acceptance
+
+For REQ-LANDING-002 AC2/AC4/AC5, separately authorize contact submissions, provider calls and delivery to existing disposable admin inboxes. Check contact availability on approved SaaS/onboarding targets and 404 in default/Enterprise; waitlist stays onboarding-only. Submit one non-sensitive valid inquiry through Turnstile. Inspect all configured admin deliveries: reply-to must be the submitter, and user markup must render escaped, never execute.
+
+Trace the current contact handler and limiter/email calls to verify content is not stored and only limiter bookkeeping reaches KV. Delivery alone cannot prove non-persistence. Pass only if every branch and storage sink preserves these privacy/abuse boundaries. Missing safe inboxes or mode targets remain unverified; never email real users, replay submissions or export secrets to complete this check.
+
 ### GET `/public/contact-config`
 
 Exposes only the public Turnstile site key for the landing form widget.

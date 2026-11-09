@@ -46,7 +46,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts), [jwt.test.ts](../../src/__tests__/lib/jwt.test.ts); Manual: [Logout mode acceptance](../../documentation/lanes/authentication.md#logout-mode-acceptance)
 
 **Status:** Implemented
 
@@ -78,7 +78,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test ([github-auth](../../src/__tests__/routes/github-auth.test.ts))
+**Verification:** Automated: [github-auth.test.ts](../../src/__tests__/routes/github-auth.test.ts); Manual: [Verified primary email acceptance](../../documentation/lanes/authentication.md#verified-primary-email-acceptance)
 
 **Status:** Implemented
 
@@ -108,7 +108,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test
+**Verification:** Automated: [jwt.test.ts](../../src/__tests__/lib/jwt.test.ts), [access.test.ts](../../src/__tests__/routes/setup/access.test.ts); Manual: [Access redirect acceptance](../../documentation/lanes/authentication.md#access-redirect-acceptance)
 
 **Status:** Implemented
 
@@ -219,7 +219,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test
+**Verification:** Automated: [access.test.ts](../../src/__tests__/lib/access.test.ts), [user-record.test.ts](../../src/__tests__/lib/user-record.test.ts), [auth-saas.test.ts](../../src/__tests__/middleware/auth-saas.test.ts); Manual: [Provisioning and onboarding acceptance](../../documentation/lanes/authentication.md#provisioning-and-onboarding-acceptance)
 
 **Status:** Implemented
 
@@ -247,7 +247,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Automated test ([auth-gaps](../../src/__tests__/lib/auth-gaps.test.ts))
+**Verification:** Automated: [auth-gaps.test.ts](../../src/__tests__/lib/auth-gaps.test.ts); Manual: [Session refresh acceptance](../../documentation/lanes/authentication.md#session-refresh-acceptance)
 
 **Status:** Implemented
 
@@ -277,7 +277,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test ([auth-redirects](../../src/__tests__/routes/auth-redirects.test.ts))
+**Verification:** Automated: [auth-redirects.test.ts](../../src/__tests__/routes/auth-redirects.test.ts); Manual: [Logout mode acceptance](../../documentation/lanes/authentication.md#logout-mode-acceptance)
 
 **Status:** Implemented
 
@@ -387,7 +387,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Automated component test ([LoginPage](../../web-ui/src/__tests__/components/LoginPage.test.tsx)); first-paint visibility is verified against the protected deployment through the agent-driven browser-e2e lane.
+**Verification:** Automated: [LoginPage.test.tsx](../../web-ui/src/__tests__/components/LoginPage.test.tsx); Manual: [Protected login first-paint acceptance](../../documentation/lanes/authentication.md#protected-login-first-paint-acceptance)
 
 **Status:** Implemented
 
@@ -442,7 +442,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
 
-**Verification:** Automated test ([OnboardingPage](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx))
+**Verification:** Automated: [OnboardingPage.test.tsx](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx); Manual: [Provisioning and onboarding acceptance](../../documentation/lanes/authentication.md#provisioning-and-onboarding-acceptance)
 
 **Status:** Implemented
 
@@ -495,7 +495,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([Lookup contract](../../web-ui/src/__tests__/lib/gravatar.test.ts), [fallback rendering](../../web-ui/src/__tests__/components/Header.test.tsx))
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [gravatar.test.ts](../../web-ui/src/__tests__/lib/gravatar.test.ts); Manual: [Gravatar fallback acceptance](../../documentation/lanes/authentication.md#gravatar-fallback-acceptance)
 
 **Status:** Implemented
 
@@ -527,7 +527,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated route and cleanup tests; manual admin-panel acceptance.
+**Verification:** Automated: [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [users.test.ts](../../src/__tests__/routes/users.test.ts); Manual: [Admin user panel acceptance](../../documentation/lanes/authentication.md#admin-user-panel-acceptance)
 
 **Status:** Partial
 

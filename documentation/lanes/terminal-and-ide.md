@@ -332,6 +332,18 @@ loss.loseContext();
 
 Retain only nonsecret observations and stop on failed permission or ownership checks. These cases cover the manual portions of [REQ-MOB-001](../../sdd/spec/terminal.md#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-016](../../sdd/spec/terminal.md#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls), [REQ-MOB-023](../../sdd/spec/terminal.md#req-mob-023-opt-in-mobile-input-diagnostics), [REQ-MOB-018](../../sdd/spec/terminal.md#req-mob-018-decorative-webgl-canvas-retirement), [REQ-MOB-020](../../sdd/spec/terminal.md#req-mob-020-terminal-touch-activation), [REQ-MOB-022](../../sdd/spec/terminal.md#req-mob-022-herdr-mobile-input-focus-and-viewport) [REQ-MOB-013](../../sdd/spec/terminal.md#req-mob-013-mobile-input-system-platform-compatibility) and [REQ-MOB-008](../../sdd/spec/terminal.md#req-mob-008-cursor-visible-for-all-supported-agents); their automated cases remain separate.
 
+## GitHub workspace acceptance
+
+Use existing disposable targets/content with current protected-access authorization. Mutations require separate approval. Record redacted observations; missing prerequisites remain unverified, not permission to create data or infrastructure.
+
+### GitHub links acceptance
+
+For REQ-GITHUB-002 AC6, use an approved connected account with an existing repository. Activate owner/login and repository-name links by pointer and keyboard. Pass only if each opens the intended GitHub destination in a new tab and repo-name activation creates no clone request, session or workspace folder. Do not press Clone or infer no clone from the new tab alone. Mobile one-face flipping retains its separate Dashboard test and AC5.
+
+### GitHub panel geometry acceptance
+
+For REQ-GITHUB-012 AC1/AC6/AC7, use browser-e2e against protected Integration after access/authentication approval. At tablet and desktop breakpoints, verify the stacked column anchors GitHub at the top and Storage at the bottom. At mobile width, verify existing short content centers the active face; existing long repository/storage lists must scroll internally within the viewport cap. Pass only if all outcomes hold without page overflow. Missing content is unverified, not permission to upload files or create repositories.
+
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 

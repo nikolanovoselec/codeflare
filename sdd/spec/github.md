@@ -81,7 +81,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** Automated component test for mobile one-face flipping.
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx); Manual: [GitHub links acceptance](../../documentation/lanes/terminal-and-ide.md#github-links-acceptance)
 
 **Status:** Implemented
 
@@ -140,7 +140,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated test
+**Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx); Manual: [GitHub clone acceptance](../../documentation/lanes/architecture.md#github-clone-acceptance)
 
 **Status:** Implemented
 
@@ -434,7 +434,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-010](#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Mixed: automated Dashboard and panel-allocation tests cover single-panel allocation and reactive face sizing; the protected integration procedures in AC1, AC6, and AC7 manually verify desktop anchors, mobile centering, and scroll containment.
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [panel-allocation.test.ts](../../web-ui/src/__tests__/lib/panel-allocation.test.ts); Manual: [GitHub panel geometry acceptance](../../documentation/lanes/terminal-and-ide.md#github-panel-geometry-acceptance)
 
 **Status:** Implemented
 

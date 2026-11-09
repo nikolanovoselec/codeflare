@@ -54,7 +54,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts), [index.test.ts](../../src/__tests__/index.test.ts); Manual: [Landing responsive navigation acceptance](../../landing/README.md#landing-responsive-navigation-acceptance)
 
 **Status:** Implemented
 
@@ -110,7 +110,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test ([public-contact](../../src/__tests__/routes/public-contact.test.ts))
+**Verification:** Automated: [public-contact.test.ts](../../src/__tests__/routes/public-contact.test.ts); Manual: [Contact relay acceptance](../../documentation/lanes/api-reference.md#contact-relay-acceptance)
 
 **Status:** Implemented
 
@@ -143,7 +143,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [metadata.test.ts](../../landing/src/__tests__/metadata.test.ts), [seo.test.ts](../../src/__tests__/lib/seo.test.ts); Manual: [Landing mobile metadata acceptance](../../landing/README.md#landing-mobile-metadata-acceptance)
 
 **Status:** Implemented
 
@@ -199,7 +199,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [design-ready.script.test.ts](../../landing/src/__tests__/design-ready.script.test.ts), [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts), [login-page.test.ts](../../landing/src/__tests__/login-page.test.ts), [index.test.ts](../../src/__tests__/index.test.ts); Manual: [Landing login transition acceptance](../../landing/README.md#landing-login-transition-acceptance)
 
 **Status:** Implemented
 
@@ -267,7 +267,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-005](#req-landing-005-inference-mesh-family-hero)
 
-**Verification:** Automated test
+**Verification:** Automated: [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts); Manual: [Execution reel layout acceptance](../../landing/README.md#execution-reel-layout-acceptance)
 
 **Status:** Implemented
 
@@ -325,7 +325,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Manual check
+**Verification:** Manual: [Execution reel reduced-motion acceptance](../../landing/README.md#execution-reel-reduced-motion-acceptance)
 
 **Status:** Partial
 
@@ -351,7 +351,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Manual check
+**Verification:** Manual: [Execution reel capture acceptance](../../landing/README.md#execution-reel-capture-acceptance)
 
 **Status:** Partial
 
@@ -383,7 +383,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Manual check
+**Verification:** Manual: [Execution reel responsive acceptance](../../landing/README.md#execution-reel-responsive-acceptance)
 
 **Status:** Partial
 
@@ -442,7 +442,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [components.test.ts](../../landing/src/__tests__/components.test.ts), [scramble.script.test.ts](../../landing/src/__tests__/scramble.script.test.ts); Manual: [Landing sign-in accessibility acceptance](../../landing/README.md#landing-sign-in-accessibility-acceptance)
 
 **Status:** Implemented
 
@@ -475,7 +475,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** Automated test
+**Verification:** Automated: [code-editor.test.ts](../../landing/src/__tests__/code-editor.test.ts), [index-page.test.ts](../../landing/src/__tests__/index-page.test.ts); Manual: [Landing IDE band acceptance](../../landing/README.md#landing-ide-band-acceptance)
 
 **Status:** Implemented
 

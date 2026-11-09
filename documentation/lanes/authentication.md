@@ -336,6 +336,46 @@ Header/dropdown components render the current principal and invoke the canonical
 - AD68 service-auth restrictions remain unimplemented.
 - Authentication success alone does not imply active entitlement, provisioning completion, or storage readiness.
 
+## Authentication acceptance
+
+Use existing disposable targets and identities with current authorization for protected access, authentication and any state changes. Record redacted outcomes, never credentials. Missing prerequisites leave the affected check unverified. These methods grant no additional permission or execution evidence.
+
+### Logout mode acceptance
+
+For REQ-AUTH-001 AC4 and REQ-AUTH-009 AC1/AC4, use approved signed-in SaaS/onboarding OIDC and Access deployments. Activate the account Logout control and inspect redacted navigation. Pass only if each starts at `/auth/logout`, the backend selects `/auth/github/logout` for session-OIDC or the configured Access logout endpoint otherwise, clears the session and ends at the mode-appropriate login page with security headers. Service authentication cannot substitute for human logout; an OIDC return target must not go through Access.
+
+### Verified primary email acceptance
+
+For REQ-AUTH-002 AC7, use owner-approved existing GitHub identities with a verified primary email and without one. Complete a fresh normal OAuth flow once per identity. Pass only if the first resolves its verified primary email and the second reaches `/?error=no-verified-email` without a session. Secondary-only or unverified primary addresses must not be accepted. Never reuse callback codes/state, capture exchanged tokens, create accounts or alter email settings for this check.
+
+### Access redirect acceptance
+
+For REQ-AUTH-003 AC1, open a protected application page and API endpoint on the approved Access deployment from a signed-out browser without service-auth headers. Inspect navigation without submitting credentials. Pass only if Access redirects to the configured identity provider without exposing protected content. Finishing authentication requires separate approval; a Worker 401 alone does not establish the Access redirect.
+
+### Provisioning and onboarding acceptance
+
+For REQ-AUTH-007 AC3/AC5 and REQ-AUTH-015 AC3/AC4, use existing approved pending, first-time-active and onboarding-complete SaaS identities. Sign in normally: pending must reach subscriptions; first-time active must reach Guided Setup. With separate write approval, complete onboarding and sign in again; the completed identity must not return to onboarding. Pass only if all transitions occur. Missing states or completion prerequisites remain unverified; this check authorizes no KV edits, payment, provider connection or entitlement changes.
+
+### Session refresh acceptance
+
+For REQ-AUTH-008 AC1/AC3/AC4, allow an approved SaaS session to age naturally into the final fifteen minutes of its one-hour lifetime. Observe ordinary application/API responses without copying cookies. An observed refresh passes only if it retains secure cookie attributes, grants a fresh one-hour lifetime and leaves the UI uninterrupted without redirects or re-authentication.
+
+Trace `src/index.ts` dispatch and post-handler middleware, including early-return terminal/Vault/IDE paths. The every-response requirement fails if any eligible response bypasses refresh. Do not narrow it to Hono routes, forge cookies, replay expired sessions or treat one successful response as universal proof.
+
+### Protected login first-paint acceptance
+
+For REQ-AUTH-013 AC4, use the existing agent-driven browser-e2e lane against the protected deployment after access/authentication approval. Navigate freshly to SaaS login and inspect the initial painted frame before entrance effects finish. Pass only if branding, provider choices and Continue are visible immediately, without entrance opacity or transform hiding them. A component test, settled screenshot or public landing capture is not first-paint acceptance. Record target/revision and observation, not cookies or login data.
+
+### Gravatar fallback acceptance
+
+For REQ-AUTH-017 AC2, use an approved existing identity with no Gravatar. Open Header and Dashboard and let avatar lookup finish. Pass only if both show the account-shield fallback, not a broken image or blank avatar. Do not alter Gravatar profiles, expose the address or simulate network failure as proof of the no-Gravatar case.
+
+### Admin user panel acceptance
+
+For REQ-AUTH-018 AC1/AC2/AC4/AC5, use approved SaaS and onboarding admin deployments with existing disposable users across tiers and known capacity. Open `/admin/users`, compare tier headings and current/maximum counts, then search for a known user.
+
+With separately approved mutations, approve pending users, change SaaS tier/session mode, use onboarding Approve/Block and bulk approval, and delete only an explicitly authorized disposable user. Pass each operation only when its successful response updates visible state; onboarding approval must grant unlimited/advanced full access. Preserve admin-only/mode gates. A disappeared row does not establish AC3's independent cleanup/security contract or resolve residual failures.
+
 ## Requirement and Source Map
 
 Exhaustive requirement status remains in active SDD domains. This is navigation, not a coverage or acceptance ledger.
