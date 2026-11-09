@@ -429,7 +429,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions)
 
-**Verification:** Entrypoint runtime behavior test; manual Plan Mode completion after disposable temporary-file cleanup
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
 
 **Status:** Implemented
 
@@ -5771,7 +5771,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated Pi and Claude marker, ingress, transcript, Stop-hook, filter, worktree, and parity tests; integration R2 restoration check
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-completion-state.test.ts](../../src/__tests__/lib/review-completion-state.test.ts), [review-completion-state.test.js](../../host/__tests__/review-completion-state.test.js)
 
 **Status:** Implemented
 

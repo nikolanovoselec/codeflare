@@ -151,6 +151,8 @@ The automatic path already carries its exact green gate. Same-repository success
    - Best-effort registry pruning retains ten newest tags, deployed tag, aliases of its digest and unresolved-creation-time tags. Uncertain creation time never authorizes deletion.
    - Always publishes environment/Worker/image/reuse summary.
 
+User-extension persistence, lazy restoration and warning acknowledgement (REQ-IDE-036–038) use GitHub Actions suites and complete-image smoke, without additional local, browser-automation, Chromium or manual test gates.
+
 Application suites are not rerun after exact-tree verification. Packaged-image smoke is independently deployment-owned because PR Checks builds no image. A green deployment receipt is not proof that every changed protected user path works; [Deployment](deployment.md#standard-deployment) owns post-secrets verification.
 
 <a id="test-workflow-detail"></a>
