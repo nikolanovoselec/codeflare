@@ -558,7 +558,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. The frontend runs session-vault-cache cleanup on session delete (not on stop), removing only legacy session-scoped localStorage markers. SilverBullet IndexedDB stores remain bucket-stable and are not deleted on per-session delete. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache --> <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)) -->
+1. The frontend runs session-vault-cache cleanup on session delete (not on stop), removing only legacy session-scoped localStorage markers. SilverBullet IndexedDB stores remain bucket-stable and are not deleted on per-session delete. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache --> <!-- @impl: web-ui/src/stores/session.ts::deleteSession --> <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)) -->
 2. After an authoritative session-list fetch succeeds, the frontend sweeps persisted localStorage markers and, for any session no longer in the user's active sessions list, drops the corresponding marker entries. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) -->
 
 **Constraints:**
