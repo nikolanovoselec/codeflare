@@ -459,7 +459,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-012](#req-operator-012-protected-operator-webhook-keys), [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization)
 
-**Verification:** Automated test: Management projections, retired-route denial, and internal default-entrypoint readback are covered by the adjacent tests.
+**Verification:** Automated: [operator-catalog.test.ts](../../src/__tests__/operators/operator-catalog.test.ts), [index.test.ts](../../src/__tests__/index.test.ts), [operator-management.test.tsx](../../web-ui/src/__tests__/operators/operator-management.test.tsx), [registry-distribution.test.ts](../../src/__tests__/operators/registry-distribution.test.ts)
 
 **Status:** Implemented
 

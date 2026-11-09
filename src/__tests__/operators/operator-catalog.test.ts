@@ -227,14 +227,33 @@ describe('REQ-OPERATOR-086 AC5: installed activity catalog visibility', () => {
 });
 
 describe('REQ-OPERATOR-043: catalog and independently configured installations', () => {
-  it('creates distinct operator and installation identities', async () => withManagementApi(async request => {
+  it('creates distinct operator and installation identities', async () => withManagementApi(async (request, ctx) => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
     await configureControls(request);
     const registered = await request('/operators', 'POST', registration);
     expect(registered.status).toBe(201);
     const operator = await registered.json() as { operatorId: string; revision: number; enabled: boolean };
     expect(operator).toMatchObject({ operatorId: expect.any(String), revision: expect.any(Number), enabled: false });
-    expect(await (await request('/operators?limit=50')).json()).toMatchObject({ items: [expect.objectContaining({ operatorId: operator.operatorId })], cursor: null });
+    const acquisition = await new OperatorRegistry(ctx, {}).getManagementAcquisition(operator.operatorId);
+    expect(acquisition.ok).toBe(true);
+    if (!acquisition.ok) throw new Error('Registered acquisition is missing');
+    const ciphertext = acquisition.value.githubPatCiphertext;
+    expect(ciphertext).toEqual(expect.any(String));
+    expect(ciphertext.length).toBeGreaterThan(0);
+    expect(ciphertext).not.toBe(registration.githubPat);
+
+    const catalogResponse = await request('/operators?limit=50');
+    expect(catalogResponse.status).toBe(200);
+    const catalog = await catalogResponse.json();
+    expect(catalog).toMatchObject({
+      items: [expect.objectContaining({
+        operatorId: operator.operatorId,
+        source: expect.objectContaining({ credentialConfigured: true }),
+      })],
+      cursor: null,
+    });
+    expect(JSON.stringify(catalog)).not.toContain(registration.githubPat);
+    expect(JSON.stringify(catalog)).not.toContain(ciphertext);
     identity.email = 'ungranted@example.test';
     expect((await request('/operators?limit=50')).status).toBe(404);
     identity.email = 'manager@example.test';
@@ -247,6 +266,19 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const detail = await request(`/operators/${operator.operatorId}`);
     expect(detail.status).toBe(200);
     const current = await detail.json() as { operator: { revision: number } };
+    expect(current).toMatchObject({
+      operator: {
+        operatorId: operator.operatorId,
+        source: { credentialConfigured: true },
+      },
+      releases: expect.any(Array),
+      installations: [expect.objectContaining({
+        id: firstInstallation.id,
+        name: 'production',
+      })],
+    });
+    expect(JSON.stringify(current)).not.toContain(registration.githubPat);
+    expect(JSON.stringify(current)).not.toContain(ciphertext);
     const second = await request(`/operators/${operator.operatorId}/installations`, 'POST', { name: 'staging', policy, revision: current.operator.revision });
     expect(second.status).toBe(201);
     const secondInstallation = await second.json() as { id: string; revision: number; releaseId: string | null; enabled: boolean };

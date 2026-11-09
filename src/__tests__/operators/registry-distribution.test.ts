@@ -32,6 +32,30 @@ describe('REQ-OPERATOR-002: protected distribution registration', () => {
     expect(await openOperatorSecret(stored!.connectionSecretCiphertext, protectedEnv, { purpose: 'connection', recordId: 'operator' })).toBe(secret);
     expect(JSON.stringify([...await ctx.storage.list()])).not.toContain(secret);
     expect(JSON.stringify(result)).not.toContain(stored!.connectionSecretCiphertext);
+
+    const before = await ctx.storage.list();
+    const detail = await new OperatorRegistry(ctx, {}).getAdminDetail('operator');
+    expect(detail).toEqual({
+      ok: true,
+      value: {
+        registration: {
+          operatorId: 'operator',
+          revision: 2,
+          enabled: false,
+          approvedArtifactDigest: null,
+        },
+        endpoint,
+        connectionSecretConfigured: true,
+        webhookKeyConfigured: false,
+        discoveredManifestJson: null,
+        approvedManifestJson: null,
+        policyJson: null,
+      },
+    });
+    expect(JSON.stringify(detail)).not.toContain(secret);
+    expect(JSON.stringify(detail)).not.toContain(stored!.connectionSecretCiphertext);
+    expect(await ctx.storage.list()).toEqual(before);
+
     expect(await registry.getProtectedDistribution('other')).toBeNull();
   }));
 
