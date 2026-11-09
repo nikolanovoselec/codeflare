@@ -85,6 +85,43 @@ export function parseInitiateMultipartUploadXml(xml: string): string {
   return match[1];
 }
 
+/** Parse S3 DeleteObjects outcomes without treating HTTP success as object success. */
+export function parseDeleteObjectsXml(xml: string): {
+  deleted: string[];
+  errors: { key: string; error: string }[];
+} {
+  const result = xml.match(/^\s*(?:<\?xml(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*\?>\s*)?<DeleteResult(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*(?:\/>|>([\s\S]*)<\/DeleteResult>)\s*$/);
+  const malformed = () => new Error('Malformed DeleteObjects response');
+  if (!result) throw malformed();
+  const body = result[1] ?? '';
+  const deleted: string[] = [];
+  const errors: { key: string; error: string }[] = [];
+  const seen = new Set<string>();
+  const blocks = /<(Deleted|Error)>([\s\S]*?)<\/\1>/g;
+  let cursor = 0;
+  for (const match of body.matchAll(blocks)) {
+    if (body.slice(cursor, match.index).trim()) throw malformed();
+    cursor = match.index + match[0].length;
+    const fields = [...match[2].matchAll(/<([A-Za-z_][\w:.-]*)>([^<]*)<\/\1>/g)];
+    let fieldCursor = 0;
+    const allowed = match[1] === 'Deleted'
+      ? ['Key', 'VersionId', 'DeleteMarker', 'DeleteMarkerVersionId']
+      : ['Key', 'Code', 'Message', 'VersionId'];
+    for (const field of fields) {
+      if (match[2].slice(fieldCursor, field.index).trim() || !allowed.includes(field[1])) throw malformed();
+      fieldCursor = field.index + field[0].length;
+    }
+    if (match[2].slice(fieldCursor).trim() || fields.filter(field => field[1] === 'Key').length !== 1) throw malformed();
+    const key = extractTag(match[2], 'Key');
+    if (!key || seen.has(key)) throw malformed();
+    seen.add(key);
+    if (match[1] === 'Deleted') deleted.push(key);
+    else errors.push({ key, error: extractTag(match[2], 'Message') || extractTag(match[2], 'Code') || 'Delete failed' });
+  }
+  if (body.slice(cursor).trim()) throw malformed();
+  return { deleted, errors };
+}
+
 /** Maximum number of pagination iterations to prevent infinite loops */
 const MAX_EMPTY_ITERATIONS = 100;
 
@@ -123,6 +160,9 @@ export async function emptyR2Bucket(
 
     const xml = await listRes.text();
     const parsed = parseListObjectsXml(xml);
+    if (parsed.isTruncated && !parsed.nextContinuationToken) {
+      throw new Error('Incomplete ListObjectsV2 response: missing continuation token');
+    }
 
     if (parsed.objects.length > 0) {
       // Build S3 DeleteObjects XML body
@@ -144,6 +184,16 @@ export async function emptyR2Bucket(
         throw new Error(`DeleteObjects failed: HTTP ${deleteRes.status}`);
       }
 
+      const outcomes = parseDeleteObjectsXml(await deleteRes.text());
+      if (outcomes.errors.length > 0) {
+        throw new Error('DeleteObjects reported per-object failures');
+      }
+      // Quiet success omits successful keys. If keys are returned, require the complete set.
+      const expected = new Set(parsed.objects.map(object => object.key));
+      if (outcomes.deleted.length > 0 && (outcomes.deleted.length !== expected.size
+        || outcomes.deleted.some(key => !expected.has(key)))) {
+        throw new Error('Incomplete DeleteObjects response');
+      }
       totalDeleted += parsed.objects.length;
     }
 
@@ -151,6 +201,7 @@ export async function emptyR2Bucket(
     iterations++;
   } while (continuationToken && iterations < MAX_EMPTY_ITERATIONS);
 
+  if (continuationToken) throw new Error('Bucket deletion incomplete: pagination limit reached');
   return totalDeleted;
 }
 

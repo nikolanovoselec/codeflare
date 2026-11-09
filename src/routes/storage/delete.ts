@@ -2,11 +2,11 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
-import { createR2Client, getR2Url, emptyR2Bucket } from '../../lib/r2-client';
+import { createR2Client, getR2Url, emptyR2Bucket, parseDeleteObjectsXml } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
-import { escapeXml, decodeXmlEntities } from '../../lib/xml-utils';
+import { escapeXml } from '../../lib/xml-utils';
 import { validateKey } from './validation';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { isBucketMigrating } from '../../lib/r2-migration';
@@ -92,23 +92,21 @@ app.post('/', async (c) => {
       });
 
       if (response.ok) {
-        const responseXml = await response.text();
-        // Parse response - <Deleted><Key>...</Key></Deleted> and <Error><Key>...</Key><Message>...</Message></Error>
-        const deletedMatches = responseXml.matchAll(/<Deleted>\s*<Key>([^<]+)<\/Key>/g);
-        for (const match of deletedMatches) {
-          deleted.push(decodeXmlEntities(match[1]));
+        const outcomes = parseDeleteObjectsXml(await response.text());
+        const requested = new Set(validatedKeys);
+        if (outcomes.deleted.some(key => !requested.has(key))
+          || outcomes.errors.some(({ key }) => !requested.has(key))) {
+          throw new Error('Unexpected DeleteObjects result');
         }
-        const errorMatches = responseXml.matchAll(/<Error>\s*<Key>([^<]+)<\/Key>\s*(?:<Code>[^<]*<\/Code>\s*)?<Message>([^<]+)<\/Message>/g);
-        for (const match of errorMatches) {
-          errors.push({ key: decodeXmlEntities(match[1]), error: decodeXmlEntities(match[2]) });
-        }
-        // If we didn't parse any results, assume all succeeded
-        if (deleted.length === 0 && errors.length === 0) {
-          deleted.push(...keys);
+        const acknowledged = new Set(outcomes.deleted);
+        const failed = new Map(outcomes.errors.map(({ key, error }) => [key, error]));
+        for (const key of requested) {
+          if (acknowledged.has(key)) deleted.push(key);
+          else errors.push({ key, error: failed.get(key) ?? 'Deletion was not confirmed' });
         }
       } else {
         // Batch failed, try individual deletes
-        for (const key of keys) {
+        for (const key of validatedKeys) {
           try {
             const singleUrl = getR2Url(endpoint, bucketName, key);
             const singleResponse = await r2Client.fetch(singleUrl, { method: 'DELETE' });
@@ -124,7 +122,7 @@ app.post('/', async (c) => {
       }
     } catch {
       // Batch request failed entirely
-      for (const key of keys) {
+      for (const key of validatedKeys) {
         errors.push({ key, error: 'Batch delete failed' });
       }
     }

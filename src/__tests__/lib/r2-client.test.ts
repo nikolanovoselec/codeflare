@@ -316,6 +316,7 @@ describe('emptyR2Bucket', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetch.mockReset();
     globalThis.fetch = mockFetch;
     // By default, sign returns a Request-like object that fetch can consume
     mockSign.mockImplementation((url: string, init?: RequestInit) =>
@@ -339,6 +340,53 @@ describe('emptyR2Bucket', () => {
     return `<ListBucketResult><IsTruncated>${truncated}</IsTruncated>${tokenTag}${contents}</ListBucketResult>`;
   }
 
+  it.each([
+    '<DeleteResult/>',
+    '<?xml version="1.0" encoding="UTF-8"?><DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></DeleteResult>',
+  ])('REQ-STOR-007 AC4: genuine quiet success counts every listed object (%s)', async (xml) => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(listXml(['workspace/a.ts', 'workspace/b.ts'])))
+      .mockResolvedValueOnce(new Response(xml));
+    await expect(emptyR2Bucket(createClient(), endpoint, bucketName, 'workspace/')).resolves.toBe(2);
+  });
+
+  it('REQ-STOR-007 AC4: HTTP 200 quiet per-object error rejects instead of returning a completed count', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(listXml(['workspace/a.ts', 'workspace/b.ts'])))
+      .mockResolvedValueOnce(new Response('<DeleteResult><Error><Key>workspace/b.ts</Key><Code>AccessDenied</Code><Message>secret-internal-bucket-name</Message></Error></DeleteResult>'));
+    const result = emptyR2Bucket(createClient(), endpoint, bucketName, 'workspace/');
+    await expect(result).rejects.toThrow();
+    await expect(result).rejects.not.toThrow('secret-internal-bucket-name');
+  });
+
+  it.each([undefined, ''])('REQ-STOR-007 AC4: truncated listing without a usable continuation rejects (%s)', async (token) => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(token === ''
+        ? listXml(['workspace/a.ts'], true).replace('<IsTruncated>', '<NextContinuationToken></NextContinuationToken><IsTruncated>')
+        : listXml(['workspace/a.ts'], true, token)))
+      .mockResolvedValueOnce(new Response('<DeleteResult/>'));
+    await expect(emptyR2Bucket(createClient(), endpoint, bucketName, 'workspace/')).rejects.toThrow();
+  });
+
+  it('REQ-STOR-007 AC4: reaching the page cap with continuation rejects incomplete deletion', async () => {
+    // Distinct, valid tokens model more data beyond the existing 100-page safety bound.
+    for (let page = 0; page < 100; page++) {
+      mockFetch
+        .mockResolvedValueOnce(new Response(listXml([`workspace/${page}.ts`], true, `page-${page + 1}`)))
+        .mockResolvedValueOnce(new Response('<DeleteResult/>'));
+    }
+    await expect(emptyR2Bucket(createClient(), endpoint, bucketName, 'workspace/')).rejects.toThrow();
+  });
+
+  it('REQ-STOR-007 AC4: a terminal page at the page cap still returns the complete deletion count', async () => {
+    for (let page = 0; page < 100; page++) {
+      mockFetch
+        .mockResolvedValueOnce(new Response(listXml([`workspace/${page}.ts`], page < 99, `page-${page + 1}`)))
+        .mockResolvedValueOnce(new Response('<DeleteResult/>'));
+    }
+    await expect(emptyR2Bucket(createClient(), endpoint, bucketName, 'workspace/')).resolves.toBe(100);
+  });
+
   it('returns 0 for an empty bucket', async () => {
     mockFetch.mockResolvedValueOnce(new Response(listXml([]), { status: 200 }));
 
@@ -352,7 +400,7 @@ describe('emptyR2Bucket', () => {
   it('deletes objects in a single page', async () => {
     mockFetch
       .mockResolvedValueOnce(new Response(listXml(['a.txt', 'b.txt']), { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete response
+      .mockResolvedValueOnce(new Response('<DeleteResult/>', { status: 200 })); // delete response
 
     const count = await emptyR2Bucket(createClient(), endpoint, bucketName);
 
@@ -372,9 +420,9 @@ describe('emptyR2Bucket', () => {
   it('paginates through multiple pages', async () => {
     mockFetch
       .mockResolvedValueOnce(new Response(listXml(['a.txt'], true, 'tok1'), { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 })) // delete page 1
+      .mockResolvedValueOnce(new Response('<DeleteResult/>', { status: 200 })) // delete page 1
       .mockResolvedValueOnce(new Response(listXml(['b.txt']), { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete page 2
+      .mockResolvedValueOnce(new Response('<DeleteResult/>', { status: 200 })); // delete page 2
 
     const count = await emptyR2Bucket(createClient(), endpoint, bucketName);
 
@@ -389,7 +437,7 @@ describe('emptyR2Bucket', () => {
   it('passes prefix to ListObjectsV2 URL when provided', async () => {
     mockFetch
       .mockResolvedValueOnce(new Response(listXml(['workspace/folder/a.txt']), { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete response
+      .mockResolvedValueOnce(new Response('<DeleteResult/>', { status: 200 })); // delete response
 
     const count = await emptyR2Bucket(createClient(), endpoint, bucketName, 'workspace/folder/');
 
@@ -412,9 +460,9 @@ describe('emptyR2Bucket', () => {
   it('paginates with prefix across multiple pages', async () => {
     mockFetch
       .mockResolvedValueOnce(new Response(listXml(['a.txt'], true, 'tok1'), { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 })) // delete page 1
+      .mockResolvedValueOnce(new Response('<DeleteResult/>', { status: 200 })) // delete page 1
       .mockResolvedValueOnce(new Response(listXml(['b.txt']), { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete page 2
+      .mockResolvedValueOnce(new Response('<DeleteResult/>', { status: 200 })); // delete page 2
 
     const count = await emptyR2Bucket(createClient(), endpoint, bucketName, 'myprefix/');
 
@@ -456,7 +504,7 @@ describe('emptyR2Bucket', () => {
       `</ListBucketResult>`;
     mockFetch
       .mockResolvedValueOnce(new Response(xml, { status: 200 }))
-      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete response
+      .mockResolvedValueOnce(new Response('<DeleteResult/>', { status: 200 })); // delete response
 
     await emptyR2Bucket(createClient(), endpoint, bucketName);
 
