@@ -932,8 +932,9 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 2. When no preference is recorded, all callers receive the default-to-Standard fallback. Resolution must follow the [mode-resolution contract](../../documentation/lanes/preseed.md#mode-and-manifest-model). <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) -->
 3. Mode selection is available in Settings under the session-defaults area. <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-AGENT-004 AC3: mode selection in Settings session-defaults) --> <!-- @manual -->
 4. Mode takes effect on any of: explicit "Recreate AI agent skills & rules" action, new bucket creation, payment-provider mode change (upgrade or downgrade via webhook), subscription termination, or Settings toggle of the session-mode preference. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
-5. On webhook-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted (see [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) Constraints). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
-6. Reconciliation triggered by webhooks or Settings is non-fatal: failure does not block the webhook response or the preference write. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
+5. Webhook and Settings reconciliation overwrite preseed for the selected mode. Cleanup follows [ownership rules](storage.md#req-stor-021-managed-content-ownership) and [managed-resource policy](../../documentation/lanes/storage-and-sync.md#managed-resource-persistence-modes); user-created files outside their authorized scope are preserved (see [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) Constraints). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
+6. Webhook reconciliation failures do not block responses; Settings reconciliation without a managed environment does not block preference writes. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/routes/preferences.ts::default --> <!-- @manual -->
+7. Managed Settings reconciliation failures propagate: non-conflicts restore prior preferences and retain the target journal; conflicts preserve newer preferences without stale applied-state publication ([AD136](../../documentation/decisions/README.md#ad136-managed-environments-reconcile-signed-releases-before-session-start)). <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-024: a failed managed reconciliation is reported instead of returning success) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC1/AC2: a failed managed mode change records and retains its active target) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC6: aborts stale reconciliation without reverting a concurrent mode update) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -944,7 +945,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** None.
 
-**Verification:** Automated: [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
+**Verification:** Automated: [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -967,7 +968,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Constraints:**
 
-- Cleanup on mode switch is scoped strictly to preseed-managed content; user-created files are never deleted.
+- Mode-switch cleanup follows [authorized ownership](storage.md#req-stor-021-managed-content-ownership) and [managed-resource policy](../../documentation/lanes/storage-and-sync.md#managed-resource-persistence-modes); user-created files outside their authorized scope are never deleted.
 
 **Priority:** P1
 
@@ -1050,7 +1051,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 **Acceptance Criteria:**
 
 1. On first bucket creation, mode-appropriate preseed files are written to the user's R2 bucket without overwriting any existing objects and without removing anything. <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs --> <!-- @manual -->
-2. During container startup, the initial R2-to-local sync restores preseed files into each supported agent's per-user config directory before the agent launches. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)) -->
+2. Startup waits for initial R2-to-local preseed restore into each supported agent’s per-user config directory before launch, bounded by [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start). Successful sync restores those files; timeout never bypasses required managed-content startup checks. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @manual -->
 
 **Constraints:**
 
