@@ -1377,7 +1377,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** Automated test ([env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC4/AC5 env injection; AC6 — no AWS_* in either mode; Enterprise credential mediation now belongs to REQ-ENTERPRISE-092); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC1 — per-route contextWindow; AC5 — inactive gate skips Pi provider config; AC7 — default-off auth clearing and permitted human auth retention under REQ-ENTERPRISE-089); [entrypoint CA-trust + Copilot BYOK test](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js) (AC2 — CA env prepended to .bashrc, idempotent, enterprise-gated; AC3 — Copilot BYOK vars + token-limit hints prepended, stale route overwritten on re-run, enterprise-gated). Named evidence is not final current-head execution.)
+**Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [entrypoint-enterprise-ca-copilot.test.js](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js)
 
 **Status:** Implemented
 
@@ -1402,7 +1402,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-012](setup.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
 
-**Verification:** Automated test ([Setup configure tests](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [container env fan](../../src/__tests__/container/container-env-llm.test.ts), and [entrypoint Pi models](../../host/__tests__/entrypoint-enterprise-pi-models.test.js).)
+**Verification:** Automated: [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js)
 
 **Status:** Implemented
 
