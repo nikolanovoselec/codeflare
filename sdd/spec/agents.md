@@ -2654,7 +2654,7 @@ None.
 
 7. ESLint runs only from an existing repository installation; without one, the wrapper refuses rather than using an image copy or another analyzer. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check-image.test.js (requires repository-installed ESLint without substituting an image analyzer) -->
 
-**Notes:** Image-baked implementation and conditional image tests exist; qualifying image-run execution remains to be established. Skipped host-run image tests do not provide that evidence.
+**Notes:** Built-image tests cover the unchanged managed wrapper, analyzer image and parser dependencies. Skipped host-run image tests are not that evidence. Whole-image qualification and deployment remain separate.
 
 **Constraints:**
 
@@ -2669,7 +2669,7 @@ None.
 
 **Verification:** Automated: [safe-local-check.test.js](../../host/__tests__/safe-local-check.test.js), [safe-local-check-image.test.js](../../host/__tests__/safe-local-check-image.test.js)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

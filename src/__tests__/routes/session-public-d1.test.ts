@@ -110,6 +110,50 @@ describe('REQ-SESSION-001 subsets: public CRUD with supplied owner context and r
   });
 });
 
+describe('REQ-SESSION-028/030: legacy session records have no authority', () => {
+  it('serves D1 catalog/status/create without importing or deleting conflicting legacy records', async () => {
+    const repository = new D1SessionRepository(db);
+    await repository.create({ ownerKey: owner, sessionId: 'session01', name: 'D1 authority',
+      createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z', workspace: 'terminal', terminalMode: 'classic' });
+    const legacy = JSON.stringify({ id: 'session01', name: 'Legacy conflict', status: 'running', userId: owner });
+    const orphan = JSON.stringify({ id: 'legacy01', name: 'Legacy only', status: 'running', userId: owner });
+    const preferences = JSON.stringify({ sleepAfter: '1h' });
+    await bindings.KV.put(`session:${owner}:session01`, legacy);
+    await bindings.KV.put(`session:${owner}:legacy01`, orphan);
+    await bindings.KV.put(getPreferencesKey(owner), preferences);
+    const application = app();
+    const catalog = await application.request('/sessions');
+    expect(catalog.status).toBe(200);
+    expect(await catalog.json()).toMatchObject({ sessions: [{ id: 'session01', name: 'D1 authority', lifecycle: 'stopped' }] });
+    const status = await application.request('/sessions/batch-status');
+    expect(status.status).toBe(200);
+    const body = await status.json() as { statuses: Record<string, unknown> };
+    expect(Object.keys(body.statuses)).toEqual(['session01']);
+    expect(body.statuses.session01).toMatchObject({ lifecycle: 'stopped', generation: 0 });
+    expect((await request(application, '/sessions', 'POST', { name: 'New D1 session' })).status).toBe(201);
+    expect((await repository.listSessions(owner)).map(session => session.name).sort()).toEqual(['D1 authority', 'New D1 session']);
+    expect(await bindings.KV.get(`session:${owner}:session01`)).toBe(legacy);
+    expect(await bindings.KV.get(`session:${owner}:legacy01`)).toBe(orphan);
+    expect(await bindings.KV.get(getPreferencesKey(owner))).toBe(preferences);
+  });
+
+  it('fails closed during a D1 outage rather than falling back to preserved legacy sessions', async () => {
+    const key = `session:${owner}:legacy01`;
+    const legacy = JSON.stringify({ id: 'legacy01', name: 'Legacy only', status: 'running', userId: owner });
+    await bindings.KV.put(key, legacy);
+    const unavailable = { prepare() { throw new Error('D1 unavailable'); } } as unknown as D1Database;
+    const application = app({ USAGE_DB: unavailable });
+    for (const path of ['/sessions', '/sessions/batch-status']) {
+      const response = await application.request(path);
+      expect(response.status).toBe(500);
+      expect(await response.json()).not.toHaveProperty('sessions');
+    }
+    expect((await request(application, '/sessions', 'POST', { name: 'Cannot create' })).status).toBe(500);
+    expect(await bindings.KV.get(key)).toBe(legacy);
+    expect(await new D1SessionRepository(db).listSessions(owner)).toEqual([]);
+  });
+});
+
 describe('REQ-SESSION-010 subsets: real D1 batch route with supplied owner context', () => {
   it('AC1/2 subsets: owner filtering, seeded lifecycle metadata and no-store response contract', async () => {
     const repository = new D1SessionRepository(db);

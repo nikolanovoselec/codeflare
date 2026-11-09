@@ -44,6 +44,27 @@ beforeEach(async () => {
 // REQ-SESSION-026: Lifecycle scheduling and persistence failures remain actionable.
 // Covers the exercised production failure owners; full correlation/route-family qualification remains Planned.
 describe('REQ-SESSION-031: complete D1 session authority', () => {
+  it.each([
+    "lifecycle_state = 'idle'", 'lifecycle_generation = -1', 'response_revision = -1', 'observation_sequence = -2',
+    'editor_ready = 2', 'editor_ready_error = 2', "workspace = 'unknown'", "terminal_mode = 'unknown'",
+    "unreachable_incident_id = 'partial'", "unreachable_first_observed_at = '2027-01-01T00:00:00Z'", 'unreachable_deadline_ms = 1',
+    "termination_intent_id = 'partial'", 'termination_generation = 1', "termination_claimed_at = '2027-01-01T00:00:00Z'",
+  ])('AC2/4: database rejects invalid authority update %s without changing the row', async assignment => {
+    await createSession();
+    const before = await new D1SessionRepository(db).getSession('owner-a', 'session01');
+    await expect(db.prepare(`UPDATE runtime_sessions SET ${assignment} WHERE owner_key = ?1 AND session_id = ?2`)
+      .bind('owner-a', 'session01').run()).rejects.toThrow();
+    expect(await new D1SessionRepository(db).getSession('owner-a', 'session01')).toEqual(before);
+  });
+
+  it('AC6: database rejects a second cutover identity or unsupported cutover state', async () => {
+    const before = await db.prepare('SELECT * FROM session_cutover').all();
+    await expect(db.prepare("INSERT INTO session_cutover (id, state, updated_at) VALUES (2, 'pending', '2027-01-01T00:00:00Z')").run())
+      .rejects.toThrow();
+    await expect(db.prepare("UPDATE session_cutover SET state = 'unknown' WHERE id = 1").run()).rejects.toThrow();
+    expect((await db.prepare('SELECT * FROM session_cutover').all()).results).toEqual(before.results);
+  });
+
   it('migration creates one owner-led projection index', async () => {
     await db.prepare("UPDATE session_cutover SET state = 'pending', completed_at = NULL WHERE id = 1").run();
     expect(await db.prepare('SELECT id, state FROM session_cutover').first()).toEqual({ id: 1, state: 'pending' });

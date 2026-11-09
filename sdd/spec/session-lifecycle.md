@@ -40,12 +40,12 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Acceptance Criteria:**
 
-1. Creation accepts a trimmed name and optional supported AI agent type. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 AC1: name and agentType accepted) -->
+1. Creation accepts a trimmed name and optional supported AI agent type. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC3/4/5 subsets: Create persists defaults and stopped generation zero; immutable PATCH preserves the row) -->
 2. Each session receives a unique valid lowercase alphanumeric ID. <!-- @impl: src/lib/kv-keys.ts::generateSessionId --> <!-- @test: src/__tests__/lib/kv-keys.test.ts (generateSessionId) -->
-3. One complete non-secret D1 row durably stores owner, name, configuration, timestamps, lifecycle fencing and runtime projection fields. <!-- @impl: src/lib/session-repository.ts::create -->
-4. A missing workspace value resolves to Terminal and the immutable terminal/workspace stamps cannot be patched by clients. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @impl: src/routes/session/crud.ts::UpdateSessionBody --> <!-- @impl: src/routes/session/crud.ts::app -->
-5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession(session) = 201 --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::lifecycleGeneration: 0 = 0 -->
-6. Creation remains rate-limited and storage quota is checked in SaaS mode. <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter --> <!-- @impl: src/routes/session/crud.ts::app -->
+3. One complete non-secret D1 row durably stores owner, name, configuration, timestamps, lifecycle fencing and runtime projection fields. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-001 AC3 / REQ-SESSION-031 AC1: valid agent and six configured tabs retain complete nonsecret creation data) --> <!-- @impl: src/lib/session-repository.ts::create -->
+4. A missing workspace value resolves to Terminal and the immutable terminal/workspace stamps cannot be patched by clients. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC3/4/5 subsets: Create persists defaults and stopped generation zero; immutable PATCH preserves the row) --> <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @impl: src/routes/session/crud.ts::UpdateSessionBody --> <!-- @impl: src/routes/session/crud.ts::app -->
+5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC3/4/5 subsets: Create persists defaults and stopped generation zero; immutable PATCH preserves the row) -->
+6. Creation remains rate-limited and storage quota is checked in SaaS mode. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC6 subset: cached SaaS storage above the tier cap denies creation without inserting a row) --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC6 subset: route limiter rejects request eleven without creating any invalid session) --> <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter --> <!-- @impl: src/routes/session/crud.ts::app -->
 
 **Constraints:**
 
@@ -58,7 +58,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [kv-keys.test.ts](../../src/__tests__/lib/kv-keys.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -549,10 +549,10 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Acceptance Criteria:**
 
-1. Session CRUD, discovery, status, metrics, admission, terminal/editor authorization, sync fanout, managed reconciliation and user cleanup perform no session KV LIST/get/write. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @impl: src/lib/session-helpers.ts::listRunningSessionIds --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer -->
-2. There is no legacy-session import, backfill, dual write, shadow projection, fallback read or reverse migration. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @impl: migrations/usage/0003_complete_session_cutover.sql::session_cutover -->
-3. Session-specific KV helpers and list metadata types are removed or narrowed so unrelated KV data remains intact. <!-- @impl: src/lib/kv-keys.ts::listAllKvKeys --> <!-- @impl: src/lib/kv-keys.ts::getPreferencesKey -->
-4. A stopped session remains an ordinary D1 row until Delete hard-deletes it. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed -->
+1. Session CRUD, discovery, status, metrics, admission, terminal/editor authorization, sync fanout, managed reconciliation and user cleanup perform no session KV LIST/get/write. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (serves D1 catalog/status/create without importing or deleting conflicting legacy records) --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @impl: src/lib/session-helpers.ts::listRunningSessionIds --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer -->
+2. There is no legacy-session import, backfill, dual write, shadow projection, fallback read or reverse migration. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (fails closed during a D1 outage rather than falling back to preserved legacy sessions) -->
+3. Session-specific KV helpers and list metadata types are removed or narrowed so unrelated KV data remains intact. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (serves D1 catalog/status/create without importing or deleting conflicting legacy records) --> <!-- @impl: src/lib/kv-keys.ts::listAllKvKeys --> <!-- @impl: src/lib/kv-keys.ts::getPreferencesKey -->
+4. A stopped session remains an ordinary D1 row until Delete hard-deletes it. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC4 / REQ-SESSION-028 AC4: retained stopped row restarts and Delete fences late writers) --> <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed -->
 5. Post-cutover rollback uses a reviewed D1-compatible build or forward fix and never a KV-only Worker. <!-- @manual: Before an authorized rollback, review candidate D1 compatibility and retained session authority using documentation/lanes/deployment.md#production-rollback and documentation/lanes/container.md#cutover-boundary; reject KV-only builds or choose a reviewed forward fix. No rollback qualification is claimed by this procedure. -->
 
 **Constraints:** Credentials, preferences, configuration, entitlements, managed releases, storage caches and unrelated records remain in existing stores.
@@ -561,7 +561,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record)
 
-**Verification:** Planned negative-path and repository-wide session-KV audit tests.
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts). The focused legacy-preservation and outage cases await CI. These route cases supplement the retained consumer wiring review; they are not a new hosted qualification gate.
 
 **Status:** Planned
 
@@ -606,9 +606,9 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Acceptance Criteria:**
 
-1. The additive D1 migrations apply safely before the reviewed D1-only Worker and matching image are admitted. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (creates one absent database with supported Wrangler arguments, resolves its ID, then applies migrations) -->
+1. The additive D1 migrations apply safely before the reviewed D1-only Worker and matching image are admitted. <!-- @impl: .github/workflows/deploy.yml::Resolve, bind, and migrate usage database --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (creates one absent database with supported Wrangler arguments, resolves its ID, then applies migrations) -->
 2. Create and Start admission is open in every environment immediately after deployment. <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/lib/session-cutover.test.ts (opens Create and Start admission when the deployment completion migration runs) -->
-3. Legacy KV session records have no authority, compatibility read, migration, or automatic deletion path. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository -->
+3. Legacy KV session records have no authority, compatibility read, migration, or automatic deletion path. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (serves D1 catalog/status/create without importing or deleting conflicting legacy records) --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (fails closed during a D1 outage rather than falling back to preserved legacy sessions) --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository -->
 
 **Constraints:** The D1 authority starts clean; deployment never blocks a new session on legacy-session quiescence or cleanup.
 
@@ -616,7 +616,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-028](#req-session-028-session-authority-has-no-kv-compatibility-path)
 
-**Verification:** Automated: [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts), [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts)
+**Verification:** Automated: [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts), [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts), [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts). The new conflicting-legacy preservation cases await CI; deployment execution is a separate qualification.
 
 **Status:** Planned
 
@@ -839,13 +839,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Persisted backend lifecycle is exactly `stopped`, `starting`, `running`, `unreachable`, or `stopping`; ACTIVE and IDLE are never persisted. <!-- @impl: src/lib/session-repository.ts::SessionLifecycleState --> <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation -->
-2. Creating a session inserts a complete D1 row in `stopped`; only an accepted Start advances its lifecycle generation and enters `starting`. <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::start -->
-3. Runtime projection accepts a write only when its generation matches and its observation sequence is greater than the last accepted sequence. <!-- @impl: src/lib/session-repository.ts::project -->
-4. Delayed callbacks retain their original generation and cannot mutate a replacement lifecycle; delayed writers use conditional `UPDATE` and cannot recreate a deleted row. <!-- @impl: src/container/container-metrics.ts::captureMetricsExecution --> <!-- @impl: src/lib/session-repository.ts::project --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed -->
-5. Every accepted mutation advances a response revision used with generation to order API responses. <!-- @impl: src/lib/session-repository.ts::project --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @impl: web-ui/src/lib/session-presentation.ts::applyOrderedProjection -->
-6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed. <!-- @impl: src/lib/session-repository.ts::reconcileRuntime --> <!-- @impl: src/lib/session-repository.ts::claimUnreachableTermination -->
-7. Only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit writes `stopped`; transport failure, D1 failure, signal acceptance, elapsed time, an owner read, or SDK state does not. Uncertain exit preserves `stopping` and termination ownership. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
+1. Persisted backend lifecycle is exactly `stopped`, `starting`, `running`, `unreachable`, or `stopping`; ACTIVE and IDLE are never persisted. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC2/4: database rejects invalid authority update %s without changing the row) --> <!-- @impl: src/lib/session-repository.ts::SessionLifecycleState --> <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation -->
+2. Creating a session inserts a complete D1 row in `stopped`; only an accepted Start advances its lifecycle generation and enters `starting`. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-001 AC3 / REQ-SESSION-018 AC2: optional creation survives a new repository instance with owner isolation) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC3/5: stale generation and non-increasing sequence leave the durable projection unchanged) --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::start -->
+3. Runtime projection accepts a write only when its generation matches and its observation sequence is greater than the last accepted sequence. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC3/5: stale generation and non-increasing sequence leave the durable projection unchanged) --> <!-- @impl: src/lib/session-repository.ts::project -->
+4. Delayed callbacks retain their original generation and cannot mutate a replacement lifecycle; delayed writers use conditional `UPDATE` and cannot recreate a deleted row. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC4 / REQ-SESSION-028 AC4: retained stopped row restarts and Delete fences late writers) --> <!-- @impl: src/container/container-metrics.ts::captureMetricsExecution --> <!-- @impl: src/lib/session-repository.ts::project --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed -->
+5. Every accepted mutation advances a response revision used with generation to order API responses. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC3/5: stale generation and non-increasing sequence leave the durable projection unchanged) --> <!-- @impl: src/lib/session-repository.ts::project --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @impl: web-ui/src/lib/session-presentation.ts::applyOrderedProjection -->
+6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (reconciles a lost write acknowledgement idempotently; unreadable D1 grants no authority) --> <!-- @impl: src/lib/session-repository.ts::reconcileRuntime --> <!-- @impl: src/lib/session-repository.ts::claimUnreachableTermination -->
+7. Only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit writes `stopped`; transport failure, D1 failure, signal acceptance, elapsed time, an owner read, or SDK state does not. Uncertain exit preserves `stopping` and termination ownership. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @impl: src/container/index.ts::monitorExistingRuntime --> <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
 
 **Constraints:**
 
@@ -858,7 +858,7 @@ None.
 
 **Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1233,13 +1233,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. The session table has primary key `(owner_key, session_id)` and complete API fields for name, creation/access timestamps, agent, workspace, terminal mode, tab configuration and clone intent. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-2. Lifecycle columns store state, generation, revision, last accepted observation sequence, transition timestamps, reason, readiness and readiness error under database checks. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-3. Projection columns store last classified input plus latest CPU, memory, disk, sync and observation time without retaining metric history. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-4. Incident columns store incident identity, first-observed time and absolute deadline; termination columns store intent identity, generation, claim and signal timestamps. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (migration creates one owner-led projection index) -->
-6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`. <!-- @impl: src/lib/session-repository.ts::create -->
-7. The additive migration is idempotently managed by the existing usage-database migration path and does not alter analytics tables. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+1. The session table has primary key `(owner_key, session_id)` and complete API fields for name, creation/access timestamps, agent, workspace, terminal mode, tab configuration and clone intent. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-001 AC3 / REQ-SESSION-031 AC1: valid agent and six configured tabs retain complete nonsecret creation data) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+2. Lifecycle columns store state, generation, revision, last accepted observation sequence, transition timestamps, reason, readiness and readiness error under database checks. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC2/4: database rejects invalid authority update %s without changing the row) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+3. Projection columns store last classified input plus latest CPU, memory, disk, sync and observation time without retaining metric history. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC3/5: stale generation and non-increasing sequence leave the durable projection unchanged) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+4. Incident columns store incident identity, first-observed time and absolute deadline; termination columns store intent identity, generation, claim and signal timestamps. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC2/4: database rejects invalid authority update %s without changing the row) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE INDEX runtime_sessions_owner_activity --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (migration creates one owner-led projection index) -->
+6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC6: database rejects a second cutover identity or unsupported cutover state) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE session_cutover --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::start -->
+7. The additive migration is idempotently managed by the existing usage-database migration path and does not alter analytics tables. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
 
 **Constraints:**
 
