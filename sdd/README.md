@@ -12,7 +12,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 4. **Mobile-first** -- Strongly optimized for phone and tablet use. Touch input, virtual keyboard handling, swipe gestures for arrow key navigation, scroll stability fixes for Samsung/Android quirks. The best commits happen from places without desks.
 
-5. **Scale Container metering down** -- Containers stop after a configurable idle timeout (15m-4h, input-aware). Once Codeflare's stop completes and the Container sleeps, Container vCPU, provisioned-memory, and local-disk metering ends; ephemeral local disk returns fresh. Other Cloudflare platform usage can still incur charges.
+5. **Scale Container metering down** -- Containers stop after a configurable, input-aware idle timeout. Once Codeflare's stop completes and the Container sleeps, Container vCPU, provisioned-memory, and local-disk metering ends; ephemeral local disk returns fresh. Other Cloudflare platform usage can still incur charges.
 
 6. **Agent-aware parity** -- Multiple agents share the container infrastructure, while manifests and runtime adapters deliver only capabilities each agent supports. Claude and Pi carry the richest advanced workflow surfaces; other agents intentionally differ where commands, skills, tools, or transport are unavailable.
 
