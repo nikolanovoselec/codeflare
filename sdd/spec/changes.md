@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-09
 
+- Preserve originating `body-limit` classification and consumed-byte bounds for normal installed Dispatcher inference overflow through the existing bounded-reader observer. Logging OFF, diagnostic failures, reader cancellation, generic refusal and operation accounting retain their existing behavior; behavioral CI validation is pending ([REQ-OPERATOR-088](operators.md#req-operator-088-host-request-preparation-evidence)).
+
 - Mark direct develop repair protection Partial after read-only inspection established missing non-fast-forward prevention. Keep that safeguard mandatory and require explicit authorization for configuration repair; no repository protection was changed ([REQ-OPS-037](operations.md#req-ops-037-develop-direct-fast-forward-repairs)).
 
 ## 2026-11-08

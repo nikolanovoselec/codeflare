@@ -2949,6 +2949,107 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     }, options));
   });
 });
+describe('REQ-OPERATOR-088: normal-host inference preparation', () => {
+  const byteLimit = 4096;
+  const options = { normalHosting: true, repositoryOnly: true, inferenceRequestBytes: byteLimit };
+
+  it.each([true, false])('retains originating overflow evidence only when logging=%s, without changing execution', loggingEnabled => fixture(async f => {
+    await start(f);
+    const receipt = async () => {
+      const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'receipt', { operationId: 'overflow-budget' }));
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const budget = await f.installationCapability.fetch(normalCallback(f.activityId, 'source', {
+      operationId: 'overflow-budget', url: 'https://api.github.com/repos/another/service',
+    }));
+    expect(budget.status).toBe(200);
+    await budget.text();
+    const encoded = new TextEncoder().encode(JSON.stringify({ operationId: 'normal-body-limit',
+      context: { messages: [{ role: 'user', content: 'PRIVATE_NORMAL_OVERFLOW_é' }] }, options: {} }));
+    const exact = new Uint8Array(byteLimit);
+    exact.set(encoded); exact.fill(32, encoded.byteLength);
+    const request = (body: Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>) => new Request(
+      normalCallback(f.activityId, 'inference', {}), { method: 'POST', body });
+    const accepted = await f.installationCapability.fetch(request(exact));
+    expect(accepted.status).toBe(200);
+    const originalResponse = await accepted.text();
+    const originalReceipt = await receipt();
+    expect(originalReceipt).toMatchObject({ phase: 'completed', operationCount: 2 });
+    const originalRequests = structuredClone(f.ownerPortRequests);
+    const originalAdmissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+
+    for (const crossing of [1, 3]) {
+      let cancelled = false;
+      let finish!: () => void;
+      const stream = new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(exact);
+        controller.enqueue(new TextEncoder().encode(crossing === 1 ? ' ' : ' é'));
+        finish = () => { try { controller.close(); } catch { /* The bounded reader already cancelled. */ } };
+      }, cancel() { cancelled = true; } });
+      const rejected = f.installationCapability.fetch(request(stream));
+      try { await invalidPreparationRefusal(await within(rejected, 'normal inference overflow before EOF')); }
+      finally { finish(); await within(rejected, 'normal inference overflow cleanup').catch(() => undefined); }
+      expect(cancelled).toBe(true);
+      const failures = await preparationFailures(f);
+      if (loggingEnabled) {
+        expect(failures.at(-1)).toMatchObject({ owner: 'host', boundary: 'tool', code: 'tool-failed', origin: 'originating',
+          preparation: { step: 'parse', route: 'inference', failureClass: 'body-limit', byteLimit,
+            observedBytesLowerBound: byteLimit + crossing },
+          error: { transportStatus: 403, transportReason: 'request-invalid', transportDisposition: 'operation-local' } });
+        expect(failures.at(-1)?.correlation).toEqual({});
+        expect(JSON.stringify(failures)).not.toMatch(/PRIVATE_NORMAL_OVERFLOW|normal-body-limit|fixture-installation-secret|Dispatcher body exceeds limit/);
+      } else expect(failures).toEqual([]);
+      expect(await receipt()).toEqual(originalReceipt);
+      expect(f.ownerPortRequests).toEqual(originalRequests);
+      expect([...f.normalTransport!.admissions.values()]).toEqual(originalAdmissions);
+    }
+
+    const restarted = f.restart(); await f.drainBackground();
+    const retained = await preparationFailures(f);
+    const retainedOverflows = retained.filter(record => record.preparation?.failureClass === 'body-limit');
+    if (loggingEnabled) expect(retainedOverflows.at(-1)?.preparation).toMatchObject({ byteLimit, observedBytesLowerBound: byteLimit + 3 });
+    else expect(retainedOverflows).toEqual([]);
+    expect((await restarted.getRuntimePlan())!.deadline).toBe(deadline);
+    expect(await restarted.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    const replay = await f.installationCapability.fetch(request(exact));
+    expect(replay.status).toBe(200); expect(await replay.text()).toBe(originalResponse);
+    expect(await receipt()).toEqual(originalReceipt);
+    expect(f.ownerPortRequests).toEqual(originalRequests);
+  }, { ...options, loggingEnabled }));
+
+  it.each(['recorder unavailable', 'warning unavailable'])('preserves refusal and reader cancellation when %s', mode => fixture(async f => {
+    await start(f);
+    const original = await f.activity.getBrowserDetail();
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const ownerRequests = structuredClone(f.ownerPortRequests);
+    const journal = (await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.journal;
+    if (mode === 'recorder unavailable') await denyDiagnosticWrites(f);
+    const warning = mode === 'warning unavailable'
+      ? vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_WARNING_OUTAGE'); }) : undefined;
+    setLogLevel('warn');
+    let cancelled = false;
+    let finish!: () => void;
+    const stream = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new Uint8Array(byteLimit + 1));
+      finish = () => { try { controller.close(); } catch { /* The bounded reader already cancelled. */ } };
+    }, cancel() { cancelled = true; } });
+    const rejected = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'inference', {}), { method: 'POST', body: stream }));
+    try { await invalidPreparationRefusal(await within(rejected, 'normal inference diagnostic outage')); }
+    finally { finish(); await within(rejected, 'normal inference outage cleanup').catch(() => undefined); warning?.mockRestore(); setLogLevel('silent'); }
+    expect(cancelled).toBe(true);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ activityId: original!.activityId, executionStatus: 'running', result: null });
+    expect((await f.activity.getRuntimePlan())!.deadline).toBe(deadline);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(f.ownerPortRequests).toEqual(ownerRequests);
+    expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.journal).toEqual(journal);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+});
+
 /** Parent HTTP/Activity contracts only; generated Flue lifecycle is qualified in Dispatcher CI. */
 // REQ-OPERATOR-102, REQ-OPERATOR-104, REQ-OPERATOR-106: Extracted profile, retirement and recovery boundaries.
 describe('normal installed Dispatcher control', () => {

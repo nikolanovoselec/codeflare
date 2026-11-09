@@ -4073,7 +4073,8 @@ export class OperatorActivity extends Agent {
       if (lease.hosting === 'normal' && preparationUrl.pathname === '/v1/dispatcher/inference') {
         if (preparationUrl.href !== 'https://operator.internal/v1/dispatcher/inference' || request.method !== 'POST'
           || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') return denied('request-invalid');
-        const raw: unknown = JSON.parse(await this.#boundedDispatcher(lease, () => readDispatcherBody(request, request.signal, inferenceBytes)));
+        const raw: unknown = JSON.parse(await this.#boundedDispatcher(lease, () => readDispatcherBody(request, request.signal,
+          inferenceBytes, loggingEnabled ? value => { bodyOverflow = value; } : undefined)));
         const parsed = z.strictObject({ operationId: syncIdentity,
           context: z.looseObject({ messages: z.array(z.json()).min(1).max(limits.inferenceMessageLimit),
             systemPrompt: z.string().optional(), tools: z.array(z.json()).max(limits.inferenceToolLimit).optional() }),
