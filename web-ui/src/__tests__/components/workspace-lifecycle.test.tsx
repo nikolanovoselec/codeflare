@@ -1,6 +1,8 @@
 // Actual card and store outcomes only, not mounted terminal/editor acceptance.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@solidjs/testing-library';
+import { loadTerminalsFromStorage } from '../../stores/session-tabs';
+import type { Terminal } from '@xterm/xterm';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import * as api from '../../api/client';
@@ -73,6 +75,41 @@ afterEach(() => {
 });
 
 describe('ordered lifecycle presentation through actual card/store owners', () => {
+  it('REQ-TERM-045 AC3: local ACTIVE/IDLE never changes persisted workspace or shared lifecycle', async () => {
+    vi.useFakeTimers();
+    sessionStore.initializeTerminalsForSession(id);
+    const persisted = localStorage.getItem('codeflare:terminalsPerSession');
+    expect(persisted).not.toBeNull();
+    const storedTabs = loadTerminalsFromStorage()[id];
+    const shared = { ...sessionStore.sessions.find(session => session.id === id)! };
+    // Reuse setup.ts's WebSocket and the terminal store's existing xterm seam.
+    // This tests local socket presentation, not a native PTY or xterm buffer.
+    const terminal = {
+      cols: 80, rows: 24,
+      onData: () => ({ dispose: () => {} }),
+      write: (_text: string, done?: () => void) => done?.(),
+      dispose: () => {},
+    } as unknown as Terminal;
+    terminalStore.connect(id, '1', terminal);
+    await vi.advanceTimersByTimeAsync(0);
+    const first = render(card);
+    expect(screen.getByRole('status', { name: 'ACTIVE' })).toHaveClass('session-stat-card__dot--success');
+    expect(localStorage.getItem('codeflare:terminalsPerSession')).toBe(persisted);
+    expect(sessionStore.sessions.find(session => session.id === id)).toEqual(shared);
+    terminalStore.disconnect(id, '1');
+    expect(screen.getByRole('status', { name: 'IDLE' })).toHaveClass('session-stat-card__dot--idle');
+    expect(localStorage.getItem('codeflare:terminalsPerSession')).toBe(persisted);
+    expect(sessionStore.sessions.find(session => session.id === id)).toEqual(shared);
+    first.unmount();
+    // Re-read stored tabs and remount after the socket changed: no old ACTIVE
+    // label can be rehydrated from this device's persisted workspace record.
+    expect(loadTerminalsFromStorage()[id]).toEqual(storedTabs);
+    render(card);
+    expect(screen.getByRole('status', { name: 'IDLE' })).toBeInTheDocument();
+    expect(localStorage.getItem('codeflare:terminalsPerSession')).toBe(persisted);
+    expect(sessionStore.sessions.find(session => session.id === id)).toEqual(shared);
+  });
+
   it('expires the rendered idle timer without inventing stopped lifecycle', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-11-08T12:00:00Z'));

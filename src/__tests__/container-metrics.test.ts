@@ -68,7 +68,7 @@ vi.mock('@cloudflare/containers', () => {
   class MockContainer {
     ctx: {
       id: { toString: () => string };
-      container: { running: boolean; getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
+      container: { running: boolean; signal: (signal: number) => void; getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
       storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string | string[]) => Promise<void>; sync: () => Promise<void>;
         transaction: <T>(work: (tx: Pick<MockContainer['ctx']['storage'], 'get' | 'put' | 'delete'>) => Promise<T>) => Promise<T> };
       blockConcurrencyWhile: (fn: () => Promise<void>) => Promise<void>;
@@ -84,6 +84,10 @@ vi.mock('@cloudflare/containers', () => {
         id: { toString: () => 'mock-do-id' },
         container: {
           get running() { return testState.containerRunning; },
+          signal: (signal: number) => {
+            testState.platformStopSignals.push(signal);
+            testState.callOrder.push('signal');
+          },
           getTcpPort: () => ({
             fetch: async (url: string, init?: RequestInit) => {
               if (url.includes('/internal/agent-events/drain')) {
@@ -593,6 +597,52 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         for (const value of ['PRIVATE_SYNC_CANARY', '/private/sync-path', 'PRIVATE_SYNC_TEXT']) expect(serialized).not.toContain(value);
       });
     });
+
+    it.each(['idle', 'quota'] as const)(
+      'REQ-SESSION-026 AC1: %s stop propagates its required alarm failure, not an ancillary failure',
+      async reason => {
+        const timekeeper = reason === 'quota' ? await enableTimekeeper({ quotaExceeded: true }) : undefined;
+        runningSession();
+        // A healthy tick begins billable, then the SDK hint drops while the host responds.
+        // Starting SDK-false would be a recovery tick and correctly skip quota polling.
+        testState.beforeHealthResponse = () => { testState.containerRunning = false; };
+        if (reason === 'idle') {
+          testState.storedSleepAfter = '15m';
+          testState.activityResult.lastInputAt = Date.now() - 30 * 60_000;
+        }
+        const failure = new Error(`required alarm unavailable ${privatePayload}`);
+        // Only the required stop alarm fails. An unrelated later re-arm would succeed;
+        // it must not hide this terminal failure. This is not the monitored-exit retry lane.
+        const schedule = vi.spyOn(containerInstance, 'schedule').mockRejectedValueOnce(failure);
+        try {
+          await withStructuredLogs(async entries => {
+            await expect(containerInstance.collectMetrics()).rejects.toBe(failure);
+            expect(entries).toContainEqual(expect.objectContaining({ data: expect.objectContaining({ reason }) }));
+            expect(entries).toContainEqual(expect.objectContaining({ level: 'error', data: expect.objectContaining({
+              sessionId: 'testsession123456', lifecycleGeneration: 0,
+              incidentId: null, errorClass: 'schedule_failed',
+            }) }));
+            expect(entries.map(entry => entry.data?.errorClass)).not.toContain('runtime_observation_failed');
+            expect(entries.map(entry => entry.data?.errorClass)).not.toContain('timekeeper_ping_failed');
+            expectPrivateSafeLogs(entries);
+          });
+          expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'signal']);
+          expect(testState.platformStopSignals).toEqual([15]);
+          expect(testState.scheduleCalls).toEqual([]);
+          expect(testState.abortReasons).toEqual([]);
+          expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({
+            status: 'running', lifecycleGeneration: 0, workspace: 'terminal',
+          });
+          // Quota is learned from the ordinary ping: preserve its one existing usage minute,
+          // but do not turn the failed stop into an additional billable observation.
+          expect(await storage().get('usageSeconds')).toBe(reason === 'quota' ? 60 : undefined);
+          if (timekeeper) {
+            const body = await ((timekeeper.fetch.mock.calls as unknown as Array<[Request]>)[0][0]).clone().json();
+            expect(body).toMatchObject({ totalSeconds: 60, sessionId: 'testsession123456' });
+          }
+        } finally { schedule.mockRestore(); }
+      },
+    );
 
     it('AC2: quota shutdown is distinct from idle and still drains before stopping', async () => {
       await enableTimekeeper({ quotaExceeded: true });

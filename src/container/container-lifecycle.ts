@@ -379,7 +379,16 @@ export async function collectMetrics(host: LifecycleHost, delivered?: MetricsPin
         // A responding host can outlive the SDK hint. Its idle/quota stop must
         // reach the native runtime, then retain the pinned reconciliation alarm.
         execution.runtime.signal(signal === 'SIGTERM' ? 15 : signal as number);
-        if (execution.isCurrent()) await callbacks.schedule(5, 'collectMetrics');
+        if (execution.isCurrent()) {
+          try { await callbacks.schedule(5, 'collectMetrics'); }
+          catch (error) {
+            host.logger.error('collectMetrics: required lifecycle alarm unavailable', undefined, {
+              sessionId: execution.sessionId, lifecycleGeneration: execution.generation,
+              incidentId: execution.incidentId ?? null, errorClass: 'schedule_failed',
+            });
+            throw error;
+          }
+        }
       }
     },
     schedule: async (delaySec: number, method: string) => {

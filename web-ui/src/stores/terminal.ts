@@ -423,9 +423,9 @@ function connect(
         return;
       }
 
-      // Server-authoritative: persisted Container lifecycle state is definitively
-      // stopping/stopped. Release transport ownership and report the stop directly;
-      // eventually-consistent KV polling is not involved in this transition.
+      // This connection saw stopping/stopped evidence, which may now be stale.
+      // Close only this transport; the session owner refreshes ordered D1 state
+      // before deciding whether the current workspace can be disposed.
       if (event.code === WS_CONTAINER_STOPPED_CODE) {
         logger.info(`[Terminal ${key}] Container stopped (4503)`);
         controller.abort();

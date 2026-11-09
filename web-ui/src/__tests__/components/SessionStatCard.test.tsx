@@ -128,12 +128,26 @@ describe('SessionStatCard', () => {
       expect(dot).toBeInTheDocument();
     });
 
+    it.each([
+      ['starting', 'STARTING', 'warning'],
+      ['unreachable', 'UNREACHABLE', 'warning'],
+      ['stopping', 'STOPPING', 'warning'],
+      ['stopped', 'STOPPED', 'default'],
+    ] as const)('REQ-TERM-045 AC4: renders %s as %s with %s variant', (status, label, variant) => {
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'terminal', status })} />);
+      expect(screen.getByRole('status', { name: label })).toHaveClass(`session-stat-card__dot--${variant}`);
+    });
+
     it('uses the terminal lifecycle label for the status dot', () => {
       render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);
       expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'ACTIVE');
     });
 
     it.each([
+      [{ status: 'starting', editorReady: false }, 'warning'],
+      [{ status: 'unreachable', editorReady: true }, 'success'],
+      [{ status: 'unreachable', editorReady: false }, 'default'],
+      [{ status: 'error', editorReady: true }, 'error'],
       [{ status: 'running', editorReady: true }, 'success'],
       [{ status: 'running', editorReady: false }, 'default'],
       [{ status: 'stopping', editorReady: true }, 'warning'],

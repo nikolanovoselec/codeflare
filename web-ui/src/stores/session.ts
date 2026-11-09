@@ -197,10 +197,10 @@ registerProcessNameCallback((sessionId, terminalId, processName) => {
   updateTerminalLabel(sessionId, terminalId, processName);
 });
 terminalStore.registerSessionStoppedCallback?.((sessionId) => {
-  // A transport notification is not generation-fenced KILL exit evidence.
+  // The closed socket can belong to an older lifecycle. Only the existing
+  // ordered D1 projection path may dispose the current session's workspace.
   if (localKillAttempts.has(sessionId)) return;
-  updateSessionStatus(sessionId, 'stopped');
-  terminalStore.disposeSession(sessionId);
+  void refreshSessionStatuses();
 });
 
 // Register R2 readiness dependencies (extracted to r2-readiness.ts)

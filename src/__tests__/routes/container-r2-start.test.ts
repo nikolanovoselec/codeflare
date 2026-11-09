@@ -30,6 +30,9 @@ const testState = vi.hoisted(() => ({
   activeManagedRelease: null as null | { digest: string; pointer: { sequence: number }; resourcePolicy: 'mutable' | 'immutable' | 'exclusive' },
   managedReleaseError: null as Error | null,
   policyReadError: null as Error | null,
+  realPolicy: false,
+  verifiedRelease: null as import('../../lib/managed-release-active').ActiveVerifiedManagedRelease | null,
+  r2Fetch: vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(),
   strictEgress: false,
   saasMode: false,
 }));
@@ -47,7 +50,8 @@ vi.mock('../../lib/r2-admin', () => ({
   })),
 }));
 
-vi.mock('../../lib/r2-seed', () => ({
+vi.mock('../../lib/r2-seed', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/r2-seed')>()),
   seedGettingStartedDocs: vi.fn(async () => testState.seedResult),
   reconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
   reseedContextModePlugin: vi.fn(async () => ({ written: [], skipped: [] })),
@@ -58,11 +62,15 @@ vi.mock('../../lib/r2-config', () => ({
 }));
 vi.mock('../../lib/r2-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/r2-client')>()),
-  createR2Client: () => ({ fetch: vi.fn(async () => new Response('{}', { status: 200 })) }),
+  createR2Client: () => ({ fetch: testState.r2Fetch }),
 }));
 vi.mock('../../lib/managed-r2-policy', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/managed-r2-policy')>()),
   readVerifiedManagedR2Policy: vi.fn(async (input: { fetchPolicyObject: () => Promise<Response> }) => {
+    if (testState.realPolicy) {
+      const actual = await importOriginal<typeof import('../../lib/managed-r2-policy')>();
+      return actual.readVerifiedManagedR2Policy(input as Parameters<typeof actual.readVerifiedManagedR2Policy>[0]);
+    }
     if (testState.policyReadError) throw testState.policyReadError;
     const response = await input.fetchPolicyObject();
     if (!response.ok) throw new Error('policy unavailable');
@@ -83,6 +91,7 @@ vi.mock('../../lib/circuit-breakers', () => ({
 vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => testState.saasMode) }));
 vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
+  getActiveVerifiedManagedRelease: vi.fn(async () => testState.verifiedRelease),
   getCachedActiveManagedRelease: vi.fn(async () => {
     if (testState.managedReleaseError) throw testState.managedReleaseError;
     return testState.activeManagedRelease;
@@ -96,6 +105,9 @@ import lifecycleRoutes from '../../routes/container/lifecycle';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
 import { readVerifiedManagedR2Policy } from '../../lib/managed-r2-policy';
+import seedRoutes from '../../routes/storage/seed';
+import { gzipBytes, parseManagedReleaseStream, type ManagedRelease } from '../../lib/remote-curation';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 
 describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -125,6 +137,9 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     testState.activeManagedRelease = null;
     testState.managedReleaseError = null;
     testState.policyReadError = null;
+    testState.realPolicy = false;
+    testState.verifiedRelease = null;
+    testState.r2Fetch.mockReset().mockImplementation(async () => new Response('{}', { status: 200 }));
     testState.strictEgress = false;
     testState.saasMode = false;
     mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
@@ -139,7 +154,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
 
   function createApp(extraEnv: Partial<Env> = {}, user?: AccessUser) {
     const app = createTestApp({
-      routes: [{ path: '/container', handler: lifecycleRoutes }],
+      routes: [{ path: '/container', handler: lifecycleRoutes }, { path: '/seed', handler: seedRoutes }],
       mockKV,
       envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', ...extraEnv } as Partial<Env>,
       ...(user && { user }),
@@ -276,6 +291,122 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       expect(testState.container!.fetch).not.toHaveBeenCalled();
     });
 
+    it('REQ-SETUP-016 AC5: admits the same stopped session only after real protected reconciliation publishes last', async () => {
+      const actualSeed = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+      vi.mocked(reconcileAgentConfigs).mockImplementationOnce(actualSeed.reconcileAgentConfigs);
+      const { reseedContextModePlugin } = await import('../../lib/r2-seed');
+      vi.mocked(reseedContextModePlugin).mockImplementationOnce(actualSeed.reseedContextModePlugin);
+      testState.realPolicy = true;
+      testState.strictEgress = true;
+      const release: ManagedRelease = {
+        seedAbi: 1, sequence: 4,
+        source: { repositoryId: 7, commitSha: 'a'.repeat(40), releaseTag: 'v4', compilerCommit: 'b'.repeat(40) },
+        runtimeDependencyHash: 'c'.repeat(64),
+        documents: [{ key: '.pi/agent/AGENTS.md', contentType: 'text/markdown; charset=utf-8',
+          content: '# Company', modes: ['advanced'] }],
+        retiredPaths: [], managedExtensions: [],
+      };
+      const compressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(release)));
+      testState.verifiedRelease = {
+        digest: 'd'.repeat(64), compressed, release: await parseManagedReleaseStream(compressed),
+        pointer: { schemaVersion: 1, seedAbi: 1, sequence: 4, digest: 'd'.repeat(64), repositoryId: 7,
+          releaseId: 4, releaseTag: 'v4', sourceCommit: release.source.commitSha,
+          runtimeDependencyHash: release.runtimeDependencyHash, activatedAt: '2026-08-18T00:00:00.000Z' },
+      };
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'immutable' };
+      mockKV._set(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, {
+        schemaVersion: 1, enabled: true, repository: 'acme/curation', repositoryId: 7,
+        publicKeyHex: '1'.repeat(64), publicKeyFingerprint: '2'.repeat(16),
+        configFingerprint: '3'.repeat(64), cacheBucketName: 'managed-cache', resourcePolicy: 'immutable',
+      });
+      const prior = { digest: 'd'.repeat(64), sequence: 4, mode: 'advanced',
+        managedExtensionsDigest: 'e'.repeat(64), resourcePolicy: 'mutable',
+        projectionIdentity: 'v1:pi', appliedAt: '2026-08-18T00:00:00.000Z' };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'advanced', managedEnvironmentApplied: prior });
+      const objects = new Map<string, { body: string; headers: Headers }>();
+      let policyReadStarted!: () => void;
+      const readingPolicy = new Promise<void>(resolve => { policyReadStarted = resolve; });
+      let releasePolicyRead!: () => void;
+      const policyReadGate = new Promise<void>(resolve => { releasePolicyRead = resolve; });
+      let holdPolicyRead = true;
+      testState.r2Fetch.mockImplementation(async (url, init) => {
+        const key = decodeURIComponent(new URL(url).pathname.replace('/test-bucket/', ''));
+        if (init?.method === 'PUT') {
+          objects.set(key, { body: await new Response(init.body).text(), headers: new Headers(init.headers) });
+          return new Response('', { status: 200 });
+        }
+        const stored = objects.get(key);
+        if (init?.method === 'GET' && key === '.codeflare/managed-paths.json' && holdPolicyRead) {
+          holdPolicyRead = false;
+          policyReadStarted();
+          await policyReadGate;
+        }
+        if (init?.method === 'GET' || init?.method === 'HEAD') {
+          return stored ? new Response(init.method === 'HEAD' ? null : stored.body, { headers: stored.headers })
+            : new Response(null, { status: 404 });
+        }
+        if (init?.method === 'DELETE') { objects.delete(key); return new Response(null, { status: 204 }); }
+        throw new Error(`Unexpected R2 operation: ${init?.method} ${key}`);
+      });
+      let invalidating!: () => void;
+      const atInvalidation = new Promise<void>(resolve => { invalidating = resolve; });
+      let releaseInvalidation!: () => void;
+      const invalidationGate = new Promise<void>(resolve => { releaseInvalidation = resolve; });
+      const deleteKV = mockKV.delete.getMockImplementation()!;
+      mockKV.delete.mockImplementation(async key => {
+        if (key === 'storage-stats:test-bucket') { invalidating(); await invalidationGate; }
+        return deleteKV(key);
+      });
+      const fetch = createApp({ ENTERPRISE_MODE: 'active', CODING_AGENTS: 'pi',
+        R2_ACCESS_KEY_ID: 'key', R2_SECRET_ACCESS_KEY: 'secret',
+        EGRESS: { fetch: vi.fn() } as unknown as Fetcher });
+      const start = () => fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      const assertBlocked = async () => {
+        const response = await start();
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
+        expect(testState.container!.fetch).not.toHaveBeenCalled();
+      };
+      await assertBlocked();
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      const reconciling = fetch('/seed/agent-configs', { method: 'POST' });
+      try {
+        await Promise.race([readingPolicy, reconciling.then(() => { throw new Error('Reconciliation finished before held policy read'); })]);
+        expect(objects.get('.pi/agent/AGENTS.md')?.body).toBe('# Company');
+        expect(await mockKV.get('user-prefs:test-bucket', 'json')).toMatchObject({ managedEnvironmentApplied: prior });
+        await assertBlocked();
+        releasePolicyRead();
+        await Promise.race([atInvalidation, reconciling.then(() => { throw new Error('Reconciliation finished before held invalidation'); })]);
+        // Real reconciliation and policy readback have finished; publication still waits on final external I/O.
+        expect(await mockKV.get('user-prefs:test-bucket', 'json')).toMatchObject({ managedEnvironmentApplied: prior });
+        await assertBlocked();
+      } finally {
+        releasePolicyRead();
+        releaseInvalidation();
+      }
+      const seeded = await reconciling;
+      expect(seeded.status).toBe(200);
+      const prefs = await mockKV.get('user-prefs:test-bucket', 'json') as import('../../types').UserPreferences;
+      const policyBytes = objects.get('.codeflare/managed-paths.json')!.body;
+      const digestOf = async (body: string) => Array.from(
+        new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body))),
+        byte => byte.toString(16).padStart(2, '0')).join('');
+      const digest = await digestOf(policyBytes);
+      const manifestBytes = objects.get('.codeflare/managed-extensions.json')!.body;
+      expect(JSON.parse(manifestBytes)).toMatchObject({ release: { digest: 'd'.repeat(64), sequence: 4 } });
+      expect(JSON.parse(policyBytes)).toMatchObject({ releaseDigest: 'd'.repeat(64), resourcePolicy: 'immutable' });
+      expect(prefs.managedEnvironmentApplied).toMatchObject({ digest: 'd'.repeat(64), sequence: 4,
+        mode: 'advanced', projectionIdentity: 'v1:pi', resourcePolicy: 'immutable', managedPathsDigest: digest,
+        managedExtensionsDigest: await digestOf(manifestBytes) });
+      expect(prefs.managedEnvironmentReconciliation).toBeUndefined();
+      const admitted = await start();
+      expect(admitted.status).toBe(200);
+      const configured = testState.container!.fetch.mock.calls.map(([request]) => request as Request)
+        .find(request => request.url.includes('/_internal/setBucketName'));
+      expect(await configured?.clone().json()).toMatchObject({ remoteCurationReleaseDigest: 'd'.repeat(64),
+        managedResourcePolicy: 'immutable', managedResourcePathsDigest: digest });
+    });
+
     it('returns a typed 409 before user-bucket or container work when the active release is not applied', async () => {
       testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       const fetch = createApp();
@@ -291,23 +422,26 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
 
     it('REQ-ENTERPRISE-027: blocks a desired and applied resource-policy mismatch before bucket work', async () => {
       testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'exclusive' };
+      testState.strictEgress = true;
       mockKV._set('user-prefs:test-bucket', {
         managedEnvironmentApplied: {
           digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced',
-          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), projectionIdentity: PROJECTION_ALL, appliedAt: '2026-08-18T00:00:00.000Z',
         },
       });
-      const fetch = createApp({ ENTERPRISE_MODE: 'active' });
+      const fetch = createApp({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher });
 
       const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
 
       expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
       expect(createBucketIfNotExists).not.toHaveBeenCalled();
       expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
     });
 
     it.each([
-      ['Enterprise mode', {}, true],
+      ['Enterprise mode', { EGRESS: { fetch: vi.fn() } as unknown as Fetcher }, true],
       ['Strict Gateway Egress', { ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }, false],
       ['EGRESS binding', { ENTERPRISE_MODE: 'active' }, true],
     ])('REQ-ENTERPRISE-027: protected admission requires %s', async (_label, envOverrides, strictEgress) => {
@@ -318,7 +452,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         sessionMode: expectedMode,
         managedEnvironmentApplied: {
           digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: expectedMode,
-          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), projectionIdentity: PROJECTION_ALL, appliedAt: '2026-08-18T00:00:00.000Z',
         },
       });
       const fetch = createApp(envOverrides as Partial<Env>);
@@ -326,8 +460,40 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
 
       expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
       expect(createBucketIfNotExists).not.toHaveBeenCalled();
       expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['release', { digest: 'c'.repeat(64) }, 'immutable'],
+      ['sequence', { sequence: 3 }, 'immutable'],
+      ['effective mode', { mode: 'default' }, 'immutable'],
+      ['missing extensions', { managedExtensionsDigest: undefined }, 'immutable'],
+      ['malformed extensions', { managedExtensionsDigest: 'invalid' }, 'immutable'],
+      ['missing protected paths', { managedPathsDigest: undefined }, 'immutable'],
+      ['malformed protected paths', { managedPathsDigest: 'invalid' }, 'immutable'],
+      ['stale mutable paths', { resourcePolicy: 'mutable' }, 'mutable'],
+    ] as const)('REQ-ENTERPRISE-027 AC1: blocks isolated %s stamp mismatch', async (_label, change, policy) => {
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: policy };
+      testState.strictEgress = true;
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'advanced',
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), sequence: 4, mode: 'advanced', projectionIdentity: PROJECTION_ALL,
+          managedExtensionsDigest: 'e'.repeat(64), resourcePolicy: 'immutable',
+          managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z', ...change,
+        },
+      });
+      const fetch = createApp({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher });
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(getOrCreateScopedR2Token).not.toHaveBeenCalled();
+      expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
     });
 
     it('REQ-ENTERPRISE-027: verifies protected bucket policy without cache and transports only its identity', async () => {
@@ -365,12 +531,12 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     it('REQ-ENTERPRISE-027: blocks corrupt protected policy before container work', async () => {
       testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'immutable' };
       testState.strictEgress = true;
-      testState.policyReadError = new Error('corrupt policy');
+      testState.realPolicy = true; // The default R2 response is invalid policy bytes, not a verifier exception double.
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'advanced',
         managedEnvironmentApplied: {
           digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced',
-          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), projectionIdentity: PROJECTION_ALL, appliedAt: '2026-08-18T00:00:00.000Z',
         },
       });
       const fetch = createApp({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher });
@@ -378,6 +544,12 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
 
       expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
+      expect(createBucketIfNotExists).toHaveBeenCalled();
+      expect(readVerifiedManagedR2Policy).toHaveBeenCalledWith(expect.objectContaining({
+        releaseDigest: 'd'.repeat(64), pathsDigest: 'f'.repeat(64),
+        expectedPolicy: 'immutable', bypassMemoryCache: true,
+      }));
       expect(testState.container!.fetch).not.toHaveBeenCalled();
     });
   });

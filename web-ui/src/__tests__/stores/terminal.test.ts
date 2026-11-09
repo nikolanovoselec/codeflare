@@ -1680,7 +1680,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
   });
 
   describe('WebSocket reconnection behavior', () => {
-    it('stops retrying on 4503, releases ownership, and reports the authoritative stop', async () => {
+    it('stops retrying on 4503, releases this transport, and requests session reconciliation', async () => {
       const terminal = createMockTerminal();
       const onSessionStopped = vi.fn();
       terminalStore.registerSessionStoppedCallback(onSessionStopped);
@@ -1707,7 +1707,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
           setTimeout(() => {
             this.readyState = 3;
             if (this.onclose) {
-              // Server-authoritative: container is not running
+              // The closed transport reports 4503; D1 still owns session-wide state.
               this.onclose(new CloseEvent('close', { code: 4503, reason: 'container-stopped' }));
             }
           }, 0);
@@ -1723,7 +1723,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       expect(terminalStore.ownsSession(sessionId)).toBe(true);
       await vi.advanceTimersByTimeAsync(0);
 
-      // Should NOT retry — 4503 is authoritative
+      // This closed transport must NOT retry; session disposal is tested in session.test.ts.
       await vi.advanceTimersByTimeAsync(200);
       expect(connectCount).toBe(1);
 

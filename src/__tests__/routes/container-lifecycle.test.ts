@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { D1SessionRepository } from '../../lib/session-repository';
 
 // ---------------------------------------------------------------------------
 // Mock container stub
@@ -426,6 +428,52 @@ describe('Container Lifecycle Routes', () => {
       expect(setBucketRequest).toBeDefined();
       const body = await setBucketRequest.json() as { workspaceSyncEnabled?: boolean };
       expect(body.workspaceSyncEnabled).toBe(true);
+    });
+
+    it('REQ-SESSION-006 AC4: restart applies changed sync preference to the same retained workspace', async () => {
+      const owner = 'my-bucket';
+      const id = 'abcdef1234567890abcdef12';
+      const db = createMockSessionD1(mockKV);
+      const repository = new D1SessionRepository(db);
+      const identity = {
+        id, userId: owner, name: 'Retained workspace', status: 'stopped',
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+        workspace: 'terminal', terminalMode: 'classic',
+      };
+      mockKV._set(`session:${owner}:${id}`, identity);
+      mockKV._set(`user-prefs:${owner}`, { workspaceSyncEnabled: false });
+      const fetch = createLifecycleApp(owner, { USAGE_DB: db });
+      const configurations: Array<{ sessionId: string; bucketName: string; workspaceSyncEnabled: boolean }> = [];
+      container().fetch.mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname === '/_internal/getBucketName') return Response.json({ bucketName: owner });
+        if (new URL(request.url).pathname === '/_internal/setBucketName') {
+          configurations.push(await request.json());
+          return new Response(null, { status: 200 });
+        }
+        throw Error(`Unexpected container request: ${request.url}`);
+      });
+      const first = await fetch(`/container/start?sessionId=${id}`, { method: 'POST' });
+      expect(first.status).toBe(200);
+      const initial = await repository.getSession(owner, id);
+      expect(initial).toMatchObject({ ownerKey: owner, sessionId: id, lifecycleState: 'starting', lifecycleGeneration: 1 });
+      // Existing public repository lifecycle seam models confirmed exit, not an
+      // invented prestart RPC or a direct mutation of the successful Start state.
+      expect(await repository.claimStop(owner, id, 'restart-preference-stop', identity.createdAt, 1)).not.toBeNull();
+      expect(await repository.confirmStopped(owner, id, 1, 'restart-preference-stop', identity.createdAt)).toBe(true);
+      mockKV._set(`user-prefs:${owner}`, { workspaceSyncEnabled: true });
+      const second = await fetch(`/container/start?sessionId=${id}`, { method: 'POST' });
+      expect(second.status).toBe(200);
+      expect(configurations).toEqual([
+        expect.objectContaining({ sessionId: id, bucketName: owner, workspaceSyncEnabled: false }),
+        expect.objectContaining({ sessionId: id, bucketName: owner, workspaceSyncEnabled: true }),
+      ]);
+      const restarted = await repository.getSession(owner, id);
+      expect(restarted).toMatchObject({
+        ownerKey: owner, sessionId: id, name: identity.name, createdAt: identity.createdAt,
+        workspace: identity.workspace, terminalMode: identity.terminalMode,
+        lifecycleState: 'starting', lifecycleGeneration: 2,
+      });
+      expect(await repository.listSessions(owner)).toHaveLength(1);
     });
 
     it('REQ-IDE-048 AC2: starts from the immutable session workspace instead of current preferences', async () => {

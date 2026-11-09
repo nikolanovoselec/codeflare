@@ -270,7 +270,7 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   } catch (err) {
     reqLogger.warn('Could not confirm container destruction; preserving session for retry', {
       containerId,
-      error: String(err),
+      errorClass: 'native_destroy_failed',
     });
     throw err;
   }

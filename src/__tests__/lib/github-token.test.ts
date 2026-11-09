@@ -11,6 +11,7 @@ import {
   disconnectGithub,
 } from '../../lib/github-token';
 import { SETUP_KEYS } from '../../lib/kv-keys';
+import { encryptForKV, getAndDecrypt, importEncryptionKey } from '../../lib/kv-crypto';
 
 vi.mock('../../lib/logger', () => ({
   createLogger: () => ({ info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() }),
@@ -243,6 +244,29 @@ describe('getGithubProvider', () => {
     // No secret stored ⇒ KV resolution fails closed ⇒ env fallback.
     expect((await getGithubProvider(env({ ENTERPRISE_MODE: 'active', ...OAUTH_ENV })))?.source).toBe('oauth');
   });
+  it.each([false, true])('REQ-GITHUB-008 AC4: unreadable Setup ciphertext uses only an available environment provider (fallback=%s)', async (withFallback) => {
+    const ENCRYPTION_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(11)));
+    const cryptoKey = await importEncryptionKey(ENCRYPTION_KEY);
+    const secretKey = SETUP_KEYS.GITHUB_APP_CLIENT_SECRET;
+    const encrypted = await encryptForKV(JSON.stringify({ secret: 'synthetic-setup-app-secret' }), cryptoKey, secretKey);
+    // Alter a synthetic authentication tag, never the immutable deployment key.
+    const bytes = Uint8Array.from(atob(encrypted.slice(3)), char => char.charCodeAt(0));
+    bytes[bytes.length - 1] ^= 1;
+    const unreadable = `v1:${btoa(String.fromCharCode(...bytes))}`;
+    await mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'app');
+    await mockKV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'synthetic-setup-app-id');
+    await mockKV.put(secretKey, unreadable);
+    const deployment = env({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY, ...(withFallback ? OAUTH_ENV : {}) });
+    expect(await getAndDecrypt(mockKV as unknown as KVNamespace, secretKey, cryptoKey)).toBeNull();
+    const provider = await getGithubProvider(deployment);
+    if (withFallback) {
+      expect(provider?.source).toBe('oauth');
+      const url = new URL(provider!.authorizeUrl({ state: 'synthetic-state', redirectUri: 'https://example.test/callback' }));
+      expect(url.searchParams.get('client_id')).toBe(OAUTH_ENV.OAUTH_CLIENT_ID);
+    } else expect(provider).toBeNull();
+    expect(await mockKV.get(secretKey)).toBe(unreadable);
+  });
+
   it('enterprise returns null when neither KV nor env is configured', async () => {
     expect(await getGithubProvider(env({ ENTERPRISE_MODE: 'active' }))).toBeNull();
   });

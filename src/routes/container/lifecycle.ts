@@ -55,7 +55,7 @@ async function runStartStage<T>(logger: Logger, stage: string, operation: () => 
     logger.info('Container start stage completed', { stage, durationMs: Date.now() - startedAt });
     return result;
   } catch (error) {
-    logger.error('Container start stage failed', toError(error), { stage, durationMs: Date.now() - startedAt });
+    logger.error('Container start stage failed', undefined, { stage, durationMs: Date.now() - startedAt, errorClass: 'start_failed' });
     throw error;
   }
 }
@@ -108,7 +108,7 @@ export async function startOrRestartContainer(params: {
     try {
       await container.destroy();
     } catch (error) {
-      logger.error('Failed to destroy container', toError(error));
+      logger.error('Failed to destroy container', undefined, { containerId: shortContainerId, errorClass: 'native_destroy_failed' });
       throw error;
     }
     if (!await repository.confirmStoppedOrObserved(
@@ -125,8 +125,8 @@ export async function startOrRestartContainer(params: {
           })
         )
       );
-    } catch (error) {
-      logger.error('Failed to set replacement bucket', toError(error));
+    } catch {
+      logger.error('Failed to set replacement bucket', undefined, { containerId: shortContainerId, errorClass: 'configuration_failed' });
     }
   }
 
@@ -173,8 +173,8 @@ export async function startOrRestartContainer(params: {
         // marker; only then may the parent attach current human authority.
         await bindHuman?.(claimed.lifecycleGeneration);
         logger.info('Container started and ports ready', { containerId: shortContainerId });
-      } catch (error) {
-        logger.error('Failed to start container', toError(error), { containerId: shortContainerId });
+      } catch {
+        logger.error('Failed to start container', undefined, { containerId: shortContainerId, errorClass: 'start_failed' });
         // Start failure is not confirmed process exit. Leave the generation in
         // starting for bounded lifecycle reconciliation rather than inventing stopped.
       }
@@ -511,7 +511,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       message: 'Container start initiated. Poll /api/container/startup-status for progress.',
     });
   } catch (error) {
-    reqLogger.error('Container start error', toError(error));
+    reqLogger.error('Container start error', undefined, { errorClass: 'start_failed' });
     if (error instanceof AppError) {
       throw error;
     }

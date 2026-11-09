@@ -263,6 +263,100 @@ describe('CF-016 dispatchInternalRoute', () => {
       .toBe('replacement-access');
   });
 
+  describe('REQ-ENTERPRISE-027 AC5: held warm strict registration', () => {
+    const prior = {
+      bucketName: 'b', r2AccessKeyId: 'prior-access', r2SecretAccessKey: 'prior-secret',
+      remoteCurationActive: true, remoteCurationReleaseDigest: 'a'.repeat(64),
+      remoteCurationManifestDigest: 'f'.repeat(64), managedResourcePolicy: 'immutable',
+      managedResourcePathsDigest: 'b'.repeat(64),
+    };
+    const changes = [
+      ['bucket', { bucketName: 'replacement-bucket' }],
+      ['access key', { r2AccessKeyId: 'replacement-access' }],
+      ['secret key', { r2SecretAccessKey: 'replacement-secret' }],
+      ['policy', { managedResourcePolicy: 'exclusive' }],
+      ['release', { remoteCurationReleaseDigest: 'd'.repeat(64) }],
+      ['paths', { managedResourcePathsDigest: 'e'.repeat(64) }],
+    ] as const;
+
+    it.each(changes.flatMap(([label, change]) => [
+      { label, change, reject: false }, { label, change, reject: true },
+    ]))('$label: no security commit while held, rejection=$reject', async ({ change, reject }) => {
+      const next = { ...prior, ...change };
+      const propsFor = (body: typeof prior) => ({ accountId: 'account', bucket: body.bucketName,
+        r2AccessKeyId: body.r2AccessKeyId, r2SecretAccessKey: body.r2SecretAccessKey,
+        resourcePolicy: body.managedResourcePolicy, releaseDigest: body.remoteCurationReleaseDigest,
+        pathsDigest: body.managedResourcePathsDigest, strict: true });
+      const worker = (props: ReturnType<typeof propsFor>) => ({
+        fetch: async (_request: Request) => Response.json(props),
+      });
+      let active = worker(propsFor(prior));
+      let entered!: () => void;
+      const registering = new Promise<void>(resolve => { entered = resolve; });
+      let accept!: () => void;
+      let fail!: (reason: Error) => void;
+      const registration = new Promise<void>((resolve, rejectRegistration) => {
+        accept = resolve;
+        fail = rejectRegistration;
+      });
+      const host = makeHost({
+        env: { ENTERPRISE_MODE: 'active' } as any,
+        ctx: {
+          storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined),
+            delete: vi.fn().mockResolvedValue(undefined) },
+          exports: { EgressController: ({ props }: { props: ReturnType<typeof propsFor> }) => worker(props) },
+          container: { interceptOutboundHttps: async (pattern: string, replacement: typeof active) => {
+            if (pattern !== '*') throw new Error('Expected strict catch-all registration');
+            entered();
+            await registration;
+            active = replacement;
+          } },
+        } as any,
+        _bucketName: prior.bucketName, _r2AccountId: 'account',
+        _r2AccessKeyId: prior.r2AccessKeyId, _r2SecretAccessKey: prior.r2SecretAccessKey,
+        _strictEgress: true, _sessionMode: 'default',
+        _remoteCurationActive: true, _remoteCurationReleaseDigest: prior.remoteCurationReleaseDigest,
+        _remoteCurationManifestDigest: prior.remoteCurationManifestDigest,
+        _managedResourcePolicy: 'immutable', _managedResourcePathsDigest: prior.managedResourcePathsDigest,
+      });
+      const state = () => ({ bucketName: host._bucketName,
+        r2AccessKeyId: host._r2AccessKeyId, r2SecretAccessKey: host._r2SecretAccessKey,
+        remoteCurationActive: host._remoteCurationActive,
+        remoteCurationReleaseDigest: host._remoteCurationReleaseDigest,
+        remoteCurationManifestDigest: host._remoteCurationManifestDigest,
+        managedResourcePolicy: host._managedResourcePolicy,
+        managedResourcePathsDigest: host._managedResourcePathsDigest });
+      const priorEnv = { ...host.envVars };
+      const responseFromActive = async () => (await active.fetch(new Request('https://account.r2.cloudflarestorage.com/b/key'))).json();
+      let settled = false;
+      const pending = dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next),
+      }))!.then(response => { settled = true; return response; });
+      try {
+        await Promise.race([registering, pending.then(() => { throw new Error('Warm request finished before registration'); })]);
+        expect(settled).toBe(false);
+        expect(state()).toEqual(prior);
+        expect(host.envVars).toEqual(priorEnv);
+        expect(await responseFromActive()).toEqual(propsFor(prior));
+      } finally {
+        if (reject) fail(new Error('registration failed'));
+        else accept();
+      }
+      const response = await pending;
+      expect(response.status).toBe(reject ? 500 : 409);
+      expect(await responseFromActive()).toEqual(propsFor(reject ? prior : next));
+      // The warm route retains the DO's already-bound bucket; only the interceptor's
+      // R2 target changes for a changed-bucket payload. Do not invent a bucket rebind.
+      expect(state()).toEqual(reject ? prior : { ...next, bucketName: prior.bucketName });
+      if (reject) expect(host.envVars).toEqual(priorEnv);
+      else {
+        expect(host.envVars.MANAGED_RESOURCE_POLICY).toBe(next.managedResourcePolicy);
+        expect(host.envVars.MANAGED_RESOURCE_PATHS_DIGEST).toBe(next.managedResourcePathsDigest);
+        expect(host.envVars.REMOTE_CURATION_RELEASE_DIGEST).toBe(next.remoteCurationReleaseDigest);
+      }
+    });
+  });
+
   it('REQ-ENTERPRISE-027: rejects injected policy digests when policy mode is omitted', async () => {
     const EgressController = vi.fn(() => ({ id: 'replacement' }));
     const host = makeHost({

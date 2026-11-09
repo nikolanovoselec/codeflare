@@ -329,12 +329,15 @@ type AppStatusCode = 400 | 401 | 402 | 403 | 404 | 409 | 429 | 500 | 503;
 
 app.onError((err, c) => {
   const requestId = c.get('requestId') || 'unknown';
+  const lifecycleFailure = c.req.method === 'POST' && c.req.path === '/api/container/start' ? 'start_failed'
+    : c.req.method === 'DELETE' && /^\/api\/sessions\/[^/]+$/.test(c.req.path) ? 'native_destroy_failed' : undefined;
 
   if (err instanceof AppError) {
-    logger.warn(err.message, {
+    logger.warn(lifecycleFailure ? 'Lifecycle request failed' : err.message, {
       requestId,
       code: err.code,
       statusCode: err.statusCode,
+      ...(lifecycleFailure ? { errorClass: lifecycleFailure } : {}),
     });
     return c.json(err.toJSON(), err.statusCode as AppStatusCode);
   }
@@ -345,7 +348,8 @@ app.onError((err, c) => {
     return err.getResponse();
   }
 
-  logger.error('Unexpected error', toError(err), { requestId });
+  if (lifecycleFailure) logger.error('Unexpected lifecycle error', undefined, { requestId, errorClass: lifecycleFailure });
+  else logger.error('Unexpected error', toError(err), { requestId });
   return c.json({ error: 'An unexpected error occurred' }, 500);
 });
 

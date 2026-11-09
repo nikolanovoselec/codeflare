@@ -9,6 +9,8 @@ import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../../lib/kv-keys';
 import { getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
 import { routingGatewayUrl, routingInventoryFixtures, verifiedRoutingConfiguration } from '../helpers/verified-routing';
 import { issueRouteCheck } from '../../lib/reasoning-verification';
+import { getOrImportKey } from '../../lib/kv-crypto';
+import { getEnterpriseBrowserCreds } from '../../lib/browser-render-token';
 
 vi.mock('../../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../../lib/ai-gateway-management')>(),
@@ -343,6 +345,32 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(await kv.get(SETUP_KEYS.CUSTOM_DOMAIN)).toBe('new.example.com');
     expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.R2_ENDPOINT, expect.anything());
     expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.COMPLETE, expect.anything());
+  });
+
+  it.each([
+    { storage: 'encrypted', encryptionKey: Buffer.alloc(32, 7).toString('base64') },
+    { storage: 'AD32 plaintext', encryptionKey: undefined },
+  ])('REQ-BROWSER-007 AC1–3: saves and logically reads back a token after blank Save ($storage)', async ({ encryptionKey }) => {
+    const { app, kv, env } = createApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: encryptionKey });
+    const token = 'synthetic-browser-rendering-token';
+    const accountId = 'synthetic-browser-account';
+    const cryptoKey = await getOrImportKey(env);
+    const saved = await post(app, { section: 'browserRendering', baseRevision: 0,
+      values: { accountId, replacementToken: token } });
+    expect(saved.status).toBe(200);
+    const savedRun = snapshots(await saved.text()).at(-1).run;
+    expect(savedRun).toMatchObject({ state: 'succeeded' });
+    const stored = await kv.get(SETUP_KEYS.BROWSER_RENDER_TOKEN) as string;
+    if (encryptionKey) {
+      expect(stored.startsWith('v1:')).toBe(true);
+      expect(stored).not.toContain(token);
+    } else expect(JSON.parse(stored)).toEqual({ token });
+    expect(await getEnterpriseBrowserCreds(env, cryptoKey)).toEqual({ token, accountId });
+    const blankSaved = await post(app, { section: 'browserRendering', baseRevision: savedRun.resultingRevision,
+      values: { accountId, replacementToken: '' } });
+    expect(blankSaved.status).toBe(200);
+    expect(snapshots(await blankSaved.text()).at(-1).run).toMatchObject({ state: 'succeeded' });
+    expect(await getEnterpriseBrowserCreds(env, cryptoKey)).toEqual({ token, accountId });
   });
 
   it('applies AI routing and Browser Run without clobbering saved credentials', async () => {

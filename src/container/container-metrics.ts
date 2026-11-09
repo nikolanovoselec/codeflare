@@ -1148,6 +1148,7 @@ export async function collectMetrics(
   else await ctx.storage.delete(NOT_RUNNING_SINCE_KEY);
   let projectionAccepted = false;
   let projectionFailed = false;
+  let requiredStopInProgress = false;
   // Notification delivery owns its exceptional D1 read only when the host
   // actually offers events. The normal metrics path remains one host snapshot
   // plus one generation/sequence-fenced D1 update with no pre-read.
@@ -1296,6 +1297,7 @@ export async function collectMetrics(
         if (!execution.isCurrent()) return;
         await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext());
         if (!execution.isCurrent()) return;
+        requiredStopInProgress = true;
         await callbacks.stop('SIGTERM');
         return;
       }
@@ -1326,6 +1328,7 @@ export async function collectMetrics(
       }
     }
   } catch (err) {
+    if (requiredStopInProgress) throw err;
     const failed = failedProbeObservation(err, observationStartedAt);
     if (!activityProbe.responded) { activityProbe = failed; healthProbe = failed; }
     logger.warn('collectMetrics: runtime observation/projection failed', { ...finalSyncLogContext(), errorClass: 'runtime_observation_failed' });
@@ -1447,11 +1450,13 @@ export async function collectMetrics(
           if (!execution.isCurrent()) return;
           await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS, finalSyncLogContext());
           if (!execution.isCurrent()) return;
+          requiredStopInProgress = true;
           await callbacks.stop('SIGTERM');
           return; // Don't re-arm after stop
         }
       }
-    } catch {
+    } catch (error) {
+      if (requiredStopInProgress) throw error;
       // Non-fatal: log and continue — Timekeeper will catch up on next ping
       logger.warn('Timekeeper ping failed', { ...finalSyncLogContext(), errorClass: 'timekeeper_ping_failed' });
     }
