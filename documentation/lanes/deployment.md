@@ -46,6 +46,18 @@ Exercise the changed user path after provider discovery returns the expected `{ 
 
 **Rollback:** Stop and use [Production Rollback](#production-rollback) when a changed user path fails or the deployed version does not match the reviewed tree. Do not deploy another unreviewed tree as an incident workaround.
 
+### Deploy pipeline record inspection
+
+Read-only method for [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline). Apply [pipeline record prerequisites](ci-cd.md#pipeline-record-inspection). Inspect existing Deploy records, not the execution instructions above: this inspection authorizes no dispatch, deployment, namespace creation or settings change. Retain exact revision, run/attempt, event, environment, resolved Worker identity and verified source-tree correlation without secrets.
+
+For AC2 inspect separate retained native dispatch records for production, integration, enterprise and enterprise integration. Compare each actual environment input with **Resolve deploy target** / **Log resolved parameters**, job environment and **Deploy summary**. Production must resolve from `main`; inspect **Block production deploys from non-main branches**. Confirm the exact-tree verification path and completed deployment, not only the dispatch menu. Missing an environment's completed record is BLOCKED for that observation; wrong target/tree or a passing non-main production promotion is FAIL. Reuse the [pipeline contract](ci-cd.md#deploy-workflow-detail), including explicit-run fail-closed behavior, inline fallback, serialization and outcome safeguards.
+
+For AC5 inspect **Deploy worker** / **Resolve KV namespace** at that same revision. Correlate successful namespace listing with the resolved `${WORKER_NAME}-kv` title and reported namespace identity, then inspect the script's substitution of `id = "placeholder"` in `wrangler.toml`. Existing matching namespaces must be reused; creation applies only after a successful list returns no match. Correlate subsequent **Deploy to Cloudflare** binding output where retained. No deployed config artifact is promised by this workflow; if application of the resolved identity cannot be established from retained output/source, that part remains BLOCKED, not inferred from a green summary.
+
+Accept list/reuse and list/no-match/create branches separately from existing approved records. In retained failure records, failed listing must stop without guessing or creating, and unresolved identity must stop before Worker promotion. Wrong binding or promotion after resolution failure is FAIL. Missing branch or rejection records is BLOCKED for those observations. Setup-route mock-KV tests do not establish this deployment behavior; no namespace may be created or modified to fill the evidence gap here.
+
+For the nonmanual AC1/AC3/AC4, existing routing, gate and artifact-handoff configuration tests provide bounded definition/expression/topology coverage. Supplement acceptance by inspecting native main-push PR Checks → Deploy correlation, the prepare/build-worker/container/deploy graph and timestamps, **Build frontend**, **Build landing page**, **Upload built assets** and **Download built assets**. Require frontend before landing and one `web-ui-dist` handoff from the same run/tree. Declared parallel dependencies do not prove executed overlap; missing overlap or asset provenance is unverified. These observations do not change AC markers or replace post-secrets user-path verification.
+
 ---
 
 ## Integration acceptance checklist

@@ -33,9 +33,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The deploy workflow triggers automatically from successful main-push PR Checks. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (nightly PR Checks routing) --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
 2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
-3. The deploy pipeline stages target preparation, parallel worker-asset and container-image builds, and deployment. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
-4. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (manual deploys cannot skip tests) -->
-5. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
+3. The deploy pipeline stages target preparation, parallel worker-asset and container-image builds, and deployment. <!-- @impl: .github/workflows/deploy.yml::prepare --> <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @impl: .github/workflows/deploy.yml::container --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (REQ-OPS-001 AC3/4: deployment artifact-handoff contract builds assets once before the dependent consumer) -->
+4. Frontend and landing assets are built once and handed to the deploy job as an artifact. <!-- @impl: .github/workflows/deploy.yml::build-worker --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (REQ-OPS-001 AC3/4: deployment artifact-handoff contract builds assets once before the dependent consumer) -->
+5. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @manual -->
 
 **Constraints:**
 
@@ -50,7 +50,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js))
+**Verification:** Automated: [deploy-requires-tests](../../host/__tests__/deploy-requires-tests.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js); Manual: [Deploy pipeline record inspection](../../documentation/lanes/deployment.md#deploy-pipeline-record-inspection)
 
 **Status:** Implemented
 
@@ -155,7 +155,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated tests ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js), [workflow hardening](../../host/__tests__/ci-workflow-hardening.test.js)); lint, typecheck, and audit ACs verified in CI. Hosted sandbox package-source tests failed expected RED at `f97bbbd7` / `36499479383`; final exact-head hosted apt installation and bubblewrap/AppArmor probe pending.
+**Verification:** Automated: [required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js), [ci-workflow-hardening](../../host/__tests__/ci-workflow-hardening.test.js), [develop-required-checks](../../host/__tests__/develop-required-checks.test.js), [npm-security-lock-pins](../../host/__tests__/npm-security-lock-pins.test.js), [ci-sandbox-packages](../../host/__tests__/ci-sandbox-packages.test.js), [suite-gates](../../src/__tests__/ci/suite-gates.test.ts); Manual: [PR quality record inspection](../../documentation/lanes/ci-cd.md#pr-quality-record-inspection)
 
 **Status:** Implemented
 
@@ -828,7 +828,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Projection coverage and real pinned-binary negative cases are authored; the audit lane executes the latter after checksum verification, with exact-head CI still required.
+**Verification:** Automated: [develop-required-checks](../../host/__tests__/develop-required-checks.test.js), [actionlint-input](../../host/__tests__/actionlint-input.test.js); Manual: [Workflow audit record inspection](../../documentation/lanes/ci-cd.md#workflow-audit-record-inspection)
 
 **Status:** Implemented
 
