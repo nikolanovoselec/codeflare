@@ -405,7 +405,7 @@ git diff @{push}..HEAD 2>/dev/null || git diff HEAD~1..HEAD 2>/dev/null || git d
 
 ## Working tree and branch safety
 
-Root mutation workflows enforce their own fresh-run preflight and same-run continuation rules. User publication/validation conditions remain binding; mode does not authorize another branch or a premature push. Review is read-only against its resolved scope and never inherits cleanup's mutation or publication permissions.
+Root mutation workflows enforce their fresh-run preflight and same-run continuation rules. `/sdd clean` finishes local cleanup/integrity checks, commits and performs its authorized current-branch push as the last tool action. CI is post-push; boundary review requires an open PR to `main`/`master`/`develop`. Neither qualification loop belongs inside cleanup, and no temporary branch, PR, CI dispatch or reviewer launch is implied. Explicit user restrictions remain binding. Review stays read-only against its resolved scope and inherits no cleanup mutation/publication permission.
 
 ## User overrides
 

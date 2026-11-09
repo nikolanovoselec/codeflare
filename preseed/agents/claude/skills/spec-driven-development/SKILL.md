@@ -214,7 +214,7 @@ Legitimate manual verification supports `Implemented`, even with TDD enabled. Ma
 | `enforce_tdd` | per layout-resolved config (`sdd/spec/config.yml` nested OR `sdd/config.yml` flat; default true) | same | Refuse when false; never silently change the setting |
 | Output | Inline confirmations | Inline reports | Inline reports; per-category commits |
 
-The fundamental difference is **how JUDGMENT is handled**, not permission to change product intent or weaken guarantees. Publication stays on the selected branch under current user authorization and validation conditions; no implicit PR or validation branch.
+The fundamental difference is **how JUDGMENT is handled**, not permission to change product intent or weaken guarantees. For `/sdd clean`, completed local cleanup ends with the authorized selected-branch push, then immediate turn end. CI follows repository triggers independently of PR eligibility; boundary review requires that branch's open PR to `main`/`master`/`develop`. No implicit PR/validation branch, CI dispatch, reviewer launch or CI-green-before-push gate. Post-push qualification is separate from cleanup; explicit user restrictions remain binding.
 
 `/sdd clean` has one finite eight-stage execution contract in `sdd-clean`: reuse evidence, dispose of findings and advance; unresolved product/verification gaps do not authorize implementation or repeated discovery. Preserve decision history and distinguish a finished pass with escalations from a clean result. An explicit requirement to resolve all findings remains binding. Review remains static/report-only with its existing scope, consent and blocked-verdict gates; cleanup completion semantics never relax them.
 

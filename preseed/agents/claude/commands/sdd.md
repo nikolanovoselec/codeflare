@@ -75,7 +75,7 @@ Parse `$ARGUMENTS`. Match the first token and dispatch:
 | `add <domain>` | `spec-driven-development` skill (§ /sdd add) |
 | `mode [name]` | `spec-driven-development` skill (§ /sdd mode) |
 
-For `init` and `clean`, the sub-command skills reference `spec-driven-development` for format, Status and templates. `sdd-clean` alone owns cleanup's eight-stage execution order; enforcement skills supply checks, not another loop. Resolve validation/publication conditions in preflight. A continuation resumes the same run's unfinished stage; explicit stop survives automatic reminders and delayed results.
+For `init` and `clean`, the sub-command skills reference `spec-driven-development` for format, Status and templates. `sdd-clean` alone owns cleanup's eight-stage order; enforcement skills supply checks, not another loop. Completed cleanup ends with its authorized current-branch push and immediate turn end. CI follows repository triggers; boundary review requires an open PR to `main`/`master`/`develop`. Never create a PR, dispatch CI or launch reviewers inside cleanup; post-push qualification is separate. A continuation resumes unfinished local stages; explicit stop survives automatic reminders and delayed results.
 
 Unknown sub-command: print the help screen, exit.
 

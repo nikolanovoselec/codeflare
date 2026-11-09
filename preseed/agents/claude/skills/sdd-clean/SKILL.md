@@ -1,7 +1,7 @@
 ---
 name: sdd-clean
 description: Workflow for /sdd clean — rescuing a rotted spec. Mode-aware behaviors (interactive/auto/unleashed), safety nets, what gets cleaned (incl. per-AC @impl AND @test anchor backfill at parity, gated by enforce_tdd), JUDGMENT auto-resolution rules. Invoked when /sdd clean runs. Requires the spec-driven-development skill for REQ format and Status semantics, and the spec-enforce skill family for the detection mechanics.
-version: 1.3.0
+version: 1.3.1
 ---
 
 # /sdd clean — rescuing a rotted spec
@@ -12,7 +12,7 @@ The rescue command for projects whose spec has accumulated implementation leakag
 
 `/sdd clean` is a root-session mutation workflow in every mode. The root invokes `spec-enforce` and then `doc-enforce` inline, applies changes with its own file tools, and owns every commit and push. Never spawn the report-only `spec-reviewer` or `doc-updater` agents to perform cleanup.
 
-**Preflight once:** resolve the repository, baseline, layout, scope, mode, existing decisions and validation/publication authorization. Refuse a dirty tree on a new invocation. Identify required checks and their supported execution route; surface unavailable dependencies, protected operations or validation-before-push conflicts before substantial mutation. Never install, bypass guards or publish a validation ref without authorization.
+**Preflight once:** resolve the repository, baseline, layout, scope, mode, existing decisions and current-branch push authorization. Refuse a dirty tree on a new invocation. Identify local cleanup/integrity checks and surface unavailable prerequisites or protected operations. Post-push CI is not a cleanup prerequisite: do not invent a CI-green-before-push gate, temporary validation branch or PR. Never install or bypass guards.
 
 Invoke `spec-enforce` with explicit `purpose=clean` and the selected scope. Register its 24 rows, then execute them at the numbered cleanup stages below—not as an independent, competing sequence. After spec enforcement is accounted for, invoke `doc-enforce` inline for stage 8. Every applicable check still runs.
 
@@ -24,7 +24,8 @@ Invoke `spec-enforce` with explicit `purpose=clean` and the selected scope. Regi
 - Preserve contractual meaning during extraction, splitting and trimming. Existing implementation alone cannot authorize weakening the spec. Use a directly applicable user decision or accepted contract to resolve a conflict; otherwise preserve it and escalate with evidence and blast radius. Unleashed mode and an advisor do not enlarge authorization.
 - A supported existing manual procedure may be linked or documented concisely. Missing observation controls or unclear coverage are findings, not invitations to invent probes, credentials, fixtures or qualification campaigns. Preserve the requirement's status and unresolved obligation; never fabricate a valid-looking field.
 - Continuation resumes the same run at its first unfinished stage, retaining completed evidence. Known run-owned edits are not a new dirty-tree invocation; unrelated edits require reconciliation without overwriting them. Explicit stop pauses owned work and result adoption. Automatic Goal continuations and delayed notifications never authorize resumption.
-- Finish with **Clean**, **Completed with escalations — not clean**, or **Blocked**, including checks actually run, unresolved findings and publication state. No pending required row or missing execution result may be represented as clean. An explicit user requirement to resolve every finding remains unsatisfied until those findings are resolved or the user changes scope. Validation failures reopen only affected checks; publish only under the preflight authorization. Local checkpoints are not passing validation.
+- Finish the local pass as **Clean**, **Completed with escalations — not clean**, or **Blocked**, with actual cleanup checks and unresolved findings. Pending required rows cannot be called clean; an explicit requirement to resolve every finding remains binding. Local check failures reopen only affected checks. Cleanup completion is not runtime/CI acceptance.
+- On completed authorized cleanup, commit the final local result and push the selected current branch. Prepare the manifest/summary before pushing. A successful final push is the last tool action: end the turn immediately. CI follows repository triggers independently of review eligibility. Boundary review occurs only if the pushed branch heads an open PR targeting `main`, `master` or `develop`; never create/reopen a PR or manually launch reviewers to obtain it. CI/review results, triage, fixes and green qualification belong to subsequent work, not this cleanup loop. A failed or explicitly withheld push is reported honestly, never as successful publication.
 
 ## Parallel execution (binding)
 
@@ -39,7 +40,7 @@ Invoke `spec-enforce` with explicit `purpose=clean` and the selected scope. Regi
 
 **auto** — applies SAFE and RISKY fixes silently on the current branch. JUDGMENT items go to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested, `sdd/.review-needed.md` flat).
 
-**unleashed** — applies SAFE + RISKY fixes and only the conservative JUDGMENT resolutions below, with per-category commits on the current branch. No new branch or PR. If `enforce_tdd: false`, refuse without changing it; ask the user to change the setting or use `auto`. User validation/publication conditions override automatic pushing.
+**unleashed** — applies SAFE + RISKY fixes and only the conservative JUDGMENT resolutions below, with per-category commits on the current branch. No new branch or PR. If `enforce_tdd: false`, refuse without changing it; ask the user to change the setting or use `auto`. Explicit user publication restrictions remain binding; absent such a restriction, the final cleanup push hands off to CI/review rather than waiting for them.
 
 ## Safety nets (all modes)
 
@@ -50,11 +51,11 @@ Invoke `spec-enforce` with explicit `purpose=clean` and the selected scope. Regi
 - **Sequential inline enforcement** — the root runs `spec-enforce` first, then `doc-enforce`; PR-boundary reviewer agents are not involved.
 
 Unleashed-specific:
-- Publishes directly to the selected current branch only when user authorization and required validation permit; no implicit new branch or PR.
+- Finishes completed cleanup with the authorized current-branch push after local cleanup checks; no temporary validation branch, PR creation, CI dispatch or reviewer launch.
 - Each commit is per-category and tagged `[sdd-clean]` — `git revert <sha>` is the rollback surface.
 - Audit log lives in per-category commit bodies (`git log --grep='\[sdd-clean\]' -p`); no separate dotfile.
 
-Both `auto` and `unleashed` publish only to the selected current branch under the user's authorization and validation conditions. Local commits do not require a fabricated GREEN result; missing execution blocks qualification and any validation-gated push, not truthful local checkpoints.
+All modes finish completed cleanup with the authorized selected-branch push, unless the user explicitly withholds it. Local checkpoints and cleanup integrity checks do not claim CI/runtime GREEN. CI and any eligible PR-boundary review follow the push; monitoring or fixing them does not extend or restart `/sdd clean`.
 
 ## Conservative JUDGMENT auto-resolution (unleashed only)
 
@@ -124,7 +125,7 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 5. Test-anchor backfill and Verification methods: inspect actual eligible blocks, add traceability comments/precise spec-side anchors and normalize established automated/manual links. Preserve test titles/logic; unresolved coverage or methods go to live gaps.
 6. Status revaluation and remaining truth checks: CQ-TEST/CQ-1 use the now-anchored spec and real behavioral evidence, never ID presence alone; run CQ-2/CQ-3 as applicable. Preserve legitimate manual status; record residual coverage and contract gaps without manufacturing closure.
 7. Remaining spec cleanup: implementation leakage, ADR reclassification, changelog archival, backlinks, Deprecated handling and all remaining manifest rows, including structural integrity and one backlog re-triage. Confirm all 24 rows have evidence/dispositions before stage 8; escalations remain visible, not pending investigations.
-8. Documentation normalization through `doc-enforce` and its 16 rows, using existing templates. Report newly discovered product/owner gaps rather than restarting spec discovery. Verify the resulting edits and directly invalidated checks, then report the finite execution outcome.
+8. Documentation normalization through `doc-enforce` and its 16 rows, using existing templates. Report newly discovered product/owner gaps rather than restarting spec discovery. Verify local cleanup integrity and directly invalidated checks, finalize the manifest and commit the result. The authorized final push ends the cleanup turn; post-push CI and conditional PR-boundary review are separate work.
 
 Passes 4 and 5 are the legacy-import bridge. On a project where every REQ already carries `@impl` anchors, every AC carries a `@test` anchor (when `enforce_tdd: true`), and every test already mentions its REQ IDs they are both inert no-ops.
 
