@@ -3507,14 +3507,14 @@ None.
 ---
 ### REQ-AGENT-074: Pi Settled Review Handoff
 
-**Intent:** Pi must hand missing review work back to the main session and reliably acknowledge transcript-proven joint reviewer-and-CI triage when the root agent run ends. It owns no review monitor, durable claim, or restart path.
+**Intent:** Pi must coordinate current review work and reliably acknowledge transcript-proven joint reviewer-and-CI triage when the root agent run ends. It owns no review monitor, durable claim, or restart path.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
 1. An eligible boundary with invalid acknowledgement emits full-PR scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
-2. Unmatched public reviewer calls are not duplicated, while missing peers are requested together. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) -->
+2. Unmatched public reviewer calls are not duplicated. Interrupted rounds produce no missing-work follow-up; later eligible delivery starts a fresh round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (clears stopped work without a recovery message or marker) -->
 
 **Constraints:**
 

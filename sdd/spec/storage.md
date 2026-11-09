@@ -66,9 +66,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Files written during a session are readable in a subsequent session after the container is recreated. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
+1. Nonempty files written during a session are readable in a subsequent session after the container is recreated. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
 2. Agent configuration directories and per-user dotfiles persist across sessions. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
-3. Workspace files persist across sessions when the user has enabled full workspace sync. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
+3. Nonempty workspace files persist across sessions when the user has enabled full workspace sync. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
 4. A hook script the sync restored or rewrote is executable again before it is next invoked, since a hook registered by bare path is spawned through its shebang. <!-- @impl: entrypoint.sh::repair_hook_exec_bits --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-hook-exec-bits.test.js (restores +x on hook scripts a sync stripped, leaving other files alone) --> <!-- @test: host/__tests__/entrypoint-hook-exec-bits.test.js (repairs and can execute a hook after a successful bisync) -->
 
 **Notes:** The per-path inventory is documented in [Storage and Sync](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011).
@@ -76,6 +76,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Constraints:**
 
 - R2 is the durable store; the local filesystem is ephemeral.
+- Zero-byte files are excluded by the existing sync policy.
 - Persistence depends on at least one successful sync completing before container shutdown.
 - R2 round-trips content and modification time only; each sync re-establishes local executable modes.
 
