@@ -289,6 +289,8 @@ The activation flag, OAuth, billing, email, identity-provider, and environment c
 
 Enterprise mode (`ENTERPRISE_MODE` = active) forces all users to the unlimited tier and Pro mode, authenticates via Cloudflare Access, and routes agent LLM traffic through the customer's AI Gateway via outbound interception, adding the following on top of Default mode.
 
+In requirement prose, the Enterprise-mode binding or flag names `ENTERPRISE_MODE`; each clause retains its stated presence (`set`/`unset`) or explicit `active` condition.
+
 ### Enterprise mode variables
 
 The enterprise activation flag, GitHub Environment layout, worker naming, account overrides, and dynamic-route setup are maintained in the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md). Runtime behavior remains below and in the canonical Setup, Models & Routing, Authentication, Subscription, Security, Agents and Storage specifications.
