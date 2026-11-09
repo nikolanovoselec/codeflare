@@ -1675,7 +1675,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-ENTERPRISE-027](security.md#req-enterprise-027-managed-resource-admission-and-transport), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
 
-**Verification:** Automated migration, identity, policy, protected-target, ordinary-target, and uncertainty tests. AC6 guidance is verified by direct review of the storage-specific message in `ManagedEnvironmentUpdatePendingError`; its anchored tests verify conflict behavior, not wording.
+**Verification:** Automated: [managed-storage-guard.test.ts](../../src/__tests__/lib/managed-storage-guard.test.ts), [storage-upload.test.ts](../../src/__tests__/routes/storage-upload.test.ts), [storage-delete.test.ts](../../src/__tests__/routes/storage-delete.test.ts), [storage-download.test.ts](../../src/__tests__/routes/storage-download.test.ts)
 
 **Status:** Implemented
 
