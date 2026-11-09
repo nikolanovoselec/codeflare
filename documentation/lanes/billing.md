@@ -133,7 +133,7 @@ Historical rows retain normalized named user aggregates, including deleted-user 
 
 ## D1 Database and Migrations
 
-Each deployment uses one D1 database named `<worker-name>-usage`, bound as `USAGE_DB`. Deployment lists exact names, rejects duplicates, creates the database when absent, writes its ID into temporary `wrangler.toml`, and applies migrations before Worker deployment. Account and database IDs do not belong in source. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
+Each deployment uses one D1 database named `${WORKER_NAME}-usage`, bound as `USAGE_DB`. Deployment lists exact names, rejects duplicates, creates the database when absent, writes its ID into temporary `wrangler.toml`, and applies migrations before Worker deployment. Account and database IDs do not belong in source. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
 
 `migrations/usage/0001_initial.sql` additively creates historical users/periods, report deliveries, and maintenance claims. It is not the complete current schema: `migrations/usage/0002_runtime_sessions.sql` also defines D1 session records and cutover admission. Apply the deployment's full migration set before traffic; do not publish against missing schema. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: migrations/usage/0001_initial.sql::usage_users -->
 

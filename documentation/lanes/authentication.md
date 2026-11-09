@@ -39,6 +39,8 @@ Codeflare selects one authentication branch for a request. Entering a configured
 
 Session-OIDC includes the configured SaaS or onboarding flows. SaaS mode alone does not imply GitHub OAuth: without `OAUTH_CLIENT_ID`, requests stay on Cloudflare Access. <!-- @impl: src/lib/access.ts::authenticateRequest -->
 
+For onboarding sign-in assets, `ONBOARDING_LANDING_PAGE=active` together with `SAAS_MODE` not active rewrites `/login` asset requests to `/landing/login/` inside the Worker; this is asset selection, not a new redirect or authentication fallback ([REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell) AC1).
+
 <a id="auth-resolution-order"></a>
 ### Credential precedence
 
