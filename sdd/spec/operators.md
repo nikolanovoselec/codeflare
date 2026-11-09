@@ -3059,7 +3059,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [boundary-workflow-enrollment.test.ts](../../src/__tests__/operators/boundary-workflow-enrollment.test.ts), [review-boundary-action-trust.test.ts](../../src/__tests__/operators/review-boundary-action-trust.test.ts), [operator-access.test.ts](../../src/__tests__/operators/operator-access.test.ts), [operator-boundary-action.test.js](../../host/__tests__/operator-boundary-action.test.js), [operator-boundary-claim.test.ts](../../src/__tests__/routes/operator-boundary-claim.test.ts), [review-boundary-claim.test.ts](../../src/__tests__/operators/review-boundary-claim.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3083,9 +3083,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-064](#req-operator-064-protected-review-enrollment-and-discovery)
 
-**Verification:** Automated tests at the adjacent registration, concurrent origin-probe and non-consuming discovery anchors; live protected Action and final exact-head CI remain unverified.
+**Verification:** Automated: [operator-access.test.ts](../../src/__tests__/operators/operator-access.test.ts), [operator-boundary-action.test.js](../../host/__tests__/operator-boundary-action.test.js), [operator-boundary-claim.test.ts](../../src/__tests__/routes/operator-boundary-claim.test.ts), [review-boundary-claim.test.ts](../../src/__tests__/operators/review-boundary-claim.test.ts), [operator-live-identity.test.ts](../../src/__tests__/operators/operator-live-identity.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3098,7 +3098,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Acceptance Criteria:**
 
-1. Only the current actor/session may read its associated immutable published Review through existing repository access. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/operators/review-history-transport.ts::readPublishedReview --> <!-- @test: src/__tests__/operators/review-published-result.test.ts (REQ-OPERATOR-053/056: independently published original Review evidence) -->
+1. Only the current actor/session may read its associated immutable published Review through existing repository access. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/operators/review-boundary-result.test.ts (REQ-OPERATOR-065: returns a bounded published prior round from the actual intercepted GitHub PR read without staging or starting a Review) --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/operators/review-history-transport.ts::readPublishedReview --> <!-- @test: src/__tests__/operators/review-published-result.test.ts (REQ-OPERATOR-053/056: independently published original Review evidence) -->
 2. Reads independently authenticate publisher, workflow, run and artifact receipts, including complete bounded pages. <!-- @impl: src/operators/review-history-transport.ts::readPublishedReview --> <!-- @impl: src/operators/review-history-transport.ts::readGithubActionsPublisherIdentity --> <!-- @test: src/__tests__/operators/review-history-transport.test.ts (projects authenticated artifact pages completely for the compiled reader without silently truncating) -->
 3. Incomplete, unavailable or foreign evidence cannot appear as empty successful findings or clearance. <!-- @impl: src/operators/review-history-transport.ts::readPublishedReview --> <!-- @impl: preseed/agents/pi/extensions/operator-review-remote.ts::registerOperatorReviewRemote --> <!-- @test: src/__tests__/operators/review-published-result.test.ts (REQ-OPERATOR-053/056: independently published original Review evidence) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (REQ-OPERATOR-053: dedicated remote Operator Review result consumer) -->
 4. Result reads never start work or mint authority. <!-- @impl: src/operators/review-history-transport.ts::readPublishedReview --> <!-- @test: src/__tests__/operators/review-boundary-result.test.ts (REQ-OPERATOR-053/056: read-only authenticated Review publication projection) -->
@@ -3112,9 +3112,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff)
 
-**Verification:** Automated test: Publication-reader and read-only projection tests at the adjacent anchors. Current-head reader regressions and live publication receipts remain pending.
+**Verification:** Automated: [review-boundary-result.test.ts](../../src/__tests__/operators/review-boundary-result.test.ts), [review-published-result.test.ts](../../src/__tests__/operators/review-published-result.test.ts), [review-history-transport.test.ts](../../src/__tests__/operators/review-history-transport.test.ts), [operator-review-remote.test.ts](../../src/__tests__/lib/operator-review-remote.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3133,6 +3133,8 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 4. Each accepted rejection retains its independently verified original finding. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-production-packet.test.ts (puts an independently authenticated prior finding in the actor-bound approved packet) -->
 5. Only independent next-round reassessment may resolve a prior finding; caller disagreement alone never supplies clearance. <!-- @impl: src/__tests__/operators/fixtures/conductor-review.generated.json::reconcileProtectedReviewHistory --> <!-- @test: src/__tests__/operators/review-connected-lifecycle.test.ts (connects protected collection through authenticated Pi rejection and compiled next-round reassessment) -->
 
+**Notes:** Compiled lifecycle tests execute the package's reconciliation with simulated external reviewer outputs; they do not claim native or hosted reviewer acceptance.
+
 **Constraints:**
 
 - Reassessment policy remains package-owned; see [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details) for the packaged-source trace.
@@ -3145,7 +3147,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [review-published-result.test.ts](../../src/__tests__/operators/review-published-result.test.ts), [review-connected-lifecycle.test.ts](../../src/__tests__/operators/review-connected-lifecycle.test.ts), [review-history-transport.test.ts](../../src/__tests__/operators/review-history-transport.test.ts), [review-boundary-result.test.ts](../../src/__tests__/operators/review-boundary-result.test.ts), [operator-review-remote.test.ts](../../src/__tests__/lib/operator-review-remote.test.ts), [conductor-production-packet.test.ts](../../src/__tests__/operators/conductor-production-packet.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3255,6 +3257,8 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. At the configured interval, each safely retryable failed/deferred head elects one freshly authorized attempt, even when its head is unchanged. <!-- @impl: src/operators/registry.ts::reserveProspectiveRenovateActivity --> <!-- @impl: src/operators/activity.ts::readProspectiveRenovateRetryProof --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-061: only original settled and collected singleton deferral supplies immutable scheduled-retry proof) -->
 7. Uncertain preparation/starts reconcile that same identity without replacement work or a changed actor. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061/048: a winning scan retains repository-only admission) -->
 
+**Notes:** Compiled Dispatcher/model judgment, natural post-activation PRs and successful live journeys remain separate from the verified parent-owned settings, admission, retry election and acknowledgement handling.
+
 **Constraints:**
 
 - Every manual and automatic run requires the configured repository, without fallback or override. <!-- @impl: src/operators/orchestrator.ts::prepareOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-061: configured Renovate run settings) -->
@@ -3273,9 +3277,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-051](#req-operator-051-renovate-dispatcher-assessment), [REQ-OPERATOR-060](#req-operator-060-fenced-renovate-publication)
 
-**Verification:** Intent4 due-interval retry and concurrent election are authored but unverified for original prospective admissions. Effect-uncertain dispositions and unresolved writes refuse fresh retry eligibility. Manual repository-journey retry remains unverified; the deployed permanent same-head deduplication does not satisfy the amended criteria. Configured-run, admission, callback and publication tests passed historically and were delivered to Integration environments. Earlier connected fixtures simulated SDK scheduling and child settlement, not compiled Dispatcher/model judgment or natural post-activation PRs. Observed manual invocation did not complete; repeat-control CI/visual verification and end-to-end success remain pending.
+**Verification:** Automated: [renovate-prospective-registry.test.ts](../../src/__tests__/operators/renovate-prospective-registry.test.ts), [renovate-prospective-pages.test.ts](../../src/__tests__/operators/renovate-prospective-pages.test.ts), [orchestrator.test.ts](../../src/__tests__/operators/orchestrator.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [operator-configured-runs.test.tsx](../../web-ui/src/__tests__/operators/operator-configured-runs.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3308,7 +3312,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [egress-controller.test.ts](../../src/__tests__/egress-controller.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3375,7 +3379,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3409,9 +3413,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-088](#req-operator-088-host-request-preparation-evidence), [REQ-OPERATOR-089](#req-operator-089-verified-preparation-attribution), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-087](#req-operator-087-protected-transport-cancellation)
 
-**Verification:** Automated: [operator-raw-logging.test.ts](../../src/__tests__/lib/operator-raw-logging.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [operator-inference-raw.test.js](../../host/__tests__/operator-inference-raw.test.js)
+**Verification:** Automated: [operator-raw-logging.test.ts](../../src/__tests__/lib/operator-raw-logging.test.ts), [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [operator-inference-raw.test.js](../../host/__tests__/operator-inference-raw.test.js)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3428,7 +3432,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 3. Settings readback qualifies logging readiness separately from exact immutable deployment identity and cannot invalidate existing execution authority. <!-- @impl: src/operators/dispatcher-deployment.ts::verifyDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046/091: actual settings readback qualifies logging readiness separately from exact immutable deployment identity) --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046/048/091: $name is not observability-ready but cannot invalidate an exact deployment or existing runtime) -->
 4. Bodyless installation-authenticated policy reads prove the exact retained Activity/generation, deployment, receipt and original logging decision, including terminal runs and credential rotation; absent or malformed proof denies without mutable-setting fallback, dispatch, accounting, lease/status mutation or renewal. <!-- @impl: src/operators/activity.ts::dispatcherLoggingPolicy --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-003/047/091: exact original %s policy remains readable but grants no execution or current authority) -->
 
-**Notes:** CI and hosted delivery qualification remain pending in [protected raw runtime logs](../../documentation/lanes/operators.md#protected-raw-runtime-logs).
+**Notes:** Current repaired admission-handoff hosted delivery qualification remains pending in [protected raw runtime logs](../../documentation/lanes/operators.md#protected-raw-runtime-logs); implementation tests do not establish platform delivery completeness.
 
 **Constraints:**
 
@@ -3441,9 +3445,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-090](#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-087](#req-operator-087-protected-transport-cancellation)
 
-**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts), [dispatcher-activation.test.ts](../../src/__tests__/operators/dispatcher-activation.test.ts)
+**Verification:** Automated: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [loader-runtime.test.ts](../../src/__tests__/operators/loader-runtime.test.ts), [dispatcher-activation.test.ts](../../src/__tests__/operators/dispatcher-activation.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
