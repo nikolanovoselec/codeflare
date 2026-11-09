@@ -828,7 +828,7 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 
 **Acceptance Criteria:**
 
-1. Strict GitHub egress swaps only the upstream transport to the strict-egress binding; credential injection, no-spoof scoping, manual redirects, and response hygiene remain unchanged. Toggle-off traffic uses global fetch. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-ENTERPRISE-016: strict gateway egress transport swap) -->
+1. Strict GitHub egress swaps only the upstream transport to the strict-egress binding; credential injection, no-spoof scoping, manual redirects, and response hygiene remain unchanged. Toggle-off traffic uses global fetch. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-ENTERPRISE-016: strict gateway egress transport swap / REQ-ENTERPRISE-024) -->
 2. LLM interception does NOT swap — AI Gateway (`api.cloudflare.com` / `gateway.ai.cloudflare.com`) is a platform-native Cloudflare primitive, so its upstream forward ALWAYS egresses direct via global `fetch`, independent of the toggle and strict-egress binding ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-016 / AD86: AI Gateway is platform-native — always direct egress, never cf1:network) -->
 
 **Constraints:**
@@ -840,7 +840,7 @@ Task #114 implementation candidate follows [21 observed RED failures](https://gi
 
 **Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)
 
-**Verification:** Automated test ([GitHub transport swap](../../src/__tests__/github-interceptor.test.ts) and [LLM always-direct (AI Gateway platform-native)](../../src/__tests__/llm-interceptor.test.ts).)
+**Verification:** Automated: [github-interceptor.test.ts](../../src/__tests__/github-interceptor.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Implemented
 

@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { reactivateUsageUser, tombstoneUsageUser, userKeyForEmail, writeUsageHistory } from '../../lib/admin-usage';
 import { claimReportDelivery, completeReportDelivery, runUsageRetention } from '../../lib/usage-report-scheduler';
+import { applyPositiveDelta, createAccountingState, hashSessionId, type HistoryOutboxEntry } from '../../timekeeper/accounting';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
 const now = new Date('2027-08-01T00:00:00.000Z');
@@ -20,6 +21,7 @@ beforeEach(async () => {
   await db.exec('CREATE TABLE IF NOT EXISTS report_deliveries (id TEXT PRIMARY KEY, delivery_kind TEXT NOT NULL, dispatch_id TEXT NOT NULL, settings_revision INTEGER NOT NULL, report_month TEXT NOT NULL, recipient TEXT NOT NULL, state TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, claim_token TEXT, lease_expires_at TEXT, reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, accepted_at TEXT)');
   await db.exec('CREATE TABLE IF NOT EXISTS maintenance_claims (task TEXT NOT NULL, utc_date TEXT NOT NULL, claim_token TEXT NOT NULL, claimed_at TEXT NOT NULL, PRIMARY KEY (task, utc_date))');
   await db.exec('DROP TRIGGER IF EXISTS reject_report_prune');
+  await db.exec('DROP TRIGGER IF EXISTS reject_first_live_history');
   await db.batch([
     db.prepare('DELETE FROM usage_periods'),
     db.prepare('DELETE FROM usage_users'),
@@ -61,6 +63,80 @@ describe('historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)', () => {
     period = await db.prepare('SELECT runtime_seconds, source_sequence FROM usage_periods WHERE user_key = ?1')
       .bind(userKey).first<{ runtime_seconds: number; source_sequence: number }>();
     expect(period).toEqual({ runtime_seconds: 240, source_sequence: 8 });
+  });
+
+  it('REQ-SUB-025 AC6: first successful history commit records the earliest included live snapshot without legacy backfill', async () => {
+    const email = 'live-history@example.com';
+    const userKey = await userKeyForEmail(email);
+    const startedAt = new Date('2027-07-31T23:59:00.000Z');
+    const closedAt = new Date('2027-08-01T00:00:00.000Z');
+    const retryAt = new Date('2027-08-01T00:05:00.000Z');
+    const initial = await createAccountingState(startedAt, {
+      pendingSeconds: 9000,
+      sessionTotals: { 'legacy-session-a': 7000, 'legacy-session-b': 4000 },
+      lastFlushedMonthlyTotal: 12000,
+    });
+    const sessionHash = await hashSessionId('live-session');
+    const live = applyPositiveDelta(initial, sessionHash, 60, startedAt, new Set<string>());
+    const rolled = applyPositiveDelta(live.state, sessionHash, 30, closedAt, new Set(live.markerKeys));
+    const snapshots: HistoryOutboxEntry[] = [
+      ...rolled.outbox,
+      ...(['day', 'week', 'month', 'year'] as const).map(kind => ({
+        kind, ...rolled.state.periods[kind], sourceSequence: rolled.state.historySequence,
+        snapshotAt: retryAt.toISOString(),
+      })),
+    ];
+
+    expect(await db.prepare('SELECT data_since FROM usage_users WHERE user_key = ?1')
+      .bind(userKey).first()).toBeNull();
+    expect((await db.prepare('SELECT period_kind, period_start FROM usage_periods WHERE user_key = ?1')
+      .bind(userKey).all()).results).toEqual([]);
+
+    try {
+      await db.exec("CREATE TRIGGER reject_first_live_history BEFORE INSERT ON usage_periods WHEN NEW.period_kind = 'month' AND NEW.period_start = '2027-08' BEGIN SELECT RAISE(ABORT, 'history write refused'); END");
+      await expect(writeUsageHistory(db, email, snapshots)).rejects.toThrow();
+      expect(await db.prepare('SELECT data_since FROM usage_users WHERE user_key = ?1')
+        .bind(userKey).first()).toBeNull();
+      expect((await db.prepare('SELECT period_kind, period_start FROM usage_periods WHERE user_key = ?1')
+        .bind(userKey).all()).results).toEqual([]);
+    } finally {
+      await db.exec('DROP TRIGGER IF EXISTS reject_first_live_history');
+    }
+
+    expect(await writeUsageHistory(db, email, snapshots)).toEqual({ userKey, acknowledged: true });
+    expect(await db.prepare('SELECT email, account_status, data_since FROM usage_users WHERE user_key = ?1')
+      .bind(userKey).first()).toEqual({ email, account_status: 'active', data_since: closedAt.toISOString() });
+    const committed = await db.prepare(`SELECT period_kind, period_start, runtime_seconds, session_count, updated_at
+      FROM usage_periods WHERE user_key = ?1 ORDER BY period_kind, period_start`).bind(userKey).all();
+    expect(committed.results).toEqual([
+      { period_kind: 'day', period_start: '2027-07-31', runtime_seconds: 60, session_count: 1, updated_at: closedAt.toISOString() },
+      { period_kind: 'day', period_start: '2027-08-01', runtime_seconds: 30, session_count: 1, updated_at: retryAt.toISOString() },
+      { period_kind: 'month', period_start: '2027-07', runtime_seconds: 60, session_count: 1, updated_at: closedAt.toISOString() },
+      { period_kind: 'month', period_start: '2027-08', runtime_seconds: 30, session_count: 1, updated_at: retryAt.toISOString() },
+      { period_kind: 'week', period_start: '2027-07-26', runtime_seconds: 90, session_count: 1, updated_at: retryAt.toISOString() },
+      { period_kind: 'year', period_start: '2027', runtime_seconds: 90, session_count: 1, updated_at: retryAt.toISOString() },
+    ]);
+
+    const laterAt = new Date('2027-08-01T00:06:00.000Z');
+    const later = applyPositiveDelta(rolled.state, sessionHash, 15, laterAt,
+      new Set([...live.markerKeys, ...rolled.markerKeys]));
+    const current: HistoryOutboxEntry[] = (['day', 'week', 'month', 'year'] as const).map(kind => ({
+      kind, ...later.state.periods[kind], sourceSequence: later.state.historySequence,
+      snapshotAt: laterAt.toISOString(),
+    }));
+    expect(await writeUsageHistory(db, email, current)).toEqual({ userKey, acknowledged: true });
+    expect(await db.prepare('SELECT email, account_status, data_since FROM usage_users WHERE user_key = ?1')
+      .bind(userKey).first()).toEqual({ email, account_status: 'active', data_since: closedAt.toISOString() });
+    const updated = await db.prepare(`SELECT period_kind, period_start, runtime_seconds, session_count, updated_at
+      FROM usage_periods WHERE user_key = ?1 ORDER BY period_kind, period_start`).bind(userKey).all();
+    expect(updated.results).toEqual([
+      { period_kind: 'day', period_start: '2027-07-31', runtime_seconds: 60, session_count: 1, updated_at: closedAt.toISOString() },
+      { period_kind: 'day', period_start: '2027-08-01', runtime_seconds: 45, session_count: 1, updated_at: laterAt.toISOString() },
+      { period_kind: 'month', period_start: '2027-07', runtime_seconds: 60, session_count: 1, updated_at: closedAt.toISOString() },
+      { period_kind: 'month', period_start: '2027-08', runtime_seconds: 45, session_count: 1, updated_at: laterAt.toISOString() },
+      { period_kind: 'week', period_start: '2027-07-26', runtime_seconds: 105, session_count: 1, updated_at: laterAt.toISOString() },
+      { period_kind: 'year', period_start: '2027', runtime_seconds: 105, session_count: 1, updated_at: laterAt.toISOString() },
+    ]);
   });
 });
 

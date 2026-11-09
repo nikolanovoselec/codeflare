@@ -730,7 +730,7 @@ Tiers, billing, usage tracking, and quotas.
 3. The existing alarm performs five-minute KV work and one hash-phased 15-minute D1 duty; no second alarm exists. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::historyPhase --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
 4. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
 5. Session markers store only domain-separated hashes, use bounded cache and cleanup, and survive restart and period rollover. <!-- @impl: src/timekeeper/accounting.ts::hashSessionId --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) -->
-6. The first successful D1 commit establishes history from its earliest included live-captured snapshot, without backfilling legacy quota counters. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/accounting.ts::createAccountingState -->
+6. The first successful D1 commit establishes history from its earliest included live-captured snapshot, without backfilling legacy quota counters. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/accounting.ts::createAccountingState --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-025 AC6: first successful history commit records the earliest included live snapshot without legacy backfill) -->
 7. Retention keeps 400 days, 60 ISO weeks, 60 months, and five years using exact calendar cutoffs. <!-- @impl: src/lib/usage-report-scheduler.ts::retentionCutoffs --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
 
 **Constraints:**
@@ -743,7 +743,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data), [REQ-OPS-056](operations.md#req-ops-056-non-destructive-d1-deployment-boundary)
 
-**Verification:** Automated migration, attribution, retry, rollover, retention, and operation-count tests
+**Verification:** Automated: [accounting.test.ts](../../src/__tests__/timekeeper/accounting.test.ts), [accounting-integration.test.ts](../../src/__tests__/timekeeper/accounting-integration.test.ts), [accounting-load.test.ts](../../src/__tests__/timekeeper/accounting-load.test.ts), [alarm-history.test.ts](../../src/__tests__/timekeeper/alarm-history.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 
