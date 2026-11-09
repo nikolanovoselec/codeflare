@@ -3426,7 +3426,7 @@ None.
 **Acceptance Criteria:**
 
 1. Routine non-boundary pushes do not auto-start Claude `ci-monitoring`. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Review exposure --> <!-- @manual -->
-2. Claude launches one attached background `ci-monitor` Agent for an eligible PR-boundary directive, an explicit user request, or a fresh deploy/merge gate. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Triggers and routes --> <!-- @manual -->
+2. Claude launches one attached background `ci-monitor` Agent for an eligible PR-boundary directive, an explicit user request, or a fresh deploy/merge gate. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Triggers and routes --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Independent CI Monitoring --> <!-- @manual -->
 3. The dedicated Agent returns one native terminal result carrying its repository, PR, and head identity. <!-- @impl: preseed/agents/claude/agents/ci-monitor.md::ci-monitoring/scripts/monitor-ci.mjs --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::summary --> <!-- @manual -->
 4. A Claude terminal result requires a non-empty exact-head workflow/run fingerprint that remains stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
 5. After every observed exact-head workflow is terminal, all failed or cancelled workflow rows return together as terminal failure evidence. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->

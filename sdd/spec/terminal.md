@@ -410,7 +410,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 1. Codeflare has no inner pane focus model for a Herdr session. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
 2. Classic focus remains attached to visible outer terminal tabs or tiles. <!-- @impl: web-ui/src/components/TerminalTabs.tsx::TerminalTabs --> <!-- @test: web-ui/src/__tests__/components/TerminalTabs.test.tsx (REQ-TERM-007 AC1: exposes tab semantics and selects adjacent tabs with arrow keys) -->
-3. MultiView focus moves among mounted backend-session surfaces without remounting or reconnecting them. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) -->
+3. MultiView focus moves among mounted backend-session surfaces without remounting or reconnecting them. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @impl: web-ui/src/components/TerminalGrid.tsx::TerminalGrid --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) -->
 
 **Constraints:**
 
@@ -609,7 +609,7 @@ None.
 3. The control exits selection mode without launching when fewer than two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: rejects selection beyond desktop capacity without changing selected sessions) -->
 4. The control launches MultiView when at least two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionSwitcher.test.tsx (REQ-TERM-013: creates MultiView from selected session ids and delegates opening to Layout) -->
 5. Selecting beyond the viewport capacity is rejected without changing the existing selected set. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-TERM-013: rejects selection beyond desktop capacity without changing selected sessions) -->
-6. Selected session rows expose a selected state using the success visual variant. <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard --> <!-- @manual -->
+6. Selected session rows expose a selected state using the success visual variant. <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard --> <!-- @impl: web-ui/src/styles/session-dropdown.css::.session-dropdown__selectable-card--selected --> <!-- @manual -->
 
 **Constraints:**
 
