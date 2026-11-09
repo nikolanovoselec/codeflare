@@ -98,7 +98,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 1. A Pi extension registers native `browser_markdown`, `browser_content` and `browser_scrape` tools backed by the corresponding Cloudflare Browser Run REST Quick Actions. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
 2. The extension registers nothing unless the Cloudflare token and account identifier are present, and is seeded only in Pro (advanced) session mode; Standard mode and token-less deployments remain byte-identical to existing behavior. <!-- @impl: preseed/agents/pi/extensions/browser-run.ts::default --> <!-- @manual -->
-3. Before fetch, tools reject malformed, credential-bearing, non-HTTP(S), localhost, private, loopback, link-local, and unspecified literal targets. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::initialTargetError --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+3. Before fetch, tools reject malformed, credential-bearing, non-HTTP(S), localhost, private, loopback, link-local, and unspecified literal targets. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::initialTargetError --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (rejects %s before any Browser Run fetch) -->
 4. Accepted output is capped. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::truncate --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-003 AC4: caps an over-cap string at the limit and reports the dropped count) -->
 5. Browser Run failures surface as tool errors rather than thrown exceptions. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-003 AC5: an error surfaces as isError, not a throw) -->
 6. A `browser-run` skill is seeded (advanced mode) positioning these tools in an explicit web-fetch decision tree as the cheap read step for JS-rendered or bot-blocked pages the agent only needs to READ. <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
@@ -113,7 +113,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline), [REQ-BROWSER-010](#req-browser-010-rest-request-lifecycle)
 
-**Verification:** Automated test
+**Verification:** Automated: [browser-run core](../../src/__tests__/lib/browser-run-core.test.ts); Manual: [Browser read registration observation](../../documentation/lanes/preseed.md#browser-read-registration-observation)
 
 **Status:** Implemented
 
@@ -155,7 +155,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. A Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`) exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same endpoints, ~120k output cap, empty-render hint, `wait_until`). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
+1. A Claude-side MCP server exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same REST actions, ~120k output cap, empty-render hint and rendered wait strategies). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
 2. Built into the image and registered in Claude's managed MCP configuration only in Pro (advanced) mode with Cloudflare token and account identifier present; Standard/token-less sessions remain byte-identical, and both values are passed in the server's scoped environment. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @manual -->
 3. Initial fetch rejects malformed, credential-bearing, non-HTTP(S), localhost, and private-address targets before network activity. <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::initialTargetError --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
 4. The Claude `browser-run` skill positions this read surface (cheap, one-shot) ahead of the interactive `chrome-devtools` surface in its decision order. <!-- @manual -->
@@ -169,7 +169,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-010](#req-browser-010-rest-request-lifecycle)
 
-**Verification:** Automated test
+**Verification:** Automated: [browser-run core](../../src/__tests__/lib/browser-run-core.test.ts); Manual: [Browser read registration observation](../../documentation/lanes/preseed.md#browser-read-registration-observation)
 
 **Status:** Implemented
 
