@@ -101,6 +101,10 @@ describe('D1 production authority outcomes', () => {
     await repo.project('authority-owner', 'session01', 1, 0, { lifecycleState: 'running', observedAt: time });
     expect(await repo.deleteConfirmed('authority-owner', 'session01')).toBe(false);
     expect(await repo.claimStop('authority-owner', 'session01', 'stop-one', time, 1)).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 1 });
+    expect(await repo.start('authority-owner', 'session01', time)).toBeNull();
+    expect(await repository().getSession('authority-owner', 'session01')).toMatchObject({
+      lifecycleState: 'stopping', lifecycleGeneration: 1, terminationIntentId: 'stop-one',
+    });
     expect(await repo.confirmStopped('authority-owner', 'session01', 1, 'stop-one', time)).toBe(true);
     const stopped = await repository().getSession('authority-owner', 'session01');
     expect(stopped).toMatchObject({ ...input(), lifecycleState: 'stopped', lifecycleGeneration: 1 });
