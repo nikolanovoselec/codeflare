@@ -112,9 +112,26 @@ Production's branch policy permits main only and mirrors the workflow guard. It 
 | Branch | Required checks before protected merge/push | History boundary |
 |---|---|---|
 | main | `test`, `CodeQL`, `Property-based fuzzing`, `Develop promotion source` | Squash PR only, complete latest-state checks, stale-review dismissal, no deletion/non-fast-forward or bypass |
-| develop | No pre-push PR/status requirement | Direct fast-forward repair allowed; no deletion/non-fast-forward or bypass |
+| develop | No pre-push PR/status requirement | Direct fast-forward repair allowed; deletion blocked. Required non-fast-forward prevention is not currently enforced; see the [live configuration gap](../../sdd/spec/.review-queue.md#triage-ops-037-non-fast-forward-protection). |
 
 Rulesets [13219234](https://github.com/nikolanovoselec/codeflare/settings/rules/13219234) and [19216590](https://github.com/nikolanovoselec/codeflare/settings/rules/19216590) are live authority, inspectable with `gh api repos/nikolanovoselec/codeflare/rulesets/<id>`. Neither requires approving reviews under the current single-maintainer configuration. A feature-to-main or fork-`develop` PR may exist but cannot satisfy canonical promotion (REQ-OPS-036/037). Workflow `uses:` references are repository-wide SHA-required.
+
+### Branch-protection inspection
+
+This read-only check covers [REQ-OPS-036](../../sdd/spec/operations.md#req-ops-036-develop-only-main-promotion) AC3 and [REQ-OPS-037](../../sdd/spec/operations.md#req-ops-037-develop-direct-fast-forward-repairs). Prerequisite: authorized repository-rules read access. Never test enforcement by force-pushing, deleting a branch, changing rules or dispatching CI.
+
+1. Use `gh api 'repos/nikolanovoselec/codeflare/rulesets?includes_parents=true&per_page=100'` and inspect each active applicable ruleset with `gh api repos/nikolanovoselec/codeflare/rulesets/<id>`. Check ref conditions, exclusions and bypass actors; do not infer protection from the ruleset name.
+2. For the fixed branch names `main`, `master` where applicable, and `develop`, read `repos/nikolanovoselec/codeflare/rules/branches/<branch>` and `repos/nikolanovoselec/codeflare/branches/<branch>/protection` with `gh api`. Inspect inherited effective rules plus classic force-push/admin enforcement; an absent field or weaker classic rule is not evidence of a stronger prohibition.
+3. Compare the actual controls with the following outcomes and record only non-secret observations in the existing cleanup/review record. Missing access or uninspected applicable controls are unverified, not passing results.
+
+| Scope | Pass/fail observation |
+|---|---|
+| OPS-036 AC3 | Every applicable existing main/master protection requires `Develop promotion source` with no applicable bypass. A workflow definition alone does not prove this live gate. |
+| OPS-037 AC1/AC2 | Effective develop controls permit direct pushes without a pull-request rule or required pre-push status contexts. |
+| OPS-037 AC3 | Branch deletion is prevented by the effective controls without an applicable bypass. |
+| OPS-037 AC4 | Non-fast-forward updates are prevented by an effective rule or enforced classic protection without an applicable bypass. Deletion protection alone or `allow_force_pushes: true` with no stronger control fails this observation. |
+
+The current develop observation fails AC4; its required safeguard remains unchanged. Protection repair requires explicit authorization, not a speculative configuration edit during inspection.
 
 `test.yml` supports `merge_group`, but that alone does not make the merge queue usable: other required checks need appropriate queue triggers too. Do not infer queue readiness from the trigger catalogue.
 

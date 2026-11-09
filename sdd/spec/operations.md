@@ -1105,7 +1105,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated workflow and validator behavior for AC1 and AC2; live ruleset inspection for AC3
+**Verification:** Automated: [promotion-source.test.js](../../host/__tests__/promotion-source.test.js); Manual: [Branch-protection inspection](../../documentation/lanes/ci-cd.md#branch-protection-inspection)
 
 **Status:** Implemented
 
@@ -1124,15 +1124,17 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. The active `develop` ruleset blocks branch deletion. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm the deletion rule. -->
 4. The active `develop` ruleset blocks non-fast-forward updates. <!-- @manual: Inspect GitHub ruleset 19216590 and confirm the non_fast_forward rule. -->
 
+**Notes:** Non-fast-forward update prevention is not enforced; inspected direct-push and deletion controls are present.
+
 **Constraints:** Production promotion remains governed by [REQ-OPS-036](#req-ops-036-develop-only-main-promotion).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-OPS-036](#req-ops-036-develop-only-main-promotion)
 
-**Verification:** Manual check
+**Verification:** Manual: [Branch-protection inspection](../../documentation/lanes/ci-cd.md#branch-protection-inspection)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 

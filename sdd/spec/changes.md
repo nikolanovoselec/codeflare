@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-09
+
+- Mark direct develop repair protection Partial after read-only inspection established missing non-fast-forward prevention. Keep that safeguard mandatory and require explicit authorization for configuration repair; no repository protection was changed ([REQ-OPS-037](operations.md#req-ops-037-develop-direct-fast-forward-repairs)).
+
 ## 2026-11-08
 
 - Defer background storage re-encryption while D1 records a workload-owning session, including an unreachable runtime, and recheck ownership before mutating objects after drain attempts. Preserve bounded recovery when a fresh check confirms no owner ([REQ-ENTERPRISE-020](storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-021](storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)).
