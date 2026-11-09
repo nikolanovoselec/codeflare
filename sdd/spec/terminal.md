@@ -260,7 +260,7 @@ Persisted Herdr state and runtime lifetime are documented in [Sessions & Runtime
 
 **Constraints:**
 
-- Herdr is pinned to v0.8.2, commit `9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c`, with Linux x86-64 SHA-256 `976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4` and Apache-2.0 attribution.
+- Herdr is pinned to v0.9.5, commit `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`, with Linux x86-64 SHA-256 `14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d` and Apache-2.0 attribution.
 - The launcher validates `SESSION_ID`, derives only `cf-<SESSION_ID>`, reads only `TAB_CONFIG` entry `1`, exports `TERMINAL_APP_STARTED=1`, and uses mode-0700 state under `/run/codeflare/herdr/<SESSION_ID>`.
 - Herdr processes and runtime artifacts remain local; only [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery) snapshots enter R2, and no private Herdr interface reaches Worker routes.
 - Startup maps reviewed values to fixed argv and never interpolates browser or `TAB_CONFIG` text into a shell command.
