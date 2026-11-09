@@ -139,6 +139,10 @@ Each deployment uses one D1 database named `${WORKER_NAME}-usage`, bound as `USA
 
 `migrations/usage/0001_initial.sql` additively creates historical users/periods, report deliveries, and maintenance claims. It is not the complete current schema: `migrations/usage/0002_runtime_sessions.sql` also defines D1 session records and cutover admission. Apply the deployment's full migration set before traffic; do not publish against missing schema. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: migrations/usage/0001_initial.sql::usage_users -->
 
+### D1 additive migration review
+
+For [SESSION-031 AC7](../../sdd/spec/session-lifecycle.md#req-session-031-d1-session-schema-stores-complete-ordered-authority), inspect the full session migration: it creates session/cutover objects and never changes analytics tables. Trace deployment through the existing Wrangler tracked-migration command; existing migration records distinguish already-applied work. Compare retained schema/history evidence before and after where available. Do not reapply SQL manually or create a deployment for this review; missing execution records remain unverified.
+
 D1 and KV are separate restore systems. KV restoration recovers its configuration/run/usage projections, not D1 history, report claims, or runtime sessions. Use Cloudflare D1 Time Travel or the account's approved backup procedure for `USAGE_DB` and verify migrations before restoring traffic. An older D1 restore can remove newer history and delivery evidence; never manufacture replacement history from current quota totals. Session-generation/ownership consequences belong to the lifecycle owner. ([AD150](../decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records))
 
 <a id="deployment-credentials"></a>
@@ -181,10 +185,10 @@ Use the existing Subscribe, Subscription Management and Dashboard surfaces with 
 | Contract | Action and required outcome |
 |---|---|
 | REQ-SUB-003 AC1/3 | Compare free activation in both provider configurations. Auth status becomes active without checkout or provider interaction; require browser and provider-side observations, not browser silence alone. |
-| REQ-SUB-011 AC1 | Check every selection in the existing eight-tier direct-activation matrix without a provider. Record rejections explicitly: existing blocked/pending admission controls remain binding, but cannot silently exempt an all-tiers requirement. Missing rows are unavailable. |
+| REQ-SUB-011 AC1 | Check every selectable subscription tier in the existing direct-activation matrix without a provider. Protected blocked/pending states remain non-purchasable. Record accepted and rejected selections explicitly; missing rows are unavailable. |
 | REQ-SUB-009 AC1/6 | Compare an authorized tier-array PUT with GET after its 60-second cache. Values persist; anonymous/inactive/non-admin requests preserve the array. In management, identity, order, defaults and provider prices remain read-only. |
 | REQ-SUB-014 AC1–4 | Compare configured modes with `getDefaultTiers`, `getAllowedSessionModes`, rejected preference requests and existing stale-preference startup records. Free/trial default-only; standard/advanced/max/unlimited permit both modes. Unsupported saved modes clamp to an allowed default. Never corrupt preferences to manufacture a case. |
-| REQ-SUB-013 AC4; REQ-SUB-019 AC3 | Compare effective tier, displayed maximum and one complete Dashboard response cycle. Record exactly which batch/ancillary response supplies `maxSessions`. Ancillary-only evidence cannot pass a literal batch-response requirement; no extra entitlement request may be hidden. |
+| REQ-SUB-013 AC4; REQ-SUB-019 AC3 | Compare effective tier, displayed maximum and one complete Dashboard response cycle. Verify the authoritative ancillary response supplies `maxSessions`, agrees with backend admission and requires no separate entitlement-only fetch. |
 
 ### Checkout and provider lifecycle acceptance
 

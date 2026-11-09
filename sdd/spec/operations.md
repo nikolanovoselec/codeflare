@@ -322,7 +322,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The stress-test workflow runs on manual dispatch against the integration environment. <!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008 AC1: stress-test workflow triggers on workflow_dispatch targeting the integration environment) --> <!-- @manual -->
 2. Load tests cover API throughput, rate-limit validation, session lifecycle, and storage operations. <!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008 AC2: k6 stress tests cover API throughput, session lifecycle, storage operations, and rate-limit validation) --> <!-- @manual -->
-3. Concurrency is configurable per run; disabled by default, latency thresholds loosen when enabled. <!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008: Stress testing validates rate limits and concurrency) --> <!-- @manual -->
+3. The concurrency override is configurable per run and disabled by default; latency thresholds remain fixed when enabled. <!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008: Stress testing validates rate limits and concurrency) --> <!-- @manual -->
 4. In stress-test deployment mode, all HTTP and WebSocket rate limits are bypassed to allow high virtual-user counts through a single service-token identity. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)) -->
 5. A one-time warning is logged per worker instance when the rate-limit bypass activates. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (REQ-OPS-008 AC5: one-time warning per isolate) -->
 6. Stress-test mode must not be active alongside SaaS mode; the combination returns 503 to all requests. <!-- @test: src/__tests__/index.test.ts (Edge-level setup redirect) --> <!-- @manual -->
@@ -790,7 +790,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. A Pi-extension bump aligns matching pins in both runtime manifests and installation specifications, preserving unrelated dependencies. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-025 AC5: Pi extension bumps align both runtime manifests and install specs) -->
 6. Goal and Plan package bumps run their exact-version transforms before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @manual: Actual locked candidate transforms must fail before publication on rejected input; workflow text or recorded fake commands do not establish this outcome. -->
 
-**Notes:** AC6 still needs actual latest-pinned candidate-transform/rejection and pre-publication failure coverage; source-only workflow checks are not acceptance.
+**Notes:** AC6 still needs actual latest-pinned candidate-transform/rejection and pre-publication failure coverage; source-only workflow checks are not acceptance ([shadow-pin acceptance](../../documentation/lanes/ci-cd.md#shadow-pin-acceptance-record-inspection)).
 
 **Constraints:** None.
 

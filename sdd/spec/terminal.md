@@ -1023,7 +1023,7 @@ None.
 6. Unmatched trailing closing parentheses are excluded from detected URLs and their clickable ranges. <!-- @impl: web-ui/src/lib/terminal-url-delimiters.ts::trimTerminalUrlParentheses --> <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::getLastUrlFromBuffer --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: opens only the URL and excludes unmatched closing cells in %s) --> <!-- @test: web-ui/src/__tests__/lib/terminal-link-provider.test.ts (REQ-TERM-042 AC6: excludes a wrapped closing parenthesis from controller activation) --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) -->
 7. HTTP(S) links hosted at auth.openai.com are offered through the existing auth-link controls regardless of path. <!-- @impl: web-ui/src/lib/constants.ts::ACTIONABLE_URL_PATTERNS --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination) -->
 
-**Notes:** Automated link, pointer and touch tests do not establish physical-browser acceptance; that observation remains separate.
+**Notes:** Automated link, pointer and touch tests do not establish physical-browser acceptance; that observation remains separate under [terminal interaction methods](../../documentation/lanes/terminal-and-ide.md).
 
 **Constraints:**
 
@@ -1273,7 +1273,7 @@ None.
 4. Local display retains `Task completed` for Claude completion. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC4: keeps local Claude completion copy task-oriented) -->
 5. Push display retains `Task completed` for Claude completion. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-039 AC5: keeps Claude Push completion copy task-oriented) -->
 
-**Notes:** Deployed browser verification remains separate from automated status transport and local/Push display tests.
+**Notes:** Deployed browser verification remains separate from automated status transport and local/Push display tests; [Terminal & IDE](../../documentation/lanes/terminal-and-ide.md) owns those observations.
 
 **Constraints:** Display reason text remains fixed and excludes provider, task, and tool content.
 
@@ -1344,7 +1344,7 @@ None.
 
 **Verification:** Automated: [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts); Manual: [Terminal snapshot restoration acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

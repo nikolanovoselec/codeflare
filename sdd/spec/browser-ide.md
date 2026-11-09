@@ -327,7 +327,7 @@ A full code-server browser editor for an advanced running session. The editor op
 6. Before first use, the complete-image process inventory contains no Pi or Claude agent process. <!-- @manual: Retain the complete-image process-laziness evidence before promotion. -->
 7. The installed Code host admits the proposals required by the Pi inventory. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @manual: Retain the complete-image proposal-admission evidence artifact. -->
 
-**Notes:** Packaged-image checks do not establish deployed browser/native acceptance. Missing complete-image permission, account, process or proposal-admission observations remain unverified.
+**Notes:** Packaged-image checks do not establish deployed browser/native acceptance. Missing complete-image permission, account, process or proposal-admission observations remain unverified under [packaged-image acceptance](../../documentation/lanes/container.md#startup-and-packaged-image-record-acceptance).
 
 **Constraints:**
 
@@ -1491,13 +1491,13 @@ A full code-server browser editor for an advanced running session. The editor op
 **Acceptance Criteria:**
 
 1. Starting/stopping indicators are yellow. Running/unreachable indicators are green after editor readiness, otherwise gray; stopped is gray. Session errors and editor-readiness errors remain red. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-050 AC1: maps VS Code readiness %o to %s) -->
-2. Backend `unreachable` does not close the retained external editor window or turn a ready editor's indicator yellow. The editor runs in a separate browser window or tab, not a mounted Dashboard editor component. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+2. Backend `unreachable` does not close the retained external editor window or turn a ready editor's indicator yellow. The editor runs in a separate browser window or tab, not a mounted Dashboard editor component. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-050 AC1: maps VS Code readiness %o to %s) --> <!-- @manual: Terminal snapshot restoration acceptance -->
 3. Status-read failure retains the last accepted ordered lifecycle and readiness state. The Dashboard presents a distinct accessible status-unavailable notice. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-010/029: %s announces unavailable status without replacing cards and clears on recovery) -->
 4. Explicit Open for a ready running/unreachable editor focuses its live retained window or opens its named session target when no live handle remains, without invoking Start. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-010 AC5 / REQ-AGENT-175 AC3: unreachable ready editor opens during pending update without starting) --> <!-- @test: web-ui/src/__tests__/lib/browser-ide-window.test.ts (REQ-IDE-050 AC2: focuses a live retained handle without navigation or a second open) -->
-5. Client countdown expiry cannot declare the session stopped, close its editor window or dispose workspace state. No recovery-countdown display is required. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
-6. Newer authoritative `stopping`/`stopped` or successful deletion evidence permits disposal. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/stores/session.ts::sessionStore -->
+5. Client countdown expiry cannot declare the session stopped, close its editor window or dispose workspace state. No recovery-countdown display is required. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (expires the rendered idle timer without inventing stopped lifecycle) --> <!-- @manual: Terminal snapshot restoration acceptance -->
+6. Newer authoritative `stopping`/`stopped` or successful deletion evidence permits disposal. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (fresh ordered stopped after 4503 disposes only its session and preserves restart tabs) -->
 
-**Notes:** Existing tests cover readiness presentation, retained-handle opening, ordered state and timer nonauthority. Live external-editor retention and late-event disposal ordering remain unqualified; see [the live coverage queue](.review-queue.md#triage-planned-per-ac-qualification).
+**Notes:** Card/store tests verify Codeflare's ordered state and retained-window policy, not editor document internals. The external window remains browser-owned; [snapshot acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance) separately observes live joint retention.
 
 **Constraints:** Editor readiness is separate evidence from process lifecycle and transport reachability.
 
@@ -1505,8 +1505,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Dependencies:** [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-012](session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state)
 
-**Verification:** Automated: [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [browser-ide-window.test.ts](../../web-ui/src/__tests__/lib/browser-ide-window.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx)
+**Verification:** Automated: [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [browser-ide-window.test.ts](../../web-ui/src/__tests__/lib/browser-ide-window.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx); Manual: [Terminal snapshot restoration acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---

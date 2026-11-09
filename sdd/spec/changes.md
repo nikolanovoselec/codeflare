@@ -6,6 +6,12 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-09
 
+- Keep existing fixed latency thresholds when a stress run enables a concurrency override; no load-test behavior change ([REQ-OPS-008](operations.md#req-ops-008-stress-testing-validates-rate-limits-and-concurrency)).
+
+- Clarify payment-less activation for selectable subscription tiers, retaining protected blocked/pending states ([REQ-SUB-011](subscription.md#req-sub-011-graceful-degradation-without-stripe)).
+
+- Source the tier maximum from the authoritative session-status flow without a separate entitlement-only request, preserving ancillary-status ownership ([REQ-SUB-019](subscription.md#req-sub-019-session-limit-popup-in-frontend)).
+
 - Use pre-authorized native tools for owned Pi conversations rather than an interactive approval-pause protocol. Preserve owner authorization, tool restrictions, conversation isolation and ordinary PTY behavior ([REQ-OPERATOR-021](operators.md#req-operator-021-structured-owned-pi-conversation)).
 
 - Align existing presentation contracts with model-first configured native rows, label-first policy options, independently retained editor windows and Dashboard-owned status-unavailable notices. Do not require an additional recovery countdown or in-workspace notice; preserve authoritative disposal and the chosen host-snapshot terminal restore. Runtime behavior is unchanged ([REQ-ENTERPRISE-064](setup.md#req-enterprise-064-route-and-compatibility-profile-presentation), [REQ-IDE-055](browser-ide.md#req-ide-055-ide-lifecycle-and-connectivity-are-presented-separately), [REQ-TERM-045](terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle)).

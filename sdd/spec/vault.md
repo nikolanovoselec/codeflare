@@ -719,7 +719,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 6. Once armed, the control remains green across dashboard departure/return and the mobile visibility-return dashboard bounce while authoritative session status remains running. <!-- @impl: web-ui/src/components/Layout.tsx::vaultButtonStatus --> <!-- @impl: web-ui/src/components/Layout.tsx::pruneNonRunningSessionState --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC6: preserves a running session readiness latch across dashboard departure and return) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC6: preserves armed state through the mobile visibility-return dashboard bounce) -->
 7. The ready tooltip auto-surfaces only on the genuine preparing-to-armed transition, so dashboard departure/return does not re-pop it. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (a fresh already-armed remount does not re-pop the ready tooltip) -->
 
-**Notes:** Rendered armed color under sticky touch hover remains a protected-browser observation separate from component and bundle tests.
+**Notes:** Rendered armed color under sticky touch hover remains a protected-browser observation separate from component and bundle tests; [Vault](../../documentation/lanes/vault.md) owns that behavior.
 
 **Constraints:**
 

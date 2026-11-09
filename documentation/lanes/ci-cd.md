@@ -245,8 +245,10 @@ For AC4 correlate **Run zizmor (checksum-pinned binary)** with the shared valida
 
 For [REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy), distinguish authentic measurement provenance from controlled negative probes. Prerequisites are an exact-SHA completed CI record and explicit authorization for a disposable checker copy in CI. Do not build locally, modify the tracked budget, dispatch a protected run or invent a new harness to define this method.
 
-1. Inspect that SHA's **Bundle size** job, **Measure the Worker bundle** and **Check against the budget** steps. Correlate Wrangler's `Total Upload: … / gzip: …` output with the piped log path passed to `node scripts/ci/check-bundle-size.mjs <log>` and the checker's gzip summary. Require the same value, not an independently compressed estimate. Missing provenance is unverified.
-2. In the authorized disposable copy, use the existing log positional argument and `BUDGETS.worker.budgetKiB` source setting; these are not new CLI flags. Keep the candidate source identity recorded and do not change the repository's tracked configuration. Run probes in CI, not this session container.
+1. Inspect that SHA's **Bundle size** job, **Measure the Worker bundle** and **Check against the budget** steps.
+   - Correlate Wrangler's `Total Upload: … / gzip: …` output with the piped log path passed to `node scripts/ci/check-bundle-size.mjs <log>` and the checker's gzip summary.
+   - Require the same value, not an independently compressed estimate. Missing provenance is unverified.
+2. In the authorized disposable copy, use the existing log positional argument and `BUDGETS.worker.budgetKiB` source setting; these are not new CLI flags. Record candidate source identity; never change tracked configuration. Run probes in CI, not this session container.
 3. Record exit status and output for the following cases. Controlled inputs test rejection behavior only; they never prove a real Wrangler measurement, container build or successful deployment.
 
 | Scope | Input/control and required outcome |
@@ -456,7 +458,7 @@ Setup normalizes target, requires public provider discovery 200 and authenticate
 
 ### Stress acceptance record inspection
 
-For [OPS-008](../../sdd/spec/operations.md), inspect existing authorized Integration records under [Execution Runbooks](#execution-runbooks): target revision/mode/profile, suite, redacted service identity, concurrency, k6 results and summary. Require separate mode-compatible load and limiter records; `all` cannot establish opposing bypass modes. Unset/zero concurrency uses baseline VUs; positive input scales VUs. Record actual fixed thresholds: this method cannot pass the currently contradictory loosened-threshold clause.
+For [OPS-008](../../sdd/spec/operations.md), inspect existing authorized Integration records under [Execution Runbooks](#execution-runbooks): target revision/mode/profile, suite, redacted service identity, concurrency, k6 results and summary. Require separate mode-compatible load and limiter records; `all` cannot establish opposing bypass modes. Unset/zero concurrency uses baseline VUs; positive input scales VUs while the existing latency thresholds remain fixed.
 
 Correlate existing bypass-enabled HTTP/WebSocket and warning evidence, plus a separately prepared SaaS-and-stress rejection returning 503. Missing mode or WebSocket cases stay unavailable. Existing authentication-fallback, cleanup and partial-measurement limits remain; this inspection sends no traffic and performs no cleanup.
 

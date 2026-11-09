@@ -1514,7 +1514,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 2. Deployment tokens remain excluded from container delivery. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @manual -->
 3. Non-enterprise retains owner-configured Cloudflare and provider credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (non-enterprise emits the real Connect-to-Cloudflare token + account id (byte-identical regression)) --> <!-- @manual -->
 
-**Notes:** Environment-output fixtures do not establish deployed credential delivery, owner-provider connectivity or universal human-auth storage.
+**Notes:** Environment-output fixtures do not establish deployed credential delivery, owner-provider connectivity or universal human-auth storage; these boundaries are documented in [Configuration](../../documentation/lanes/configuration.md#setup-credential-boundary-record-acceptance).
 
 **Constraints:**
 

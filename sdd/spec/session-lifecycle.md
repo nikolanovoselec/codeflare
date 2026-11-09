@@ -205,7 +205,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -471,7 +471,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -580,7 +580,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 2. A stale list or status success has no observable effect. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: stale catalog $generation/$revision preserves the complete newer session metadata) --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/stores/session-polling.ts::invalidateSessionStatusReads --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: batch absence captured before a newer catalog cannot remove its cards) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: an older catalog cannot undo successful %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1/AC2: stale %s batch readiness and metrics cannot overwrite a newer projection) -->
 3. A stale failure cannot replace the latest request's availability state. <!-- @impl: web-ui/src/stores/session-polling.ts::beginSessionStatusRead --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC3: old poll failure cannot replace newer successful catalog availability) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC3: old catalog failure cannot replace newer successful poll availability) -->
 4. D1 read failure retains last good session records, metrics and ancillary values and presents a distinct status-unavailable warning. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
-5. Read failure does not remove sessions, dispose terminal/editor state, or synthesize lifecycle transitions. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions -->
+5. Read failure does not remove sessions, dispose terminal/editor state, or synthesize lifecycle transitions. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
 6. Background polling remains serialized by a one-request-in-flight guard. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/029 AC6: hidden polling pauses and repeated visible refreshes remain serialized) --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC6: overlapping visibility refreshes count one successful absence, not three) -->
 7. Accepted initial session catalogs and ordered status updates are published without waiting for unrelated ancillary work. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC7: initial authoritative cards appear before pending batch and ancillary reads) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC7: slow ancillary work cannot hold a newer lifecycle projection) -->
 
@@ -646,7 +646,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx); Manual: [Terminal snapshot restoration acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1183,7 +1183,7 @@ None.
 4. Logs contain no credentials, tokens, transcript or terminal content, or per-file paths. <!-- @impl: src/routes/container/lifecycle.ts::runStartStage --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-025 AC4: teardown %s retains safe diagnostics and best-effort/exit authority) --> <!-- @test: src/__tests__/index.test.ts (REQ-SESSION-025: final Worker lifecycle error logging) -->
 5. D1 row and statement metadata is sampled or aggregated during integration rather than emitted as another high-volume stream. <!-- @manual: Integration D1 metadata sampling -->
 
-**Notes:** Recovery observations use available identities and bounded categories, not a universal event enum or reconstructed initiator. Integration aggregation uses existing platform analytics rather than an application telemetry stream.
+**Notes:** Recovery observations use available identities and bounded categories, not a universal event enum or reconstructed initiator. [Integration aggregation](../../documentation/lanes/container.md#integration-d1-metadata-sampling) uses existing platform analytics rather than an application telemetry stream.
 
 **Constraints:** Use the existing structured logger; no new telemetry framework.
 
@@ -1193,7 +1193,7 @@ None.
 
 **Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [container/index.test.ts](../../src/__tests__/container/index.test.ts), [index.test.ts](../../src/__tests__/index.test.ts), [lifecycle.test.ts](../../src/__tests__/routes/container/lifecycle.test.ts), [session.test.ts](../../src/__tests__/routes/session.test.ts); Manual: [Integration D1 metadata sampling](../../documentation/lanes/container.md#integration-d1-metadata-sampling)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1219,9 +1219,7 @@ None.
 
 **Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts)
 
-**Status:** Planned
-
----
+**Status:** Implemented
 
 ---
 
@@ -1239,7 +1237,7 @@ None.
 4. Incident columns store incident identity, first-observed time and absolute deadline; termination columns store intent identity, generation, claim and signal timestamps. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC2/4: database rejects invalid authority update %s without changing the row) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
 5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE INDEX runtime_sessions_owner_activity --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (migration creates one owner-led projection index) -->
 6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC6: database rejects a second cutover identity or unsupported cutover state) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE session_cutover --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::start -->
-7. The additive migration is idempotently managed by the existing usage-database migration path and does not alter analytics tables. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
+7. The additive migration is idempotently managed by the existing usage-database migration path and does not alter analytics tables. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (creates one absent database with supported Wrangler arguments, resolves its ID, then applies migrations) --> <!-- @manual: D1 additive migration review -->
 
 **Constraints:**
 
@@ -1251,7 +1249,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-030](#req-session-030-one-time-clean-slate-cutover-is-guarded-and-exact)
 
-**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts)
+**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts); Manual: [D1 additive migration review](../../documentation/lanes/billing.md#d1-additive-migration-review)
 
 **Status:** Implemented
 

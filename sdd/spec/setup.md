@@ -1365,7 +1365,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 4. Only targets with current proof and valid context are ready for access policies. <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-056 AC4: context bounds control %s readiness and policy eligibility without replacing proof) --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
 5. Access-policy checkboxes and default-route choices show each native target's provider and trimmed user label, falling back to its exact model when the label is absent or blank. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
 
-**Notes:** Client readiness and policy eligibility share the existing server context-window ceiling. Invalid context removes policy eligibility without replacing saved proof; restoring valid context restores eligibility when that proof remains current.
+**Notes:** Client readiness and policy eligibility share the existing server context-window ceiling. Invalid context removes policy eligibility without replacing saved proof; restoring valid context restores eligibility when that proof remains current ([routing publication](../../documentation/lanes/models-and-routing.md#reasoning-and-model-publication)).
 
 **Constraints:** Readiness has no separate toggle while editing and lifecycle remain with [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace) and [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration).
 
@@ -1491,7 +1491,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 3. Policy submission retains the selected route name or opaque native handle rather than its presentation label. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
 4. Built-in compatibility profile labels begin with `Dynamic Route` or `Native Route` and identify the provider and supported model family without transport mechanics in the profile name. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: web-ui/src/__tests__/components/pi-profile-presentation.test.ts (presents the three Bedrock choices by route category and model family without transport jargon) -->
 
-**Notes:** Configured rows identify the model first; policy options identify the user-assigned label first. Presentation does not change submitted identities.
+**Notes:** Configured rows identify the model first; policy options identify the user-assigned label first. Presentation does not change submitted identities ([configuration presentation](../../documentation/lanes/configuration.md)).
 
 **Constraints:** Presentation labels do not change route names, profile references, native target identities, or submitted policy values.
 

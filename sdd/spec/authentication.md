@@ -68,7 +68,7 @@ None. Authentication is foundational; other domains depend on it.
 6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes. <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 7. Only verified primary GitHub emails are accepted. <!-- @test: src/__tests__/routes/github-auth.test.ts (redirects to /?error=no-verified-email when no verified email) --> <!-- @manual -->
 
-**Notes:** State replay tracking uses a non-atomic read/write pair; concurrent callbacks with different valid provider codes can pass the same state check. Complete application-owned auth/authz consolidation into D1 is deferred to [issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386). A nonce-only migration is not authorized during cleanup.
+**Notes:** State replay tracking uses a non-atomic read/write pair; concurrent callbacks with different valid provider codes can pass the same state check. Complete application-owned auth/authz consolidation into D1 is deferred to [issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386), not a cleanup-authorized nonce-only migration; [Identity & Access](../../documentation/lanes/authentication.md) owns the current boundary.
 
 **Constraints:**
 
@@ -240,7 +240,7 @@ None. Authentication is foundational; other domains depend on it.
 3. The refresh is transparent to the user (no redirect, no re-authentication). <!-- @test: src/__tests__/session-refresh-transparent.test.ts (REQ-AUTH-008 AC3: SaaS session refresh is transparent (no redirect / no re-auth)) --> <!-- @manual -->
 4. The refresh occurs on any response, not just specific routes. <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008: Session cookie auto-refresh) --> <!-- @manual -->
 
-**Notes:** Non-Enterprise SaaS/onboarding responses that return before the current middleware, including terminal, Vault, IDE and static responses, can bypass renewal. This gap does not apply to Enterprise CF Access mode: its browser session is Access-managed, not renewed by this mechanism. The non-Enterprise correction is deferred outside cleanup; interceptor-managed provider credentials are separate.
+**Notes:** Non-Enterprise SaaS/onboarding responses that return before the current middleware, including terminal, Vault, IDE and static responses, can bypass renewal; Enterprise CF Access sessions are Access-managed rather than renewed by this mechanism. The non-Enterprise correction is deferred outside cleanup and interceptor-managed provider credentials are separate; [Identity & Access](../../documentation/lanes/authentication.md) owns these boundaries.
 
 **Constraints:**
 
