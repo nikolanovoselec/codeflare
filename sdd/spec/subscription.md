@@ -856,7 +856,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history)
 
-**Verification:** Automated route-bound and Analytics presentation tests; UI manual validation on Integration
+**Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts), [AdministrationOverview.test.tsx](../../web-ui/src/__tests__/components/AdministrationOverview.test.tsx), [AnalyticsPage.test.tsx](../../web-ui/src/__tests__/components/AnalyticsPage.test.tsx)
 
 **Status:** Implemented
 

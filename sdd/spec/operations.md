@@ -678,7 +678,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-021](#req-ops-021-workflow-file-static-analysis)
 
-**Verification:** Automated workflow-tool pin CLI tests; manual release-job verification
+**Verification:** Automated: [workflow-tool-pins.test.js](../../host/__tests__/workflow-tool-pins.test.js)
 
 **Status:** Implemented
 
@@ -706,7 +706,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
 
-**Verification:** Automated manifest-update, lifecycle-safe lock-regeneration, and forward-only semantic-version tests; workflow execution manual
+**Verification:** Automated: [npm-package-lock-regeneration.test.js](../../host/__tests__/npm-package-lock-regeneration.test.js), [npm-tool-manifest-update.test.js](../../host/__tests__/npm-tool-manifest-update.test.js), [semver-forward.test.js](../../host/__tests__/semver-forward.test.js)
 
 **Status:** Implemented
 
@@ -743,7 +743,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-033](#req-ops-033-lock-backed-npm-bump-coherence)
 
-**Verification:** Automated committed runtime-lock integrity tests. Security-floor RED `78d3ec471dc8454ad694b36bbfde836e37fb1a9f` / PR Checks `36537064228` failed as intended on the old Pi undici 8.9.0 resolution and the old 7.29.0 regeneration pin. The ip-address regeneration fixture assertion was added during implementation, not in the remote RED batch. The bounded correction at `2c26635230c36441f9d85bb2af255a345fab1eca` passed exact-head PR Checks `36538120579`: generated-seed drift guard, host security-pin and dependency-integrity suites, Node-Flue, Typecheck, and aggregate. Root `npm ci` was observed in tested lanes; complete clean installation of the image-packaged preseed trees and default-branch alert clearance remain separate. Maintenance 2026-10-17: remote lock correction/audit run `39017859616` generated the sharp 0.35.5/libvips 1.3.4 and source-map-js 1.2.2 corrections, passed four lifecycle-disabled `npm ci --dry-run` validations, and audited all ten resulting locks including development dependencies with zero HIGH/CRITICAL findings; Host retained two unchanged LOW package-level KaTeX/Mermaid findings. Application CI, image/SBOM and deployed acceptance remain separate gates.
+**Verification:** Automated: [dockerfile-dependency-integrity.test.js](../../host/__tests__/dockerfile-dependency-integrity.test.js), [npm-security-lock-pins.test.js](../../host/__tests__/npm-security-lock-pins.test.js)
 
 **Status:** Implemented
 
@@ -769,7 +769,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-VAULT-017](vault.md#req-vault-017-silverbullet-native-service-worker)
 
-**Verification:** Automated test ([suite gates](../../src/__tests__/ci/suite-gates.test.ts)); complete-image verification
+**Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
 
@@ -971,7 +971,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated test ([suite gates](../../src/__tests__/ci/suite-gates.test.ts)); complete-image Browser IDE lane
+**Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts)
 
 **Status:** Implemented
 
@@ -1043,7 +1043,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-019](#req-ops-019-security-posture-scanning-workflows)
 
-**Verification:** Automated release-boundary tests and an observed signing run on a published release
+**Verification:** Automated: [release-signing-workflow.test.js](../../host/__tests__/release-signing-workflow.test.js)
 
 **Status:** Implemented
 
@@ -1075,7 +1075,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-034](#req-ops-034-github-release-signing-eligibility)
 
-**Verification:** Automated artifact-boundary tests and an observed signing run on a published release
+**Verification:** Automated: [release-signing-workflow.test.js](../../host/__tests__/release-signing-workflow.test.js)
 
 **Status:** Implemented
 
@@ -1268,7 +1268,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Automated provenance and reuse-selection boundary tests; deployment image evidence
+**Verification:** Automated: [container-image-reuse-provenance.test.js](../../host/__tests__/container-image-reuse-provenance.test.js)
 
 **Status:** Implemented
 
@@ -1292,7 +1292,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated workflow-routing contract; next scheduled-run evidence
+**Verification:** Automated: [nightly-pr-checks-routing.test.js](../../host/__tests__/nightly-pr-checks-routing.test.js)
 
 **Status:** Implemented
 
@@ -1317,7 +1317,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-008](#req-ops-008-stress-testing-validates-rate-limits-and-concurrency), [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks)
 
-**Verification:** Automated target-output and workflow-boundary tests; stress-run evidence
+**Verification:** Automated: [ci-workflow-hardening.test.js](../../host/__tests__/ci-workflow-hardening.test.js), [normalize-https-origin.test.js](../../host/__tests__/normalize-https-origin.test.js)
 
 **Status:** Implemented
 
@@ -1450,7 +1450,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-039](#req-ops-039-reduced-image-capability-preservation)
 
-**Verification:** Packaged-image smoke; dependency-integrity and dependency-automation tests
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [dockerfile-dependency-integrity.test.js](../../host/__tests__/dockerfile-dependency-integrity.test.js)
 
 **Status:** Implemented
 
@@ -1636,7 +1636,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Built-image offline behavioral smoke in the container image workflow.
+**Verification:** Automated: [basic-image-tooling.test.js](../../host/__tests__/basic-image-tooling.test.js)
 
 **Status:** Implemented
 
@@ -1658,7 +1658,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Offline built-image APT URI planning test; enterprise network reachability requires environment acceptance.
+**Verification:** Automated: [basic-image-tooling.test.js](../../host/__tests__/basic-image-tooling.test.js)
 
 **Status:** Implemented
 

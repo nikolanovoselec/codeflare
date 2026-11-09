@@ -447,7 +447,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-022](#req-sec-022-terminal-server-bearer-authentication), [REQ-AUTH-018](authentication.md#req-auth-018-user-management-admin-panel)
 
-**Verification:** Automated route, cleanup, and deployment tests plus deployed subscription-isolation checks.
+**Verification:** Automated: [deploy-requires-tests.test.js](../../host/__tests__/deploy-requires-tests.test.js), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [notifications.test.ts](../../src/__tests__/routes/notifications.test.ts)
 
 **Status:** Partial
 
@@ -481,7 +481,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-022](#req-sec-022-terminal-server-bearer-authentication), [REQ-SEC-023](#req-sec-023-agent-notification-capability-boundaries)
 
-**Verification:** Automated host, sender, service-worker, and dependency-integrity tests plus deployed physical-device acceptance.
+**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [push-sender.test.ts](../../src/__tests__/lib/push-sender.test.ts), [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts), [dockerfile-dependency-integrity.test.js](../../host/__tests__/dockerfile-dependency-integrity.test.js)
 
 **Status:** Partial
 
