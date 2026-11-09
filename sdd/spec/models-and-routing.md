@@ -361,9 +361,9 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-088](setup.md#req-enterprise-088-group-scoped-native-pi-providers), [REQ-ENTERPRISE-090](#req-enterprise-090-native-pi-forwarding-under-current-administration-permission)
 
-**Verification:** Anchored real Operator startup and interceptor tests; current-head regression execution and CI remain pending.
+**Verification:** Automated: [entrypoint-operator-startup.test.js](../../host/__tests__/entrypoint-operator-startup.test.js), [personal-pi-interception.test.ts](../../src/__tests__/personal-pi-interception.test.ts), [dispatcher-r2-services.test.ts](../../src/__tests__/operators/dispatcher-r2-services.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -692,7 +692,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts), [admin-reasoning.test.ts](../../src/__tests__/routes/admin-reasoning.test.ts), [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -755,9 +755,9 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-074](#req-enterprise-074-provider-native-bedrock-target-identity)
 
-**Verification:** Historical RED checkpoint CI `34764775466` remains provenance. Administrator-confirmation regressions failed in CI `34770156766`; updated implementation awaits exact-head CI. No live or deployed acceptance is claimed.
+**Verification:** Automated: [target-capability-discovery.test.ts](../../src/__tests__/routes/target-capability-discovery.test.ts), [bedrock-generic-upgrade.test.ts](../../src/__tests__/routes/bedrock-generic-upgrade.test.ts), [bedrock-capability-discovery.test.ts](../../src/__tests__/lib/bedrock-capability-discovery.test.ts), [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [client.test.ts](../../web-ui/src/__tests__/api/client.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -820,9 +820,9 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
+**Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -943,7 +943,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Acceptance Criteria:**
 
-1. Each fallback or group reasoning selector offers all seven Provider-default preferences, or only the explicit profile's supported levels and aliases, including off-only profiles. Provider-default Off explains no override and provider-controlled behavior. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-039: supported levels and associated helpers explain checked group and fallback defaults) -->
+1. Each fallback or group reasoning selector offers all seven Provider-default preferences, or only the explicit profile's supported levels and aliases, including off-only profiles. Provider-default Off explains no override and provider-controlled behavior. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-039: supported levels and associated helpers explain checked group and fallback defaults) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-039: #106 preserves all seven Provider-default preferences in %s group and fallback payloads) -->
 2. Associated help explains absent eligible routes and single-mode disabled states. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-039: supported levels and associated helpers explain checked group and fallback defaults) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-039: default reasoning help distinguishes pending connection from missing checked route assignment) -->
 3. Disabling a single-mode selector preserves that mode in the Save payload. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-039: a single non-off mode stays disabled yet serializes its selected policy value) -->
 4. An absent global default is represented by an empty route with Off reasoning. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (accepts an AI Gateway connection before routes or access policies exist) -->
@@ -963,7 +963,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1428,7 +1428,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 - Container-visible state contains no account or gateway authority.
 - Client thinking choices do not widen backend profile levels.
-- Worker normalization for older clients remains unchanged: exact, next higher, then highest lower executable mapping. <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (serializes generated provider-default and native models before the network boundary) -->
+- Worker normalization for older clients remains unchanged: exact, next higher, then highest lower executable mapping. <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (REQ-ENTERPRISE-058: maps a Dynamic Route default Off to the next supported level) --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (REQ-ENTERPRISE-058: maps a native streaming default Max down to High without losing the authorized catalog) -->
 - Provider-default sends no reasoning override.
 - Pi publication stages models and defaults together and reports success only after application; failure keeps the container available. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
 
@@ -1438,7 +1438,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Verification:** Automated: [entrypoint-enterprise-ca-copilot.test.js](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js), [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [enterprise-routing.test.mjs](../../preseed/agents/pi/test/enterprise-routing.test.mjs), [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1465,9 +1465,9 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [enterprise-model-display.test.mjs](../../preseed/agents/pi/test/enterprise-model-display.test.mjs), [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [local-statusline-repo.test.ts](../../src/__tests__/lib/local-statusline-repo.test.ts); Manual: [Gateway model display acceptance](../../documentation/lanes/models-and-routing.md#gateway-model-display-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1492,9 +1492,9 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Dependencies:** [REQ-ENTERPRISE-088](setup.md#req-enterprise-088-group-scoped-native-pi-providers)
 
-**Verification:** Anchored startup, pinned-runtime and internal configuration tests; focused startup GREEN is historical, not final exact-head CI.
+**Verification:** Automated: [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [enterprise-routing.test.mjs](../../preseed/agents/pi/test/enterprise-routing.test.mjs), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

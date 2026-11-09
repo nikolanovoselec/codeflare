@@ -230,6 +230,9 @@ Synthetic future-name regressions exercise admin endpoint → server receipt →
 
 The existing CI `pi-prompt` lane runs [scripts/verify-bedrock-pi-prompt-cache.mjs](../../scripts/verify-bedrock-pi-prompt-cache.mjs) against its installed locked Pi package. It injects every HTTP response, makes zero network calls and exercises the real serializer/parser, complete replay/confidentiality, checkpoint opt-in/out and cache arithmetic. The reproduction form is `node scripts/verify-bedrock-pi-prompt-cache.mjs /path/to/@earendil-works/pi-ai` using the `@earendil-works/pi-ai` pin in the [committed lockfile](../../preseed/npm-tools/package-lock.json); the installed lock remains authoritative, not historical probe versions. No separate framework or new execution/evidence collection is introduced.
 
+<a id="gateway-model-display-acceptance"></a>
+**Gateway model display acceptance.** Confirm that native model display is separate from repository-only Codeflare status, and that selecting a published gateway model retains its provider/model routing identity ([REQ-ENTERPRISE-082 AC7](../../sdd/spec/models-and-routing.md#req-enterprise-082-pi-gateway-model-display)). This is the existing manual presentation check, not a live-inference probe or an executed acceptance receipt.
+
 <a id="live-evidence-not-synthetic-capability-claims"></a>
 <a id="cherry-pick--reimplementation-contract"></a>
 <a id="evidence-and-remaining-boundaries"></a>
