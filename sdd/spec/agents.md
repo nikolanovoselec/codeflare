@@ -2737,7 +2737,11 @@ None.
 4. Repository source, dependencies, configuration, specifications, tests, documentation, and explicit project instructions govern technology use before general model knowledge. <!-- @manual -->
 5. Focused product, design, tutorial, Humanize, and executable delivery-system skills remain available under their existing activation boundaries. <!-- @manual -->
 
-**Constraints:** Retired skill names remain absent rather than redirecting to replacement skills. License notices required by retained third-party content remain present. Removal is not evidence for weakening the Engineering Constitution, SDD/TDD workflow, review/CI controls, or platform-specific security guidance.
+**Constraints:**
+
+- Retired skill names remain absent rather than redirecting to replacement skills.
+- License notices required by retained third-party content remain present.
+- Removal is not evidence for weakening the Engineering Constitution, SDD/TDD workflow, review/CI controls, or platform-specific security guidance.
 
 **Priority:** P1
 
@@ -2760,7 +2764,10 @@ None.
 1. Pi `SYSTEM.md` contains only runtime bootstrap guidance and reaches both session modes. <!-- @impl: preseed/agents/pi/manifest.json::SYSTEM.md --> <!-- @manual -->
 2. Detailed Git, review, CI, Graphify build, Todo, local-check, design, platform, memory-capture, and enforcement mechanics remain with their existing owners. <!-- @manual -->
 
-**Constraints:** Ambient prose reduction cannot weaken executable guards or remove a required route. Content wording, headings, and byte/token counts remain manual concerns rather than tests.
+**Constraints:**
+
+- Ambient prose reduction cannot weaken executable guards or remove a required route.
+- Content wording, headings, and byte/token counts remain manual concerns rather than tests.
 
 **Priority:** P1
 
@@ -3155,7 +3162,10 @@ None.
 6. Repositories with `sdd/` keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 7. CI, automated-test, deployment, and log-tail monitoring never blocks the main session; only approved safe local checks run in-session. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 
-**Constraints:** The canonical constitution is authored in Claude preseed and compiled for every supported runtime; transformed files are downstream artifacts. Prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
+**Constraints:**
+
+- The canonical constitution is authored in Claude preseed and compiled for every supported runtime; transformed files are downstream artifacts.
+- Prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
 
 **Priority:** P1
 
@@ -3541,7 +3551,11 @@ None.
 5. The unsafe UI UX Pro Max preset corpus, generator, and authoritative persistence path are absent from managed distribution. <!-- @manual: Inspect the authoritative curation manifest and router. -->
 6. Managed distribution does not project this design skill suite to Copilot; Copilot receives compact fallback guidance that does not require an unavailable skill directory. <!-- @manual: Inspect the generated Copilot output and confirm it contains usable fallback guidance but no projected design-skill directory. -->
 
-**Constraints:** Core methodology stays out of Pi's system prompt; Pi receives one minimal conditional route to `design`. Large references load only after selection. Optional capabilities never block an owner.
+**Constraints:**
+
+- Core methodology stays out of Pi's system prompt; Pi receives one minimal conditional route to `design`.
+- Large references load only after selection.
+- Optional capabilities never block an owner.
 
 **Priority:** P1
 
@@ -4921,7 +4935,12 @@ None.
 6. Checked promotion keeps the live documentation tree restorable until post-promotion validation succeeds. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Greenfield — lean two-confirm flow --> <!-- @manual: On a disposable Import Mode fixture with existing documentation, force post-promotion validation to fail and confirm the original tree is restored from the sibling backup. -->
 7. The renderer and new templates reach Claude and Pi through the canonical manifest and generated-seed pipeline. <!-- @impl: preseed/agents/claude/manifest.json::skills/sdd-init/references/render-documentation-templates.mjs --> <!-- @manual -->
 
-**Constraints:** Existing discovery, Import Mode triage, and review ownership remain unchanged. Architecture and the ADR ledger remain universal; other lanes require source evidence. Project lanes stay first-level, indexed, source-backed, and outside canonical lane ownership. No project schema engine or replacement migration subsystem is introduced.
+**Constraints:**
+
+- Existing discovery, Import Mode triage, and review ownership remain unchanged.
+- Architecture and the ADR ledger remain universal; other lanes require source evidence.
+- Project lanes stay first-level, indexed, source-backed, and outside canonical lane ownership.
+- No project schema engine or replacement migration subsystem is introduced.
 
 **Priority:** P1
 
@@ -4948,7 +4967,11 @@ None.
 5. The reusable checker contains no product-specific item inventory. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @manual -->
 6. Indexed first-level project lanes retain the shared ownership, navigation, evidence-map, and related-document envelope. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanProjectLane --> <!-- @manual -->
 
-**Constraints:** Existing cleanup modes, layout migration, and root-owned mutation order remain unchanged. Ambiguous or conflicting content is reported and left intact. No suppression baseline or separate migration subsystem is introduced.
+**Constraints:**
+
+- Existing cleanup modes, layout migration, and root-owned mutation order remain unchanged.
+- Ambiguous or conflicting content is reported and left intact.
+- No suppression baseline or separate migration subsystem is introduced.
 
 **Priority:** P1
 
@@ -4976,7 +4999,11 @@ None.
 6. A merged or reclassified ADR uses the explicit `Redirect anchor` state instead of parenthetical redirect shorthand. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
 7. A merged or reclassified ADR links its destination from the section status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
 
-**Constraints:** Cleanup never deletes historical ADR bodies or guesses whether a record is fully versus partially superseded. Existing inbound AD anchors remain stable. Strikethrough is allowed only in the ID and decision cells of fully superseded index rows.
+**Constraints:**
+
+- Cleanup never deletes historical ADR bodies or guesses whether a record is fully versus partially superseded.
+- Existing inbound AD anchors remain stable.
+- Strikethrough is allowed only in the ID and decision cells of fully superseded index rows.
 
 **Priority:** P1
 
@@ -5003,7 +5030,11 @@ None.
 5. A historical Summary links its successor, retained scope plus replaced clause, or redirect destination, and its State matches the section Status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
 6. SDD initialization and shape enforcement use the same ADR index contract. <!-- @impl: preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-decisions-readme.md::Decision Index --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/SKILL.md::Decision ledger state rendering --> <!-- @manual -->
 
-**Constraints:** Existing ADR bodies and stable anchors remain intact. Counts exclude Markdown syntax. Enforcement carries no product-specific ADR inventory, and no new schema, skill, checker, configuration, or framework file is introduced.
+**Constraints:**
+
+- Existing ADR bodies and stable anchors remain intact.
+- Counts exclude Markdown syntax.
+- Enforcement carries no product-specific ADR inventory, and no new schema, skill, checker, configuration, or framework file is introduced.
 
 **Priority:** P1
 
@@ -5765,7 +5796,11 @@ None.
 6. Pi and Claude use the same host-aware exact identity, 30-day expiry, ten-marker repository-and-branch retention, ancestor selection, deterministic reviewer output, exact-head CI correlation, triage shape, and root-only marker ownership. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (user-scoped review completion state) --> <!-- @test: host/__tests__/review-completion-state.test.js (Claude review completion helper parity) -->
 7. No executable review source reads, migrates, deletes, or writes legacy `.git/sdd-review-*` state. Linked worktrees and separate clones use the user-scoped marker root instead. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::completionPath --> <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::completionPath --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (supports linked worktrees and writes outside clone-local Git metadata) -->
 
-**Constraints:** GitHub identity resolution fails closed. Marker synchronization is best effort after local acknowledgement and cannot create a false completion. Root alone may choose, launch, triage, mutate, and stamp completion.
+**Constraints:**
+
+- GitHub identity resolution fails closed.
+- Marker synchronization is best effort after local acknowledgement and cannot create a false completion.
+- Root alone may choose, launch, triage, mutate, and stamp completion.
 
 **Priority:** P1
 

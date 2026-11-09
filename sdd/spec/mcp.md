@@ -64,7 +64,11 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 3. Saved registration persists without provisioning resources, authenticating users, warming compute or restarting sessions. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC3: saving does not mutate running sessions or grants) -->
 4. Removed or changed destinations cannot use mismatched stored grants. <!-- @impl: src/lib/mcp-portal-token.ts::getMcpPortalGrant --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-227 AC4: %s destinations invalidate a previously saved grant) -->
 
-**Constraints:** Names identify connections, not tool relevance. Registration contains no secret/API-key field. Preserve existing administrator authorization and unrelated settings.
+**Constraints:**
+
+- Names identify connections, not tool relevance.
+- Registration contains no secret/API-key field.
+- Preserve existing administrator authorization and unrelated settings.
 
 **Priority:** P1
 
@@ -94,7 +98,12 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 
 **Notes:** Progressive use and distinct CI, signed-delivery, local-reload and hosted acceptance checks are documented in [Model Context Protocol](../../documentation/lanes/mcp.md#delivery-and-acceptance-boundaries).
 
-**Constraints:** Availability never bypasses owner, tenant or Operator authorization. Builtin MCP remains disabled; pi-mcp-adapter is the sole MCP owner. Preserve unrelated user/project MCP and OAuth state. Deliver skills through existing seed/Curation.
+**Constraints:**
+
+- Availability never bypasses owner, tenant or Operator authorization.
+- Builtin MCP remains disabled; pi-mcp-adapter is the sole MCP owner.
+- Preserve unrelated user/project MCP and OAuth state.
+- Deliver skills through existing seed/Curation.
 
 **Priority:** P1
 
@@ -120,7 +129,13 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 4. Upstream streams, cancellation, statuses and portal-issued downstream authorization context remain intact. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: stamps the trusted owner grant and preserves functional response streams and downstream URL context) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: response cancellation reaches the original upstream stream) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: rejects redirects without credential leakage and preserves actual upstream failure status) --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-AGENT-229 AC4: catch-all streams downstream authorization context and preserves cancellation) -->
 5. Credential maintenance never replays MCP requests after uncertain write outcomes. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC5: uncertain MCP writes are never replayed after response loss) --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-AGENT-229 AC5: catch-all never replays uncertain MCP writes or follows redirects) -->
 
-**Constraints:** TLS verification and strict egress remain enforced. No shared service/admin identity or agent-selected owner. GitHub upstream requires per-user authentication. Exposed write schemas are not authorization for arbitrary mutations. Hosted upstream/downstream authorization and revocation require separate evidence from synthetic boundary tests.
+**Constraints:**
+
+- TLS verification and strict egress remain enforced.
+- No shared service/admin identity or agent-selected owner.
+- GitHub upstream requires per-user authentication.
+- Exposed write schemas are not authorization for arbitrary mutations.
+- Hosted upstream/downstream authorization and revocation require separate evidence from synthetic boundary tests.
 
 **Priority:** P1
 

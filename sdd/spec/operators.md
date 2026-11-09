@@ -27,7 +27,10 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 3. Invalid signature, issuer, audience, expiration, issued-at or not-before claims fail closed through the same cryptographic verification used by the existing email API. <!-- @impl: src/lib/jwt.ts::verifyHumanAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (REQ-OPERATOR-001: verified human Access context) -->
 4. Existing email verification and its callers retain their current accepted claim shape and results; stricter operator eligibility does not narrow ordinary authentication. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT --> <!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)) -->
 
-**Constraints:** No service/setup/session-token or caller email fallback for human-context execution. This verifier does not itself grant enterprise access, resolve buckets, renew tokens or admit an activity.
+**Constraints:**
+
+- No service/setup/session-token or caller email fallback for human-context execution.
+- This verifier does not itself grant enterprise access, resolve buckets, renew tokens or admit an activity.
 
 **Priority:** P0
 
@@ -712,7 +715,10 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. Cancellation or expiry stops only owned compute and records actual pending, failed or unknown cleanup without final uploads after expiry. <!-- @impl: src/operators/activity.ts::cancelDrive --> <!-- @manual: Verify owned compute stops, cleanup receipts and no post-expiry uploads on an authorized fresh activity; a cancellation fence alone is insufficient. -->
 7. Overview reads use non-waking safe projections. <!-- @impl: src/operators/registry.ts::listOwnedActivities --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
-**Constraints:** Unknown external mutations remain fenced. Only future-eligible inference may allocate separately charged successors under [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution); this never restarts an unknown Activity.
+**Constraints:**
+
+- Unknown external mutations remain fenced.
+- Only future-eligible inference may allocate separately charged successors under [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution); this never restarts an unknown Activity.
 
 **Priority:** P0
 
@@ -741,7 +747,10 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. Drive begin and commit recheck actual human-authority expiry. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-017: durable drive generation and checkpoint) -->
 7. The owning human explicitly resumes durable waiting work through a protected request. <!-- @impl: src/routes/operator-activities.ts::handleContinue --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
-**Constraints:** Generation transitions do not extend human authority. [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution) reuses this generation authority without treating admission or status reads as renewal.
+**Constraints:**
+
+- Generation transitions do not extend human authority.
+- [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution) reuses this generation authority without treating admission or status reads as renewal.
 
 **Priority:** P0
 
@@ -770,7 +779,10 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. Preparation or transport uncertainty fences the drive as unknown. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018: request-attached production orchestration) -->
 7. Request-attached bundle transport and runtime share one 25-second deadline that never exceeds invoking-human authority. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018: request-attached production orchestration) -->
 
-**Constraints:** Runtime deadlines never exceed verified human authority. Supported direct work remains request-attached; [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution) owns asynchronous Dispatcher execution.
+**Constraints:**
+
+- Runtime deadlines never exceed verified human authority.
+- Supported direct work remains request-attached; [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution) owns asynchronous Dispatcher execution.
 
 **Priority:** P0
 
@@ -1655,7 +1667,11 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. The Pi router authenticates its fixed bounded contract; foreign, expired or stale native bindings cannot create or revive usable inference. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/operator-pi-router.test.js (REQ-OPERATOR-021: router authenticates then forwards fixed Pi request bytes/query and response) --> <!-- @test: host/__tests__/operator-pi-isolated-runner.test.js (REQ-OPERATOR-021/047: native private bind precedes ensure, is bounded/idempotent, and rejects foreign or stale descriptors) -->
 7. Ordinary PTYs and root execution remain unchanged. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/request-router.test.js (request router) -->
 
-**Constraints:** Unknown SDK effects are not replayed. Derived request authentication is private to the admitted runtime lifetime, never environment, disk, tools or durable metadata. A matching bind is idempotent and cannot renew authority.
+**Constraints:**
+
+- Unknown SDK effects are not replayed.
+- Derived request authentication is private to the admitted runtime lifetime, never environment, disk, tools or durable metadata.
+- A matching bind is idempotent and cannot renew authority.
 
 **Priority:** P0
 
@@ -2898,7 +2914,11 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 5. A lost completion acknowledgement retains the exact recorded ID without authorizing a replacement write. <!-- @impl: src/operators/registry.ts::getBoundaryPublication --> <!-- @impl: src/operators/registry.ts::getBoundaryPublicationGuard --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) -->
 6. A newer PR reservation fences an older effect's completion. <!-- @impl: src/operators/registry.ts::completeBoundaryPublication --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-055: durable PR-wide publication ordering) --> <!-- @test: src/__tests__/operators/review-boundary-claim.test.ts (REQ-OPERATOR-055: protected run and collected terminal drive alone reach the PR journal) -->
 
-**Constraints:** The Registry stores only opaque effect digests and IDs, never credentials, findings or publication policy. No cross-owner transaction or lock spanning GitHub I/O. An old successful shadow check cannot itself clear the current PR.
+**Constraints:**
+
+- The Registry stores only opaque effect digests and IDs, never credentials, findings or publication policy.
+- No cross-owner transaction or lock spanning GitHub I/O.
+- An old successful shadow check cannot itself clear the current PR.
 
 **Priority:** P0
 
@@ -3564,7 +3584,11 @@ Child receives scoped parent transport/inference and required scheduler bridge o
 4. Existing session, lease, generation and deadline fences govern release of retained bytes. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-retained-source.test.ts (retains the existing %s authority fence before releasing source bytes) -->
 5. Reads preserve original uncertainty, operation consumption and settlement; they never turn a mutation into readable GET evidence. <!-- @impl: src/operators/activity.ts::dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-retained-source.test.ts (cannot release or replay an uncertain mutation as retained GET evidence) --> <!-- @test: src/__tests__/operators/dispatcher-retained-source.test.ts (recovers the original envelope after reconstruction without new source effects or budget consumption) -->
 
-**Constraints:** Optional source proof extends the existing receipt wire; metadata-only receipts remain unchanged. Existing source-envelope byte/header restrictions remain mandatory. No new storage service, execution authority, retry, SDK modification or credential exposure.
+**Constraints:**
+
+- Optional source proof extends the existing receipt wire; metadata-only receipts remain unchanged.
+- Existing source-envelope byte/header restrictions remain mandatory.
+- No new storage service, execution authority, retry, SDK modification or credential exposure.
 
 **Priority:** P0
 

@@ -320,7 +320,11 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 1. Managed Operators receive no human authentication. Explicitly approved native Operators may use only their execution owner’s read-only derived request authentication within current parent authority. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: host/__tests__/entrypoint-operator-startup.test.js (REQ-ENTERPRISE-088 AC7: real Operator startup excludes human authentication and inline provider secrets) -->
 2. Stale managed handles and native authentication failures never fall back to another inference source or model. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC7: Operator and stale managed handles never use personal transport) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-091 AC2: enabling personal providers does not redirect Dynamic or Native Route selectors to personal transport) -->
 
-**Constraints:** No production deployment, Operator activation, new origin or parallel OAuth service is implied. Native App use never logs in, executes refresh, writes authentication, reads a live human session or gains general credential access. Root-private public-SDK maintenance of the exact selected saved OAuth credential is bounded by [REQ-OPERATOR-007](operators.md#req-operator-007-operator-aware-inference-selection): owner metadata serialization, whole-file ETag CAS, current execution/deadline/SSE fences and derived request auth only; it grants no delegated transport exemption. <!-- @impl: src/operators/dispatcher-sdk-storage.ts::handleDispatcherSdkCredentials --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (Root-owned OAuth maintenance does not relax strict delegated model HTTP) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: preserves SDK $provider OAuth request metadata without flattening or credential mutation) -->
+**Constraints:**
+
+- No production deployment, Operator activation, new origin or parallel OAuth service is implied.
+- Native App use never logs in, executes refresh, writes authentication, reads a live human session or gains general credential access.
+- Root-private public-SDK maintenance of the exact selected saved OAuth credential is bounded by [REQ-OPERATOR-007](operators.md#req-operator-007-operator-aware-inference-selection): owner metadata serialization, whole-file ETag CAS, current execution/deadline/SSE fences and derived request auth only; it grants no delegated transport exemption. <!-- @impl: src/operators/dispatcher-sdk-storage.ts::handleDispatcherSdkCredentials --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (Root-owned OAuth maintenance does not relax strict delegated model HTTP) --> <!-- @test: src/__tests__/operators/dispatcher-r2-services.test.ts (REQ-OPERATOR-007/047: preserves SDK $provider OAuth request metadata without flattening or credential mutation) -->
 
 **Priority:** P1
 
@@ -1475,7 +1479,10 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 2. Deployment tokens remain excluded from container delivery. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @manual -->
 3. Non-enterprise retains owner-configured Cloudflare and provider credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (non-enterprise emits the real Connect-to-Cloudflare token + account id (byte-identical regression)) --> <!-- @manual -->
 
-**Constraints:** The historical strict-egress/Governed fixture concerns mediated environment variables, not all human Pi authentication storage. Explicit personal permission remains default off and limited to bound human sessions under [REQ-ENTERPRISE-090](#req-enterprise-090-native-pi-forwarding-under-current-administration-permission); no platform credential exception or Operator privilege is introduced.
+**Constraints:**
+
+- The historical strict-egress/Governed fixture concerns mediated environment variables, not all human Pi authentication storage.
+- Explicit personal permission remains default off and limited to bound human sessions under [REQ-ENTERPRISE-090](#req-enterprise-090-native-pi-forwarding-under-current-administration-permission); no platform credential exception or Operator privilege is introduced.
 
 **Priority:** P1
 

@@ -45,7 +45,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession(session) = 201 --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::lifecycleGeneration: 0 = 0 -->
 6. Creation remains rate-limited and storage quota is checked in SaaS mode. <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter --> <!-- @impl: src/routes/session/crud.ts::app -->
 
-**Constraints:** Secrets remain in their established stores. Session records are never written to KV.
+**Constraints:**
+
+- Secrets remain in their established stores.
+- Session records are never written to KV.
 
 **Priority:** P0
 
@@ -367,7 +370,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 5. D1 query failure fails Start closed rather than using KV, SDK state or stale client data. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
 6. Enforcement remains best effort: concurrent Starts may both pass and exceed the nominal cap. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/lib/session-repository.ts::start -->
 
-**Constraints:** Do not add stronger reservation guarantees. Session KV LIST/get operations are prohibited.
+**Constraints:**
+
+- Do not add stronger reservation guarantees.
+- Session KV LIST/get operations are prohibited.
 
 **Priority:** P1
 
@@ -452,7 +458,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 6. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/stores/session-polling.ts::handlePollingVisibilityChange -->
 7. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus -->
 
-**Constraints:** Dashboard polling never wakes a container. Authentication and revocation middleware may retain unrelated KV use.
+**Constraints:**
+
+- Dashboard polling never wakes a container.
+- Authentication and revocation middleware may retain unrelated KV use.
 
 **Priority:** P0
 
@@ -836,7 +845,10 @@ None.
 6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed. <!-- @impl: src/lib/session-repository.ts::reconcileRuntime --> <!-- @impl: src/lib/session-repository.ts::claimUnreachableTermination -->
 7. Only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit writes `stopped`; transport failure, D1 failure, signal acceptance, elapsed time, an owner read, or SDK state does not. Uncertain exit preserves `stopping` and termination ownership. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
 
-**Constraints:** D1 owns shared lifecycle truth. The Durable Object retains SDK/process identity, assigned generation, observation sequence and schedules, but not competing lifecycle business truth.
+**Constraints:**
+
+- D1 owns shared lifecycle truth.
+- The Durable Object retains SDK/process identity, assigned generation, observation sequence and schedules, but not competing lifecycle business truth.
 
 **Priority:** P0
 
@@ -1139,7 +1151,10 @@ None.
 6. Unconfirmed recovery termination escalates to one durably claimed, same-generation native destruction attempt after the existing 135-second shutdown budget. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/container/container-lifecycle.ts::hardKillMs = 135_000 --> <!-- @impl: src/lib/session-repository.ts::markRecoveryForceStarted --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (the automatic force CAS consumes only the exact intent with no pending boundary and preserves its grace origin) -->
 7. Signal acceptance and failed or unconfirmed destruction retain actionable `stopping` ownership; only generation-fenced positive process exit or awaited destruction confirming exit transitions to `stopped`. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a failed force is durable across reconstruction; only manual %s retries native destruction) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a never-settling provider is bounded with no automatic alarm, yet late completion confirms the current generation) -->
 
-**Constraints:** Exactly-once external signalling is not promised. Established final-event, final-sync and teardown deadlines are unchanged.
+**Constraints:**
+
+- Exactly-once external signalling is not promised.
+- Established final-event, final-sync and teardown deadlines are unchanged.
 
 **Priority:** P0
 
@@ -1224,7 +1239,11 @@ None.
 6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`. <!-- @impl: src/lib/session-repository.ts::create -->
 7. The additive migration is idempotently managed by the existing `USAGE_DB` migration path and does not alter analytics tables. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
 
-**Constraints:** Times are UTC ISO-8601 text except explicit millisecond deadlines where arithmetic is required. JSON configuration columns are validated at the typed repository boundary. Secrets are excluded.
+**Constraints:**
+
+- Times are UTC ISO-8601 text except explicit millisecond deadlines where arithmetic is required.
+- JSON configuration columns are validated at the typed repository boundary.
+- Secrets are excluded.
 
 **Priority:** P0
 

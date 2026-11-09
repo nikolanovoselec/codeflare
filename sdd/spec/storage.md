@@ -661,7 +661,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. Image-owned runtime files, user roots, transcripts, Vault content, and company package bytes remain outside managed documents. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents) -->
 5. In protected modes, signed retirements delete prior content without requiring an ownership marker. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC5: protected signed retirement deletes markerless prior content) -->
 
-**Constraints:** Markerless deletion requires an exact path with a verified inactive owner. Unknown historical paths keep existing marker rules; company extension metadata may enter R2, but package bytes may not.
+**Constraints:**
+
+- Markerless deletion requires an exact path with a verified inactive owner.
+- Unknown historical paths keep existing marker rules; company extension metadata may enter R2, but package bytes may not.
 
 **Priority:** P1
 
@@ -689,7 +692,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 6. Disabling curation preserves personal extension intent. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 7. Disabling curation with no available prior release fails without bucket mutation or applied-state clearing. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC7 + REQ-STOR-024 AC7: cacheless disable fails closed with applied state intact) -->
 
-**Constraints:** Unconfigured baked behavior remains byte-identical. State lookup inspects existing session records without waking containers; unavailable or unknown state fails closed as ownership.
+**Constraints:**
+
+- Unconfigured baked behavior remains byte-identical.
+- State lookup inspects existing session records without waking containers; unavailable or unknown state fails closed as ownership.
 
 **Priority:** P1
 
@@ -855,7 +861,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. Every workspace sync mode includes only `~/.codeflare/review-state/v1/**` through the common restore, baseline, regular bisync, and final-sync filter set while other private `.codeflare` files remain excluded. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists user-scoped review completion in every workspace sync mode) -->
 5. Marker writes and pruning rely on regular or final workspace sync and do not force an additional sync. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (writes local acknowledgement without forcing an R2 sync) --> <!-- @test: host/__tests__/review-completion-state.test.js (writes local completion without forcing an R2 sync) -->
 
-**Constraints:** No review-specific R2 service, Worker endpoint, database, or direct `/internal/bisync-trigger` call exists. R2 convergence may repeat a prompt but cannot fabricate completion.
+**Constraints:**
+
+- No review-specific R2 service, Worker endpoint, database, or direct `/internal/bisync-trigger` call exists.
+- R2 convergence may repeat a prompt but cannot fabricate completion.
 
 **Priority:** P1
 
@@ -879,7 +888,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. Canonical policy paths are sorted and deduplicated. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
 3. Policy identity is stable for identical canonical bytes and changes whenever those bytes change. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
 
-**Constraints:** `.codeflare/managed-paths.json` is the only persisted runtime policy document. No policy KV store or cache object is introduced.
+**Constraints:**
+
+- `.codeflare/managed-paths.json` is the only persisted runtime policy document.
+- No policy KV store or cache object is introduced.
 
 **Priority:** P0
 
@@ -961,7 +973,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 
 
-**Constraints:** Container policy is non-authoritative, with no Durable Object policy persistence or replacement of release-owned extension bytes by image copies. Worker-side authorization is unchanged; an upstream denial does not substitute for correct local filter composition.
+**Constraints:**
+
+- Container policy is non-authoritative, with no Durable Object policy persistence or replacement of release-owned extension bytes by image copies.
+- Worker-side authorization is unchanged; an upstream denial does not substitute for correct local filter composition.
 
 **Priority:** P0
 
@@ -1475,7 +1490,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. Adjacent source, dependency manifests and similarly named ordinary files retain their previous session/workspace inclusion behavior. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-053: regenerable Python artifacts stay outside home sync) -->
 4. Normal restore and bisync leave existing excluded Python artifacts unchanged on each side without copying them to the other side. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
 
-**Constraints:** No allowlist migration, package-directory scanning, automatic object cleanup or broad `venv`/`site-packages` exclusion. The rules classify names, not virtualenv validity; these directory names are reserved for ephemeral artifacts.
+**Constraints:**
+
+- No allowlist migration, package-directory scanning, automatic object cleanup or broad `venv`/`site-packages` exclusion.
+- The rules classify names, not virtualenv validity; these directory names are reserved for ephemeral artifacts.
 
 **Priority:** P1
 

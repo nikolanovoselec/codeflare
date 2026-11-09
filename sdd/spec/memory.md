@@ -771,7 +771,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 6. A later SDK rewrite can regrow the file; only a later legitimate cadence maintains it again. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC6: a later rewrite waits for the next public due mark) -->
 7. Postcommit appends are reported separately from the verified retained-prefix byte count. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-worker-lifecycle.test.js (REQ-MEM-030 AC7: postcommit ordinary growth is verified separately from the accepted committed prefix, without replacement replay) -->
 
-**Constraints:** No per-installation policy, semantic categories, padding, transcript backup, SDK mutation or loaded-memory reclamation claim. Other sessions, credentials and configuration remain unchanged.
+**Constraints:**
+
+- No per-installation policy, semantic categories, padding, transcript backup, SDK mutation or loaded-memory reclamation claim.
+- Other sessions, credentials and configuration remain unchanged.
 
 **Priority:** P1
 
@@ -799,7 +802,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 6. Completion or cancellation removes only owned staging. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::cleanupRequest --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for ${size} MiB copies the exact header and suffix into the size window) -->
 7. Verification-pending recovery is read-only and never replays replacement. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-adaptive.test.js (REQ-MEM-030 AC7: unavailable asynchronous readback keeps a committed receipt and recovers without a second replacement) -->
 
-**Constraints:** The owner alone renames live history. Directory-sync failure is not a rollback. Heavy copying/readback stays off the owner event loop; no hidden model invocation or unrelated cleanup.
+**Constraints:**
+
+- The owner alone renames live history.
+- Directory-sync failure is not a rollback.
+- Heavy copying/readback stays off the owner event loop; no hidden model invocation or unrelated cleanup.
 
 **Priority:** P1
 
@@ -827,7 +834,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 6. Uncommitted failures use the existing shared six-total-attempt budget. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-window-retry.test.js (REQ-MEM-030 AC6: native failure advances the same reminder and native stop cancels rather than retries) -->
 7. Only verified persisted `trimmed` output establishes success. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-worker-lifecycle.test.js (REQ-MEM-030 AC7: postcommit ordinary growth is verified separately from the accepted committed prefix, without replacement replay) -->
 
-**Constraints:** CPU work remains asynchronous and cancelable; explicit stop cancels maintenance. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-worker-cancel.test.js (REQ-MEM-030 AC2: owner cancellation settles the CPU child before returning cancellation) --> No independent live writer, new orchestration framework, invented ancestry, Goal/SDK mutation or new model configuration. Old prefix content is intentionally discarded; retained bytes are not semantically rewritten.
+**Constraints:**
+
+- CPU work remains asynchronous and cancelable; explicit stop cancels maintenance. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-worker-cancel.test.js (REQ-MEM-030 AC2: owner cancellation settles the CPU child before returning cancellation) -->
+- No independent live writer, new orchestration framework, invented ancestry, Goal/SDK mutation or new model configuration.
+- Old prefix content is intentionally discarded; retained bytes are not semantically rewritten.
 
 **Priority:** P1
 
@@ -876,7 +887,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. OOM-killed workers report `worker-oom-killed`, without asserting whether their local limit, ancestor limits or global pressure caused the kill. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::runTrimWorker --> <!-- @test: host/__tests__/pi-trim-worker-memory.test.js (REQ-MEM-032 AC3: kernel memory exhaustion kills only bounded workers and leaves the owner usable) -->
 4. Pending or running maintenance work is never duplicated. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-window-retry.test.js (REQ-MEM-030 AC6: native failure advances the same reminder and native stop cancels rather than retries) --> <!-- @test: host/__tests__/pi-trim-adaptive.test.js (REQ-MEM-030 AC7: unavailable asynchronous readback keeps a committed receipt and recovers without a second replacement) -->
 
-**Constraints:** No heap-only substitute, unbounded fallback or change to the Pi owner's memory limit. Owner allocations and ancestor/global OOM survival are outside this guarantee.
+**Constraints:**
+
+- No heap-only substitute, unbounded fallback or change to the Pi owner's memory limit.
+- Owner allocations and ancestor/global OOM survival are outside this guarantee.
 
 **Priority:** P0
 

@@ -796,7 +796,10 @@ Tiers, billing, usage tracking, and quotas.
 
 **Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
 
-**Constraints:** Resend credentials and sender identity remain deployment-managed. Reports do not background-poll and never promise exactly-once delivery.
+**Constraints:**
+
+- Resend credentials and sender identity remain deployment-managed.
+- Reports do not background-poll and never promise exactly-once delivery.
 
 **Priority:** P1
 

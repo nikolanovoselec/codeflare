@@ -514,7 +514,10 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 7. Data governance exposes the deployment-wide saved sync policy as `exclude` or `include`, defaulting to `exclude` when no value has been stored; the policy is non-secret and does not change workspace scope or managed-resource authority. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018: sync policy defaults, previews without writes, applies both modes, and preserves omitted requests) -->
 
-**Constraints:** Reuse Setup readers and existing mode owners. Configuration reads do not list Activity records.
+**Constraints:**
+
+- Reuse Setup readers and existing mode owners.
+- Configuration reads do not list Activity records.
 
 **Priority:** P0
 
@@ -569,7 +572,10 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 7. Setup and routine execution check each other's existing admission pointers, while first-run `POST /api/setup/configure` keeps its observable sequence and outcome. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-018 AC7: Setup refuses to overlap an active Environment run) -->
 
 
-**Constraints:** Eleven known sections use one discriminated union. No JSON Patch, stored preview, workflow engine, coordinator Durable Object, or generic rollback layer.
+**Constraints:**
+
+- Eleven known sections use one discriminated union.
+- No JSON Patch, stored preview, workflow engine, coordinator Durable Object, or generic rollback layer.
 
 **Priority:** P0
 
@@ -597,7 +603,11 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
 7. Overview includes every mode-applicable Environment summary, linked directly to its bounded editor without duplicating the sidebar's Environment navigation. <!-- @impl: web-ui/src/components/admin/AdministrationOverview.tsx::AdministrationOverview --> <!-- @test: web-ui/src/__tests__/components/AdministrationOverview.test.tsx (Administration overview Environment navigation) -->
 
-**Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added. The enterprise-only Operators extension is specified separately by [REQ-OPERATOR-008](operators.md#req-operator-008-enterprise-operator-administration-surface) and reuses this shell.
+**Constraints:**
+
+- One authoritative response owns mode gating.
+- No UI framework, chart package, icon package, or duplicate mode logic is added.
+- The enterprise-only Operators extension is specified separately by [REQ-OPERATOR-008](operators.md#req-operator-008-enterprise-operator-administration-surface) and reuses this shell.
 
 **Priority:** P1
 
@@ -888,7 +898,10 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 1. In enterprise mode, the setup wizard's "Regular Users" section is not rendered. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
 2. Outside enterprise mode, the setup wizard's "Regular Users" section renders unchanged. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
 
-**Constraints:** Enterprise setup still configures Admin Users and the optional Cloudflare Access group per [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning). Account-menu actions are owned by [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
+**Constraints:**
+
+- Enterprise setup still configures Admin Users and the optional Cloudflare Access group per [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning).
+- Account-menu actions are owned by [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
 
 **Priority:** P2
 

@@ -1366,7 +1366,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 6. Sync health reporting reads the protected status file. <!-- @impl: host/src/metrics.ts::getSyncStatus --> <!-- @test: host/__tests__/metrics.test.js (returns parsed sync status from file) -->
 7. Final sync uses the same protected daemon state as manual sync. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: signals the daemon and waits for syncing-to-success before returning 200) -->
 
-**Constraints:** Synchronization runtime state remains container-scoped and is not synced to R2. Build-stage files and disposable caches or counters may remain under `/tmp`.
+**Constraints:**
+
+- Synchronization runtime state remains container-scoped and is not synced to R2.
+- Build-stage files and disposable caches or counters may remain under `/tmp`.
 
 **Priority:** P0
 
@@ -1526,7 +1529,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
 
-**Constraints:** GitHub Actions cannot create or widen its own secret. Missing D1 permission is an external blocker.
+**Constraints:**
+
+- GitHub Actions cannot create or widen its own secret.
+- Missing D1 permission is an external blocker.
 
 **Priority:** P0
 
@@ -1554,7 +1560,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 6. CI models 2,000 active users and three sessions, enforcing one sub-4-KB state write and zero KV reads per positive ping plus the approved D1 row ceilings. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
 7. Integration exception-visibility evidence is a required rollout gate before sampled Production promotion, and account operation and spend alerts must precede Production history enablement. <!-- @impl: documentation/lanes/deployment.md::Integration acceptance checklist --> <!-- @manual -->
 
-**Constraints:** Cloudflare platform capacity remains contractually external. No queue, cache, coordinator, or second database is introduced for cost control.
+**Constraints:**
+
+- Cloudflare platform capacity remains contractually external.
+- No queue, cache, coordinator, or second database is introduced for cost control.
 
 **Priority:** P1
 
@@ -1630,7 +1639,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. Pip is available through system Python. <!-- @impl: Dockerfile::python3-pip --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
 5. Newly created virtual environments provide pip without downloading it at session startup. <!-- @impl: Dockerfile::python3-venv --> <!-- @test: host/__tests__/basic-image-tooling.test.js (renders SVG and converts PNG to JPEG offline with bundled tools) -->
 
-**Constraints:** Use the base distribution's maintained packages. Preserve system-Python and ImageMagick security policies. No model weights, external generation provider, or startup package installation.
+**Constraints:**
+
+- Use the base distribution's maintained packages.
+- Preserve system-Python and ImageMagick security policies.
+- No model weights, external generation provider, or startup package installation.
 
 **Priority:** P1
 
@@ -1652,7 +1665,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The shipped APT repository configuration schedules index downloads over HTTPS. <!-- @impl: Dockerfile::APT_HTTPS_SOURCES --> <!-- @test: host/__tests__/basic-image-tooling.test.js (APT schedules repository index downloads exclusively over HTTPS) -->
 
-**Constraints:** Preserve TLS verification, repository signatures and existing egress authorization. Destination access remains subject to enterprise policy; no direct-network exception is granted.
+**Constraints:**
+
+- Preserve TLS verification, repository signatures and existing egress authorization.
+- Destination access remains subject to enterprise policy; no direct-network exception is granted.
 
 **Priority:** P1
 
