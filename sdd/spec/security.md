@@ -132,7 +132,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- Changing the encryption key requires re-encrypting all credential values (see [REQ-SEC-006](#req-sec-006-transparent-kv-encryption-migration)).
+- `ENCRYPTION_KEY` is immutable for a deployment. Changing it requires wiping and redeploying Codeflare; encryption-key rotation and migration are deliberately unsupported. Legacy plaintext encryption under the unchanged key is a separate operation ([REQ-SEC-006](#req-sec-006-transparent-kv-encryption-migration)).
 - Operational masking, missing-key warning, and non-secret allowlist live in [REQ-SEC-018](#req-sec-018-credential-encryption-operational-policy).
 
 **Priority:** P0

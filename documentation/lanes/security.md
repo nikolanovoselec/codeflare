@@ -116,9 +116,9 @@ Vault derives a bucket-specific browser key through HKDF using the stable verifi
 
 Transparent reads migrate supported legacy plaintext KV entries after successful decryption/write conditions. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
 
-AD32 permits plaintext fallback for covered legacy values when the optional key is absent; current source emits a critical warning. Vault bootstrap requires the key and fails without it. Provider client-secret save paths that require encryption reject plaintext storage rather than silently widening exposure. Rotation changes derived Vault keys and can require explicit browser/store recovery.
+AD32 permits plaintext fallback for covered legacy values when the optional key is absent; current source emits a critical warning. Vault bootstrap requires the key and fails without it. Provider client-secret save paths that require encryption reject plaintext storage rather than silently widening exposure. `ENCRYPTION_KEY` is immutable for a deployment. Changing it requires wiping and redeploying Codeflare; no encryption-key rotation or migration path is supported.
 
-Generate a candidate 32-byte key with `openssl rand -base64 32`; the decoded value must be exactly 32 bytes. Public behavior remains in [Configuration](configuration.md); secret placement and rotation execution belong to private [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
+Generate a candidate 32-byte key with `openssl rand -base64 32`; the decoded value must be exactly 32 bytes. Public behavior remains in [Configuration](configuration.md); secret placement and deployment procedures belong to private [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
 
 ## Network and Egress Controls
 
