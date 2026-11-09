@@ -292,6 +292,9 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     });
 
     it('REQ-SETUP-016 AC5: admits the same stopped session only after real protected reconciliation publishes last', async () => {
+      const sessionKey = 'session:test-bucket:abcdef1234567890abcdef12';
+      const initialSession = await mockKV.get(sessionKey, 'json') as Record<string, unknown>;
+      mockKV._set(sessionKey, { ...initialSession, agentType: 'pi' });
       const actualSeed = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
       vi.mocked(reconcileAgentConfigs).mockImplementationOnce(actualSeed.reconcileAgentConfigs);
       const { reseedContextModePlugin } = await import('../../lib/r2-seed');
@@ -369,7 +372,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       };
       await assertBlocked();
       expect(createBucketIfNotExists).not.toHaveBeenCalled();
-      const reconciling = fetch('/seed/agent-configs', { method: 'POST' });
+      const reconciling = Promise.resolve(fetch('/seed/agent-configs', { method: 'POST' }));
       try {
         await Promise.race([readingPolicy, reconciling.then(() => { throw new Error('Reconciliation finished before held policy read'); })]);
         expect(objects.get('.pi/agent/AGENTS.md')?.body).toBe('# Company');
@@ -400,7 +403,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         managedExtensionsDigest: await digestOf(manifestBytes) });
       expect(prefs.managedEnvironmentReconciliation).toBeUndefined();
       const admitted = await start();
-      expect(admitted.status).toBe(200);
+      expect(admitted.status, await admitted.clone().text()).toBe(200);
       const configured = testState.container!.fetch.mock.calls.map(([request]) => request as Request)
         .find(request => request.url.includes('/_internal/setBucketName'));
       expect(await configured?.clone().json()).toMatchObject({ remoteCurationReleaseDigest: 'd'.repeat(64),
