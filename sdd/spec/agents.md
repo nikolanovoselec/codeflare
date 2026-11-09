@@ -2000,7 +2000,7 @@ None.
 4. The `[sdd-init]` commit body MUST include the verbatim summary line `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. <!-- @manual -->
 5. A non-zero verifier exit code blocks the commit until every failure is fixed in source or escalated to the live verification queue. <!-- @manual -->
 6. Substitute checks, self-attestation, partial coverage, inverted ordering, tooling bypass, or missing verifier evidence are CRITICAL failures. <!-- @manual -->
-7. After `/sdd init`, steady-state CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON when available rather than re-deriving. <!-- @manual -->
+7. During `/sdd init`, downstream CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON rather than re-deriving anchor resolution. Outside initialization, both perform their source-truth checks inline. <!-- @manual -->
 
 **Constraints:**
 
