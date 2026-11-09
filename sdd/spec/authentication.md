@@ -556,7 +556,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware), [REQ-AUTH-015](#req-auth-015-guided-onboarding-flow)
 
-**Verification:** Automated test ([user-profile](../../src/__tests__/routes/user-profile.test.ts))
+**Verification:** Automated: [user-profile.test.ts](../../src/__tests__/routes/user-profile.test.ts); Manual: [Account status API acceptance](../../documentation/lanes/authentication.md#account-status-api-acceptance)
 
 **Status:** Implemented
 
@@ -709,14 +709,16 @@ None.
 
 **Constraints:**
 
-- Elevation is per-request and lives only on the Hono context; no KV `role:'admin'` record is written for a group-admin (so revocation is immediate and leaves no residue); The email-based admin list remains the durable admin source.
+- Elevation lives only on the request's Hono context; no KV `role:'admin'` record is written for a group-admin.
+- Revocation is immediate and leaves no durable elevation residue.
+- The email-based admin list remains the durable admin source.
 - The live get-identity check fails CLOSED (treated as non-member) on any missing token, non-`*.cloudflareaccess.com` domain, or fetch error — an admin gate must never elevate on uncertainty.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-012](setup.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)
 
-**Verification:** Automated test
+**Verification:** Automated: [enterprise-jit-provisioning.test.ts](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts), [auth.test.ts](../../src/__tests__/middleware/auth.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts); Manual: [Admin group mode isolation acceptance](../../documentation/lanes/authentication.md#admin-group-mode-isolation-acceptance)
 
 **Status:** Implemented
 
