@@ -163,6 +163,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
+- Apply the committed bucket regime: [REQ-ENTERPRISE-018](storage.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface) owns Governed Mode's SSE-C suppression and container-key omission; vault and secret-at-rest encryption remain active.
 - Enabling SSE-C on an existing deployment requires re-uploading all existing unencrypted R2 objects with SSE-C.
 - New deployments that enable encryption from the start require no migration.
 

@@ -1841,7 +1841,7 @@ None.
 
 1. Samsung's back-button keyboard dismiss is intercepted; all keyboard-state signals are reset on that event. <!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (Samsung focusout keyboard dismiss (Fix 1) / REQ-MOB-011 (Samsung keyboard state recovery)) -->
 2. Samsung browser resume uses an automatic dashboard bounce (deactivate then reactivate the session after a brief delay) to reset the unreliable keyboard compositor state. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset / REQ-MOB-009 (visibility-return keyboard recovery)) -->
-3. Samsung's address-bar position is configured via a user-settings toggle because no browser API exposes it. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (should show Samsung section when Samsung browser) -->
+3. Samsung's address-bar position is configured via a user-settings toggle because no browser API exposes it. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @impl: web-ui/src/components/settings/AppearanceSection.tsx::AppearanceSection --> <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (should show Samsung section when Samsung browser) -->
 
 **Notes:** Samsung Internet manual verification checklist lives in [documentation/lanes/terminal-and-ide.md](../../documentation/lanes/terminal-and-ide.md#samsung-internet-quirks).
 
