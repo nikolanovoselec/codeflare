@@ -354,8 +354,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Scorecard results are uploaded to GitHub Security. <!-- @manual -->
 3. A manual dispatch on the repository default branch runs Scorecard. <!-- @impl: .github/workflows/scorecard.yml::scorecard --> <!-- @test: host/__tests__/scorecard-workflow.test.js (REQ-OPS-009: Scorecard default-branch dispatch routing) -->
 4. A non-default manual dispatch records an explicit successful no-op instead of invoking Scorecard's unsupported branch path. <!-- @impl: .github/workflows/scorecard.yml::unsupported-ref --> <!-- @test: host/__tests__/scorecard-workflow.test.js (REQ-OPS-009: Scorecard default-branch dispatch routing) -->
-5. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
-6. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source. <!-- @manual -->
+5. Repository-level secret scanning with push protection is enabled. <!-- @manual -->
+6. Dependabot security updates are enabled at the repository level. <!-- @manual -->
 
 **Constraints:**
 
@@ -367,7 +367,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated workflow-routing tests for AC3 and AC4; manual checks for AC1, AC2, AC5, and AC6.
+**Verification:** Automated: [scorecard-workflow.test.js](../../host/__tests__/scorecard-workflow.test.js); Manual: [repository supply-chain acceptance](../../documentation/lanes/ci-cd.md#repository-supply-chain-acceptance)
 
 **Status:** Implemented
 

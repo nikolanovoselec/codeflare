@@ -24,6 +24,16 @@ GitHub Actions workflows, test verdicts, deployment pipeline, security-probe met
 
 GitHub repository settings separately enable secret scanning with push protection and Dependabot security updates; source cannot prove live settings.
 
+### Repository supply-chain acceptance
+
+Read-only manual method for [REQ-OPS-009](../../sdd/spec/operations.md#req-ops-009-supply-chain-security-monitoring). Do not trigger workflows or change repository controls merely to manufacture evidence.
+
+1. Inspect the Scorecard workflow's main-push and weekly triggers, then inspect existing runs for completed push and scheduled executions. Missing executions are unavailable evidence; configured triggers alone are not execution receipts.
+2. Find the corresponding Scorecard analysis in GitHub Security, matching its repository, commit and tool identity. PASS requires the uploaded analysis, not merely an upload step present in YAML.
+3. Read repository security settings: secret scanning, secret-scanning push protection and Dependabot security updates are explicitly enabled. A disabled value fails its check; an absent/permission-hidden setting is BLOCKED, never assumed enabled.
+
+Retain run/analysis identifiers and observed setting states in existing PR/CI evidence or the applicable audit commit. These manual observations do not replace the linked default/non-default dispatch-routing tests or authorize another scan.
+
 ### Dependabot Configuration
 
 Dependabot runs weekly against `develop` for `/`, `/.github/npm-tools/wrangler`, `/image/oxlint`, `/web-ui`, `/host`, `/landing` and `/openvscode/agent-sidebar`, plus Docker and Actions. Npm cooldown is seven days by default and thirty for majors; Docker/Actions use their supported seven-day default. <!-- @impl: .github/dependabot.yml::updates --> Root npm owns application Wrangler; the dedicated workflow Wrangler manifest/committed lock owns Container Image's privileged pin and is installed by `npm ci`. Stress Test does not install Wrangler or mutate deployment state.
