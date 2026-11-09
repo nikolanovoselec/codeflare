@@ -279,6 +279,7 @@ describe('REQ-GITHUB-003: response hygiene', () => {
     expect(res.status).toBe(201);
     expect(res.headers.get('set-cookie')).toBeNull();
     expect(res.headers.get('content-type')).toBe('application/json');
+    expect(await res.text()).toBe('created');
   });
 
   it('does not transparently follow upstream redirects (redirect: manual)', async () => {
@@ -295,29 +296,36 @@ describe('REQ-GITHUB-003: response hygiene', () => {
 
 describe('REQ-ENTERPRISE-016: strict gateway egress transport swap / REQ-ENTERPRISE-024', () => {
   /** A Fetcher mock recording each upstream call. */
-  function makeEgress() {
+  function makeEgress(upstream = new Response('upstream-ok', { status: 200, headers: { 'content-type': 'application/json' } })) {
     const calls: { url: string; method: string; headers: Headers; redirect: string }[] = [];
     const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
       const req = input as Request;
       calls.push({ url: req.url, method: req.method, headers: req.headers, redirect: req.redirect });
-      return new Response('upstream-ok', { status: 200, headers: { 'content-type': 'application/json' } });
+      return upstream.clone();
     });
     return { calls, fetcher: { fetch: fetchFn } as unknown as Fetcher, fetchFn };
   }
 
   it('rides env.EGRESS.fetch carrying the injected Bearer credential + manual redirect when strict (global NOT called)', async () => {
     await connect('gho_real_secret');
-    const egress = makeEgress();
-    const env = makeEnv({ EGRESS: egress.fetcher } as Partial<Env>);
-    const res = await makeInterceptor(env, { user: SESSION_USER, bucket: BUCKET, strict: true }).fetch(
-      new Request('https://api.github.com/user', { headers: { Authorization: 'Basic codeflare-enterprise' } }),
-    );
-    expect(res.status).toBe(200);
-    expect(egress.fetchFn).toHaveBeenCalled();
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-    expect(egress.calls[0].url).toBe('https://api.github.com/user');
-    expect(egress.calls[0].headers.get('authorization')).toBe('Bearer gho_real_secret');
-    expect(egress.calls[0].redirect).toBe('manual');
+    for (const status of [201, 429]) {
+      const body = status === 201 ? 'created' : 'rate-limited';
+      const egress = makeEgress(new Response(body, {
+        status, headers: { 'content-type': 'application/json', 'set-cookie': 'sid=abc' },
+      }));
+      const env = makeEnv({ EGRESS: egress.fetcher } as Partial<Env>);
+      const res = await makeInterceptor(env, { user: SESSION_USER, bucket: BUCKET, strict: true }).fetch(
+        new Request('https://api.github.com/user', { headers: { Authorization: 'Basic codeflare-enterprise' } }),
+      );
+      expect(res.status).toBe(status);
+      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(res.headers.get('content-type')).toBe('application/json');
+      expect(await res.text()).toBe(body);
+      expect(egress.calls[0].url).toBe('https://api.github.com/user');
+      expect(egress.calls[0].headers.get('authorization')).toBe('Bearer gho_real_secret');
+      expect(egress.calls[0].redirect).toBe('manual');
+      expect(lastFetch).toBeNull();
+    }
   });
 
   it('fails closed with 503 EGRESS_UNAVAILABLE when strict but the binding is unbound, and never fetches', async () => {
@@ -346,12 +354,14 @@ describe('REQ-ENTERPRISE-016: strict gateway egress transport swap / REQ-ENTERPR
 
   it('uses global fetch (not EGRESS) when strict is off, even with the binding present', async () => {
     await connect('gho_real_secret');
-    const egress = makeEgress();
+    const egress = makeEgress(new Response('strict-only', { status: 502 }));
     const env = makeEnv({ EGRESS: egress.fetcher } as Partial<Env>);
-    await makeInterceptor(env, { user: SESSION_USER, bucket: BUCKET }).fetch(new Request('https://api.github.com/user'));
-    expect(globalThis.fetch).toHaveBeenCalled();
-    expect(egress.fetchFn).not.toHaveBeenCalled();
+    const res = await makeInterceptor(env, { user: SESSION_USER, bucket: BUCKET }).fetch(new Request('https://api.github.com/user'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/json');
+    expect(await res.text()).toBe('upstream-ok');
     expect(lastFetch?.url).toBe('https://api.github.com/user');
+    expect(egress.calls).toEqual([]);
   });
 });
 
