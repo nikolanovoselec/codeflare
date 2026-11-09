@@ -267,7 +267,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-SESSION-003](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated launcher tests plus container-image and manual verification.
+**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [terminal-mode.test.js](../../host/__tests__/terminal-mode.test.js); Manual: [REQ-TERM-005 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-005-manual-qualification)
 
 **Status:** Implemented
 
@@ -297,7 +297,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Automated workspace tests plus manual mode-specific readiness verification.
+**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [prewarm-orphan-expiry.test.js](../../host/__tests__/prewarm-orphan-expiry.test.js), [terminal-mode.test.js](../../host/__tests__/terminal-mode.test.js), [workspace-readiness.test.js](../../host/__tests__/workspace-readiness.test.js); Manual: [REQ-TERM-035 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-035-manual-qualification)
 
 **Status:** Implemented
 
@@ -327,7 +327,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated frontend, launcher, and host cleanup tests plus manual lifecycle verification.
+**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts); Manual: [REQ-TERM-006 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-006-manual-qualification)
 
 **Status:** Implemented
 
@@ -359,7 +359,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated launcher and rclone-filter tests plus manual replacement acceptance.
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js); Manual: [REQ-TERM-033 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-033-manual-qualification)
 
 **Status:** Implemented
 
@@ -448,7 +448,7 @@ None.
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test ([terminal](../../web-ui/src/__tests__/stores/terminal.test.ts))
+**Verification:** Automated: [terminal.test.ts](../../web-ui/src/__tests__/stores/terminal.test.ts); Manual: [REQ-TERM-008 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-008-manual-qualification)
 
 **Status:** Implemented
 
@@ -618,7 +618,7 @@ None.
 
 **Dependencies:** [REQ-TERM-012](#req-term-012-multiview-virtual-session-workspace)
 
-**Verification:** Automated test
+**Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionSwitcher.test.tsx](../../web-ui/src/__tests__/components/SessionSwitcher.test.tsx); Manual: [REQ-TERM-013 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-013-manual-qualification)
 
 **Status:** Implemented
 
@@ -885,7 +885,7 @@ None.
 
 **Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards)
 
-**Verification:** Automated parser tests plus manual browser permission verification.
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [osc52.test.ts](../../web-ui/src/__tests__/lib/osc52.test.ts); Manual: [REQ-TERM-032 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-032-manual-qualification)
 
 **Status:** Implemented
 
@@ -916,7 +916,7 @@ None.
 
 **Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](#req-mob-020-terminal-touch-activation)
 
-**Verification:** Automated pointer encoding and mode-isolation tests plus manual browser interaction verification.
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [herdr-mouse.test.ts](../../web-ui/src/__tests__/lib/herdr-mouse.test.ts), [touch-gestures.test.ts](../../web-ui/src/__tests__/lib/touch-gestures.test.ts); Manual: [REQ-TERM-036 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-036-manual-qualification)
 
 **Status:** Implemented
 
@@ -943,7 +943,7 @@ None.
 
 **Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology)
 
-**Verification:** Automated mode-isolation and packaged-config checks plus manual browser shortcut verification.
+**Verification:** Automated: [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts); Manual: [REQ-TERM-037 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-037-manual-qualification)
 
 **Status:** Implemented
 
@@ -971,7 +971,7 @@ None.
 
 **Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-021](#req-term-021-synchronized-output-frame-atomicity), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling)
 
-**Verification:** Automated launcher and ordered-frame tests plus manual Samsung Internet viewport verification.
+**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [herdr-output-delivery.test.ts](../../web-ui/src/__tests__/stores/herdr-output-delivery.test.ts); Manual: [REQ-TERM-040 procedure](../../documentation/lanes/terminal-and-ide.md#req-term-040-manual-qualification)
 
 **Status:** Implemented
 
@@ -1743,7 +1743,7 @@ None.
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
 
-**Verification:** Automated test
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts), [terminal-connect-timeout.test.ts](../../web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts); Manual: [REQ-MOB-009 procedure](../../documentation/lanes/terminal-and-ide.md#req-mob-009-manual-qualification)
 
 **Status:** Implemented
 

@@ -93,7 +93,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Manual check
+**Verification:** Manual: [REQ-VAULT-002 procedure](../../documentation/lanes/vault.md#req-vault-002-manual-qualification)
 
 **Status:** Implemented
 
@@ -198,7 +198,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions), [REQ-VAULT-002](#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)
 
-**Verification:** Automated test
+**Verification:** Automated: [graphify-active-repo.test.js](../../host/__tests__/graphify-active-repo.test.js), [pi-global-graph-reconcile.test.ts](../../src/__tests__/lib/pi-global-graph-reconcile.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts); Manual: [REQ-VAULT-004 procedure](../../documentation/lanes/vault.md#req-vault-004-manual-qualification)
 
 **Status:** Implemented
 
@@ -228,7 +228,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts))
+**Verification:** Automated: [vault.test.ts](../../src/__tests__/routes/vault.test.ts); Manual: [REQ-VAULT-005 procedure](../../documentation/lanes/vault.md#req-vault-005-manual-qualification)
 
 **Status:** Implemented
 
@@ -256,7 +256,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-SESSION-009](session-lifecycle.md#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [index.test.ts](../../src/__tests__/container/index.test.ts); Manual: [REQ-VAULT-006 procedure](../../documentation/lanes/vault.md#req-vault-006-manual-qualification)
 
 **Status:** Implemented
 
@@ -286,7 +286,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start), [REQ-AGENT-014](agents.md#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Automated test ([entrypoint-vault-boot](../../host/__tests__/entrypoint-vault-boot.test.js))
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js); Manual: [REQ-VAULT-007 procedure](../../documentation/lanes/vault.md#req-vault-007-manual-qualification)
 
 **Status:** Implemented
 
@@ -315,7 +315,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions), [REQ-MEM-006](memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
-**Verification:** Automated test
+**Verification:** Automated: [vault-crypto.test.ts](../../src/__tests__/routes/vault-crypto.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts); Manual: [REQ-VAULT-008 procedure](../../documentation/lanes/vault.md#req-vault-008-manual-qualification)
 
 **Status:** Implemented
 
@@ -405,7 +405,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)
 
-**Verification:** Manual check
+**Verification:** Manual: [REQ-VAULT-011 procedure](../../documentation/lanes/vault.md#pdf-ingestion-e2e-plan-req-vault-011)
 
 **Status:** Implemented
 
@@ -433,7 +433,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [REQ-VAULT-012 procedure](../../documentation/lanes/vault.md#req-vault-012-manual-qualification)
 
 **Status:** Implemented
 
@@ -493,7 +493,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
-**Verification:** Automated test ([graphify-active-repo](../../host/__tests__/graphify-active-repo.test.js))
+**Verification:** Automated: [graphify-active-repo.test.js](../../host/__tests__/graphify-active-repo.test.js), [pi-global-graph-reconcile.test.ts](../../src/__tests__/lib/pi-global-graph-reconcile.test.ts); Manual: [REQ-VAULT-014 procedure](../../documentation/lanes/vault.md#req-vault-014-manual-qualification)
 
 **Status:** Implemented
 
@@ -521,7 +521,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test
+**Verification:** Automated: [preseed-config-treeview.test.js](../../host/__tests__/preseed-config-treeview.test.js), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [vault-cache.test.ts](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [REQ-VAULT-015 procedure](../../documentation/lanes/vault.md#req-vault-015-manual-qualification)
 
 **Status:** Implemented
 
@@ -548,7 +548,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)
 
-**Verification:** Manual check
+**Verification:** Manual: [REQ-VAULT-016 procedure](../../documentation/lanes/vault.md#req-vault-016-manual-qualification)
 
 **Status:** Implemented
 
@@ -1013,7 +1013,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-002](#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)
 
-**Verification:** Automated manifest-exclusion test and manual managed-instruction review
+**Verification:** Automated: [vault-manifest-detection.test.ts](../../src/__tests__/lib/vault-manifest-detection.test.ts); Manual: [REQ-VAULT-032 procedure](../../documentation/lanes/vault.md#req-vault-032-manual-qualification)
 
 **Status:** Implemented
 

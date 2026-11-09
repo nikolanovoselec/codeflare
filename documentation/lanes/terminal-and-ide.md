@@ -359,6 +359,86 @@ For REQ-GITHUB-012 AC1/AC6/AC7, use browser-e2e against protected Integration af
 | IDE integration/continuity | Browser IDE domain | [Package README](../../openvscode/README.md) | Owned package tests/image/deployed acceptance |
 | Local presence | REQ-TERM-045, Session Lifecycle | presentation/session store/hooks | Planned ordered cross-device/outage evidence |
 
+## Terminal manual qualification
+
+Record the exact revision/image, approved environment/device and redacted PASS/FAIL/BLOCKED observations. Missing prerequisites block acceptance; source, tests and method links alone never establish a pass.
+
+Protected access, lifecycle/destruction, writes, inference, builds, graph publication and service actions require separate current authorization and existing disposable prerequisites. Do not replay captures/conversations, install harnesses, expose personal data or keys, or change timeouts. These methods grant no such authority.
+
+<a id="req-term-005-manual-qualification"></a>
+### Herdr image and additional shells (REQ-TERM-005)
+
+
+AC1: Inspect the exact image's Container Image workflow steps “Verify packaged Herdr runtime”, “Scan image, generate SBOM, and prepare push tooling”, SBOM upload and provenance attestation. Match the installed version to image/herdr/provenance.json and the runtime digest, executable mode, license, managed config validation and disabled update settings to that image. Require successful scan, SBOM and provenance evidence for the same image, not an older successful run. Missing artifacts block qualification.
+
+AC6: In a fresh configured-agent Herdr session, use Herdr's own tab and pane actions (consult prefix+? Help for the installed bindings); in each new shell run `printf 'shell=%s\n' "$0"`. Pass only when both are plain Bash and neither repeats the configured agent. Preserve the original agent pane; a new agent launch fails.
+
+<a id="req-term-035-manual-qualification"></a>
+### Mode-specific prewarm adoption (REQ-TERM-035)
+
+
+AC1: For fresh Classic and Herdr Terminal sessions, correlate host “Pre-warming tab 1 PTY” identity/PID with the Session adopted when the browser attaches. Pass only when attachment adopts that prewarmed outer Session, not a newly spawned PTY; keep private identifiers out of browser evidence.
+
+AC3: In Classic, correlate first PTY output, “Pre-warm runtime ready, settling” and “Pre-warm ready (settled)” with the first usable browser input/output. Require first-output settlement followed by reachable input. Separately inspect an existing authorized silent-start observation for “Pre-warm ready (timeout)” and subsequent usable input/output. Do not alter startup commands or invent a timeout fixture to manufacture that observation. Without that case the timeout obligation remains unverified.
+
+<a id="req-term-006-manual-qualification"></a>
+### Herdr reconnect and shutdown (REQ-TERM-006)
+
+
+AC4: In a disposable Herdr session, create a tab and split pane and record shell PIDs with harmless `printf 'pid=%s\n' "$$"`. Disconnect the browser without stopping the container, reconnect, and repeat twice. Pass only if topology and the same live processes survive every client exit.
+
+AC5: With separate lifecycle/destruction permission, stop then delete that disposable session, inspecting the named runtime and descendant process state through authorized host access before teardown completes, and termination evidence afterward. Require runtime/descendant termination for both terminal-lifecycle cleanup and container shutdown; inaccessible post-destroy process state without independent exit evidence is blocked, not proof of no orphans. No Kill shortcut or unsynced work.
+
+<a id="req-term-033-manual-qualification"></a>
+### Structural replacement without output replay (REQ-TERM-033)
+
+
+AC3: Record a disposable Herdr session's workspaces/tabs/panes/layout/cwd/focus and any supported native agent session references. Emit a unique harmless pane-output sentinel, then complete normal sync and Stop. Only with replacement authorization, start its replacement from successfully synced state. Compare restored structural state; inspect every restored pane for the sentinel. Pass only when supported structure restores without prior pane output. Running shell/process survival is not promised; do not submit an old conversation or infer successful native resume from structure alone. Unavailable supported-reference evidence stays unverified.
+
+<a id="req-term-008-manual-qualification"></a>
+### Batching feedback and disposal (REQ-TERM-008)
+
+
+AC5: In a disposable idle Bash terminal, type a harmless unsent token, then clear it. Observe feedback under ordinary and approved harmless streaming output; record perceived lag and, if available, existing browser performance timestamps. A perceptible added batching delay fails. The AC supplies no numeric perception threshold; do not invent one or claim timing precision from subjective observation.
+
+AC6: While harmless output is pending, leave the visible terminal so its client is disposed, then open a different terminal. Require no late paint into the disposed surface, no output crossing into the new terminal, and no disposal error. Preserve the first backend session; client disposal is not Stop. Retain the existing per-terminal cancellation test as complementary evidence, not a substitute for this manual marker.
+
+<a id="req-term-013-manual-qualification"></a>
+### MultiView selected-row presentation (REQ-TERM-013)
+
+
+AC6: On a tablet/desktop with two authorized running sessions, open the session switcher and enter MultiView selection. Toggle one eligible row on then off without launching. Pass only when its selected appearance uses the success visual variant, is distinct from the unselected row, and clears when deselected. Record the visible row states, not merely a DOM attribute. A selected attribute with the wrong visual variant fails.
+
+<a id="req-term-032-manual-qualification"></a>
+### Classic OSC52 isolation and permission (REQ-TERM-032)
+
+
+AC5: In disposable Classic and Herdr Bash sessions with only harmless clipboard fixtures, set the clipboard to `clipboard-before`, then emit `printf '\033]52;c;Y2xpcGJvYXJkLWFmdGVy\007'`. Inspect using the browser's ordinary clipboard paste into a disposable field. Classic must leave `clipboard-before` unchanged and request no Herdr write; Herdr may write `clipboard-after` only as browser permission allows. Repeat with clipboard permission denied: denial must remain authoritative. Never log clipboard content or send a read/query sequence; personal clipboard data is excluded. Restore only the disposable fixture, not private clipboard history.
+
+<a id="req-term-036-manual-qualification"></a>
+### Samsung single activation (REQ-TERM-036)
+
+
+AC6: In Samsung Internet Herdr, tap Pi input and a Herdr control with the keyboard closed, then repeat with it open. Use the existing Mobile platform checks “Tap activation” and “Herdr focus and history” observations; require exactly one addressed activation in all four combinations. Duplicate activation or activation of another pane fails; no inference request is needed merely to tap input.
+
+<a id="req-term-037-manual-qualification"></a>
+### Packaged Help and Settings shortcuts (REQ-TERM-037)
+
+
+AC2: Inspect the exact image's “Verify packaged Herdr runtime” workflow evidence for pinned-binary `config check` and Help/Settings bindings. In the authorized browser session press Ctrl+B then ?, dismiss Help, then Ctrl+B then s. Pass only when Herdr opens Help and Settings respectively and browser bookmarks do not consume the prefix. Record unsupported OS-reserved combinations as outside browser control, not a promise to override the OS. Classic/unrelated-key handling stays unchanged.
+
+<a id="req-term-040-manual-qualification"></a>
+### Samsung fullscreen history during output (REQ-TERM-040)
+
+
+AC3: On Samsung Internet in a fresh Herdr Pi fullscreen session with separately approved ongoing inference/output, scroll above the live bottom and stop touching the screen while output continues. Pass only if the chosen historical viewport remains stable with no mixed rows and without clicking to repair it; explicitly move the viewport afterward. Do not replace this with a Bash line stream: Pi owns this fullscreen transcript. Without an approved output/inference budget this remains blocked.
+
+<a id="req-mob-009-manual-qualification"></a>
+### Chrome visibility-return focus ordering (REQ-MOB-009)
+
+
+AC1: On Android Chrome, open terminal input, background the browser, then return. With existing browser developer tools observe forceResetKeyboardState, overlay enable and input refocus order in terminal-mobile-input.ts::setupMobileInput; inspect keyboard/viewport state without copying terminal text. Pass only when signals reset and overlay enables before input refocus, with usable input and no stale keyboard gap. Cached geometry alone is not proof. Samsung must instead use its existing dashboard-bounce path; do not conflate the paths.
+
 ## Related Documentation
 
 - [Sessions & Runtime](container.md#container-startup)

@@ -516,6 +516,8 @@ SilverBullet writes pasted / drag-dropped attachments next to the note that refe
 <a id="pdf-ingestion-e2e-plan-req-vault-011"></a>
 ### PDF-Ingestion E2E Plan (REQ-VAULT-011)
 
+Use only separately authorized disposable PDF/capture and graph-publication inputs. These steps grant no permission to trigger extraction or refresh implicitly; Claude PDFs remain within the documented 20-page cap.
+
 Manual verification for runtime-specific PDF handling. Claude's content/vision/citation behavior is agent-prompt behavior driven by its `vault-extract-prompt.md`; Pi's prompt deliberately remains metadata-only. There is no synthetic PDF reader or shader-like internal test.
 
 1. Claude AC1/AC2 - healthy PDF: drop a multi-page text PDF into `Raw/Pasted/`, trigger an eligible resumed-session or crossed 20-prompt hash check, then confirm content-derived graph nodes.
@@ -744,6 +746,92 @@ Exhaustive Vault status remains in `sdd/spec/vault.md`; section-local links prov
 | Attachments/PDF | REQ-VAULT-011 | extraction runtime | Capability-dependent ingestion evidence |
 
 ---
+
+## Vault manual qualification
+
+Record the exact revision/image, approved environment/device and redacted PASS/FAIL/BLOCKED observations. Missing prerequisites block acceptance; source, tests and method links alone never establish a pass.
+
+Protected access, lifecycle/destruction, writes, inference, builds, graph publication and service actions require separate current authorization and existing disposable prerequisites. Do not replay captures/conversations, install harnesses, expose personal data or keys, or change timeouts. These methods grant no such authority.
+
+<a id="req-vault-002-manual-qualification"></a>
+### Capture artifact and publication review (REQ-VAULT-002)
+
+
+AC1–4: Inspect an authorized fresh natural capture's request and committed note/chunk/publication evidence, without resubmitting the request or rereading unrelated transcript content. Require the request-owned dated Raw/Sessions filename, YAML metadata and Context/Decisions/Observations/References sections; concepts must be wikilinks, paths/symbols/PR references prose. Compare canonical chunk/build output with cumulative user_vault contribution and its locked publication result. A note alone is not graph-publication proof.
+
+AC5: Inspect an existing failed extraction observation from a disposable run: the note remains on disk, successful progress is unchanged, Raw/Sessions stays excluded from Vault change detection, and only bounded memory delivery owns recovery. Do not inject faults into live capture or replay historical work. Without such failure evidence, record AC5 blocked.
+
+AC6: Inspect that same capture's tool/runner trace and installed capture configuration for absence of legacy MCP memory invocation or legacy JSONL graph reads. Require the current Vault path throughout. Do not treat lack of a legacy file alone as proof. The documented no-duplicate-headless-inference and request dedup boundaries remain prerequisites.
+
+<a id="req-vault-004-manual-qualification"></a>
+### Active graph invariant review (REQ-VAULT-004)
+
+
+AC5: Follow the existing “Single-active-repo invariant” numbered repo-resolution/reconcile/sentinel steps using already-existing authorized transition observations. Compare global manifest before/after: user_vault plus at most the active checkout, vault alone when no graph; additions/removals must share one bounded lock and failures must not advance sentinels. This is reconciliation, never permission to build a graph. For full writer serialization also use “Writer lock review” below; unavailable transition or contention observations remain unverified.
+
+<a id="req-vault-005-manual-qualification"></a>
+### SilverBullet packaged binary identity (REQ-VAULT-005)
+
+
+AC1: Inspect Dockerfile's SilverBullet download version and zip SHA256 check in the exact image build log; match that build's immutable image identity to the deployed fixture and installed /usr/local/bin/silverbullet version. Pass only when the server (not the similarly named CLI) came from the version/digest-verified archive. No new download, image build or deployment is authorized by this procedure; unavailable image provenance blocks identity acceptance.
+
+<a id="req-vault-006-manual-qualification"></a>
+### Shutdown elapsed observation (REQ-VAULT-006)
+
+
+AC3: With separately authorized Stop of a disposable session containing only synced fixture notes, correlate the entrypoint “Shutdown complete (elapsed: …s)” record with that stop and its final-sync outcome; retain elapsed duration and terminal outcome, not note contents. Missing or uncorrelated elapsed logging fails this AC. An elapsed line alone proves neither successful persistence nor correct watchdog/destroy coordination; preserve those existing automated and finalization obligations. Do not change timeout budgets.
+
+<a id="req-vault-007-manual-qualification"></a>
+### Vault preseed delivery review (REQ-VAULT-007)
+
+
+AC1/AC4: Compare the exact generated advanced and default Claude seed inventories with the manifest: advanced includes the Vault plugin, extraction prompt, capture rule and capture/operations skills; default includes none. Read the delivered memory rule and require Vault-only capture instructions.
+
+AC2/AC3: Inspect the same release's prebuild/generated agent-seed evidence and image preseed assets under /opt/silverbullet-preseed, then the advanced fixture's installed editor config. Require manifest-derived runtime seed delivery and image-staged editor assets without baking a user's Vault skeleton into the image. Returning user-owned notes and sibling user plug directories must remain untouched. Missing generated/build/runtime evidence blocks the respective case; source presence alone is insufficient.
+
+<a id="req-vault-008-manual-qualification"></a>
+### Encrypted local-store fixture (REQ-VAULT-008)
+
+
+AC4: In a disposable browser profile and advanced fixture, create a harmless uniquely identifiable note through SilverBullet, wait for its normal save/sync, then inspect that vault's sb_data_* and sb_files_* IndexedDB records in browser Application tools. Record only whether payload records use the native encrypted-KV representation and whether the harmless marker is absent from stored payload bytes; store names/metadata alone are not encrypted-content proof.
+
+Close/reopen normally through the Vault button and require correct decrypted note content. Do not expose config/key values, rotate keys, clear databases or use personal notes. If the representation cannot be distinguished with available tools, mark encryption unverified rather than treating a failed text search as proof. This checks offline-at-rest protection only, not authenticated-tab secrecy.
+
+<a id="req-vault-012-manual-qualification"></a>
+### Vault dashboard ordering (REQ-VAULT-012)
+
+
+AC4/AC5: Open the prepared Vault using its existing button flow and inspect Index.md's rendered dashboard. Require a working README link near the top and Notes/References ahead of generic recent-content widgets. Record visible ordering and link destination without editing the dashboard. A stored template alone does not prove rendered order.
+
+<a id="req-vault-014-manual-qualification"></a>
+### Writer lock review (REQ-VAULT-014)
+
+
+AC4: Inspect installed boot init, capture publisher, Vault extraction, active-repo reconciliation and graphify skill commit paths against “Graph Publication and Merge” writer inventory. Require /run/codeflare/locks/graphify-global.lock on each write site with its documented finite wait, including one critical section over each required merge/publication. Inspect existing disposable contention/failure observations: each writer completes or times out, resulting graph remains parseable, failed work does not commit success state, and later eligible work can proceed. Do not acquire locks or run graph writers in the live session. Static lock presence is not concurrency acceptance; missing per-writer contention evidence remains blocked.
+
+<a id="req-vault-015-manual-qualification"></a>
+### Treeview exclusion declaration and rendering (REQ-VAULT-015)
+
+
+AC2: Read installed CONFIG.md's space-lua treeview.exclusions block and compare it with the rendered navigation tree in the disposable editor. Require regex entries for Library/, Repositories/, graphify-out/ and root CONFIG/Index/README/STYLES; those entries must be hidden from navigation without deleting disk content. Do not confuse the separate /.fs listing filter or default dot-directory hiding with this block. A malformed silently ignored schema fails even if an empty fixture happens to hide the paths.
+
+<a id="req-vault-016-manual-qualification"></a>
+### Canonical graph and visualization review (REQ-VAULT-016)
+
+
+AC1: Inspect an authorized successful extraction's canonical chunk and cumulative graph, matching document/code node file_type and truthy source_file through global merge. Require preserved node identity in the shared schema, not merely valid JSON.
+
+AC2: Inspect that extraction's render/copy outcome, then open Raw/Graphs/Vault Graph.md and follow its visualization link through SilverBullet's .fs route. Require Raw/Graphs/vault-graph.html to reflect the inspected graph and load through that link. A successful graph publication with failed/stale best-effort visualization does not pass this manual AC. Do not rebuild or republish to obtain a method receipt.
+
+<a id="req-vault-032-manual-qualification"></a>
+### Archive ownership instruction review (REQ-VAULT-032)
+
+
+AC1: Read both delivered memory-capture agent definitions: Claude capture_file and Pi captureFilename must accept only the request-owned individual capture and explicitly forbid Archive.md, replacement/merging or deleting captures.
+
+AC2: Read both delivered vault-operations hard rules and retrieval guidance: hot captures first, archive only fallback, no archive edits or capture deletion.
+
+AC4: Read both delivered Vault-extract prompts: Raw/Sessions is excluded as semantic input, archive provenance in existing graph evidence is retained, and the archive is never read to regenerate that evidence. Record the exact delivered content revision and each positive/refusal instruction; do not launch capture/extraction or modify the archive. Source-only evidence leaves runtime delivery unverified.
 
 ## Related Documentation
 
