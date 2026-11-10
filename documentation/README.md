@@ -36,6 +36,8 @@ When public workflows or consumers change, update the owning document in the [pr
 
 ## Pending delivery
 
+The non-normative [SDD remediation overview](../SDD-REMEDIATION.md) tracks the approved cleanup scopes and publication milestones. It does not establish runtime acceptance or change the operational owners below.
+
 [Operator verification boundaries](lanes/operators.md#verification-boundaries) distinguish historical delivery receipts from current runtime qualification and hosted acceptance. The [Operator requirements](../sdd/spec/operators.md#req-operator-048-dispatcher-execution) own the trusted normal-host contract; no separate pending-work document is maintained.
 
 ## Audience Guide
