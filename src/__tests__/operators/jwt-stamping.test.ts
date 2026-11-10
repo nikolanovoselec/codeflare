@@ -74,7 +74,7 @@ describe('REQ-OPERATOR-019: automatic human Access JWT stamping', () => {
     const first = 'https://first.example.test/start';
     const next = 'https://next.example.test/finish';
     const denied = 'https://denied.example.test/private';
-    const sent: Array<{ url: string; assertion: string | null; redirect: RequestRedirect }> = [];
+    const sent: Array<{ url: string; assertion: string | null; redirect: Request['redirect'] }> = [];
     const policy: OperatorPolicy = { schemaVersion: 1,
       networkHosts: ['first.example.test', 'next.example.test'],
       github: { repositories: [], methods: [] },

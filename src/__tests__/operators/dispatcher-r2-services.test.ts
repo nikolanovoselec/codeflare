@@ -706,17 +706,24 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   it('concurrent renewal reads again under metadata serialization and shares one rotation', () => lane(async (f, store) => {
     await admitted(f);
     store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
-    // Share plain coordination state only. Each wait/timer belongs to the DO
-    // executing it; an Activity-owned pending promise cannot gate metadata I/O.
-    let started = false; let released = false;
+    // Notify the Runner when real OAuth HTTP starts; do not impose waitFor's
+    // shorter polling budget on the preceding public HTTP/authority work.
+    // Only the Runner awaits this notification. Metadata I/O still waits on
+    // plain release state using its own timer, never a Runner-owned promise.
+    let notifyStarted!: () => void;
+    const started = new Promise<void>(resolve => { notifyStarted = resolve; });
+    let released = false;
     const exchanges = oauthBoundary(async () => {
-      started = true;
+      notifyStarted();
       while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1));
       return tokenReply();
     });
     const requests: Promise<Response>[] = [];
     try {
-      requests.push(read(f)); await vi.waitFor(() => expect(started).toBe(true));
+      requests.push(read(f));
+      await Promise.race([started, requests[0].then(response => {
+        throw new Error(`Credential HTTP completed before OAuth release: ${response.status}`);
+      })]);
       requests.push(read(f)); released = true;
       for (const result of await Promise.all(requests)) expect(await json(result)).toEqual({ apiKey: renewedAccess });
       expect(exchanges).toHaveLength(1);

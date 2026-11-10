@@ -17,15 +17,19 @@ const mockAuthResult = {
 };
 let mockAuthShouldReject = false;
 
-vi.mock('../../lib/access', () => ({
-  authenticateRequest: vi.fn(async () => {
-    if (mockAuthShouldReject) {
-      throw new AppError('AUTH_ERROR', 401, 'Not authenticated');
-    }
-    return { ...mockAuthResult, user: { ...mockAuthResult.user } };
-  }),
-  resolveBucketName: vi.fn(async () => mockAuthResult.bucketName),
-}));
+vi.mock('../../lib/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return {
+    ...actual,
+    authenticateRequest: vi.fn(async () => {
+      if (mockAuthShouldReject) {
+        throw new AppError('AUTH_ERROR', 401, 'Not authenticated');
+      }
+      return { ...mockAuthResult, user: { ...mockAuthResult.user } };
+    }),
+    resolveBucketName: vi.fn(async () => mockAuthResult.bucketName),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Stripe mock

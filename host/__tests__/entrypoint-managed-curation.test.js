@@ -20,8 +20,19 @@ const retiredExtensions = ['review-job-helpers.ts', 'review-jobs.ts', 'review-la
 
 function functionSource(name) {
   const start = lines.findIndex((line) => line === `${name}() {`);
-  const end = lines.findIndex((line, index) => index > start && line === '}');
   assert.notEqual(start, -1, `${name} missing`);
+  let end = -1;
+  let heredoc;
+  for (let index = start + 1; index < lines.length; index++) {
+    const line = lines[index];
+    if (heredoc) {
+      if (line.replace(/^\t+/, '') === heredoc) heredoc = undefined;
+      continue;
+    }
+    const marker = line.match(/<<-?\s*['"]?([A-Za-z_]\w*)['"]?/);
+    if (marker) heredoc = marker[1];
+    else if (line === '}') { end = index; break; }
+  }
   assert.notEqual(end, -1, `${name} terminator missing`);
   return lines.slice(start, end + 1).join('\n');
 }
