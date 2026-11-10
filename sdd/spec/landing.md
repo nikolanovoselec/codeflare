@@ -325,7 +325,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Automated: [Execution reel script](../../landing/src/__tests__/execution-reel.script.test.ts); Manual: [Execution reel reduced-motion acceptance](../../landing/README.md#execution-reel-reduced-motion-acceptance)
+**Verification:** Manual: [Execution reel reduced-motion acceptance](../../landing/README.md#execution-reel-reduced-motion-acceptance)
 
 **Status:** Implemented
 
@@ -383,7 +383,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-010](#req-landing-010-execution-overview-reel), [REQ-LANDING-011](#req-landing-011-execution-reel-progressive-motion)
 
-**Verification:** Automated: [Hero frame script](../../landing/src/__tests__/feature-terminals.script.test.ts), [Execution reel script](../../landing/src/__tests__/execution-reel.script.test.ts), [Landing page](../../landing/src/__tests__/index-page.test.ts); Manual: [Execution reel responsive acceptance](../../landing/README.md#execution-reel-responsive-acceptance)
+**Verification:** Manual: [Execution reel responsive acceptance](../../landing/README.md#execution-reel-responsive-acceptance)
 
 **Status:** Implemented
 

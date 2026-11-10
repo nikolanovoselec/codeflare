@@ -300,7 +300,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       });
 
     it('REQ-SETUP-004: fresh Environment refusal releases admission for changed input without provisioning', async () => {
-      const app = createTestApp({}, true);
+      const app = createTestApp({ R2_ACCOUNT_ID: 'acc123' }, true);
       await mockKV.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({
         runId: 'environment-run', expiresAt: new Date(Date.now() + 60_000).toISOString(),
       }));

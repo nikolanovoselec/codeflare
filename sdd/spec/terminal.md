@@ -1101,7 +1101,7 @@ None.
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
+**Verification:** Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
 **Status:** Implemented
 
@@ -1131,7 +1131,7 @@ None.
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries)
 
-**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [agent-notifications.test.ts](../../web-ui/src/__tests__/lib/agent-notifications.test.ts); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
+**Verification:** Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
 **Status:** Implemented
 
@@ -1303,7 +1303,7 @@ None.
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary)
 
-**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
+**Verification:** Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
 **Status:** Implemented
 

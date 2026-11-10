@@ -482,8 +482,6 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 2. Catalog search and cursor pages are authorization-filtered before return, with a default page size of 50 and maximum of 100. <!-- @impl: src/routes/operator-management.ts::query --> <!-- @impl: src/operators/registry.ts::listManagementOperators --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (REQ-OPERATOR-043) --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (enumerates populated operator catalog pages without skipping, duplicating or exposing hidden records) -->
 3. A release or configuration change in one installation does not change another installation. <!-- @impl: src/operators/registry.ts::promoteManagementInstallation --> <!-- @impl: src/operators/registry.ts::configureManagementInstallation --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (REQ-OPERATOR-043) -->
 
-**Notes:** Collision refusal, authorization-filtered search/pages and installation-local release/configuration updates are implemented. The pinned-version fixture reads back the unchanged sibling after promotion and configuration.
-
 **Constraints:** Catalog and installation projections contain no stored source credential or hidden unauthorized count. Shared operator-policy changes are not installation-local configuration changes.
 
 **Priority:** P0
@@ -1882,7 +1880,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. Synchronization seals exact declared outputs and requires independent verification before completion. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
 7. Storage inspection is owner-scoped, canonical-path bounded and read-only. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
 
-**Notes:** Claimed-packet initialization must exactly match the private current-generation Activity checkpoint before startup. Other initialization undergoes bounded profile, file, task and authority validation; checkpoint equality is not a universal initialization check. Native owned-session profile and restore verification uses the manual method below alongside component automation.
+**Notes:** See [claimed-packet initialization boundaries](../../documentation/lanes/operators.md#opaque-package-attachment-restore-req-operator-052) and [owned-session and resource acceptance](../../documentation/lanes/operators.md#owned-session-and-resource-acceptance).
 
 **Constraints:**
 
@@ -1915,7 +1913,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 4. Verified resources are available before package work starts and never enter synchronized user storage. <!-- @impl: src/container/index.ts::configureOperatorResources --> <!-- @impl: src/operators/package-resources.ts::verifyOperatorPackageResourceProjection --> <!-- @impl: scripts/materialize-operator-inputs.mjs::materializeOperatorInputs --> <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) --> <!-- @test: host/__tests__/operator-review-startup.test.js (REQ-OPERATOR-021: stages the approved packets/resources at the actual restricted Pi paths before readiness) --> <!-- @manual -->
 5. Missing, oversized, path-escaping, symlinked or digest-mismatched resources fail closed before package work starts. <!-- @impl: src/operators/package-resources.ts::verifyOperatorPackageResourceProjection --> <!-- @impl: scripts/materialize-operator-inputs.mjs::materializeOperatorInputs --> <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) --> <!-- @test: host/__tests__/operator-review-startup.test.js (REQ-OPERATOR-052 AC5: invalid inline resources leave no staged package input) --> <!-- @test: host/__tests__/operator-review-startup.test.js (REQ-OPERATOR-021: forged package resources cannot replace the approved reviewer instructions) --> <!-- @manual -->
 
-**Notes:** Activity persistence retains the admitted artifact-bound inline-resource projection. Inline restore writes beneath `/run/codeflare/operator-resources/<artifactDigest>/`; input materialization precedes readiness. Component tests cover reconstruction, projection validation and real-file materializer rejection, not native early restore or work-start ordering. Those native outcomes and exclusion from synchronized storage use the manual method below.
+**Notes:** See [owned-session and resource acceptance](../../documentation/lanes/operators.md#owned-session-and-resource-acceptance).
 
 **Constraints:** Package resources grant no authority; Codeflare stores only opaque locator and integrity metadata, and package code alone interprets contents.
 
