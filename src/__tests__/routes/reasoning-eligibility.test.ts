@@ -538,7 +538,8 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     const savedToken = 'saved-verification-token';
     const encrypted = await encryptForKV(JSON.stringify({ token: savedToken }), await importEncryptionKey(f.env.ENCRYPTION_KEY), SETUP_KEYS.AIG_TOKEN);
     f.kv._store.set(SETUP_KEYS.AIG_TOKEN, encrypted);
-    f.kv._set(SETUP_KEYS.AIG_GATEWAY_URL, gatewayUrl);
+    // Gateway coordinates are stored as raw text, not JSON-encoded strings.
+    f.kv._store.set(SETUP_KEYS.AIG_GATEWAY_URL, gatewayUrl);
     const base = getBuiltInProfile(profileRef.id)!;
     const draft = normalizeCustomProfile({ schemaVersion: 1, id: 'custom-encrypted-connection', name: 'Encrypted connection draft', revision: 1,
       enabled: true, supportedLevels: base.supportedLevels, removePaths: base.removePaths, levels: base.levels,

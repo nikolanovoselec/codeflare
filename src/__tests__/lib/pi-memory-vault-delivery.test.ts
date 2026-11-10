@@ -1768,7 +1768,9 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       expect(delivered.request).toMatchObject({ subagent_type: 'vault-extract', run_in_background: true });
       // The old successful completion stays in the transcript while the new
       // correlated public request is consumed and commits the full delta.
-      appendEntry(harness.sessionFile, toolCall('recovered-stage', 'vault-extract', delivered.request));
+      const recoveredLaunch = latestLaunch(harness.pi, 'vault-extract');
+      expect(recoveredLaunch.request).toEqual(delivered.request);
+      appendEntry(harness.sessionFile, toolCall('recovered-stage', 'vault-extract', recoveredLaunch.request));
       writePostCommitChunk(harness, replacement.requestId);
       appendEntry(harness.sessionFile, notification('recovered-stage', 'Done'));
       await harness.emit('agent_settled');

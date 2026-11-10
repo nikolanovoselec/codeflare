@@ -150,10 +150,10 @@ describe('SubscriptionManagement (Admin)', () => {
     fireEvent.change(screen.getByLabelText('Max Sessions'), { target: { value: '3' } });
     fireEvent.change(screen.getByLabelText('Storage Quota (MB)'), { target: { value: '512' } });
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Edited free tier' } });
-    fireEvent.change(screen.getByLabelText('Stripe Price ID'), { target: { value: 'price_synthetic_free' } });
+    fireEvent.change(screen.getByLabelText(/^Stripe Price ID/), { target: { value: 'price_synthetic_free' } });
     fireEvent.change(screen.getByLabelText('Trial Quota (hours)'), { target: { value: '9' } });
     fireEvent.change(screen.getByLabelText(/Advanced Mode/), { target: { checked: true } });
-    fireEvent.change(screen.getByLabelText('Stripe Advanced Price ID'), { target: { value: 'price_synthetic_advanced' } });
+    fireEvent.change(screen.getByLabelText(/^Stripe Advanced Price ID/), { target: { value: 'price_synthetic_advanced' } });
     expect(screen.queryByLabelText(/display name|can login|is default|ordering|monthly price/i)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await screen.findByText('Saved');
@@ -168,7 +168,7 @@ describe('SubscriptionManagement (Admin)', () => {
     expect(screen.getByLabelText('Monthly Hours')).toHaveValue('7');
     expect(screen.getByLabelText('Max Sessions')).toHaveValue(3);
     expect(screen.getByLabelText('Description')).toHaveValue('Edited free tier');
-    expect(screen.getByLabelText('Stripe Advanced Price ID')).toHaveValue('price_synthetic_advanced');
+    expect(screen.getByLabelText(/^Stripe Advanced Price ID/)).toHaveValue('price_synthetic_advanced');
   });
 
   it('should show success message after save', async () => {

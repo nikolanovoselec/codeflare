@@ -66,7 +66,7 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
   it('REQ-SEC-001 AC3: configured SaaS sessions reject missing, malformed, and wrong-signer cookies without granting bucket ownership', async () => {
     const secret = 'synthetic-session-secret-32-chars!!';
     const forged = await signSessionJWT(
-      { email: 'attacker@example.test', sub: 'synthetic-user' },
+      { email: 'attacker@example.test', sub: 'synthetic-user', ghLogin: 'synthetic-user' },
       'different-synthetic-secret-32-chars!!',
     );
     const env = makeEnv({ SAAS_MODE: 'active', OAUTH_CLIENT_ID: 'synthetic-client', OAUTH_JWT_SECRET: secret });

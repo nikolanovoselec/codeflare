@@ -121,6 +121,7 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
     cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     Object.defineProperty(window, 'location', {
       value: originalLocation,
       writable: true,
@@ -538,6 +539,17 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
 
   describe('REQ-SETUP-009 AC coverage', () => {
     it('REQ-SETUP-009 AC1: /app/subscribe shows available tiers with features, hours, sessions, and pricing', async () => {
+      // Assert final rendered content using the hook's supported reduced-motion path.
+      vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+        matches: query.includes('prefers-reduced-motion'),
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })));
       await openTierView();
 
       await waitFor(() => {

@@ -362,10 +362,17 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
       const before = [...mockKV._store];
       const boundState = await signOauthState(TEST_SECRET, 'bucket-victim');
       vi.mocked(authenticateRequest).mockRejectedValueOnce(new Error('Session expired'));
+      const startedAt = Date.now();
       const response = await createApp().request(`/connect/callback?code=unusable-code&state=${encodeURIComponent(boundState)}`);
       expect(response.status).toBe(302);
       expect(response.headers.get('Location')).toContain('error=session-expired');
-      expect([...mockKV._store]).toEqual(before);
+      // The callback's anonymous rate limiter runs before session authentication.
+      // Account for exactly that counter, retaining the entire protected KV snapshot.
+      const rateLimit = JSON.parse(mockKV._store.get('github-auth:anonymous')!);
+      expect(rateLimit).toEqual({ count: 1, windowStart: expect.any(Number) });
+      expect(rateLimit.windowStart).toBeGreaterThanOrEqual(startedAt);
+      expect(rateLimit.windowStart).toBeLessThanOrEqual(Date.now());
+      expect([...mockKV._store]).toEqual([...before, ['github-auth:anonymous', JSON.stringify(rateLimit)]]);
       expect(connectGithub).not.toHaveBeenCalled();
     });
 
@@ -403,11 +410,16 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
       // A replay must stop at the actual persisted nonce guard rather than
       // reaching the existing provider/token-store boundary a second time.
       vi.mocked(connectGithub).mockClear();
-      const claimedState = [...mockKV._store];
+      const claimedState = new Map(mockKV._store);
+      const rateLimit = JSON.parse(claimedState.get('github-auth:anonymous')!);
+      expect(rateLimit).toEqual({ count: 1, windowStart: expect.any(Number) });
+      // Replay still passes through the limiter, but cannot change the nonce or
+      // any connection state. Only this exact counter advances in the full snapshot.
+      claimedState.set('github-auth:anonymous', JSON.stringify({ count: 2, windowStart: rateLimit.windowStart }));
       const replay = await app.request(`/connect/callback?code=valid-code&state=${boundState}`);
       expect(replay.status).toBe(302);
       expect(replay.headers.get('Location')).toContain('github=expired');
-      expect([...mockKV._store]).toEqual(claimedState);
+      expect([...mockKV._store]).toEqual([...claimedState]);
       expect(connectGithub).not.toHaveBeenCalled();
     });
   });
