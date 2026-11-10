@@ -575,34 +575,22 @@ RUN cd /opt/codeflare/npm-tools && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
 
-# Antigravity (Go-native binary, curl installer, not npm). Fatal on failure (no fallback).
-#
-# The installer itself is pinned by sha256; previously this was a bare
-# `curl … | bash`, so whatever that URL served at build time ran as root with no
-# integrity check at all. The PAYLOAD is already covered — the script fetches a
-# manifest carrying a sha512 and aborts on mismatch ("Security Halt") — but the
-# manifest is served by the same host, so that is self-certifying. Pinning the
-# script is what stops arbitrary substitution; tracked by the `antigravity-cli`
-# job in bump-shadow-pins.yml so it still updates, visibly.
-#
-# BREAK-GLASS: this URL is unversioned, so the moment Google edits the script
-# every image build fails here — including an emergency hotfix — until the hash
-# is updated. That is the point of a pin, but the recovery path must not be
-# discovered mid-incident: read the new script, then set this ARG to its sha256
-# (`curl -fsSL <url> | sha256sum`). Do NOT work around it by dropping the check.
-ARG ANTIGRAVITY_INSTALLER_SHA256=62966c07365423bd4dc209355060744058fb30d60f5323e2d360e39de64e5042
+# Antigravity native linux-x64 release. The vendor manifest authorizes updates
+# only in bump-shadow-pins.yml; image builds consume this committed identity,
+# never the mutable manifest or installer. Verify before reading archive members.
+ARG ANTIGRAVITY_VERSION=1.5.4
+ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.4-5037094733742080/linux-x64/cli_linux_x64.tar.gz
+ARG ANTIGRAVITY_SHA512=1431a409ef7c7bce23f4abf03f988afab728ba87d91d24ed7db0d5eea3ab71a4b590bf0bf2c79cec84f79b32b674ea38df0417356ce8d5d4f698cd62ea9ee6be
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
-      curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/agy-install.sh && \
-      echo "${ANTIGRAVITY_INSTALLER_SHA256}  /tmp/agy-install.sh" | sha256sum -c - && \
-      bash /tmp/agy-install.sh && \
-      AGY_BIN=$(command -v agy || find / -name 'agy' -type f -perm -u+x 2>/dev/null | grep -v '/proc/' | head -1) && \
-      [ -n "$AGY_BIN" ] || { echo "ERROR: agy binary not found after antigravity install" >&2; exit 1; } && \
-      if [ "$AGY_BIN" != "/usr/local/bin/agy" ]; then ln -sf "$AGY_BIN" /usr/local/bin/agy; fi && \
-      agy --version; \
+      curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 300 --max-filesize 268435456 "$ANTIGRAVITY_URL" -o /tmp/agy.tar.gz && \
+      printf '%s  %s\n' "$ANTIGRAVITY_SHA512" /tmp/agy.tar.gz | sha512sum -c - && \
+      python3 -c 'import shutil, sys, tarfile; archive = tarfile.open("/tmp/agy.tar.gz", "r:gz"); members = archive.getmembers(); (len(members) == 1 and members[0].name == "antigravity" and members[0].isfile() and 0 < members[0].size <= 268435456) or sys.exit("unexpected Antigravity archive members"); source = archive.extractfile(members[0]); target = open("/tmp/agy", "wb"); shutil.copyfileobj(source, target); target.close(); archive.close()' && \
+      install -m 0755 /tmp/agy /usr/local/bin/agy && \
+      /usr/local/bin/agy --version; \
     else \
       echo "Antigravity omitted by CODEFLARE_CODING_AGENTS"; \
     fi && \
-    rm -rf /tmp/*
+    rm -f /tmp/agy.tar.gz /tmp/agy
 
 # Preinstall Pi extension npm dependencies into an image-local seed cache.
 # ~/.pi/agent/npm/node_modules is excluded from R2 sync, so without this Pi

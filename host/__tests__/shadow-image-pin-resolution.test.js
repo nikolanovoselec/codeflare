@@ -94,3 +94,32 @@ esac
     }
   });
 }
+
+const agyManifest = 'https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json';
+const agyCandidate = {
+  version: '1.5.4',
+  url: 'https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.4-5037094733742080/linux-x64/cli_linux_x64.tar.gz',
+  sha512: 'a'.repeat(128),
+};
+test('REQ-AGENT-001 AC3: Antigravity resolves the vendor stable native identity, not an installer hash', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (url !== agyManifest) throw new Error(`unexpected vendor endpoint: ${url}`);
+    return Response.json(agyCandidate);
+  });
+  assert.deepEqual(await resolveCandidate('antigravity', '1.5.3'), agyCandidate);
+});
+for (const [label, patch] of [
+  ['prerelease', { version: '1.5.4-beta.1' }],
+  ['missing checksum', { sha512: undefined }],
+  ['malformed checksum', { sha512: 'bad' }],
+  ['foreign host', { url: agyCandidate.url.replace('storage.googleapis.com', 'example.com') }],
+  ['wrong platform', { url: agyCandidate.url.replace('linux-x64', 'linux-arm64') }],
+  ['wrong version', { url: agyCandidate.url.replace('1.5.4-', '1.5.3-') }],
+  ['mutable path', { url: agyCandidate.url.replace('1.5.4-5037094733742080', 'latest') }],
+  ['query suffix', { url: `${agyCandidate.url}?alternate=1` }],
+]) {
+  test(`REQ-AGENT-001 AC3: Antigravity rejects ${label} metadata`, async (t) => {
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ ...agyCandidate, ...patch }));
+    await assert.rejects(resolveCandidate('antigravity', '1.5.3'));
+  });
+}

@@ -28,9 +28,8 @@ name: Bump Shadow Pins
 #   opencode-ai, copilot, pi-coding-agent) from the shared npm-tools lock; the
 #   candidate is the newest release published MORE than 7 days ago, mirroring
 #   the dependabot.yml cooldown, and the bump is forward-only
-# - the Antigravity CLI installer script, pinned by sha256 in the Dockerfile
-#   (a changed hash is both a normal vendor update and what substitution looks
-#   like, so its PR asks for the installer diff to be reviewed)
+# - the Antigravity native release version, archive URL and SHA512 in Dockerfile;
+#   same-major stable bumps revalidate the vendor candidate and prior pin identity
 
 on:
   schedule:
@@ -2275,10 +2274,7 @@ jobs:
             --body "$BODY"
 
   antigravity-cli:
-    # The Antigravity installer is a curl|bash from a Google-hosted URL. The
-    # payload it downloads is sha512-verified against a manifest, but the
-    # manifest comes from the same host, so the script itself is the only thing
-    # worth pinning — and it was not pinned at all.
+    # Review the native version/URL/SHA512 together; builds never query latest.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -2291,83 +2287,79 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Compare the pinned installer hash against what the URL serves
+      - name: Resolve the vendor stable native version and checksum
         id: ver
-        run: |
-          set -euo pipefail
-          # \K, not \\K. Inside SINGLE quotes the shell passes the backslash
-          # through verbatim, so \\K reaches PCRE as literal backslash + K and
-          # matches nothing; the assignment then fails under set -e and this job
-          # died at step 1 on every run. The sibling agent-clis job uses double
-          # quotes, where \\K is correct — same operator, two quoting contexts,
-          # and only one of them was right.
-          CURRENT=$(grep -oP '^ARG ANTIGRAVITY_INSTALLER_SHA256=\K[0-9a-f]{64}' Dockerfile)
-          curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/agy-install.sh
-          LATEST=$(sha256sum /tmp/agy-install.sh | cut -d' ' -f1)
-          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
-          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" = "$LATEST" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Installer unchanged."
-          else
-            echo "Installer changed: $CURRENT -> $LATEST"
-          fi
+        run: node scripts/ci/update-shadow-image-pins.mjs antigravity resolve >> "$GITHUB_OUTPUT"
 
-      - name: Skip if a branch for this hash already exists
+      - name: Skip if a branch for this version already exists
         if: steps.ver.outputs.skip != 'true'
         id: branch
         env:
           LATEST: ${{ steps.ver.outputs.latest }}
         run: |
           set -euo pipefail
-          BRANCH="bump/antigravity-installer-${LATEST:0:12}"
+          BRANCH="bump/antigravity-${LATEST}"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Apply bump and open PR
+      - name: Apply verified native pin bump and open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
+          CANDIDATE: ${{ steps.ver.outputs.candidate }}
+          PREVIOUS: ${{ steps.ver.outputs.previous }}
           BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -B "$BRANCH"
-          sed -i "s/^ARG ANTIGRAVITY_INSTALLER_SHA256=.*/ARG ANTIGRAVITY_INSTALLER_SHA256=${LAT}/" Dockerfile
+          git fetch origin develop
+          git checkout -B "$BRANCH" origin/develop
+          node scripts/ci/update-shadow-image-pins.mjs antigravity apply
           git add Dockerfile
           if git diff --cached --quiet; then
-            echo "Replacement matched nothing in Dockerfile"
+            echo "No native pin update applied" >&2
             exit 1
           fi
-          git commit -m "chore(deps): antigravity installer hash ${CUR:0:12} -> ${LAT:0:12}"
+          git commit -m "chore(deps): bump antigravity $CUR -> $LAT"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
 
           BODY=$(cat <<EOF
-          The Antigravity CLI installer served at \`https://antigravity.google/cli/install.sh\` changed.
+          ## Summary
+          Update Antigravity from \`$CUR\` to \`$LAT\` using the vendor's stable linux-amd64 manifest.
 
-          - was: \`$CUR\`
-          - now: \`$LAT\`
+          ## What ships
+          The native release version, versioned archive URL and authoritative SHA512 move together. Image builds verify the committed digest before extracting the bounded native member; they never execute the live installer.
 
-          **Review the diff of the installer script before merging.** This hash is the only thing standing between that URL and \`bash\` running as root in the image; a changed hash is expected when the vendor updates, and is also exactly what a substitution attack looks like.
+          ## Links and traceability
+          | Relationship | Reference | Why it matters |
+          |---|---|---|
+          | Requirement | [REQ-AGENT-001 AC3](https://github.com/${GITHUB_REPOSITORY}/blob/develop/sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) | Selected native CLIs require committed artifact integrity. |
 
-          Files updated:
-          - \`Dockerfile\` (\`ARG ANTIGRAVITY_INSTALLER_SHA256\`)
+          ## Verification
+          Resolution and application revalidated the vendor metadata and previous pin identity. Exact-head CI and selected-image smoke: Pending.
 
-          ## Test plan
-          - [ ] Installer diff reviewed
-          - [ ] CI green
+          ## Boundaries
+          Same-major stable forward updates only. Agent selection, npm locks and runtime ABI are unchanged. No deployment is requested.
+
+          ## Completion checklist
+          - [x] Native identity updated atomically.
+          - [ ] Exact-head CI and image acceptance pass.
+          - [ ] Owner authorizes merge.
+
+          ## Review record
+          Review pending.
           EOF
           )
           gh pr create \
             --base develop \
             --head "$BRANCH" \
-            --title "chore(deps): antigravity installer hash changed" \
+            --title "chore(deps): bump antigravity $CUR -> $LAT" \
             --body "$BODY"
 
   zizmor:
