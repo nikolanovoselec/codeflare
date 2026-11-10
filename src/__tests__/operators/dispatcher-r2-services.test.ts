@@ -709,7 +709,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     // Share state only across Activity/metadata contexts. Each waiter owns its
     // timer I/O, as in the post-claim authorization race fixture; a bare
     // notification promise can strand runInDurableObject's request context.
-    let started = false; let released = false; let secondRead = false;
+    let started = false; let released = false;
     const exchanges = oauthBoundary(async () => {
       started = true;
       while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1));
@@ -723,19 +723,9 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       })(), requests[0].then(response => {
         throw new Error(`Credential HTTP completed before OAuth release: ${response.status}`);
       })]);
-      // Hold rotation until the overlapping request has actually read the stale
-      // file. Returning the renewed key then requires the SDK's locked reread.
-      const observeSecondRead = (path: string) => {
-        if (path === `/owner-bucket/${authKey}`) secondRead = true;
-        else store.afterRead(observeSecondRead);
-      };
-      store.afterRead(observeSecondRead);
+      // Launch the overlapping request while refresh is held. Metadata queues
+      // the entire credential operation, so its R2 read must wait for release.
       requests.push(read(f));
-      await Promise.race([(async () => {
-        while (!secondRead && !released) await new Promise<void>(resolve => setTimeout(resolve, 1));
-      })(), requests[1].then(response => {
-        throw new Error(`Overlapping credential HTTP completed before OAuth release: ${response.status}`);
-      })]);
       released = true;
       for (const result of await Promise.all(requests)) expect(await json(result)).toEqual({ apiKey: renewedAccess });
       expect(exchanges).toHaveLength(1);
