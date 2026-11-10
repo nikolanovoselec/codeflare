@@ -86,7 +86,7 @@ describe('terminal-layout', () => {
       } as unknown as Terminal;
       const frames: string[] = [];
       registerLayoutDeps(() => new Map([[KEY, terminal]]),
-        () => new Map([[KEY, { readyState: WebSocket.OPEN, send: (frame: string) => frames.push(frame) } as WebSocket]]));
+        () => new Map([[KEY, { readyState: WebSocket.OPEN, send: (frame: string) => { frames.push(frame); } } as unknown as WebSocket]]));
       registerFitAddon('sess-mob010', 'term-1', { fit: () => {
         (terminal as { cols: number }).cols = 100;
         (terminal as { rows: number }).rows = 30;
