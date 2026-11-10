@@ -12,11 +12,30 @@ This is non-normative delivery tracking, not an operational lane, a new product 
 
 ## Task progress
 
-- **T01:** gaps and scoped decisions finalized in this checkpoint; task completion requires its successful publication.
-- **T02:** pending — freeze baseline, disjoint ownership, and validation targets.
+- **T01:** completed and successfully published at `416732e4eca05900bc5da21dc46582f65944f58e`.
+- **T02:** baseline, disjoint file ownership, and validation targets frozen in this checkpoint; completion requires its successful publication.
 - **T03–T08:** pending — lossless structure, anchors/methods, approved alignment, documentation, history, and existing-behavior evidence.
 - **T09:** pending — validate and publish recoverable milestones throughout repairs.
 - **T10:** pending — reconcile closure and obtain applicable required GREEN CI for the exact final pushed SHA.
+
+## Ownership and validation freeze
+
+The execution baseline is the published T01 head. Its only changes from the audited baseline are tracking documentation; no product, specification, test, dependency, or policy evidence was invalidated.
+
+The private ownership manifest assigns every approved scope to root integration and one exclusive owner per existing permitted file. Twelve disjoint owner groups cover agent specifications, operator/model specifications, lifecycle/storage specifications, adjacent specifications, three documentation partitions, historical decisions, and four test partitions. Reference paths are not permission to edit runtime or policy. New fixtures require an explicit existing-test-tree assignment before creation; no new harness or runtime export is authorized.
+
+Primary scope counts by task:
+
+- T03: 54 lossless representation scopes.
+- T04: 53 anchor/method scopes.
+- T05: 106 approved specification/support alignments.
+- T06: 142 documentation scopes.
+- T07: 45 historical/provenance scopes.
+- T08: 249 existing-behavior evidence scopes.
+
+Secondary facets remain required without counting a joint scope twice. Preserve clause/reference mappings before alignment; tests consume approved contracts, final anchors consume actual assertion bodies, and documentation/history consume the resulting references. Disjoint drafts may proceed in parallel; files never have concurrent writers. T09 accompanies every milestone and T10 consumes all closure evidence.
+
+Validation targets are claim-specific semantic review, the unchanged managed local-check route where applicable, and asynchronous applicable CI. No source strings, mock counts, CSS classes, method links, or retired fixtures substitute for the outcome being claimed. Protected/native/external acceptance remains separate. No broader audit is started.
 
 ## Verification and publication boundary
 
