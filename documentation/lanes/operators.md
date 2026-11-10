@@ -603,7 +603,7 @@ Structured Pi and restricted startup/shutdown tests use injected SDK sessions, c
 
 ### Component diagnostics evidence review
 
-For [REQ-OPERATOR-081](../../sdd/spec/operators.md#req-operator-081-retained-dispatcher-causal-evidence), inspect the immutable SDK event-production, application-consumer and parent-retention suites linked in its Verification field. Require real published-SDK receipt/application/commit/settlement events, both serial and nonserial consumer cases, and retained parent projection. Match each result to its actual source revision. These are distinct component executions, not a single hosted workload; absent results remain unverified. This review runs no Activity or provider operation.
+For [REQ-OPERATOR-081](../../sdd/spec/operators.md#req-operator-081-retained-dispatcher-causal-evidence), inspect the immutable SDK event-production, application-consumer and parent-retention suites linked in its Notes field. Require real published-SDK receipt/application/commit/settlement events, both serial and nonserial consumer cases, and retained parent projection. Match each result to its actual source revision. These are distinct component executions, not a single hosted workload; absent results remain unverified. This review runs no Activity or provider operation.
 
 ### Ordinary PTY coexistence acceptance
 

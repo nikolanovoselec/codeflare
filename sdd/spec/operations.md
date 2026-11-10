@@ -330,7 +330,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-164](#req-ops-164-integration-stress-mode-runtime-boundary)
 
-**Verification:** Automated: [workflow-stress-test.test.js](../../host/__tests__/workflow-stress-test.test.js); Manual: [Stress acceptance record inspection](../../documentation/lanes/ci-cd.md#stress-acceptance-record-inspection)
+**Verification:** Manual: [Stress acceptance record inspection](../../documentation/lanes/ci-cd.md#stress-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -346,7 +346,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. In stress-test deployment mode, all HTTP and WebSocket rate limits are bypassed to allow high virtual-user counts through a single service-token identity. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)) -->
 2. A one-time warning is logged per worker instance when the rate-limit bypass activates. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (REQ-OPS-008 AC5: one-time warning per isolate) -->
-3. Stress-test mode must not be active alongside SaaS mode; the combination returns 503 to all requests. <!-- @test: src/__tests__/index.test.ts (Edge-level setup redirect) --> <!-- @manual -->
+3. Stress-test mode must not be active alongside SaaS mode; the combination returns 503 to all requests. <!-- @test: src/__tests__/index.test.ts (REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -458,9 +458,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The worker name is configurable per environment. <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) --> <!-- @manual -->
-2. The worker is deployed with runtime configuration variables applied. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-3. Required worker secrets are written after deployment. <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) --> <!-- @manual -->
+1. The worker name is configurable per environment. <!-- @impl: .github/workflows/deploy.yml::WORKER_NAME --> <!-- @manual -->
+2. The worker is deployed with runtime configuration variables applied. <!-- @impl: .github/workflows/deploy.yml::run_deploy --> <!-- @manual -->
+3. Required worker secrets are written after deployment. <!-- @impl: .github/workflows/deploy.yml::jobs.deploy --> <!-- @manual -->
 4. The service user is seeded only when a service-auth secret is configured. <!-- @impl: scripts/ci/seed-service-user.sh::CF_ACCESS_CLIENT_SECRET --> <!-- @test: host/__tests__/seed-service-user.test.js (does nothing when neither service-auth secret is configured) --> <!-- @test: host/__tests__/seed-service-user.test.js (writes the fixed admin identity once when the first attempt succeeds) -->
 5. Three failed seed attempts fail deployment instead of publishing partial configuration as successful. <!-- @impl: scripts/ci/seed-service-user.sh::attempt --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/seed-service-user.test.js (fails after three unsuccessful writes) -->
 6. Deployment permits notification sender configuration to be absent; when any sender field is configured, all three fields must be present, valid, whitespace-trimmed, and internally consistent before Worker promotion. <!-- @impl: scripts/ci/validate-vapid-config.mjs::validateSubject --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (allows notifications to be omitted and validates a configured matching P-256 keypair before Worker promotion) -->
@@ -691,7 +691,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Zizmor, actionlint, governed CI Node/Trivy pins and rclone CI artifact pins update only validated non-workflow data, allowing the least-privilege GitHub Actions token to push their branches without workflow-write permission. <!-- @impl: scripts/ci/workflow-tool-pins.mjs::updateWorkflowToolPin --> <!-- @impl: scripts/ci/workflow-tool-pins.mjs::stageDefaultManifest --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::zizmor --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @test: host/__tests__/workflow-tool-pins.test.js (REQ-OPS-041: least-privilege workflow-tool pin updates) -->
+1. Zizmor, actionlint, governed CI Node/Trivy pins and rclone CI artifact pins update only validated non-workflow data, allowing the least-privilege GitHub Actions token to push their branches without workflow-write permission. <!-- @impl: scripts/ci/workflow-tool-pins.mjs::updateWorkflowToolPin --> <!-- @impl: scripts/ci/workflow-tool-pins.mjs::stageDefaultManifest --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::zizmor --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @test: host/__tests__/workflow-tool-pins.test.js (REQ-OPS-041: least-privilege workflow-tool pin updates) --> <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::updateShadowImagePins --> <!-- @test: host/__tests__/shadow-image-pin-update.test.js (REQ-OPS-020: CI-only pins update data rather than executable workflows; Node remains patch-only) --> <!-- @test: host/__tests__/shadow-image-pin-update.test.js (REQ-OPS-020 AC4: rclone source checksum invalidates while matching CI archive remains authenticated) -->
 
 **Constraints:** GitHub Actions referenced through `uses:` remain pinned directly to immutable commits in workflow files.
 
@@ -699,7 +699,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation), [REQ-OPS-021](#req-ops-021-workflow-file-static-analysis)
 
-**Verification:** Automated: [workflow-tool-pins.test.js](../../host/__tests__/workflow-tool-pins.test.js)
+**Verification:** Automated: [workflow-tool-pins.test.js](../../host/__tests__/workflow-tool-pins.test.js), [shadow-image-pin-update.test.js](../../host/__tests__/shadow-image-pin-update.test.js)
 
 **Status:** Implemented
 
@@ -1407,7 +1407,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Baseline sync uses its protected work directory after disposable files are cleared. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/runtime-paths.test.js (REQ-OPS-047 AC2: passes the protected rclone workdir through establish_bisync_baseline after disposable cleanup) -->
 3. Periodic sync uses its protected work directory after disposable files are cleared. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/runtime-paths.test.js (REQ-OPS-047 AC3: passes the protected rclone workdir through bisync_with_r2 after disposable cleanup) -->
 4. The cadence daemon invokes periodic sync from that state. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
-5. Manual sync requests use the protected daemon PID and status files. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: the production adapter reads the PID, delivers SIGUSR1, reads status, and returns 200) -->
+5. Manual sync requests read the protected daemon PID and signal the daemon (SIGUSR1 for ordinary triggers, SIGUSR2 for explicit recovery). <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-STOR-015: authenticated manual recovery uses SIGUSR2; ordinary triggers use SIGUSR1) -->
 6. Sync health reporting reads the protected status file. <!-- @impl: host/src/metrics.ts::getSyncStatus --> <!-- @test: host/__tests__/metrics.test.js (returns parsed sync status from file) -->
 7. Final sync uses the same protected daemon state as manual sync. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: signals the daemon and waits for syncing-to-success before returning 200) -->
 

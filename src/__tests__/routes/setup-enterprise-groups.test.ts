@@ -602,33 +602,81 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_oauth_client_secret', expect.any(String));
       });
 
-      it('persists the Cloudflare OAuth client (id plain, secret encrypted) in non-enterprise', async () => {
+      it('REQ-AGENT-230: admin configure persists Cloudflare OAuth ciphertext that independently decrypts with the immutable key', async () => {
         const app = createTestApp({ ENCRYPTION_KEY: ENC_KEY }); // no ENTERPRISE_MODE
+        // Exercise conditional setup auth + requireAdmin, not public bootstrap.
+        // Like the existing auth middleware fixtures, auth domain/aud are unset;
+        // identity uses the pre-auth-configuration email-header fallback.
+        mockKV._store.set('setup:complete', 'true');
+        mockKV._set('user:user@example.com', { role: 'admin' });
         mockFullSuccessFlow();
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'cf-access-authenticated-user-email': 'user@example.com' },
           body: JSON.stringify({ ...standardBody, cloudflareOauthClientId: 'cf-cid', cloudflareOauthClientSecret: 'cf-secret' }),
         });
 
         expect(res.status).toBe(200);
-        await readNdjson(res);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
         expect(mockKV.put).toHaveBeenCalledWith('setup:cloudflare_oauth_client_id', 'cf-cid');
         expect(mockKV.put).toHaveBeenCalledWith('setup:cloudflare_oauth_client_secret', expect.any(String));
+        expect(await mockKV.get('setup:cloudflare_oauth_client_id')).toBe('cf-cid');
+        const stored = mockKV._store.get('setup:cloudflare_oauth_client_secret')!;
+        expect(stored).toMatch(/^v1:/); // documented KV ciphertext wire format
+        expect(stored).not.toContain('cf-secret');
+        expect(stored).not.toBe(JSON.stringify({ secret: 'cf-secret' }));
+        // Independent Web Crypto decode: no production decrypt/import helpers,
+        // getAndDecrypt migration, replacement key, or key-rotation assumption.
+        const key = await crypto.subtle.importKey(
+          'raw', Uint8Array.from(atob(ENC_KEY), char => char.charCodeAt(0)),
+          { name: 'AES-GCM' }, false, ['decrypt'],
+        );
+        const payload = Uint8Array.from(atob(stored.slice(3)), char => char.charCodeAt(0));
+        const plaintext = await crypto.subtle.decrypt({
+          name: 'AES-GCM', iv: payload.subarray(0, 12),
+          additionalData: new TextEncoder().encode('setup:cloudflare_oauth_client_secret'),
+        }, key, payload.subarray(12));
+        expect(JSON.parse(new TextDecoder().decode(plaintext))).toEqual({ secret: 'cf-secret' });
+      });
+
+      it('REQ-AGENT-230: non-admin configure is rejected with the stored configuration unchanged', async () => {
+        const app = createTestApp({ ENCRYPTION_KEY: ENC_KEY });
+        mockKV._store.set('setup:complete', 'true');
+        mockKV._set('user:regular@example.com', { role: 'user' });
+        mockKV._store.set('setup:cloudflare_oauth_client_id', 'saved-cid');
+        const ciphertext = await encryptForKV(JSON.stringify({ secret: 'saved-secret' }), await importEncryptionKey(ENC_KEY), 'setup:cloudflare_oauth_client_secret');
+        mockKV._store.set('setup:cloudflare_oauth_client_secret', ciphertext);
+        const before = Array.from(mockKV._store.entries());
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'cf-access-authenticated-user-email': 'regular@example.com' },
+          body: JSON.stringify({ ...standardBody, cloudflareOauthClientId: 'replacement-cid', cloudflareOauthClientSecret: 'replacement-secret' }),
+        });
+
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({ code: 'FORBIDDEN', error: 'Access denied' });
+        expect(Array.from(mockKV._store.entries())).toEqual(before);
       });
 
       it('rejects a Cloudflare client secret with no ENCRYPTION_KEY (fail closed, no write)', async () => {
         const app = createTestApp({}); // no ENCRYPTION_KEY, no ENTERPRISE_MODE
+        mockKV._store.set('setup:cloudflare_oauth_client_id', 'saved-cid');
+        const ciphertext = await encryptForKV(JSON.stringify({ secret: 'saved-secret' }), await importEncryptionKey(ENC_KEY), 'setup:cloudflare_oauth_client_secret');
+        mockKV._store.set('setup:cloudflare_oauth_client_secret', ciphertext);
+        const before = Array.from(mockKV._store.entries());
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...standardBody, cloudflareOauthClientSecret: 'cf-secret' }),
+          body: JSON.stringify({ ...standardBody, cloudflareOauthClientId: 'replacement-cid', cloudflareOauthClientSecret: 'cf-secret' }),
         });
 
         expect(res.status).toBe(400);
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:cloudflare_oauth_client_secret', expect.anything());
+        expect(Array.from(mockKV._store.entries())).toEqual(before);
       });
 
       // ─── REQ-ENTERPRISE-013: per-group routing ──────────────────────────────

@@ -53,7 +53,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 1. Each activity retains only its invoking human's verified authority and pinned operator, artifact and policy identity. <!-- @impl: src/operators/execution-context.ts::createOperatorExecutionContext --> <!-- @test: src/__tests__/operators/execution-context.test.ts (REQ-OPERATOR-003: protected verified execution context) -->
 2. Child input cannot select a principal, bucket, policy or credential. <!-- @impl: src/operators/execution-context.ts::createOperatorExecutionContext --> <!-- @test: src/__tests__/operators/execution-context.test.ts (REQ-OPERATOR-003: protected verified execution context) -->
-3. Reauthentication requires the same human provenance. <!-- @impl: src/operators/activity.ts::prepareAuthorized --> <!-- @test: src/__tests__/operators/execution-context.test.ts (REQ-OPERATOR-003: protected verified execution context) -->
+3. Reauthentication requires the same human provenance. <!-- @impl: src/operators/execution-context.ts::reauthenticateOperatorExecution --> <!-- @impl: src/operators/activity.ts::reauthenticate --> <!-- @test: src/__tests__/operators/execution-context.test.ts (allows only the same human and issuer to replace authority without changing pinned identities) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (persists protected parent identity without exposing credentials and permits same-owner reauthentication) -->
 4. Human-authority expiry blocks new protected work and uploads. <!-- @impl: src/operators/activity.ts::prepareAuthorized --> <!-- @test: src/__tests__/operators/execution-context.test.ts (REQ-OPERATOR-003: protected verified execution context) -->
 5. Public activity projections expose no credential. <!-- @impl: src/operators/execution-context.ts::projectOperatorExecution --> <!-- @test: src/__tests__/operators/execution-context.test.ts (REQ-OPERATOR-003: protected verified execution context) -->
 
@@ -63,7 +63,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-011](#req-operator-011-serialized-operator-admission)
 
-**Verification:** Automated: [execution-context.test.ts](../../src/__tests__/operators/execution-context.test.ts)
+**Verification:** Automated: [execution-context.test.ts](../../src/__tests__/operators/execution-context.test.ts), [activity-state.test.ts](../../src/__tests__/operators/activity-state.test.ts)
 
 **Status:** Implemented
 
@@ -1299,6 +1299,8 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 6. Duplicate failure copies never merge independent attempts. <!-- @impl: src/operators/dispatcher-diagnostics-store.ts::appendDiagnostic --> <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-081: AC1/2/4 independent recovered failures exhaust capsules without merging attempts or changing output) -->
 7. Recovered failures never become a successful successor’s terminal cause. <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-081: AC1/2/4 independent recovered failures exhaust capsules without merging attempts or changing output) -->
 
+**Notes:** Immutable component provenance: [published SDK event production](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/de75dd4378f4c63ae72f064296d99922a5da05aa/test/core/mcp-leaf-compatibility.test.ts), [application consumer capture](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/de75dd4378f4c63ae72f064296d99922a5da05aa/test/core/raw-public-observer.test.ts), [active-history projection](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/de75dd4378f4c63ae72f064296d99922a5da05aa/test/core/normal-cursor-observation.test.ts). These pinned bodies distinguish public-SDK event production from application-consumer and cursor/history component checks; they are not repository test targets or hosted/native acceptance receipts.
+
 **Constraints:**
 
 - Version1 endpoint, selection/scan semantics, ten-second wait and64KiB response limit follow [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback) unchanged.
@@ -1315,7 +1317,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback), [REQ-OPERATOR-084](#req-operator-084-activity-causal-diagnosis), [REQ-OPERATOR-108](#req-operator-108-accessible-activity-details-and-export)
 
-**Verification:** Automated: [dispatcher-public-diagnostics.test.ts](../../src/__tests__/operators/dispatcher-public-diagnostics.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts), [published SDK event production](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/de75dd4378f4c63ae72f064296d99922a5da05aa/test/core/mcp-leaf-compatibility.test.ts), [application consumer capture](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/de75dd4378f4c63ae72f064296d99922a5da05aa/test/core/raw-public-observer.test.ts), [active-history projection](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/de75dd4378f4c63ae72f064296d99922a5da05aa/test/core/normal-cursor-observation.test.ts); Manual: [Component diagnostics evidence review](../../documentation/lanes/operators.md#component-diagnostics-evidence-review)
+**Verification:** Automated: [dispatcher-public-diagnostics.test.ts](../../src/__tests__/operators/dispatcher-public-diagnostics.test.ts), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts), [dispatcher-diagnostics-read.test.ts](../../src/__tests__/operators/dispatcher-diagnostics-read.test.ts); Manual: [Component diagnostics evidence review](../../documentation/lanes/operators.md#component-diagnostics-evidence-review)
 
 **Status:** Implemented
 
@@ -1821,7 +1823,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 2. Scoped Sync now mirrors declared paths under the `Operators/` storage prefix and writes no implicit deletions. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
 3. Scoped Sync now publishes the canonical manifest in private Operator coordination metadata after all declared files. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
 4. Stable receipts reconcile identical sync requests, including concurrent identical requests without duplicate upload, while changed request reuse conflicts. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @impl: host/src/operator-sync-service.ts::ConfiguredCoordinator --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: concurrent same-operation requests upload once and reconcile the receipt) -->
-5. Interrupted sync effects become unknown before any further writes. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: persists intent then uploads exact files and canonical manifest last) -->
+5. Interrupted sync effects become unknown before any further writes. <!-- @impl: host/src/operator-sync.ts::OperatorSyncService --> <!-- @test: host/__tests__/operator-sync.test.js (REQ-OPERATOR-023: interrupted upload becomes unknown and is never automatically replayed) -->
 6. The sync router authenticates requests before forwarding the fixed explicit-sync contract. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/operator-sync-router.test.js (REQ-OPERATOR-023: router authenticates before forwarding fixed explicit-sync requests) -->
 
 **Constraints:** Unknown upload effects are not replayed.
@@ -2119,7 +2121,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Acceptance Criteria:**
 
-1. Enterprise Access setup idempotently manages a narrow, higher-precedence bypass for the versioned operator webhook activity surface. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-OPERATOR-026: shows managed Webhook Endpoint Access bypass status only for enterprise Access) -->
+1. Enterprise Access setup idempotently manages a narrow, higher-precedence bypass for the versioned operator webhook activity surface. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-OPERATOR-026: shows managed Webhook Endpoint Access bypass status only for enterprise Access) --> <!-- @impl: src/routes/setup/access.ts::upsertOperatorWebhookBypassAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (REQ-OPERATOR-026: provisions a narrow operator-webhook bypass without changing host-wide or SilverBullet protection) --> <!-- @test: src/__tests__/routes/setup/access.test.ts (REQ-OPERATOR-026: idempotently updates the managed operator bypass app and policy) -->
 2. Setup reports bypass provisioning failure. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-OPERATOR-026: shows managed Webhook Endpoint Access bypass status only for enterprise Access) -->
 3. Setup removes an incomplete new bypass configuration. <!-- @impl: src/routes/setup/access.ts::upsertOperatorWebhookBypassAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (REQ-OPERATOR-026: removes a newly-created incomplete operator bypass and reports policy failure) -->
 4. Bypass provisioning failure preserves all other Access protection. <!-- @impl: src/routes/setup/access.ts::upsertOperatorWebhookBypassAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (REQ-OPERATOR-026: removes a newly-created incomplete operator bypass and reports policy failure) -->
@@ -2700,7 +2702,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation)
 
-**Verification:** Automated: [OperatorActivityButton.test.tsx](../../web-ui/src/__tests__/components/OperatorActivityButton.test.tsx), [OperatorDropdown.test.tsx](../../web-ui/src/__tests__/components/OperatorDropdown.test.tsx); Manual: [Operator dropdown visual acceptance](../../documentation/lanes/operators.md#operator-dropdown-visual-acceptance)
+**Verification:** Manual: [Operator dropdown visual acceptance](../../documentation/lanes/operators.md#operator-dropdown-visual-acceptance)
 
 **Status:** Implemented
 

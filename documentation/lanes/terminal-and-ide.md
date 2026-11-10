@@ -230,13 +230,13 @@ Herdr Ctrl+B forwards only canonical prefix and suppresses browser bookmarks; He
 
 Historical `_syncTextArea` freeze and capture scroll guard fought browser focus and xterm's JS scroll layer; forcing scrollTop zero could command viewport to absolute top. Both hacks were removed. xterm's deferred sync/native full-buffer anchor remains authoritative; Codeflare never repairs output by distance restoration or generic zero-clamp.
 
-Current ownership:
+Current ownership ([REQ-TERM-014 AC1–4](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004 AC2–5](../../sdd/spec/terminal.md#req-mob-004-scroll-drop-detection-during-burst-output), and [REQ-MOB-012](../../sdd/spec/terminal.md#req-mob-012-scroll-anchoring-during-keyboard-transitions)): <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer -->
 
 1. FOLLOW_OUTPUT: synchronous onScroll guard bottom-anchors before paint only while following and no correlated user intent.
 2. READ_SCROLLBACK: correlated wheel/pointer/navigation/touch/external intent establishes persistent ownership until live bottom. Output is held, not written beneath reader; oldest whole units drop over cap.
 3. MOBILE_INPUT_LOCKED: touch keyboard lifecycle intentionally fits/anchors. Generic correction is inactive, vertical swipes are arrows, fullscreen wheel route only keyboard-closed.
 
-Frontend cap is 5,000 lines; host renderer retains 1,000; agent-side virtual scrolling disabled. Pinned JS scroll layer remains sole scroller (`.xterm-viewport` overflow hidden). No fit runs at zero visible height. Writes never reposition; refit skips unchanged ordinary resize.
+Frontend xterm scrollback is capped at 5,000 lines; the host headless renderer retains 1,000. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: host/src/session.ts::Session --> These caps do not establish agent-side virtualization policy: fullscreen Pi/Herdr owns its application history separately, as described below. [REQ-MOB-004 Constraints](../../sdd/spec/terminal.md#req-mob-004-scroll-drop-detection-during-burst-output) retains the separate agent-virtualization claim, whose runtime scope is not proved by these cap values. Pinned JS scroll layer remains sole scroller (`.xterm-viewport` overflow hidden). <!-- @impl: web-ui/src/styles/terminal.css::.xterm-viewport = overflow: hidden !important --> No fit runs at zero visible height. Writes never reposition; refit skips unchanged ordinary resize.
 
 ### Persistent Manual Ownership
 

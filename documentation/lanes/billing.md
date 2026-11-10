@@ -180,6 +180,8 @@ These [Subscription](../../sdd/spec/subscription.md) methods inspect existing au
 
 ### Direct activation and tier acceptance
 
+REQ-SUB-003 AC3's supplemental source owner is the direct `POST /subscribe` handler: only configured-provider **paid** tiers require checkout; successful payment-less activation writes the selected tier after removing stale billing state. <!-- @impl: src/routes/auth.ts::app --> <!-- @impl: src/routes/auth.ts::app --> The existing `allows free tier even when STRIPE_SECRET_KEY is set` assertion checks HTTP 200, not provider-side absence of effects. <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (allows free tier even when STRIPE_SECRET_KEY is set) --> REQ-SUB-011 AC1's endpoint cases assert successful accepted IDs (`free`, `standard`, `advanced`, `max`, `unlimited`) without a configured provider; `isStripeConfigured` alone asserts only a Boolean gate. <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=free) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=standard) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=advanced (now a subscribable tier)) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=max) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=unlimited) --> These inspected source/assertion bodies supplement, never execute or replace, the existing manual matrix below.
+
 Use the existing Subscribe, Subscription Management and Dashboard surfaces with their corresponding [API responses](api-reference.md). Compare intentionally configured and unconfigured provider environments, not outages masquerading as absent configuration.
 
 | Contract | Action and required outcome |

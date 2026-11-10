@@ -14,12 +14,12 @@ This is non-normative delivery tracking, not an operational lane, a new product 
 
 - **T01:** completed and successfully published at `416732e4eca05900bc5da21dc46582f65944f58e`.
 - **T02:** completed and successfully published at `5851c80800938df4aca2b35dd33fb8ce4aef76d0`.
-- **T03:** all 54 representation scopes implemented and semantically verified in this checkpoint; task completion requires successful publication. Clause, guard, actor, status, fragment and current-reference mappings are preserved.
-- **T04:** pending — source/test anchors and legitimate methods consume final clause mappings and actual assertion bodies.
+- **T03:** completed at `7196edb77628d323efa4cd5e48e336c27d545be8`; 54 representation scopes closed with preserved clause, guard, actor, status, fragment and reference mappings.
+- **T04:** 53 primary traceability corrections implemented for this checkpoint, with bounded test prerequisites and source-correspondence review. Task completion and test-dependent closure remain pending exact-head CI and successful publication.
 - **T05:** pending — four approved prerequisite contributions accompany T03; the whole alignment task is not complete.
 - **T06:** direct documentation implementation is in progress in disjoint file batches; no task closure or publication is inferred.
 - **T07:** direct historical/provenance implementation is in progress under one ledger owner; acceptance and dates are not invented.
-- **T08:** pending — observable unchanged-behavior evidence in existing suites only.
+- **T08:** bounded prerequisites accompany T04: production Session.write bytes/activity, encrypted configuration roundtrip/rejection, speech controls and quota upgrade-link outcomes in existing suites. Managed syntax passed; local host assertions could not load missing dependencies. No behavioral PASS or whole-T08 completion is claimed.
 - **T09:** in progress — root verifies and publishes task milestones in dependency order. Each implementation agent handles one task.
 - **T10:** pending — reconcile closure and obtain applicable required GREEN CI for the exact final pushed SHA.
 
@@ -49,6 +49,14 @@ The checkpoint covers 54 representation scopes; 595 other scopes are not closed 
 Verification inspected actual changed clauses and their guards, owner fields, references and dependency edges, not merely matching anchors. Root corrected normative parity placement, recovery retention scope, constraint inheritance, and oversized extracted criteria. Current documentation references accompany the moves; historical numbering and existing test titles remain intact.
 
 Managed JSON and overview-format preflights passed. The same 14 whole-file Markdown formatting warnings occur in both the audited baseline and final specifications; they are not reported as a clean formatting pass, and unrelated whole-file formatting was not changed. Source/test anchor completeness and behavioral evidence remain with T04/T08; protected, native and external acceptance remain unobserved.
+
+## T04 checkpoint boundary
+
+The checkpoint repairs 53 primary traceability scopes and records other task facets separately. Exact source and assertion bodies—not test names alone—support the new locators. Existing legitimate manual methods remain unexecuted. Immutable vendor citations use actual pinned bodies without changing the pin or claiming native acceptance.
+
+Tests and their matching specification anchors travel together. The already-approved terminal response-filter qualification and scoped quota-state design alignment change specifications only; backend enforcement, runtime behavior and error codes remain unchanged. Unrelated T05/T06/T07 working-tree changes are excluded from the publication snapshot.
+
+The host prerequisite could not run locally because its normal CI dependencies and compiled modules are absent. The existing CI lane supplies dependencies, compilation and module mocks; that is readiness, not an observed pass. Applicable exact-head CI must resolve this before T04 completion. Existing whole-file formatting warnings are retained honestly.
 
 ## Verification and publication boundary
 

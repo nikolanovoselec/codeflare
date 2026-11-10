@@ -65,6 +65,7 @@ mock.module('node-pty', {
 // Import the REAL compiled Session after the mock is registered.
 const { Session } = await import('../dist/session.js');
 const { AGENT_EVENT_FRAMES } = await import('../dist/agent-events.js');
+const { createActivityTracker } = await import('../dist/activity-tracker.js');
 
 function createWs(readyState = 1) {
   return {
@@ -150,6 +151,109 @@ describe('REQ-TERM-026 AC3: Claude notification focus independence', () => {
     session.detach(ws);
     assert.deepEqual(pty._writes, ['\x1b[I\x1b[O']);
   });
+});
+
+// Production write boundary: use the existing spawn fixture above, not a
+// duplicate classifier. Activity comes from the real tracker, not a call spy.
+describe('REQ-SESSION-005 AC2-AC4: Session.write PTY bytes and input activity', () => {
+  const inputCases = [
+    ['plain word', 'hello'], ['command', 'ls\r'], ['single character', 'a'],
+    ['space', ' '], ['tilde', '~'], ['CJK', '日本語'], ['emoji', '😀'],
+    ['Enter', '\r'], ['newline', '\n'], ['Backspace', '\x7f'],
+    ['legacy Backspace', '\x08'], ['Tab', '\t'], ['Ctrl+C', '\x03'],
+    ['Ctrl+Z', '\x1a'], ['Ctrl+D', '\x04'],
+    ['Up', '\x1b[A'], ['Down', '\x1b[B'], ['Right', '\x1b[C'],
+    ['Left', '\x1b[D'], ['Home', '\x1b[H'], ['End', '\x1b[F'],
+    ['F5', '\x1b[15~'], ['Delete', '\x1b[3~'], ['Insert', '\x1b[2~'],
+    ['Page Up', '\x1b[5~'], ['Page Down', '\x1b[6~'],
+    ['SS3 Up', '\x1bOA'], ['SS3 F1', '\x1bOP'],
+    ['Alt+a', '\x1ba'], ['Alt+f', '\x1bf'],
+    ['left mouse press', '\x1b[<0;10;20M'], ['right mouse press', '\x1b[<2;5;5M'],
+  ];
+
+  for (const [name, data] of inputCases) {
+    it(`forwards ${name} unchanged and advances real lastInputAt`, t => {
+      t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+      const activity = createActivityTracker();
+      const session = new Session('classified-input', 'Terminal', false, { activityTracker: activity });
+      t.after(() => session.kill());
+      session.start();
+      const pty = lastSpawn.pty;
+      assert.equal(activity.getActivityInfo(null).lastInputAt, null);
+
+      session.write(data);
+      assert.deepEqual(pty._writes, [data]);
+      assert.equal(activity.getActivityInfo(null).lastInputAt, 1000);
+      t.mock.timers.tick(250);
+      session.write(data);
+      assert.deepEqual(pty._writes, [data, data]);
+      assert.equal(activity.getActivityInfo(null).lastInputAt, 1250);
+    });
+  }
+
+  // Only CPR, OSC 10/11/12 and DA1 are stripped by the approved production
+  // response filter. Other protocol chatter is forwarded but never activity.
+  const responseCases = [
+    ['CPR', '\x1b[10;5R', ''],
+    ['OSC 10 BEL', '\x1b]10;rgb:ffff/ffff/ffff\x07', ''],
+    ['OSC 11 BEL', '\x1b]11;rgb:0000/0000/0000\x07', ''],
+    ['OSC 12 ST', '\x1b]12;rgb:ffff/0000/0000\x1b\\', ''],
+    ['DA1', '\x1b[?1;2c', ''],
+    ['DA2', '\x1b[>1;2c', '\x1b[>1;2c'],
+    ['DA3', '\x1b[=1c', '\x1b[=1c'],
+    ['DCS', '\x1bP1$r\x1b\\', '\x1bP1$r\x1b\\'],
+    ['mouse motion', '\x1b[<32;10;20M', '\x1b[<32;10;20M'],
+    ['mouse drag', '\x1b[<35;10;20M', '\x1b[<35;10;20M'],
+    ['mouse release', '\x1b[<0;10;20m', '\x1b[<0;10;20m'],
+    ['window size', '\x1b[8;24;80t', '\x1b[8;24;80t'],
+    ['mode report', '\x1b[?1;2$y', '\x1b[?1;2$y'],
+    ['focus in', '\x1b[I', '\x1b[I'], ['focus out', '\x1b[O', '\x1b[O'],
+    ['combined reports', '\x1b[I\x1b[?1;2c', '\x1b[I'],
+    ['empty string', '', ''], ['lone ESC', '\x1b', '\x1b'], ['NUL', '\x00', '\x00'],
+  ];
+
+  for (const [name, data, forwarded] of responseCases) {
+    it(`handles ${name} PTY bytes without changing real lastInputAt`, t => {
+      t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+      const activity = createActivityTracker();
+      const session = new Session('protocol-response', 'Terminal', false, { activityTracker: activity });
+      t.after(() => session.kill());
+      session.start();
+      const pty = lastSpawn.pty;
+
+      session.write(data);
+      const expected = forwarded ? [forwarded] : [];
+      assert.deepEqual(pty._writes, expected);
+      assert.equal(activity.getActivityInfo(null).lastInputAt, null);
+      session.write('x');
+      assert.equal(activity.getActivityInfo(null).lastInputAt, 1000);
+      t.mock.timers.tick(250);
+      session.write(data);
+      assert.deepEqual(pty._writes, [...expected, 'x', ...expected]);
+      assert.equal(activity.getActivityInfo(null).lastInputAt, 1000);
+    });
+  }
+
+  for (const [name, data, forwarded] of [
+    ['text then CPR', 'hello\x1b[10;5R', 'hello'],
+    ['focus then Enter', '\x1b[I\r', '\x1b[I\r'],
+    ['DA1 inside text', 'a\x1b[?1;2cb', 'ab'],
+    ['all stripped responses inside text', 'a\x1b[10;5R\x1b]11;rgb:0/0/0\x07\x1b[?1;2cb', 'ab'],
+  ]) {
+    it(`filters mixed ${name} while advancing real lastInputAt`, t => {
+      t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+      const activity = createActivityTracker();
+      const session = new Session('mixed-input', 'Terminal', false, { activityTracker: activity });
+      t.after(() => session.kill());
+      session.start();
+      const pty = lastSpawn.pty;
+      session.write('baseline');
+      t.mock.timers.tick(250);
+      session.write(data);
+      assert.deepEqual(pty._writes, ['baseline', forwarded]);
+      assert.equal(activity.getActivityInfo(null).lastInputAt, 1250);
+    });
+  }
 });
 
 // ── REQ-TERM-002 AC4: raw PTY data flows unwrapped ──────────────────────────

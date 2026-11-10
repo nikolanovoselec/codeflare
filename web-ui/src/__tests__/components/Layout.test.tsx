@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import type { SessionWithStatus } from '../../types';
 
@@ -1676,6 +1676,22 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(screen.getByTestId('usage-warning-100')).toBeInTheDocument();
     });
 
+    it('offers the subscription upgrade from the SaaS quota-exceeded banner', () => {
+      mockSaasMode = true;
+      vi.mocked(getUsageWarningLevel).mockReturnValue('100');
+      vi.mocked(getDismissedQuotaLevel).mockReturnValue('95');
+
+      render(() => <Layout />);
+
+      const banner = screen.getByTestId('usage-warning-100');
+      expect(banner).toBeVisible();
+      expect(banner).toHaveTextContent('Monthly compute quota exceeded. Sessions cannot start until quota resets.');
+      const upgrade = within(banner).getByRole('link', { name: 'Upgrade plan' });
+      expect(upgrade).toBeVisible();
+      expect(upgrade).toHaveAttribute('href', '/app/subscribe');
+      expect(within(banner).queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument();
+    });
+
     it('AC3: surfaces no usage banner outside SaaS mode even at 100% usage', () => {
       mockSaasMode = false;
       vi.mocked(getUsageWarningLevel).mockReturnValue('100');
@@ -1685,6 +1701,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(screen.queryByTestId('usage-warning-80')).not.toBeInTheDocument();
       expect(screen.queryByTestId('usage-warning-95')).not.toBeInTheDocument();
       expect(screen.queryByTestId('usage-warning-100')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Monthly compute quota exceeded/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Upgrade plan' })).not.toBeInTheDocument();
     });
 
     it('AC6: the 80% and 95% banners carry a dismiss control; the 100% banner does not', () => {

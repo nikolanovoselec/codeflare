@@ -494,17 +494,17 @@ Worker caches are per-isolate optimizations with bounded staleness; exact invent
 
 | Assumption | Bound / consequence | Owner |
 |---|---|---|
-| Visible dashboard polling | Transitions five seconds; stable 60 seconds; hidden cancellation; frequent D1 projection separate from ancillary state | Container/Terminal & IDE |
-| Metrics | Normally 60 seconds; bounded 10-second host polls | Container |
-| Coordinator reconstruction | At most two resets; preserve possible workload, never infer exit from transport | Container/Troubleshooting |
-| Bisync | 15 minutes plus manual triggers; local files may lead R2 | Storage & Sync |
-| Final persistence | 120-second sync budget, shared 135-second teardown cap | Storage & Sync/Container |
-| Initial restore/baseline/prewarm | Mode-specific readiness; baseline can run concurrently with lower CPU/disk priority at any deployment resource profile | Container |
-| Create/start rate limit | 10 creates, five starts per user/minute | API Reference |
+| Visible dashboard polling | Transitions five seconds; stable 60 seconds; hidden cancellation; frequent D1 projection separate from ancillary state | Container/Terminal & IDE; [REQ-SESSION-244](../../sdd/spec/session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling) <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_TRANSITION_MS --> <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_STABLE_MS --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus --> |
+| Metrics | Normally 60 seconds; bounded 10-second host polls | Container <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::CONTAINER_POLL_BUDGET_MS --> |
+| Coordinator reconstruction | At most two resets; preserve possible workload, never infer exit from transport | Container/Troubleshooting <!-- @impl: src/container/container-metrics.ts::TRANSPORT_RECOVERY_MAX_ATTEMPTS --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> |
+| Bisync | 15 minutes plus manual triggers; local files may lead R2 | Storage & Sync; [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) <!-- @impl: entrypoint.sh::start_sync_daemon --> |
+| Final persistence | 120-second sync budget, shared 135-second teardown cap | Storage & Sync/Container; [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::FINAL_SYNC_BUDGET_MS --> |
+| Initial restore/baseline/prewarm | Mode-specific readiness; baseline can run concurrently with best-effort lower CPU/disk priority at any deployment resource profile | Container; [REQ-STOR-256](../../sdd/spec/storage.md#req-stor-256-image-seed-relay-cache-reuse-and-prewarm-priority) <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @impl: entrypoint.sh::run_managed_curation_startup --> <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> |
+| Create/start rate limit | 10 creates, five starts per user/minute | API Reference <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter --> <!-- @impl: src/routes/container/lifecycle.ts::containerStartRateLimiter --> |
 | Concurrent workload cap | SaaS effective tier; non-SaaS including current Enterprise role-based; best effort | Billing/Configuration; [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) |
-| Resource profile | Deployment-selected CPU(vCPU)/memory(GiB)/disk(GB): low 0.25/1/4; default/`saas` 1/3/6; high 2/6/12 | Configuration |
-| Deployment capacity | Default ten instances; positive-integer `MAX_INSTANCES` override | Configuration |
-| Timekeeper user cache | 60 seconds, 100 entries | Billing |
+| Resource profile | Deployment-selected CPU(vCPU)/memory(GiB)/disk(GB): low 0.25/1/4; default/`saas` 1/3/6; high 2/6/12 | Configuration; [REQ-OPS-007 AC1](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment) <!-- @impl: .github/workflows/deploy.yml::jobs.deploy --> |
+| Deployment capacity | Default ten instances; positive-integer `MAX_INSTANCES` override | Configuration; [REQ-OPS-007 AC2/3](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment) <!-- @impl: .github/workflows/deploy.yml::jobs.deploy = MAX_INSTANCES=10 --> |
+| Timekeeper user cache | 60 seconds, 100 entries | Billing <!-- @impl: src/timekeeper/index.ts::getCachedUserRecord --> |
 
 R2 is durability, not FUSE; work runs on local disk and performance depends on bounded reconciliation.
 

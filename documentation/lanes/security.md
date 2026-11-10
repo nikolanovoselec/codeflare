@@ -162,10 +162,10 @@ User bucket authority is resolved server-side. Storage keys reject traversal, nu
 ### Input and response hardening
 
 <a id="session-id-validation"></a>
-Session IDs are strict bounded lowercase alphanumeric values before routing. Request bodies use route schemas and a global API body bound; upload/streaming routes declare their explicit exception. Downloads use safe content disposition and inline-content policy so stored bytes do not become an unintended active browser origin.
+Session IDs match `^[a-z0-9]{8,24}$` before routing; this validates format, not authentication. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> Request bodies use route schemas and a global 64-KiB API body bound, except **all** `/api/storage/` paths. <!-- @impl: src/index.ts::app = 64 * 1024 --> Downloads sanitize attachment filenames; inline responses use an extension-derived safe content-type allowlist and `nosniff`, not the stored type. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @impl: src/routes/storage/download.ts::safeInlineContentType -->
 
 <a id="body-limit"></a>
-Oversized bounded API bodies fail before handler parsing. File upload boundaries have their own size/streaming contract in the API/Storage owners rather than inheriting an unsafe unlimited exemption.
+Oversized bounded API bodies fail before handler parsing. Storage declares 100-MiB bounds on `/upload/*` and 10-MiB on `/upload`; these upload-specific bounds do not cover every storage endpoint exempted by the global middleware. <!-- @impl: src/routes/storage/index.ts::app = 100 * 1024 * 1024 --> <!-- @impl: src/routes/storage/index.ts::app = 10 * 1024 * 1024 --> [REQ-SEC-009](../../sdd/spec/security.md#req-sec-009-input-validation-at-system-boundaries) and [Storage upload acceptance](storage-and-sync.md#req-stor-007-upload-and-preview-acceptance) retain their separate validation obligations; the global exception is not proof of a route-specific bound.
 
 ### Boundary and storage-policy acceptance
 
