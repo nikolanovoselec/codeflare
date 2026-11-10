@@ -11,7 +11,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 - **Redirect anchor:** the numbered heading remains for inbound links, but its content moved to another ADR or canonical documentation lane. Follow the destination in the index and section status.
 - **Documentary extraction:** a present-day record of an already-dated amendment, not a new acceptance/adoption or an invented original decision date. Original text remains in its parent ADR.
 
-Current-scope annotations and Context source anchors support only the named current mechanism. They do not authenticate old incidents, measurements, vendor guarantees, actor authority, deployed acceptance or signed publication. Unrecovered original Context/Consequences and historical authority remain explicit provenance debt (AQ03); placeholder fields are not evidence.
+Current-scope annotations and Context source anchors support only the named current mechanism. They do not authenticate old incidents, measurements, vendor guarantees, actor authority, deployed acceptance or signed publication. Unrecovered original Context/Consequences and historical authority remain explicit provenance debt (AQ03); placeholder fields are not evidence. Contexts labeled “retained compact-record rationale” reuse text already recorded in `5851c808:documentation/decisions/README.md`; their adjacent current-source anchors support only the expressly bounded mechanism, not original acceptance or external claims. The original Decision paragraphs remain intact.
 
 **Audience:** Developers
 
@@ -197,7 +197,7 @@ Current-scope annotations and Context source anchors support only the named curr
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** Retained compact-record rationale: “Alternative was one container per user with multiplexed PTYs. Per-session containers avoid noisy-neighbor CPU contention between tabs running different agents, and simplify cleanup (destroy container = clean slate).” Current `getContainerId` binds bucket and session identity; this supports addressing, not measured isolation or the original comparison. <!-- @impl: src/lib/container-helpers.ts::getContainerId -->
 
 **Decision:** Each session has its own isolated container; CPU, memory and storage are configured at deployment.
 
@@ -323,7 +323,7 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** Retained compact-record rationale: “Root needed for rclone mount.” The current Dockerfile root comment records the runtime privilege/isolation rationale; this is source support, not empirical proof of the platform network boundary. <!-- @impl: Dockerfile -->
 
 **Decision:** Network isolation via DO proxy is sufficient.
 
@@ -407,7 +407,7 @@ Default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, with `Acc
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** Retained compact-record rationale: “Read `setup:complete`, check if false, perform setup, write true. Not atomic -- two simultaneous requests could both proceed.” Current setup routing also acquires its lock through separate KV get/put operations. This supports the best-effort mechanism, not the historical assertion that every duplicate sub-step is harmless. <!-- @impl: src/routes/setup/index.ts::default -->
 
 **Decision:** Read-then-write pattern, acceptable for one-time setup.
 
@@ -467,7 +467,7 @@ Replaces previous shared credential model. Token lifecycle:
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** Retained compact-record rationale: “Users already have full root shell access inside their own ephemeral container. Restricting tab commands provides no additional security benefit since the container is their sandbox.” The current shared schema supports only the bounded arbitrary-string claim, not a general security proof or the separate Herdr launcher contract. <!-- @impl: web-ui/src/lib/schemas.ts::TabConfigSchema -->
 
 **Decision:** `z.string().max(200)` -- no additional security risk.
 
@@ -573,7 +573,7 @@ Static analysis flags time-of-check-time-of-use patterns between KV reads and su
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** Retained compact-record rationale: “Normalizing all signatures risks caller regressions across the codebase.” Current `getContainerId` demonstrates the retained positional style only; it does not establish a complete mixed-signature/typing inventory or the original regression-risk judgment. <!-- @impl: src/lib/container-helpers.ts::getContainerId -->
 
 **Decision:** Old helpers use positional args, new ones use options objects.
 
@@ -607,7 +607,7 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 **Category:** Redirect anchor
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** The retained redirect records administrator trust as the reason for accepting the analyzer finding. The current `isAllowedOrigin` docstring carries that specific rationale; the Security alias is generic policy navigation, not historical incident evidence. <!-- @impl: src/lib/cors-cache.ts::isAllowedOrigin -->
 
 **Decision:** Follow the redirect or supersession recorded by this ADR.
 
@@ -641,7 +641,7 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 **Category:** Redirect anchor
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** The retained redirect records a test fixture mistaken for a hardcoded credential. Current service authentication checks the Worker secret before returning the fixture identity; this supports the specific fixture rationale, not a new historical acceptance. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
 
 **Decision:** Follow the redirect or supersession recorded by this ADR.
 
@@ -679,7 +679,7 @@ k6 stress tests share a single CF Access service token (single identity), so per
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** Retained compact-record rationale: “Frontend folder deletion was subject to API rate limits (30/min browse, 20/min delete), causing failures for large folders.” Current `emptyR2Bucket` supports server-side list/batch deletion and checks per-object outcomes; it does not independently verify the old incident, fastest-approach comparison or vendor latency. <!-- @impl: src/lib/r2-client.ts::emptyR2Bucket -->
 
 **Decision:** Server-side list+batch delete via R2 S3 API instead of frontend recursive browse+delete.
 
@@ -747,7 +747,7 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 **Category:** Redirect anchor
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** The retained redirect records the missing `USER` analyzer finding and network-isolation rationale. The current Dockerfile root comment explains the rclone/runtime privilege requirement; it does not empirically prove exploit containment. <!-- @impl: Dockerfile -->
 
 **Decision:** Follow the redirect or supersession recorded by this ADR.
 
@@ -954,7 +954,7 @@ The first `/_internal/setBucketName` request is unauthenticated because the cont
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** Retained compact-record rationale: “The file is gone; there is nothing to recover or repair. Nuking R2 objects is the wrong response - it targets corruption (wrong encryption key, size mismatch, bad object metadata), not transience.” Current vanished-file recovery excludes non-workspace paths while retrying workspace paths without exclusion. This supports that distinction, not independent verification of the original incident. <!-- @impl: entrypoint.sh::recover_vanished_files -->
 
 **Decision:** When bisync fails with `lstat: no such file or directory`, parse the error output to identify the vanishing file, add it to a session-scoped exclusion filter, and retry - before escalating to `nuke_corrupted_r2_files`.
 
@@ -3644,6 +3644,8 @@ The same measurement settles what to embed. Inlining beats fetching only when th
 **Status:** Accepted (2026-07-27). Implements [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed). Partially superseded by [AD147](#ad147-active-managed-resource-policy-supersedes-provenance-ownership) for active protected inventory only; provenance ownership elsewhere remains accepted.
 
 **Current-scope qualification (documentary, not a new acceptance):** The absolute positive-evidence deletion wording below is bounded by its own recorded, frozen one-time by-name clean-slate exception. That exception is not recurring deletion authority and may not grow a new retirement list. AD147 governs active protected paths; no signed-publication acceptance is inferred.
+
+**Historical inventory provenance (recovered, not a new acceptance):** `a5656cb0` introduced `preseed/retired-keys.json`; `a499d45c` added the two recorded product-orphan hook paths, and `2160810c` replaced `.pi/agent/mcp.json` with `.pi/agent/rules/engineering-constitution.md`. A present-day read of the 86 available ancestor revisions of `src/lib/agent-seed.generated.ts` before `a5656cb0` finds emitted-key witnesses for 114 of the current 118 entries. This is not evidence that the originally claimed 181-revision walk ran or was complete. The two context-mode hook orphans are explained in `a499d45c`’s inventory/entrypoint record; the old `enforce-ctx-mode.sh` source is also retained at `de05e329^:preseed/agents/claude/plugins/context-mode/scripts/enforce-ctx-mode.sh`. Those records do not independently prove the installer-origin account for `context-mode-cache-heal.mjs`. No generated-key witness was recovered in that range for either orphan or for `.claude/plugins/codeflare-hooks/scripts/lib/inert-source-delta.mjs` and `lane-evidence.mjs`; the latter two entries’ product provenance remains unverified. Inventory bytes and deletion/ownership rules are unchanged; recorded product emission is not proof of ownership of an existing user object.
 
 **Context:** Files a release stopped shipping were never removed from existing buckets, so retired policy kept loading beside whatever replaced it. Cleanup derived its delete list from the generated seed, so a key dropped from the seed also vanished from the delete list; the escape hatch was a hand-maintained enumeration carrying three entries against a real backlog of 165.
 
