@@ -317,9 +317,10 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
         await screen.findByTestId('auth-redirecting');
       } else {
         authentication.resolve({ ...owner, email: 'other-owner@example.com' });
-        await waitFor(() => expect(currentOwnerRecovered).toBe(true));
+        await waitFor(() => expect(providerNavigation).toEqual(['/app/']));
+        expect(currentOwnerRecovered).toBe(false);
       }
-      expect(providerNavigation).toEqual([]);
+      expect(providerNavigation).toEqual(outcome === 'changed-owner' ? ['/app/'] : []);
     });
 
   // REQ-OPERATOR-033 AC5/7: exercise the real mounted App authentication resume,
@@ -355,15 +356,14 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
     listActivitiesMock.mockResolvedValue(page('B'));
     getUserMock.mockResolvedValue({ ...owner, email: 'B@example.com', role: 'admin', enterpriseMode: true });
     resumeFromBack();
-    await screen.findByText('B@example.com');
-    expect(screen.getByText('admin')).toBeVisible();
+    await waitFor(() => expect(providerNavigation).toEqual(['/app/']));
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+    expect(screen.queryByText('B@example.com')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.queryByText('A private run')).not.toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
-    await screen.findByRole('button', { name: 'View B-run' });
   }
 
-  it('REQ-OPERATOR-033 AC5/7: visibility resume replaces owner identity and discards A diagnostics before B is usable', async () => {
+  it('REQ-OPERATOR-033 AC5/7: visibility resume retires A diagnostics before full owner reinitialization', async () => {
     await mountOwnerActivity();
     await fireEvent.click(screen.getByRole('button', { name: 'View A-run' }));
     await fireEvent.click(await screen.findByRole('button', { name: 'View diagnostics' }));
@@ -374,14 +374,12 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
     changeVisibility('visible');
     listActivitiesMock.mockResolvedValue(page('B'));
     authentication.resolve({ ...owner, email: 'B@example.com', enterpriseMode: true });
-    await screen.findByText('B@example.com');
+    await waitFor(() => expect(providerNavigation).toEqual(['/app/']));
     expect(screen.queryByText('Evidence summary')).not.toBeInTheDocument();
     expect(screen.queryByText('A-private-revision')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
-    await screen.findByRole('button', { name: 'View B-run' });
-    expect(screen.queryByRole('button', { name: 'View A-run' })).not.toBeInTheDocument();
-    expect(providerNavigation).toEqual([]);
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+    expect(screen.queryByText('B@example.com')).not.toBeInTheDocument();
   });
 
   it.each(['detail', 'diagnostics'] as const)('REQ-OPERATOR-033 AC5: persisted pageshow discards a late A %s response', async view => {
@@ -398,7 +396,7 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
     await switchToB();
     lateDetail.resolve({ ...activity('A'), result: null }); lateSnapshot.resolve(snapshot());
     await Promise.all([lateDetail.promise, lateSnapshot.promise]);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'View B-run' })).toBeVisible());
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
     expect(screen.queryByText('Evidence summary')).not.toBeInTheDocument();
     expect(screen.queryByText('A private run')).not.toBeInTheDocument();
     expect(screen.queryByText('A-private-revision')).not.toBeInTheDocument();
@@ -414,7 +412,7 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
     await switchToB();
     lateList.resolve(page('A', 1)); await lateList.promise;
     await Promise.resolve(); await Promise.resolve();
-    expect(screen.getByRole('button', { name: 'View B-run' })).toBeVisible();
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'View A-run' })).not.toBeInTheDocument();
     expect(acknowledgedSequence).toBe(0); // No cross-owner read-marker mutation.
   });

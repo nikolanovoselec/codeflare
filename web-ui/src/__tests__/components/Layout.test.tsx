@@ -1,12 +1,22 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@solidjs/testing-library';
-import { createSignal } from 'solid-js';
+import { createSignal, For } from 'solid-js';
 import type { SessionWithStatus } from '../../types';
+
+const appAuth = vi.hoisted(() => ({ getUser: vi.fn() }));
+vi.mock('../../api/client', async importOriginal => ({
+  ...await importOriginal<typeof import('../../api/client')>(),
+  getSetupStatus: async () => ({ configured: true }),
+  getUser: (...args: unknown[]) => appAuth.getUser(...args),
+}));
+vi.mock('../../api/mcp-portals', () => ({ getMcpPortalStatuses: async () => [] }));
 
 const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false }));
 
 vi.mock('../../components/Dashboard', () => ({
   default: (props: any) => <section aria-label="Session dashboard">
+    <span>{props.userName}</span>
+    <For each={props.sessions}>{session => <span>{session.name}</span>}</For>
     <button onClick={() => props.onStartSession('abcdef0123456789')}>Start session</button>
     <button onClick={() => props.onOpenSessionById('abcdef0123456789')}>Return to session</button>
   </section>,
@@ -151,6 +161,9 @@ vi.mock('../../stores/session', () => ({
     getInitProgressForSession: vi.fn(() => null),
     getMetricsForSession: vi.fn(() => null),
     stopAllPolling: vi.fn(),
+    setEnterpriseMode: vi.fn(),
+    setSaasMode: vi.fn(),
+    setAllowedAgents: vi.fn(),
     getTerminalsForSession: vi.fn(() => mockTerminalsForSession),
     initializeTerminalsForSession: vi.fn(),
     addTerminalTab: vi.fn(),
@@ -175,7 +188,7 @@ vi.mock('../../stores/session', () => ({
 }));
 
 vi.mock('../../stores/terminal', () => ({
-  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn() },
+  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn(), disposeAll: vi.fn() },
   reconnectDisconnectedTerminals: vi.fn(),
   reconnectOnVisibilityReturn: vi.fn(),
   scheduleDisconnect: vi.fn(),
@@ -228,6 +241,8 @@ import { forceResetKeyboardState } from '../../lib/mobile';
 import { reconnectDisconnectedTerminals, reconnectOnVisibilityReturn } from '../../stores/terminal';
 import { getUsageWarningLevel, getDismissedQuotaLevel, setDismissedQuotaLevel } from '../../stores/session';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
+import App from '../../App';
+import { sessionStore } from '../../stores/session';
 import Layout, { clearPrewarmingVaultStatus } from '../../components/Layout';
 
 // Helper to create a mock session
@@ -276,6 +291,50 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  it('REQ-OPERATOR-033 AC5: real Layout never renders cached A sessions under B while B reload is pending', async () => {
+    navigationRendering.realTerminalArea = true;
+    mockSessions = [createMockSession({ name: 'A private session' })];
+    let owner = 'A@example.com';
+    appAuth.getUser.mockImplementation(async () => ({ email: owner, role: 'user', authenticated: true }));
+    // Match the real session store: loadSessions retains the cached catalog
+    // until the new owner's API read settles, rather than clearing it on entry.
+    let finishReload!: () => void;
+    const reload = new Promise<void>(resolve => { finishReload = resolve; });
+    vi.mocked(sessionStore.loadSessions).mockImplementation(() => owner === 'B@example.com' ? reload : Promise.resolve());
+    const originalLocation = window.location;
+    const navigation: string[] = [];
+    Object.defineProperty(window, 'location', { configurable: true, value: {
+      get pathname() { return originalLocation.pathname; },
+      get search() { return originalLocation.search; },
+      get hash() { return originalLocation.hash; },
+      get origin() { return originalLocation.origin; },
+      assign: (url: string) => navigation.push(url),
+    } });
+    try {
+      render(() => <App />);
+      expect(await screen.findByText('A private session')).toBeVisible();
+      expect(screen.getByText('A@example.com')).toBeVisible();
+      owner = 'B@example.com';
+      const event = new Event('pageshow');
+      Object.defineProperty(event, 'persisted', { value: true });
+      window.dispatchEvent(event);
+      await waitFor(() => expect(navigation).toEqual(['/app/']));
+      // Navigation is deliberately held: no new-owner shell may consume any
+      // old module-global catalog, active workspace or storage cache meantime.
+      expect(screen.queryByText('B@example.com')).not.toBeInTheDocument();
+      expect(screen.queryByText('A private session')).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Session dashboard' })).not.toBeInTheDocument();
+      finishReload();
+      await reload;
+      await Promise.resolve();
+      expect(screen.queryByText('A private session')).not.toBeInTheDocument();
+    } finally {
+      finishReload();
+      vi.mocked(sessionStore.loadSessions).mockReset();
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    }
   });
 
   describe('REQ-TERM-027 AC3: canonical session deep links', () => {

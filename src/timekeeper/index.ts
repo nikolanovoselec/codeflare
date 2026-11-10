@@ -427,7 +427,7 @@ export class Timekeeper {
         return;
       }
       const subscribedAt = checkout
-        ? (existing?.stripeSubscriptionId === incomingSubscriptionId && existing.subscribedAt
+        ? (existing && existing.stripeSubscriptionId === incomingSubscriptionId && existing.subscribedAt
           ? existing.subscribedAt : checkout.subscribedAt)
         : undefined;
       const updated = 'cleanupBillingState' in patch
