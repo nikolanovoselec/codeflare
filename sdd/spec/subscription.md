@@ -127,7 +127,7 @@ Tiers, billing, usage tracking, and quotas.
 4. The frontend polls the auth-status endpoint after the checkout redirect on a fixed interval with no bounded total wait (the poll has no deadline and continues until activation is observed) so subscription activation feels immediate to the user. <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-004 AC4: post-checkout activation polling) --> <!-- @manual -->
 5. The webhook handler covers the three relevant lifecycle events: checkout completion, subscription update, and subscription deletion. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) --> <!-- @manual -->
 6. The webhook endpoint is publicly reachable but enforces signed-payload verification with a short timestamp tolerance. <!-- @impl: src/lib/stripe.ts::verifyWebhookSignature --> <!-- @test: src/__tests__/lib/stripe.test.ts (rejects missing timestamp) -->
-7. Webhook events are de-duplicated by event identifier with a multi-day retention window so replayed events do not double-apply. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) --> <!-- @manual -->
+7. A successful webhook event writes a 72-hour KV marker keyed by event identifier; a visible marker suppresses replay processing. Concurrent deliveries or KV propagation delay can still reprocess an event. Subscription synchronization reconciles latest provider state, but suppression is eventual and non-atomic: checkout reprocessing can rewrite `subscribedAt` and repeat confirmation or admin emails. Exactly-once side effects are not guaranteed. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -296,7 +296,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-010: Tier Config Cached with 60-Second TTL
 
-**Intent:** Tier configuration reads must be fast (avoid KV round-trip on every request) while still reflecting admin changes within a bounded delay.
+**Intent:** Tier configuration reads must be fast (avoid KV round-trip on every request) while refreshing each isolate's cached configuration after its TTL, independently of KV propagation.
 
 **Applies To:** User
 
@@ -305,8 +305,10 @@ Tiers, billing, usage tracking, and quotas.
 1. Tier-configuration reads are served from an in-process cache with a short TTL. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)) -->
 2. Within the TTL window, calls return the cached value without a durable-storage read. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 AC1/AC2: second call within TTL window returns cached config without KV read) -->
 3. After the TTL expires, the next call refreshes the cache from durable storage. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)) -->
-4. A test-only cache-invalidation hook is available so unit tests can exercise post-update behavior deterministically. <!-- @impl: src/lib/subscription.ts::resetTierConfigCache --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 AC4: resetTierConfigCache forces next call to read from KV) -->
-5. Admin changes take effect within one TTL window across all Worker isolates. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)) -->
+4. After the local tier-configuration cache is reset, the next lookup refreshes from durable storage instead of returning the previously cached configuration. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 AC4: next lookup returns updated tier values after local cache reset) -->
+5. Each Worker isolate refreshes its tier configuration on the first lookup after its own 60-second cache TTL expires. Visibility of admin changes also depends on KV propagation; the local TTL is not a global cross-isolate propagation deadline. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)) -->
+
+**Notes:** `resetTierConfigCache()` clears the local cache for deterministic tests or known configuration changes; it is a supporting mechanism, not a user-facing feature. Local cache tests do not certify hosted KV propagation or change independent authentication and revocation guarantees.
 
 **Constraints:**
 
@@ -338,7 +340,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Non-billed deployments treat users without an explicit tier as the highest-access tier for backward compatibility.
+- For raw effective-tier resolver inputs with neither `subscriptionTier` nor legacy `accessTier`, the fallback is `pending`, including without billing fields (except the explicit enterprise-mode override). This does not imply every existing identity with absent persisted tier fields becomes pending: identity resolution can normalize legacy records before middleware supplies resolver inputs.
 - A legacy access-tier field is preserved alongside the subscription tier; resolution prefers the new field and falls back to the legacy one.
 
 **Priority:** P1
@@ -429,7 +431,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- The user record's subscribed-mode field is the source of truth for Pro access; it is set by the payment-provider webhook or by admin override.
+- In SaaS mode, the effective session mode is the saved preference (Standard when absent), clamped to the effective tier's allowed modes. The user record's `subscribedMode` is distinct provider/admin subscription metadata, not sole authority for Pro access; non-SaaS and enterprise mode resolution remain unchanged.
 - Just-in-time provisioned users default to Standard mode.
 
 **Priority:** P0
@@ -727,7 +729,7 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Each positive Timekeeper delta updates durable UTC day, ISO week, UTC month, and UTC year accumulators and counts each distinct positive-runtime session once per period. <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) -->
-2. One versioned sub-4-KB accounting state replaces legacy accounting keys atomically and performs one state write with zero KV reads on the normal ping path. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (Timekeeper AccountingStateV2 integration (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
+2. One versioned sub-4-KB accounting state replaces legacy accounting keys atomically. Incremental historical accounting performs one accounting-state write with zero additional KV reads on the normal ping path; retained SaaS live-quota and entitlement KV reads are separate and remain required. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (Timekeeper AccountingStateV2 integration (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
 3. The existing alarm performs five-minute KV work and one hash-phased 15-minute D1 duty; no second alarm exists. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::historyPhase --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
 4. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
 5. Session markers store only domain-separated hashes, use bounded cache and cleanup, and survive restart and period rollover. <!-- @impl: src/timekeeper/accounting.ts::hashSessionId --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) -->
@@ -758,7 +760,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Admin-only organization and user-detail routes work in every deployment mode and accept closed period, start, sort, cursor, limit, and JSON or downloadable CSV parameters in UTC. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) --> <!-- @manual -->
+1. Admin-only organization and user-detail routes work in every deployment mode and accept the shared closed-period UTC query parameters: period, start, sort, direction, cursor, limit, and format. Only the organization route returns JSON or downloadable CSV. The user-detail route returns the requested user's detail as JSON, including when the shared parser accepts `format=csv`. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) --> <!-- @manual -->
 2. Opaque versioned cursors bind the complete filter and use the stable opaque user identifier for deterministic tie-breaking; malformed or mismatched cursors are rejected. <!-- @impl: src/routes/admin/usage.ts::decodeCursor --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 3. JSON and CSV share one query and row mapper, with identical filtering and ordering; CSV ignores pagination only. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageRows --> <!-- @impl: src/routes/admin/usage.ts::usageCsv --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 4. The opaque user identifier is stable lowercase hex SHA-256 over a versioned, domain-separated normalized-email input and exposes neither email nor bucket identity. <!-- @impl: src/lib/admin-usage.ts::userKeyForEmail --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage helpers (REQ-SUB-025)) -->

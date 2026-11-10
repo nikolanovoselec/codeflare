@@ -9,6 +9,9 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 - **Superseded:** a newer linked decision or requirement replaced the whole record. Superseded entries are struck through in the index, while their original sections remain readable as history.
 - **Partially superseded:** only the explicitly named clause was replaced; the record remains active for everything else.
 - **Redirect anchor:** the numbered heading remains for inbound links, but its content moved to another ADR or canonical documentation lane. Follow the destination in the index and section status.
+- **Documentary extraction:** a present-day record of an already-dated amendment, not a new acceptance/adoption or an invented original decision date. Original text remains in its parent ADR.
+
+Current-scope annotations and Context source anchors support only the named current mechanism. They do not authenticate old incidents, measurements, vendor guarantees, actor authority, deployed acceptance or signed publication. Unrecovered original Context/Consequences and historical authority remain explicit provenance debt (AQ03); placeholder fields are not evidence.
 
 **Audience:** Developers
 
@@ -25,7 +28,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD3](#ad3-per-user-r2-buckets) | Create an isolated R2 bucket for each user | The Worker derives and creates one S3-compatible bucket per email identity, isolating files and reducing user deletion to emptying and deleting that bucket. | Architecture | Active |
 | ~~[AD4](#ad4-periodic-rclone-bisync)~~ | ~~Replace the original periodic bisync policy~~ | The 60-second daemon cadence moved to [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers), and final-drain timing moved to [AD57](#ad57-135-second-shutdown-budget-for-final-bisync). | Architecture | Superseded |
 | [AD5](#ad5-login-shell-autostart) | Autostart the configured agent from the login shell | The PTY launches `bash -l`, whose `.bashrc` starts the `TAB_CONFIG` agent unless `MANUAL_TAB=1` marks a user-created shell. | Architecture | Active |
-| [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | Accept KV races and keep metrics collection in one alarm | KV session state remains last-writer-wins, while one `alarm()` callback groups activity, health, and status work because stricter coordination adds unjustified latency. | Architecture | Active |
+| [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | Accept KV races and keep metrics collection in one alarm | [AD155](#ad155-d1-owns-complete-session-lifecycle-authority) replaces session KV authority with D1 fencing; best-effort admission and the retained race/metrics history do not imply atomic admission. | Architecture | Partially superseded |
 | [AD7](#ad7-merged-into-ad10) | Redirect pre-setup endpoint risk to the bootstrap-window ADR | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) now contains the pre-setup public-endpoint risk acceptance formerly recorded here. | Security | Redirect anchor |
 | [AD8](#ad8-root-container-no-internal-auth) | Run root containers behind the Durable Object boundary | Containers run as root for rclone and trust a per-lifecycle proxy token because only the Durable Object can reach their internal port 8080. | Architecture | Active |
 | [AD9](#ad9-ressource_tier-spelling) | Redirect RESSOURCE_TIER compatibility to configuration docs | [Configuration](../lanes/configuration.md#container-specs) now owns the backward-compatible `RESSOURCE_TIER` spelling and its do-not-rename guidance. | Configuration | Redirect anchor |
@@ -39,24 +42,24 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD17](#ad17-merged-into-ad6) | Redirect collectMetrics atomicity to the KV-races ADR | [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) now owns the rationale for grouping `collectMetrics` work in one `alarm()` callback. | Architecture | Redirect anchor |
 | [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) | Keep untyped patterns inside isolated vendored WebGL modules | Vendored WebGL utilities retain confined `any` casts and an adapted constructor because upstream types are absent and refactoring visual code adds regression risk. | UI/Frontend | Active |
 | [AD19](#ad19-merged-into-ad18) | Redirect splash cursor casts to the vendored WebGL ADR | [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) now contains the rationale for `as any` pointer and shader-uniform casts in `splash-cursor-logic.ts`. | UI/Frontend | Redirect anchor |
-| [AD20](#ad20-toctou-in-containerlifecyclets) | Treat lifecycle TOCTOU warnings as false positives | Durable Object serialization prevents `alarm()` and `fetch()` handlers for one ID from executing concurrently, so flagged lifecycle read/write races cannot occur. | Architecture | Active |
+| [AD20](#ad20-toctou-in-containerlifecyclets) | Treat lifecycle TOCTOU warnings as false positives | The original TOCTOU disposition is retained as history; single-threaded ownership alone does not prove no interleaving across awaited I/O. | Architecture | Active |
 | [AD21](#ad21-inconsistent-function-signatures) | Preserve mixed helper function signatures | Legacy helpers keep positional arguments and newer helpers use options objects because both contracts are typed, while normalization could regress callers. | Architecture | Active |
-| [AD22](#ad22-jwks-30s-cache-staleness) | Cache JWKS keys for 30 seconds | `jwt.ts` caches JWKS responses for 30 seconds because Cloudflare Access overlaps rotated keys and shorter caching would add verification latency without material benefit. | Security | Active |
-| [AD23](#ad23-cors-origin-pattern-validation) | Redirect CORS administrator trust rationale to security docs | [Security](../lanes/security.md#static-analyzer-false-positives) and the `isAllowedOrigin` docstring now own the administrator-trust basis for the CORS analyzer exception. | Security | Redirect anchor |
-| [AD24](#ad24-predictable-session-ids) | Redirect session ID rationale to security docs | [Security](../lanes/security.md#session-id-validation) and `src/lib/constants.ts` now explain that session IDs are KV namespace keys, while JWT remains the authentication gate. | Security | Redirect anchor |
-| [AD25](#ad25-e2e-service-email-hardcoded) | Redirect E2E fixture identity evidence to security docs | [Security](../lanes/security.md#static-analyzer-false-positives) and `src/lib/access.ts` now identify the hardcoded service email as a test fixture, not a credential. | Security, Testing | Redirect anchor |
+| [AD22](#ad22-jwks-30s-cache-staleness) | Cache JWKS with a bounded kid-miss refresh threshold | JWKS responses cache for one hour; a missing kid may refetch after the 30-second freshness threshold, refining the retained rotation trade-off. | Security | Active |
+| [AD23](#ad23-cors-origin-pattern-validation) | Redirect CORS administrator trust rationale to security docs | `src/lib/cors-cache.ts` owns administrator-trust rationale; the Security alias is generic analyzer-policy navigation. | Security | Redirect anchor |
+| [AD24](#ad24-predictable-session-ids) | Redirect session ID rationale to security docs | `src/lib/constants.ts` owns format-only ID rationale; authentication and session ownership are separate from predictable identifiers. | Security | Redirect anchor |
+| [AD25](#ad25-e2e-service-email-hardcoded) | Redirect E2E fixture identity evidence to security docs | `src/lib/access.ts` owns the test-fixture rationale; the Security alias provides generic analyzer-policy navigation. | Security, Testing | Redirect anchor |
 | [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) | Gate rate-limit bypass behind the integration environment | `STRESS_TEST_MODE=active` bypasses rate-limit I/O only in GitHub Actions' integration environment so shared-token k6 tests can exceed ordinary per-user limits. | Security | Active |
 | [AD27](#ad27-server-side-prefix-delete) | Delete R2 prefixes with server-side list and batch operations | `emptyR2Bucket()` lists objects and deletes batches of 1,000 through the S3 API, avoiding frontend rate limits that break large-folder deletion. | Storage | Active |
 | [AD28](#ad28-merged-into-ad26) | Redirect stress-test environment scoping to AD26 | [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) now owns the GitHub Actions environment boundary that keeps `STRESS_TEST_MODE` out of production. | Security | Redirect anchor |
-| [AD29](#ad29-container-secrets-as-env-vars) | Expose secrets as environment variables in single-tenant containers | The Container Durable Object injects scoped credentials and user keys as plaintext environment variables because the same user already controls the container's root shell. | Security | Active |
-| [AD30](#ad30-worker-name-from-host-header) | Derive the Worker name from Host during initial setup | Setup parses `.workers.dev` hosts for the Worker name and uses `CLOUDFLARE_WORKER_NAME` on custom domains, limiting spoofing exposure to an authenticated, idempotent setup window. | Security | Active |
-| [AD31](#ad31-root-container-is-intentional) | Redirect root-container rationale to security evidence | [Security](../lanes/security.md#static-analyzer-false-positives) and the Dockerfile now own the network-isolation rationale for intentionally omitting a non-root `USER`. | Security | Redirect anchor |
+| [AD29](#ad29-container-secrets-as-env-vars) | Expose secrets as environment variables in single-tenant containers | Personal single-tenant paths accept plaintext user credentials; strict/governed/intercepted paths instead use their placeholder or omission contracts. | Security | Active |
+| [AD30](#ad30-worker-name-from-host-header) | Derive the Worker name from Host during initial setup | Setup parses workers.dev hosts or uses CLOUDFLARE_WORKER_NAME on custom domains; first setup is anonymous under AD10, not JWT-mitigated. | Security | Active |
+| [AD31](#ad31-root-container-is-intentional) | Redirect root-container rationale to security evidence | The Dockerfile root comment owns the privilege/isolation rationale; the Security alias is generic analyzer-policy navigation. | Security | Redirect anchor |
 | [AD32](#ad32-encryption_key-is-optional) | Make KV credential encryption optional | Deployments may omit `ENCRYPTION_KEY` and store credentials as plaintext JSON in KV, trading storage protection for simpler self-hosted onboarding. | Security | Active |
 | [AD33](#ad33-merged-into-ad10) | Redirect pre-setup CSRF risk to the bootstrap-window ADR | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) now owns the accepted CSRF risk while setup bypasses `X-Requested-With` checks. | Security | Redirect anchor |
 | [AD34](#ad34-websocket-auth-bypass-of-hono-middleware) | Maintain a parallel authentication path for WebSocket upgrades | The WebSocket handler mirrors authentication, CORS, rate limits, and tier gates before Hono because workerd upgrades cannot traverse the normal middleware chain. | Security | Active |
 | [AD35](#ad35-merged-into-ad18) | Redirect the legacy splash constructor to the vendored WebGL ADR | [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) now owns the rationale for the `this: any` constructor and downstream untyped rendering code. | UI/Frontend | Redirect anchor |
 | [AD36](#ad36-websocket-origin-check-is-optional-for-non-browser-clients) | Permit originless WebSockets for non-browser clients | `terminal.ts` requires Origin only when `Sec-Fetch-Mode` signals a browser, allowing CLI clients while `authenticateRequest()` remains the mandatory credential gate. | Security | Active |
-| [AD37](#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015) | Use Stripe as truth and KV as a billing read cache | Webhooks call `syncSubscriptionState()` to fetch and cache a complete Stripe snapshot, with `lastSyncedAt` preventing stale concurrent writes. | Billing | Active |
+| [AD37](#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015) | Use Stripe as truth and KV as a billing read cache | Webhooks cache complete Stripe snapshots; ordered Timekeeper start tokens and same-coordinator apply/merge reject stale writes. | Billing | Active |
 | [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) | Authenticate SaaS users with GitHub OIDC instead of Cloudflare Access | GitHub OIDC and HMAC session cookies remain active, but [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) replaced only the cookie-based OAuth state clause. | Billing | Partially superseded |
 | [AD39](#ad39-max-users-capacity-cap-counts-paid-slots-only) | Count only paid slots toward the user capacity cap | `countPaidSlots()` includes admins and active or trialing paid tiers while excluding free, pending, and blocked users so free accounts cannot consume paid capacity. | Billing | Active |
 | [AD40](#ad40-webhook-route-order-publicstripe-before-public) | Mount the Stripe webhook before the public catch-all route | Hono registers `/public/stripe` before `/public` so the catch-all router cannot intercept webhook requests or future specialized public sub-routes. | Billing | Active |
@@ -65,8 +68,8 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD43](#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke) | Exclude vanished files before destructive bisync recovery | Bisync parses missing-file errors into a session filter and retries up to three times, reserving R2 object nuking for actual corruption rather than transient deletes. | Storage | Active |
 | [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | Ship SDD with three autonomy modes and conservative judgment handling | SDD provides interactive, auto, and unleashed modes under shared agent rules; unleashed marks unresolved spec conflicts Partial instead of overwriting intent. | Architecture | Active |
 | ~~[AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list)~~ | ~~Remove per-rule ADR overrides~~ | The SDD override mechanism moved to [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features), leaving recurring findings to rule or REQ fixes. | Process | Superseded |
-| [AD46](#ad46-review-reality-filter-as-phase-5) | Add a stateful Reality Filter to review | The `/review` pipeline adds a Phase 5 Reality Filter backed by `sdd/.review-decisions.md` to suppress repeat noise while preserving an audit log. | Architecture | Active |
-| [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | Keep PTY reaping subordinate to idle-stop policy | The PTY reaper uses a four-hour floor as a stuck-lifecycle safety net, so it cannot terminate an agent before the maximum `sleepAfter` policy. | Architecture | Active |
+| [AD46](#ad46-review-reality-filter-as-phase-5) | Add a stateful Reality Filter to review | The current Reality Filter is Phase 6/Q1–Q6 with direct local evidence, a root decision packet and root-owned persistence; original measurements remain history. | Architecture | Active |
+| [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | Keep PTY reaping subordinate to idle-stop policy | The PTY reaper uses the retained 2026-11-02 twelve-hour floor as a safety net, matching the 43,200,000ms host clamp rather than owning idle policy. | Architecture | Active |
 | [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | Sign OAuth state in a stateless HMAC token | GitHub OAuth carries state as a 30-minute HMAC-SHA256 token, avoiding cookie loss under iOS ITP while retaining an expiry-bound CSRF check. | Security | Active |
 | [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | Preseed context-mode instead of installing it at runtime | The Custom-tier preseed hook path remains active, while MCP registration moved to [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned). | Architecture | Partially superseded |
 | [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | Keep one ADR ledger with stable anchors | The unified `decisions/README.md` and stable AD anchors remain, while [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) removed `doc-allow-large`. | Process | Partially superseded |
@@ -74,11 +77,11 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Expose Graphify queries everywhere; gate routing, mutation, and nudges | Graphify query tools ship in every session, while advanced mode adds conditional routing, clone triage, mutation workflow, active-repo tracking, and soft nudges. | Architecture | Active |
 | [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Keep one Graphify process and active-repository sentinel | Graphify retains its single-process/sentinel policy; [AD158](#ad158-select-complete-upstream-graphify-contexts-per-request) replaces only graph loading and freshness. | Architecture | Partially superseded |
 | [AD54](#ad54-vault-directory-must-use-a-non-hidden-basename) | Use a visible Vault directory basename | The vault lives at `/home/user/Vault/` because SilverBullet aborts walks of dot-prefixed roots, and the clean cutover restores file listing without a binary patch. | Storage | Active |
-| [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd) | Manage Vault styling through preseed | Codeflare overwrites Vault `STYLES.md` from preseed on boot, binding SilverBullet theme variables to product tokens at the cost of in-editor theme customization. | Architecture | Active |
+| [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd) | Manage Vault styling through preseed | Codeflare overwrites Vault STYLES.md on boot; its retained blue styling is historical branding, not parity with current coral product tokens. | Architecture | Active |
 | [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) | Run bisync every 15 minutes with explicit triggers | The bisync daemon uses a 15-minute cadence plus manual and final-sync triggers, cutting idle R2 operations while accepting wider ungraceful-loss and convergence windows. | Storage | Active |
 | [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) | Drain final bisync before container stop | Container teardown awaits an authenticated `/internal/final-sync` drain within 120 seconds and a 135-second hard cap, preserving recent writes before stop when possible. | Storage | Active |
-| [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) | Use higher-fidelity, prefiltered memory capture | Capture fidelity remains; [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces the fifteen-prompt cadence. | Memory | Partially superseded |
-| [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) | Encrypt Vault browser storage without a passphrase | Each session DO supplies a persisted random key to SilverBullet for encrypted IndexedDB, protecting offline browser profiles while accepting authenticated-page access. | Security | Active |
+| [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) | Use higher-fidelity, prefiltered memory capture | Capture fidelity remains; [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) replaces hard model-frontmatter enforcement and [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces cadence, with documented model/effort overrides. | Memory | Partially superseded |
+| [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) | Encrypt Vault browser storage without a passphrase | [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) and [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket) replace per-session keys and deletion with bucket-stable URL/HKDF/cache retention; the offline-profile threat model remains. | Security | Partially superseded |
 | [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter) | Reuse the memory-capture contract on Pi | Pi reads durable transcripts through the AD58 prefilter and shared prompt contracts, preserving citation discipline while AD103 bounds extraction to one pass. | Memory | Active |
 | [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Ship review as a native Pi skill | Pi deploys `/review` as a native 11-phase skill with report-only agents and root-owned persistence, because Claude slash commands do not transform into Pi workflows. | Architecture | Active |
 | [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Select Pi memory models through a generic lever | Pi uses optional `CODEFLARE_MEMORY_MODEL` for capture and extraction requests, avoiding vendor model literals while defaulting to the session model. | Architecture | Active |
@@ -87,13 +90,13 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) | Install Antigravity as the Google coding agent | The curl-installed `agy` replacement remains outside npm and V8 warm-up, while [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) restored its preseed lane. | Architecture | Partially superseded |
 | [AD66](#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) | Fail security-sensitive rate limiters closed | Security-sensitive KV-backed limiters return 429 on store failure, accepting endpoint unavailability rather than multiplying abuse allowance across Worker isolates. | Security | Active |
 | [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) | Restore Antigravity's Gemini-compatible preseed lane | The seed generator writes rules, skills, and agents into Antigravity's home-scoped `.gemini` tree, replacing stale R2 artifacts with generated configuration. | Architecture | Active |
-| [AD68](#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) | Constrain the service-token admin bypass | The `X-Service-Auth` bypass requires stress-test mode, rejects SaaS mode, and restricts test hostnames so a misplaced secret cannot mint production admins. | Security | Active |
+| [AD68](#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) | Constrain the service-token admin bypass | AD68 accepts stress/SaaS/hostname restrictions, but the current service-auth secret/header path lacks those gates; the authorization residual remains. | Security | Active |
 | [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing) | Run SilverBullet's grafted native service worker | The Vault serves SilverBullet's native worker with key-recovery grafts, preserving encrypted `sb_files_*` storage so cold loads sync incrementally instead of reindexing. | Architecture | Active |
-| [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | Make persisted session status authoritative | Container exit paths write KV `stopped` and the dashboard removes heartbeat-age reconciliation, preventing both dangling sessions and false live-session kicks. | Architecture | Active |
+| [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | Make persisted session status authoritative | [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence) refined KV status authority before [AD155](#ad155-d1-owns-complete-session-lifecycle-authority) replaced it with D1 generation/sequence fencing; exit evidence, not heartbeat guesses, still governs. | Architecture | Partially superseded |
 | [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) | Bundle the preseed corpus with a compressed-size guard | The Worker statically imports the agent preseed corpus while CI guards compressed bundle size, retaining a simple synchronous seed path until headroom shrinks. | Architecture | Active |
 | [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) | Intercept enterprise LLM traffic at container egress | A WorkerEntrypoint intercepts provider HTTPS and forwards with Worker-held AI Gateway credentials, keeping secrets out of containers and avoiding a public proxy route. | Architecture, Security | Active |
 | [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | Keep workers.dev enabled as the bootstrap host | Every deployment exposes its `workers.dev` URL so fresh accounts can run setup before a custom domain exists, with operators responsible for post-setup Access protection. | Security | Active |
-| [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Route enterprise LLM calls through AI Gateway APIs | Discovered contracts bind compat; historical Dynamic assignments retain REST-first, while [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) covers native/custom dispatch. | Architecture, Security | Partially superseded |
+| [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Route enterprise LLM calls through AI Gateway APIs | [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) owns native/custom scope; documentary AD159–AD164 separate dated transport, attribution, catalog, profile and discovery replacements. | Architecture, Security | Partially superseded |
 | [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Replace Pi's Graphify wrapper with a native extension | Pi registers first-party Graphify tools that call the same CLI engine as Claude, removing divergent query behavior and two npm dependencies. | Architecture | Active |
 | ~~[AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes)~~ | ~~Replace detached review lanes with visible agents~~ | Visible session-scoped agents in [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) replaced detached headless Pi lanes and their disk-backed recovery machinery. | Agents | Superseded |
 | [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Bypass Access only for the Vault worker script | Enterprise setup creates a higher-precedence Access bypass for the non-sensitive Vault service-worker path so script fetches reach the Worker without credentials. | Architecture, Security | Active |
@@ -108,10 +111,10 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | Exempt scoped platform traffic, not Browser endpoints | Own R2 and unrelated own-account APIs retain direct paths; Browser REST/CDP requires Gateway under strict egress without expanded administrator authority. | Architecture, Security | Active |
 | [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) | Re-sign R2 and bridge WebSockets at the egress controller | R2 re-signing and WebSocket bridging remain; [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) owns browser-token injection, while [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) replaces deployment-wide R2 signer authority. | Architecture, Security | Partially superseded |
 | [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads) | Compare bisync state with server modification times | Both bisync paths use `--use-server-modtime` with fast listings and 64 checkers, eliminating per-object HEAD storms while accepting R2 upload time as the conflict key. | Storage | Active |
-| [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) | Governed Mode controls deployment-wide R2 SSE-C policy | The enterprise-only KV toggle controls R2 SSE-C policy, separating deployment-wide encryption mode from the verified migration state machine. | Architecture, Security, Storage | Active |
+| [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) | Governed Mode controls deployment-wide R2 SSE-C policy | [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) replaces COPY, boolean state and lazy-login migration; the enterprise R2 SSE-C policy toggle remains accepted. | Architecture, Security, Storage | Partially superseded |
 | [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Bake Governed Mode seed files for checksum delta sync | Governed Mode lays an image-baked agent seed down before checksum-based R2 sync, avoiding full seed downloads while preserving user deltas. | Storage | Active |
 | [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | Run R2 regime migration as a verified chunked state machine | The R2 regime driver uses leased chunks, REPLACE self-copies, writer gates, verification, and dual-regime reads so policy flips remain resumable and readable. | Storage | Active |
-| [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Seed slim official Cloudflare skills in advanced mode | The advanced agent seed bundles 11 official skills and two commands but omits bulky references and MCP configuration to stay within Worker limits. | Agents | Active |
+| [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Seed slim official Cloudflare skills in advanced mode | The advanced seed retains retrieval-first Cloudflare guidance; the original 11-skill inventory is now 13, and the two commands are Claude-only. | Agents | Active |
 | [AD93](#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh Cloudflare OAuth tokens at the API egress boundary | The container interceptor replaces an OAuth placeholder with a fresh token on each api.cloudflare.com request, keeping real tokens out of live containers. | Architecture, Security | Active |
 | [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) | Track Vault extraction changes with a SHA-256 manifest | Content-hash detection remains; [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces continuous polling with prompt-cadenced checks. | Storage | Partially superseded |
 | [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Keep Browser IDE runtime state session-isolated | The Browser IDE stays on a session-keyed route with ephemeral live state, preventing one session's workspace and editor state from bleeding into another. | Architecture, Security | Active |
@@ -119,13 +122,13 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | ~~[AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk)~~ | ~~Retire the OpenVSCode vulnerability-risk acceptance~~ | [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) replaces the pinned OpenVSCode runtime, removing the accepted upstream vulnerability posture and its scanner suppressions. | Security, Build / Container | Superseded |
 | [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Run Pi PR review through visible session-scoped agents | Parallel visible reviewers and root triage remain; [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) replaces persisted recovery and clone-local acknowledgement. | Agents | Partially superseded |
 | [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Monitor Pi CI with one attached native subagent | One attached exact-head CI monitor remains; [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) replaces durable launch checkpoints and settled recovery. | Agents | Partially superseded |
-| [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Use upstream rpiv-todo session isolation | The Pi seed pins rpiv-todo's session-keyed store and removes the temporary source override, so child lifecycle events cannot erase foreground tasks. | Agents | Active |
+| [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Use upstream rpiv-todo session isolation | The Pi seed pins rpiv-todo's session-keyed store and removes the temporary source override, so child lifecycle events cannot erase foreground tasks. | Agents | Retired |
 | [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | Give the foreground Pi session sole context-mode ownership | A managed process-global claim gives the root Pi session the only context-mode bridge, while in-process subagents use native or Bash transports to prevent helper leaks. | Agents, Architecture | Active |
 | [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Make Pi extraction root-owned and transactional | Transactional root ownership remains; [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces immediate during-run follow-up scheduling. | Agents, Architecture | Partially superseded |
 | [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Bound Pi extraction to medium reasoning and one-pass inputs | Frozen inputs, Bash-only tools, and medium reasoning remain; [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces the cadence and turn-budget consequences. | Agents, Memory, Performance | Partially superseded |
 | ~~[AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming)~~ | ~~Retire xterm-owned trimming during manual scrollback~~ | [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) retains mode ownership but replaces reader trimming and keyboard-open wheel routing after both failed in the field. | Architecture, Mobile | Superseded |
-| [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Defer terminal output while users read scrollback | The terminal freezes normal-buffer writes during manual scrollback and routes navigation through buffer state, preventing trims and DOM drift from yanking the viewport. | Architecture, Mobile | Active |
-| [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | Use one cross-agent SDD enforcement contract | Claude's canonical enforcement skills are transformed for Pi, and per-AC manual markers replace REQ-wide exemptions so both runtimes apply the same checks. | Process, Agents | Active |
+| [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Defer terminal output while users read scrollback | [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops) replaces cap force-flush and all-at-once release with oldest-unit drops and bounded release; freeze/gesture authority remains. | Architecture, Mobile | Partially superseded |
+| [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | Use one cross-agent SDD enforcement contract | [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) permits multiple test anchors; canonical cross-agent policy and per-AC manual evidence remain, without universal execution parity. | Process, Agents | Partially superseded |
 | ~~[AD107](#ad107-context-mode-is-opt-in-in-pi-pending-upstream-memory-safety)~~ | ~~Keep context-mode opt-in for Pi sessions~~ | [AD138](#ad138-context-mode-is-on-by-default-in-pi) replaced opt-in with enabled startup before [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) restored opt-in while retaining the managed single-owner adapter. | Agents, Architecture, Reliability | Superseded |
 | [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) | Permit multiple resolving test anchors per acceptance criterion | The SDD parser validates every comment-bounded `@test` anchor independently, allowing distributed behavioral evidence without splitting a coherent acceptance criterion. | Process, Agents, Testing | Active |
 | [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned) | Make entrypoint the sole Claude context-mode registrar | Container entrypoint always writes Claude's context-mode MCP registration, preventing tier-specific plugin metadata from creating duplicate servers. | Agents, Architecture | Active |
@@ -137,7 +140,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses) | Run Claude review lanes as bounded headless subprocesses | The bounded headless lane runner remains; [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) replaces lane re-demand, transcript recovery, and clone-local acknowledgement. | Architecture, Cost | Partially superseded |
 | [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane) | Precompute review-lane Phase 0 deterministically | The lane launcher computes SDD triage before model invocation and passes authoritative results in the opening prompt, eliminating repeated discovery turns. | Architecture, Cost | Active |
 | [AD117](#ad117-review-lane-cost-is-governed-by-turn-count-so-evidence-gathering-is-structured-in-waves) | Gather review evidence in structured waves | Review lanes derive available evidence first and batch only named gaps into a second call, reducing quadratic turn cost without imposing a completeness cap. | Architecture, Cost | Active |
-| [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Mark seeded R2 objects with verified provenance metadata | Seed writes stamp a build hash in R2 custom metadata, so cleanup deletes retired files only with positive product-ownership evidence and preserves user replacements. | Storage, Agents | Active |
+| [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Mark seeded R2 objects with verified provenance metadata | [AD147](#ad147-active-managed-resource-policy-supersedes-provenance-ownership) replaces provenance ownership only for active protected inventory; other paths retain provenance policy and the frozen one-time exception. | Storage, Agents | Partially superseded |
 | [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) | Run pinned code-server behind the session proxy | The Browser IDE uses a checksum-verified unmodified code-server release on loopback while preserving authenticated session routes, fixed inventories, and lazy lifecycle. | Architecture, Security, Build / Container | Active |
 | [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | Fix Browser IDE workspace selection and export safe UI state | The host rejects public workspace selectors and projects `/home/user/workspace`, while a bounded allowlist persists only safe UI preferences across sessions. | Architecture, Security, Storage, Build / Container | Active |
 | ~~[AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation)~~ | ~~Anchor review coverage on delivery subcommands~~ | [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint) replaces broad Git/GitHub candidacy and merge delivery with automatic push/PR-create ingress plus clone-only consent. | Architecture, Build / Container | Superseded |
@@ -161,7 +164,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD155](#ad155-d1-owns-complete-session-lifecycle-authority) | Make D1 the complete session lifecycle authority | D1 `stopped` again requires generation-fenced confirmed exit; the timeout exception in AD157 is superseded. | Architecture, Storage, Reliability | Active |
 | [AD156](#ad156-pi-fix-directive-owns-automatic-delivery) | Make Pi's FIX directive own automatic delivery | After accepted corrections, Pi's FIX directive orders the push while preserving no-merge and no-op protections. | Agents, Architecture | Active |
 | ~~[AD157](#ad157-reset-stale-stopping-ownership-on-owner-status-reads)~~ | ~~Reset stale stopping ownership on owner status reads~~ | [AD155](#ad155-d1-owns-complete-session-lifecycle-authority) supersedes this historical timeout policy for future sessions because time cannot prove process exit. | Architecture, Storage, Reliability | Superseded |
-| [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) | Start context-mode off and expose optional Pi tools on demand | [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) replaces startup-off with enabled startup; foreground ownership and on-demand optional tool exposure remain accepted. | Agents, Architecture, Performance | Partially superseded |
+| [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) | Start context-mode off and expose optional Pi tools on demand | [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) and package assembly retain disabled startup with /ctx opt-in; the inherited 2026-10-18 enabled-start attribution remains unverified. | Agents, Architecture, Performance | Active |
 | [AD141](#ad141-browser-ide-startup-follows-the-session-workspace-snapshot) | Start Browser IDE services by immutable session workspace | Terminal sessions retain lazy editor startup and PTY prewarm, while VS Code sessions eagerly warm code-server without a host browser-terminal PTY. | Architecture, Build / Container | Active |
 | ~~[AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint)~~ | ~~Define delivery review and joint completion~~ | [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) retains automatic delivery while replacing clone-local completion and durable recovery with user-scoped markers and ephemeral rounds. | Agents, Architecture, Build / Container | Superseded |
 | [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) | Keep strict R2 signer authority inside the user's bucket | Strict interception re-signs only the session's exact bucket with its scoped credential and never falls back to deployment-wide R2 authority. | Architecture, Security | Active |
@@ -172,11 +175,18 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) | Schedule memory and Vault work from successful prompt high-water marks | Memory capture and Vault checks run every 20 real prompts and on eligible resumed tails, without polling or consuming failed scans. | Agents, Memory, Storage | Active |
 | [AD149](#ad149-herdr-semantic-status-owns-completion-notification-timing) | Let Herdr status own completion notification timing | A ten-minute timer starts when every tracked agent pane becomes ready; renewed work cancels timing and queued completion. | Architecture, Agents | Active |
 | [AD150](#ad150-d1-owns-historical-usage-and-report-delivery-records) | Keep live quota state in Timekeeper and historical set queries in D1 | One database owns historical periods, report claims, and retention while live quota enforcement remains independent. | Architecture, Usage, Operations | Active |
-| [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence) | Resolve lifecycle ownership outside eventual KV | Local startup and transport ownership still guard stale projections; SDK-only terminal stop authority is replaced by owner-scoped D1 ([REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits) AC1–AC2). | Architecture, Session lifecycle, Storage | Partially superseded |
-| [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) | Generalize native and custom provider compat dispatch | Interceptor targets retain exact selectors and profiles; normal-hosted Dispatcher instead uses saved provider/model/token with normal Flue under the [corrected amendment](#ad152-normal-hosted-dispatcher-amendment). | Architecture, Security | Partially superseded |
+| [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence) | Resolve lifecycle ownership outside eventual KV | [AD155](#ad155-d1-owns-complete-session-lifecycle-authority) replaces SDK/KV authority with D1 fencing; startup and unordered-negative guards remain, not an absolute transport veto on ordered stops. | Architecture, Session lifecycle, Storage | Partially superseded |
+| [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) | Generalize native and custom provider compat dispatch | Interceptor scope remains accepted; the 2026-11-01 normal-Flue Dispatcher correction replaces configured-Pi direction but remains Planned/unaccepted. | Architecture, Security | Partially superseded |
 | [AD153](#ad153-session-capture-compaction-preserves-durable-memory) | Compact cold session captures through the existing sync lifecycle | Daily compaction keeps a filename-derived one-month hot set, relocates graph provenance, deletes exact local sources, and publishes the result with one bisync. | Architecture, Memory, Storage | Active |
 | [AD154](#ad154-pi-discovers-skills-through-native-metadata-and-generated-invocation-policy) | Discover Pi skills through native metadata | Existing capability search uses native winners and generated eligibility policy without an eager index, a new executor, or context-lifecycle changes. | Agents, Architecture, Performance | Active |
 | [AD158](#ad158-select-complete-upstream-graphify-contexts-per-request) | Select complete upstream Graphify contexts per request | Graphify delegates graph/community/index loading to upstream so parallel relations and fresh generations stay consistent without a watcher. | Architecture | Active |
+| [AD159](#ad159-recorded-dual-transport-replacement-of-rest-only-routing) | Recorded dual-transport replacement of REST-only routing | The recorded 2026-06-07 amendment narrows REST-only routing to REST-first/complete-404 compat replay for historical assignments. | Historical/provenance | Documentary extraction |
+| [AD160](#ad160-recorded-compat-field-stripping-and-email-attribution) | Recorded compat field stripping and email attribution | The recorded 2026-06-07 amendment separates compat field stripping from REST and records trusted-email attribution without new disclosure authority. | Historical/provenance | Documentary extraction |
+| [AD161](#ad161-recorded-catalog-routing-and-bounded-group-attribution) | Recorded catalog routing and bounded group attribution | The recorded 2026-06-09 amendment replaces single-variable routing and scalar group metadata with catalog selection and bounded group tags. | Historical/provenance | Documentary extraction |
+| [AD162](#ad162-recorded-capability-profile-administration-replacement) | Recorded capability-profile administration replacement | The recorded 2026-09-05 amendment adds immutable active profiles and administration boundaries without certifying the historical catalog inventory. | Historical/provenance | Documentary extraction |
+| [AD163](#ad163-recorded-discovered-compatibility-transport-replacement) | Recorded discovered compatibility transport replacement | The recorded 2026-09-13 amendment binds new compatibility discovery to saved compat wire contracts, retaining historical assignment behavior. | Historical/provenance | Documentary extraction |
+| [AD164](#ad164-recorded-independent-capability-qualification-replacement) | Recorded independent-capability qualification replacement | The recorded 2026-09-13 clarification separates capability dimensions and legacy evidence without promoting missing receipts. | Historical/provenance | Documentary extraction |
+
 ---
 
 ## Decisions
@@ -204,7 +214,7 @@ Alternative was one container per user with multiplexed PTYs. Per-session contai
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** The retained compact record identifies direct lookup without a KV round-trip and invalid-ID orphan risk as its rationale. Current `getContainerId` validates the identifier and constructs the bucket/session key; this supports the mechanism, not independent proof of the original orphan incident. <!-- @impl: src/lib/container-helpers.ts::getContainerId -->
 
 **Decision:** `{bucketName}-{sessionId}`
 
@@ -269,7 +279,9 @@ PTY spawns `bash -l` (login shell). `.bashrc` reads `TAB_CONFIG` env var and lau
 
 **Category:** Architecture
 
-**Status:** Accepted (date not recorded)
+**Status:** Accepted (date not recorded) Partially superseded by [AD155](#ad155-d1-owns-complete-session-lifecycle-authority) for session KV/SDK authority and repair claims.
+
+**Current-scope qualification (documentary, not a new acceptance):** AD155 now owns complete session authority in D1 with owner scope and generation/sequence fencing; historical KV status/metrics authority and SDK/KV repair language below are not current authority. Best-effort admission still has no atomic reservation. Startup guards and protection from unordered negative observations remain, but an ordered D1 stop may apply after the startup guard despite lingering transport. Exit/status and no-heartbeat-guess rationale, including AD151 refinement history, remain.
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -343,7 +355,7 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** The retained rationale is the bootstrap dependency: Access does not yet exist when setup configures it, so the deployer accepts a short anonymous window rather than requiring unavailable authentication. Current conditional auth confirms the split before/after setup, not a measured exposure duration. <!-- @impl: src/routes/setup/index.ts::createConditionalSetupAuth -->
 
 **Decision:** A narrow pre-setup window (seconds to minutes) is the unavoidable shape of a self-hosted bootstrap; auth and CSRF protections are intentionally relaxed during it, mitigated by short exposure, rate limiting, and the `setup:complete` KV flag.
 
@@ -370,7 +382,9 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Current-scope qualification (documentary, not a new acceptance):** Current `src/lib/cors-cache.ts::isAllowedOrigin` accepts static/default patterns before consulting KV. A KV custom domain is additive: it does not remove static/default .workers.dev matches. The historical custom-domains-replace-wildcard mitigation below is unsupported in current source. Broad credentialed-CORS risk remains; authentication is a separate primary boundary, not supplied by the suffix match.
+
+**Context:** The retained rationale accepts suffix-pattern credentialed CORS with a configurable allowlist and separate primary authentication. Current matcher supports domain-boundary matching, not the historical assertion that custom domains remove the wildcard; see the current-scope qualification. <!-- @impl: src/lib/cors-cache.ts::isAllowedOrigin -->
 
 **Decision:** `matchesPattern()` with domain-boundary enforcement.
 
@@ -540,6 +554,8 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 **Status:** Accepted (date not recorded)
 
+**Current-scope qualification (documentary, not a new acceptance):** The single-threaded false-positive rationale below is historical, not proof that awaited I/O cannot interleave. Current lifecycle ownership uses transactions and generation fencing (`src/container/container-lifecycle.ts`); serialization alone cannot establish universal architectural impossibility. This qualification asserts neither a reproduced race nor a new concurrency guarantee.
+
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Durable Objects are single-threaded per ID -- false positive.
@@ -574,7 +590,9 @@ Legacy helper functions accept positional parameters while newer ones use destru
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Current-scope qualification (documentary, not a new acceptance):** The 30-second rationale below is retained history. In `src/lib/jwt.ts`, `CACHE_TTL` is one hour; `JWKS_FRESHNESS_THRESHOLD` is 30 seconds and controls refetch eligibility on a missing `kid`, not ordinary cache expiry. Source inspection does not establish the vendor key-overlap claim.
+
+**Context:** The retained rationale trades verification latency against key-rotation freshness. Current cache/refetch code explains the refined mechanism; it does not prove the recorded vendor overlap behavior or backdate the one-hour TTL. <!-- @impl: src/lib/jwt.ts::CACHE_TTL -->
 
 **Decision:** Industry-standard tradeoff for key rotation.
 
@@ -593,7 +611,9 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 **Decision:** Follow the redirect or supersession recorded by this ADR.
 
-**Status:** Reclassified on 2026-05-09. Static-analyzer false positive accepted with admin-trust rationale; documented inline at `src/lib/cors-cache.ts` (the `isAllowedOrigin` docstring) and summarized in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD23` references in the codebase remain valid; this entry preserves the anchor.
+**Status:** Reclassified on 2026-05-09. Static-analyzer false positive accepted with admin-trust rationale; documented inline at `src/lib/cors-cache.ts` (the `isAllowedOrigin` docstring) with generic policy navigation in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD23` references in the codebase remain valid; this entry preserves the anchor.
+
+**Current-scope qualification (documentary, not a new acceptance):** The specific rationale is owned by `src/lib/cors-cache.ts` (isAllowedOrigin), not the security alias. The security destination is generic static-analyzer false positives navigation only. The inline comment supports that boundary rationale, not independent historical incident or exploit-containment proof.
 
 
 **Consequences:** The original compact ADR did not record a separate consequences field.
@@ -604,11 +624,13 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 **Category:** Redirect anchor
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Context:** The retained namespace-key rationale distinguishes predictable IDs from authentication credentials. Current source comment and pattern validate format only; KV namespace terminology is historical, not current D1 authority. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN -->
 
 **Decision:** Follow the redirect or supersession recorded by this ADR.
 
-**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (analyzer treats session IDs as auth tokens, but they are KV namespace keys; JWT is the auth gate); documented inline at `src/lib/constants.ts:6` and summarized in [security.md "Session ID Validation"](../lanes/security.md#session-id-validation). Inbound `AD24` references in the codebase remain valid; this entry preserves the anchor.
+**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (analyzer treats session IDs as auth tokens, but they are KV namespace keys; JWT is the auth gate); documented inline at `src/lib/constants.ts` (`SESSION_ID_PATTERN`) with generic validation navigation in [security.md "Session ID Validation"](../lanes/security.md#session-id-validation). Inbound `AD24` references in the codebase remain valid; this entry preserves the anchor.
+
+**Current-scope qualification (documentary, not a new acceptance):** The specific rationale is owned by `src/lib/constants.ts` (SESSION_ID_PATTERN), not the security alias. The security destination is generic session id validation navigation only. The namespace-key wording is historical; session IDs are format-validated identifiers, not credentials, and authentication/ownership remain separate.
 
 
 **Consequences:** The original compact ADR did not record a separate consequences field.
@@ -623,7 +645,9 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 **Decision:** Follow the redirect or supersession recorded by this ADR.
 
-**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (test fixture flagged as hardcoded credential); documented inline at `src/lib/access.ts:166` and summarized in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD25` references in the codebase remain valid; this entry preserves the anchor.
+**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (test fixture flagged as hardcoded credential); documented inline at `src/lib/access.ts` (`validateServiceAuthHeader`; line 166 was the historical locator) with generic policy navigation in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD25` references in the codebase remain valid; this entry preserves the anchor.
+
+**Current-scope qualification (documentary, not a new acceptance):** The specific rationale is owned by `src/lib/access.ts` (validateServiceAuthHeader), not the security alias. The security destination is generic static-analyzer false positives navigation only. The inline comment supports that boundary rationale, not independent historical incident or exploit-containment proof.
 
 
 **Consequences:** The original compact ADR did not record a separate consequences field.
@@ -687,6 +711,8 @@ Frontend folder deletion was subject to API rate limits (30/min browse, 20/min d
 
 **Status:** Accepted (date not recorded)
 
+**Current-scope qualification (documentary, not a new acceptance):** Broad plaintext-key injection below describes the personal single-tenant path. Strict/governed/intercepted paths use placeholders or omit protected credentials according to their owning contracts (AD72/81/87/93/143); they do not inherit permission to inject real keys. The original single-tenant trade-off remains, not a containment claim.
+
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
 **Decision:** Plaintext env vars acceptable for single-tenant containers.
@@ -704,7 +730,9 @@ Container DO injects R2 credentials, LLM API keys, and auth tokens as plaintext 
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Current-scope qualification (documentary, not a new acceptance):** The hostname choice remains; the JWT mitigation below is historical and does not describe anonymous first setup. `src/routes/setup/index.ts::createConditionalSetupAuth` calls `next()` before setup completes; authentication plus admin authorization applies afterward. AD10 retains the short-window, rate-limit and setup-complete risk acceptance and future bootstrap-secret/Origin hardening. `src/routes/setup/shared.ts::getWorkerNameFromHostname` owns parsing, not authentication.
+
+**Context:** The retained choice derives a name from workers.dev hosts and uses explicit configuration for custom domains. Current parser supports that choice; anonymous bootstrap versus later admin auth is qualified above, not evidence for the historical JWT mitigation. <!-- @impl: src/routes/setup/shared.ts::getWorkerNameFromHostname -->
 
 **Decision:** Host header parsing for `.workers.dev` domains during setup only.
 
@@ -723,7 +751,9 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 **Decision:** Follow the redirect or supersession recorded by this ADR.
 
-**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (missing `USER` directive flagged as privilege issue) accepted with network-isolation rationale; documented inline in `Dockerfile` (search `SAST-false-positive`) and summarized in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD31` references in the codebase remain valid; this entry preserves the anchor.
+**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (missing `USER` directive flagged as privilege issue) accepted with network-isolation rationale; documented inline in `Dockerfile` (search `SAST-false-positive`) with generic policy navigation in [security.md "Static-Analyzer False Positives"](../lanes/security.md#static-analyzer-false-positives). Inbound `AD31` references in the codebase remain valid; this entry preserves the anchor.
+
+**Current-scope qualification (documentary, not a new acceptance):** The specific rationale is owned by `Dockerfile` (SAST-false-positive root comment), not the security alias. The security destination is generic static-analyzer false positives navigation only. The inline comment supports that boundary rationale, not independent historical incident or exploit-containment proof.
 
 
 **Consequences:** The original compact ADR did not record a separate consequences field.
@@ -737,7 +767,9 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Current-scope qualification (documentary, not a new acceptance):** The no-warning statement below is historical. Request middleware in `src/index.ts` calls `src/lib/kv-crypto.ts::warnIfNoEncryptionKey`, emitting one critical warning per isolate when the key is absent. Plaintext fallback remains for covered KV values only: `src/routes/vault/crypto.ts::getVaultEncryptionKey` requires the master secret. This changes no immutable-key, no-rotation or no-migration constraint.
+
+**Context:** The retained rationale is simpler self-hosted onboarding in exchange for plaintext storage of covered KV values when no encryption key is configured. Current storage fallback supports that trade-off, not plaintext Vault-key derivation or the historical no-warning statement. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore -->
 
 **Decision:** Optional encryption eases onboarding; operators accept plaintext KV storage as trade-off.
 
@@ -818,7 +850,9 @@ The WebSocket upgrade handler in `terminal.ts` only requires the `Origin` header
 
 **Status:** Accepted (date not recorded)
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Current-scope qualification (documentary, not a new acceptance):** The lastSyncedAt race account below is historical. `src/routes/stripe-webhook.ts::syncSubscriptionState` now obtains an ordered Timekeeper start token before fetching Stripe and applies/merges through the same coordinator; newer starts invalidate older applies. `lastSyncedAt` is metadata, not the stale-write guard. No original adoption date is inferred.
+
+**Context:** The retained rationale uses Stripe as snapshot truth rather than applying event payloads as state; the incident and lastSyncedAt account below remain historical. Current sync explains ordered-token refinement, not original incident proof. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 
 **Decision:** Webhooks signal; `syncSubscriptionState()` fetches latest from Stripe API and writes complete snapshot to KV.
 
@@ -947,6 +981,8 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 **Status:** Accepted (date not recorded)
 
+**Current-scope qualification (documentary, not a new acceptance):** The all-instructions/auto-demotion/two-round account and measurements below are historical. Current Pi discipline is grouped; boundary reviewers are report-only and root owns mutations; canonical `spec-enforce` uses the five-round gate. The three autonomy modes and conservative intent choices remain. These source qualifications do not establish uniform runtime delivery or rerun the old measurements.
+
 **Decision:** Codeflare ships SDD (Spec-Driven Development) as a Pro feature with three autonomy modes (`interactive`, `auto`, `unleashed`), with a universal enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions, and conservative JUDGMENT auto-resolution that never overwrites spec intent. The spec-reviewer and doc-updater agents are project-agnostic and detect `sdd/` automatically.
 
 **Context:** A previous SDD workflow shipped as a skill + agent pair, but real-world use on a downstream project revealed several failure modes:
@@ -1021,16 +1057,64 @@ spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read 
 
 ### AD45: User overrides recorded as ADRs, not skip-list
 
-**Category:** Superseded
+**Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The override-via-ADR mechanism described below was ripped out alongside five other overengineered SDD features. There is now no per-rule override mechanism at all -- if a finding keeps re-firing, fix the rule or the REQ.
 
-**Context:** The original compact ADR did not separate a context field from its decision rationale.
+**Recovery provenance:** Substantive body restored from `9c0113d9^:documentation/decisions/README.md` (before trim commit `9c0113d9`). Everything below records the removed historical mechanism, not operative override permission. Recovery establishes the prior recorded text, not independent proof of its downstream incident. No original acceptance date or separate Consequences field was recovered.
 
-**Decision:** Follow the redirect or supersession recorded by this ADR.
+**Category:** Architecture
 
-**Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The override-via-ADR mechanism was ripped out alongside five other overengineered SDD features. There is now no per-rule override mechanism at all -- if a finding keeps re-firing, fix the rule or the REQ. Body removed on trim-to-tombstone; this anchor is retained for inbound references. See [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) for the rip-out rationale.
+**Decision:** Remove `sdd/.user-overrides.md`. When the user resolves an automated SDD finding as "keep current behavior — this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` carrying an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header at the start of every run and skip matching findings — same machine behavior as the legacy skip list, but the architectural decision is now first-class.
 
+**Context:** AD44 introduced the SDD review pipeline with `sdd/.user-overrides.md` as the place to record JUDGMENT resolutions ("don't re-attempt this fix; the user said no"). On a downstream `ai-news-digest` session, spec-reviewer flagged cookie-attribute mechanism leakage in REQ-AUTH-002 AC 1 (`__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The clean resolution was "the cookie attributes ARE the security contract — security reviewers grep these strings; rewriting to user-observable language loses the contract surface". Recording that as a one-line `User note:` field in `sdd/.user-overrides.md` worked for the agent but failed the human:
 
-**Consequences:** The original compact ADR did not record a separate consequences field.
+- The override file is invisible to anyone reading the codebase. It doesn't appear in any index, isn't referenced from `documentation/decisions/README.md`.
+- Each entry is a load-bearing architectural choice ("we treat cookie attributes as the security contract") buried in a config-shaped file alongside test-skip notes.
+- "Rationale" lives in a free-text User note field with no structure — no Context/Decision/Rationale/Consequences scaffolding, no link to the affected REQ, no date the decision was revisited.
+- Six months later, nobody remembers what's in `.user-overrides.md` and re-litigates the same call because they couldn't find prior context.
+
+**Alternatives considered:**
+
+1. **Keep `sdd/.user-overrides.md` and just cross-link from `documentation/decisions/README.md`.** Rejected: still bifurcates decision storage. The cross-link rots.
+2. **Keep the file but require structured fields (Context/Decision/Rationale/Consequences).** Rejected: this is the ADR template — at that point we are reinventing ADRs in `sdd/`, in the wrong lane.
+3. **Move overrides into REQ frontmatter as a per-REQ `OverridesRules:` field.** Rejected: scatters the decision. Reading the REQ doesn't tell you *why* the rule was overridden — that's an architectural decision, not a REQ attribute. Future REQ refactors might drop the field unintentionally.
+4. **The chosen approach: ADRs with `Overrides:` headers.** Same skip semantics, decision now lives where decisions live.
+
+**Rationale:**
+
+- ADRs already exist for this exact purpose in `documentation/decisions/`: structured, indexed, discoverable, treated as first-class history.
+- The `**Overrides:**` line is a one-line parser anchor — spec-reviewer's grep pattern is `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (tolerates both plain and the project's universal bold-wrapped ADR field convention), splitting on commas — same skip key shape (`{rule_id}:{target_id}`) the legacy file used.
+- Decisions can be revised with full Status history (`Accepted` → `Superseded by AD-M`) following existing ADR patterns. The legacy skip list had no such notion.
+- ADRs are listed in `documentation/decisions/README.md`'s decision index, surfacing the override decisions in the same place where every other architectural call lives. Future contributors find them on first reading.
+- `/sdd clean` migrates existing entries automatically: each line in any project's existing `sdd/.user-overrides.md` becomes a new ADR (Context/Decision/Rationale/Consequences scaffold pre-filled with the legacy `User note:` field; TODO placeholders in Rationale/Consequences asking the user to expand on first read), and the legacy file is deleted in the same commit. Tagged `[sdd-clean] migrate user-overrides to ADRs (issue codeflare#266)` so spec-reviewer's round-counter excludes it.
+
+**Trade-offs accepted:**
+
+- Migration adds one extra commit on the next `/sdd clean` for any project with existing override entries. Acceptable: it's a one-time cost, the migration is fully automatic, and each migrated ADR carries a TODO marker so the user knows to expand the rationale.
+- ADRs are slightly heavier-weight than a one-line skip entry. Intentional: the friction is the point. If an override is "easy" to add, it gets added thoughtlessly. If it requires writing a real ADR, it gets thought about, which is what we want for an architectural decision.
+- The `Overrides:` header is a soft contract — projects that hand-edit ADRs to remove the header silently lose the skip behavior. Acceptable: same shape as every other markdown-based agent contract in the project.
+
+**Migration:**
+
+- spec-reviewer Step 0d: greps `documentation/decisions/**/*.md` for `**Overrides:**` (regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` — tolerates plain and bold-wrapped) instead of reading `sdd/.user-overrides.md`. Legacy file (if present) triggers a HIGH finding asking for migration.
+- doc-updater Step 0c: same change.
+- spec-discipline.md: drops `## User overrides` section, replaces with `## User overrides via ADRs` documenting the `Overrides:` header pattern.
+- `/sdd clean` step 6/6a: auto-migrates legacy entries to ADRs.
+- `/sdd init`: was never scaffolding `.user-overrides.md`; no change needed.
+- SKILL.md, /sdd command help, and `documentation/decisions/README.md` AD44 trade-off bullet: drop references to the legacy file.
+
+**Related requirements:**
+
+- REQ-AGENT-021 (SDD workflow as Pro feature)
+
+**Implementation references:**
+
+- `preseed/agents/claude/rules/spec-discipline.md` (User overrides via ADRs section)
+- `preseed/agents/claude/agents/spec-reviewer.md` (Step 0d, Phase 3 interactive override flow)
+- `preseed/agents/claude/agents/doc-updater.md` (Step 0c)
+- `preseed/agents/claude/commands/sdd.md` (USER OVERRIDES help section, /sdd clean step 6a migration)
+- `preseed/agents/claude/skills/spec-driven-development/SKILL.md` (spec structure diagram)
+
+**Issue:** [codeflare#266](https://github.com/nikolanovoselec/codeflare/issues/266)
 
 ---
 
@@ -1039,6 +1123,8 @@ spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read 
 **Category:** Architecture
 
 **Status:** Accepted (2026-05-05)
+
+**Current-scope qualification (documentary, not a new acceptance):** The Phase 5/Q1–Q5/agent-write narrative and noise statistics below are historical. Current `preseed/agents/claude/commands/review.md` uses Phase 6, Q1–Q6, direct local evidence plus a root-written decision packet, report-only filtering and root-owned report/history persistence. This is source qualification, not a benchmark rerun or a new policy decision.
 
 **Context:** Empirical data from 5 successive `/review` cycles on the `ai-news-digest` codebase showed that finding count does not decrease as the codebase improves: cycle 4 fixed 67 real issues; cycle 5 still produced 71 active findings of which only 10 were real. Repeat-offender churn (`processOneChunk too long` flagged 3 cycles, `Date.now() lacks Clock seam` flagged 4 cycles), aspirational-rule clusters (15 `?raw` text-match files persisting after the rule was added), and severity inflation (HIGH used as the agent's internal scale, not user-impact) accounted for ~85% of cycle 5's noise. Triage cost was ~45 minutes for findings that should have taken 5 minutes.
 
@@ -1199,9 +1285,11 @@ The container would also be stuck (because `collectMetrics` is the trigger for b
 
 **Status:** Accepted (2026-05-09)
 
+**Current-scope qualification (documentary, not a new acceptance):** The fully stateless mechanism below is historical. Current `src/lib/oauth-state.ts::verifyOauthState` verifies a domain-separated signature; `claimOauthNonce` performs sequential KV get/put replay guarding, and `src/routes/github-auth.ts` invokes both before code exchange. This is not atomic single-use protection: REQ-AUTH-002 concurrent/KV-propagation replay limitations and the separate REQ-AUTH-008 middleware/session-renewal limitations remain; signature validity alone is not browser-binding evidence.
+
 **Supersedes:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) (oauth_state mechanism only; the broader GitHub OIDC-over-CF-Access decision in [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) remains valid)
 
-**Context:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) specified that the OAuth CSRF state parameter was carried as an HttpOnly cookie (a random UUID, 5-minute TTL). The cookie was validated server-side by comparing the query-param value returned by GitHub against the stored cookie value. iOS WebKit's Intelligent Tracking Prevention (ITP) and third-party cookie restrictions in private-browsing modes silently drop the state cookie before the GitHub callback completes, breaking the OAuth flow for a meaningful fraction of mobile and privacy-conscious users.
+**Context:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) specified that the OAuth CSRF state parameter was carried as an HttpOnly cookie (a random UUID, 5-minute TTL). The cookie was validated server-side by comparing the query-param value returned by GitHub against the stored cookie value. iOS WebKit's Intelligent Tracking Prevention (ITP) and third-party cookie restrictions in private-browsing modes silently drop the state cookie before the GitHub callback completes, breaking the OAuth flow for a meaningful fraction of mobile and privacy-conscious users. Current verification supports cookie-free signed-state checks with sequential nonce guarding, not independent proof of the historical iOS incident or browser-wide CSRF equivalence. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState -->
 
 **Decision:** Replace the HttpOnly state cookie with a stateless HMAC-signed token. The token is structured as `nonce.iat.sig` where `nonce` is a random value, `iat` is the issued-at Unix timestamp, and `sig` is an HMAC-SHA256 signature over `nonce.iat` using `OAUTH_JWT_SECRET`. The callback handler recomputes the signature and rejects tokens whose `iat` is outside a 30-minute window. No server-side state is stored; no cookie is required for the CSRF check.
 
@@ -1229,7 +1317,7 @@ Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly c
 
 **Implementation references:**
 
-- `src/routes/github-oauth.ts` (`generateState()`, `verifyState()`)
+- Current: `src/lib/oauth-state.ts` (`verifyOauthState`, `claimOauthNonce`) and `src/routes/github-auth.ts` (callback). The removed `src/routes/github-oauth.ts` / `generateState()` / `verifyState()` locator is historical only.
 
 
 **Consequences:** The original compact ADR did not record a separate consequences field.
@@ -1241,6 +1329,8 @@ Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly c
 **Category:** Architecture
 
 **Status:** Partially superseded by [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned): MCP registration wiring only; accepted 2026-05-10, while the Custom-tier hook decision remains active.
+
+**Current-scope qualification (documentary, not a new acceptance):** Current context-mode 2.1.4 uses explicit `context-mode server --agent claude-code`, bundled dependencies and Pi’s in-process extension without a bridge child. The dedicated Shadow Pins job atomically owns the pins, rather than the historical four-literal/Dependabot account. `preseed/agents/claude/plugins/context-mode/README.md` records this package boundary. Original installer/bridge incidents and external license accounts remain historical, not independently reverified; AD109 registration, foreground ownership and hook eligibility remain.
 
 **Context:** [context-mode](https://github.com/mksglu/context-mode) reduces Claude Code's context-window pressure by routing tool calls through hooks that summarize before content lands in the conversation. It ships as an npm package whose Claude Code plugin metadata is normally written into the user's `~/.claude/plugins/` and `~/.claude/settings.json` by `claude plugin install context-mode`. During the first integration attempt (PR codeflare#293, since closed), a research subagent invoked that installer in the host's session and the upstream installer wrote `"matcher": null` for the SessionStart hook entry, which Claude Code rejects with "Expected string, but received null", silently disabling every other hook in the file.
 
@@ -1335,7 +1425,7 @@ without the shim, `ctx_execute` and `ctx_batch_execute` fail on every dynamic `r
 ### AD51: Rip out six overengineered SDD framework features
 
 **Status:** Accepted (2026-05-12)
-**Supersedes:** [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list), [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption)
+**Supersedes:** [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list); [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) only for the hatch mechanism (the unified ledger and stable anchors remain active).
 
 **Category:** Architecture
 
@@ -1360,7 +1450,7 @@ code-reviewer flagged source files implementing a REQ's behavior without the ann
 
 doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and Pass 10 hatch overuse). spec-discipline drops CQ-2, CQ-4, and CQ-6 (kept and renumbered CQ-1/CQ-3/CQ-5 to CQ-1/CQ-2/CQ-3). `/sdd clean` drops the legacy `sdd/.user-overrides.md` migration step. `/sdd mode` no longer lists recent ADR overrides.
 
-**Consequences:** Smaller surface for both the agent author and the human operator. [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) are marked Superseded but preserved for anchor stability. Architect findings that still need addressing on the remaining surface (six HIGH fixes from the third-wave review) are tracked separately. The framework now has: `/sdd init`, `/sdd clean`, `/sdd mode`, the three-agent PR-boundary pipeline, transition state, and the three discipline rules (spec / doc / tdd). That is the entire surface.
+**Consequences:** Smaller surface for both the agent author and the human operator. [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) is Superseded; [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) is partially superseded only for hatch machinery, retaining the unified ledger and stable anchors. Architect findings that still need addressing on the remaining surface (six HIGH fixes from the third-wave review) are tracked separately. The framework now has: `/sdd init`, `/sdd clean`, `/sdd mode`, the three-agent PR-boundary pipeline, transition state, and the three discipline rules (spec / doc / tdd). That is the entire surface.
 
 **Issue:** Architect review triage 2026-05-12; user authorization in conversation.
 
@@ -1469,7 +1559,9 @@ Alternative 2 — Pass repo path as an explicit MCP tool argument on every call.
 
 **Status:** Accepted
 
-**Context:** The original vault path was `/home/user/.user_vault/`. SilverBullet's disk walker (`server/disk_space_primitives.go` `FetchFileList`) aborts the directory walk immediately when the root directory's basename begins with `.`, returning an empty file listing even when notes are present on disk. This is not a configurable behaviour in SilverBullet -- it is hardcoded in the Go source. The result was that opening the vault in the editor showed no files at all despite a populated directory on disk.
+**Current-scope qualification (documentary, not a new acceptance):** The named `host/__audits__/entrypoint-vault.audit.js` is absent from the current tree; its permanent-enforcement claim below is historical, not present behavioral enforcement. `entrypoint.sh::init_user_vault` and the restore filters retain the visible `/home/user/Vault` root. This inspection does not certify the upstream hidden-root account or replace missing behavioral enforcement with a source-string assertion.
+
+**Context:** The original vault path was `/home/user/.user_vault/`. SilverBullet's disk walker (`server/disk_space_primitives.go` `FetchFileList`) aborts the directory walk immediately when the root directory's basename begins with `.`, returning an empty file listing even when notes are present on disk. This is not a configurable behaviour in SilverBullet -- it is hardcoded in the Go source. The result was that opening the vault in the editor showed no files at all despite a populated directory on disk. Current initialization confirms the visible Vault root only; the recorded upstream walker behavior and original incident remain historical attribution. <!-- @impl: entrypoint.sh::init_user_vault -->
 
 **Decision:** The vault directory is renamed to `/home/user/Vault/` (non-hidden basename). All references in entrypoint.sh, bisync filters, preseed scripts, agent rules, Worker route, audits, and tests are updated in the same commit. The internal identifier `init_user_vault()` and the `--as user_vault` global-graph tag are preserved (no manifest migration needed). R2 is a clean cutover for the single existing user; prior `.user_vault/` content in R2 is abandoned rather than migrated.
 
@@ -1497,6 +1589,8 @@ Alternative 2 — Mount the dot-prefixed directory into a non-hidden path via bi
 **Category:** Architecture
 
 **Status:** Accepted
+
+**Current-scope qualification (documentary, not a new acceptance):** Managed overwrite remains accepted. Blue describes the retained Vault styling in `preseed/silverbullet/STYLES.md` (hue 217), not parity with current `web-ui/src/styles/design-tokens.css` (coral, `--accent-hue: 10`). The original visual rationale below is historical; no theme change or fresh visual acceptance is implied.
 
 **Context:** SilverBullet supports custom editor themes via a `STYLES.md` page at the vault root tagged `#meta/styles`. Without a managed theme, the editor renders SilverBullet's default visual language, which has no codeflare identity (different palette, different fonts, different border treatments from the rest of the codeflare UI). The vault is a user-owned space inside a user-owned R2 bucket; allowing per-user theme customisation would let the editor drift visually from the rest of codeflare, but defaulting to no theme would make the editor feel grafted-on rather than native.
 
@@ -1530,6 +1624,8 @@ Alternative 2 — Use SilverBullet's `theme:` setting in `.silverbullet/config.y
 **Category:** Storage
 
 **Status:** Accepted (2026-05-18)
+
+**Current-scope qualification (documentary, not a new acceptance):** The graceful-safe/guarantee-no-loss wording below depends on successful admitted, non-excluded sync and drain; it is not unconditional durability. Failed or timed-out final drain and the accepted hard cap may lose unsynced writes. The retained final-drain failure distinction, 120s/135s bounds and original revisions remain; stopping does not require a successful drain. See `src/container/container-lifecycle.ts` and `src/container/container-metrics.ts` final-sync audit handling.
 
 **Context:** The periodic rclone bisync daemon ran every 60 seconds, producing ~1440 invocations per session per day even on idle sessions. Each invocation does at minimum one LIST on each side plus N HEADs across both encrypted and unencrypted configs; for users with multiple active sessions the R2 operation count scaled into terabytes/month of metadata traffic and Class A operations. The dominant cost was not transferred bytes but listing overhead on idle sessions.
 
@@ -1579,6 +1675,8 @@ Alternative 2 — Activity-gated 60s plus 15-min idle fallback. Rejected: same c
 **Category:** Storage
 
 **Status:** Accepted (2026-05-18)
+
+**Current-scope qualification (documentary, not a new acceptance):** The graceful-safe/guarantee-no-loss wording below depends on successful admitted, non-excluded sync and drain; it is not unconditional durability. Failed or timed-out final drain and the accepted hard cap may lose unsynced writes. The retained final-drain failure distinction, 120s/135s bounds and original revisions remain; stopping does not require a successful drain. See `src/container/container-lifecycle.ts` and `src/container/container-metrics.ts` final-sync audit handling.
 
 **Context:** The pre-existing Container DO `destroy()` budget was 75 seconds (vault rollout had already raised it from 25s -> 75s when vault edits in the last seconds before shutdown were silently truncated by the SDK's SIGKILL mid-bisync). The entrypoint shutdown handler's watchdog was 60 seconds (50s SIGTERM + 10s SIGKILL), nested cleanly inside the 75s DO budget with 15s buffer for clean process exit.
 
@@ -1639,7 +1737,9 @@ Two related shutdown-correctness fixes in the same function: `TERMINAL_PID` init
 
 **Category:** Memory
 
-**Status:** Accepted (2026-05-18); the fifteen-prompt cadence consequence is partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
+**Status:** Accepted (2026-05-18); the fifteen-prompt cadence consequence is partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29). Also partially superseded by [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) for hard Claude model-frontmatter enforcement; fidelity rationale remains.
+
+**Current-scope qualification (documentary, not a new acceptance):** `preseed/agents/claude/agents/memory-capture.md` carries no model field. The headless capture runner defaults to sonnet/medium, overridable with `CODEFLARE_MEMORY_MODEL` and `CODEFLARE_MEMORY_EFFORT`. The original pin prohibition is historical under AD124; AD148 still owns cadence. No retiering or runner change follows.
 
 **Context:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault)'s capture pipeline ran haiku as the background subagent and read raw transcript JSONL directly. Two problems emerged in production:
 
@@ -1700,9 +1800,11 @@ Alternative 3 — Capture model gated by env var (default haiku, advanced users 
 ### AD59: Zero-UI vault encryption with per-session DO-storage key
 
 **Category:** Security
-**Status:** Accepted (2026-05-18)
+**Status:** Accepted (2026-05-18) Partially superseded: [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket) and [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) replace per-session key/URL/cache-deletion clauses.
 
-**Context:** SilverBullet's IndexedDB cache stores every vault file as plaintext on the user's browser profile. Three concerns are coupled: (1) SB cold-start is ~30s on every new session because the per-`:sid` URL produces a new IDB hash every time; (2) plaintext IDB exposes vault content to anyone with read access to the user's browser profile (backup leak, profile theft, ransomware scan); (3) deleted sessions leave orphan IDBs that grow monotonically against the per-origin quota. The team wanted encryption-at-rest without adding a passphrase UI (it would create a "forgotten passphrase" support load and the vault is already coupled to the codeflare login).
+**Current-scope qualification (documentary, not a new acceptance):** Per-session DO keys, forward-secret session deletion and per-session IndexedDB clauses below are historical. Current Vault uses a bucket-stable URL, an HKDF bucket-derived key (`src/routes/vault/crypto.ts::getVaultEncryptionKey`) and retains that bucket cache on session deletion. The offline-profile threat model, alternatives and nonrotation rationale remain; session deletion no longer promises cryptographic erasure.
+
+**Context:** SilverBullet's IndexedDB cache stores every vault file as plaintext on the user's browser profile. Three concerns are coupled: (1) SB cold-start is ~30s on every new session because the per-`:sid` URL produces a new IDB hash every time; (2) plaintext IDB exposes vault content to anyone with read access to the user's browser profile (backup leak, profile theft, ransomware scan); (3) deleted sessions leave orphan IDBs that grow monotonically against the per-origin quota. The team wanted encryption-at-rest without adding a passphrase UI (it would create a "forgotten passphrase" support load and the vault is already coupled to the codeflare login). Current bucket-derived key evidence qualifies the superseded per-session mechanism; it does not certify the original browser-profile incident or forward-secret deletion. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey -->
 
 **Decision:** Each session's Container DO mints a 32-byte random key on first boot, persists in `ctx.storage`, and exposes it via an RPC method `ensureVaultKey()`. The Worker `/.config` proxy fetches the key via RPC and injects it into SilverBullet's BootConfig. A Worker-side `<script>` injection into the shell HTML exposes `window.__codeflareVaultBoot` carrying the key, raised sync concurrency, and lazy-path prefixes for the SB client to consume. The frontend nukes the per-session IDB on session DELETE and runs an orphan-sweep on Dashboard mount.
 
@@ -1966,7 +2068,9 @@ The deletion was silently masked because the pre-AD65 lane's `.gemini/` output p
 
 **Status:** Accepted (2026-06-01)
 
-**Context:** `getUserFromRequest` in `src/lib/access.ts` (~L170-205) validates a custom `X-Service-Auth` header against the `SERVICE_AUTH_SECRET` worker secret, checked FIRST - before SaaS GitHub OIDC and before CF Access JWT verification. The header exists because CF Access injects a JWT for service tokens whose audience does not match the app's `access_aud` and strips `CF-Access-Client-Secret` from forwarded requests, so the custom header is the only reliable service-token signal. On a constant-time match the function returns `{ email, authenticated: true, role: 'admin' }` - the caller is trusted as an admin without any KV allowlist lookup.
+**Current-scope qualification (documentary, not a new acceptance):** This is accepted direction, not an implemented gate. `src/lib/access.ts::validateServiceAuthHeader` checks the secret/header without the proposed stress/SaaS/hostname guards. The Security lane distinguishes operational stress restrictions from this missing authorization gate; the security residual remains open.
+
+**Context:** `getUserFromRequest` in `src/lib/access.ts` (~L170-205) validates a custom `X-Service-Auth` header against the `SERVICE_AUTH_SECRET` worker secret, checked FIRST - before SaaS GitHub OIDC and before CF Access JWT verification. The header exists because CF Access injects a JWT for service tokens whose audience does not match the app's `access_aud` and strips `CF-Access-Client-Secret` from forwarded requests, so the custom header is the only reliable service-token signal. On a constant-time match the function returns `{ email, authenticated: true, role: 'admin' }` - the caller is trusted as an admin without any KV allowlist lookup. Current header validation confirms the residual described here, not implementation of the proposed environment/hostname gates. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
 
 The bypass is active whenever `SERVICE_AUTH_SECRET` is present and carries no environment guard: there is no check that the deployment is a stress-test or integration environment, no refusal when `SAAS_MODE` is `active`, and no restriction on which hostname the request targeted. The secret is intended for k6 stress tests and E2E runs (see [AD26](#ad26-stress-test-rate-limit-bypass-integration-only)), but nothing structurally prevents the same admin-granting path from being honored on a production SaaS deployment if the secret were ever set there.
 
@@ -1991,6 +2095,8 @@ the bypass is now defense-in-depth (env scoping at deploy time PLUS a runtime gu
 **Category:** Architecture
 
 **Status:** Accepted (2026-06-01)
+
+**Current-scope qualification (documentary, not a new acceptance):** Decision/Consequences auth-exemption language below records the original proposal, not current scope. The retained 2026-06-01 integration finding governs: the exemption is NOT implemented. Precache/non-navigation shell requests still pass normal authentication; only bootstrap-redirect handling differs. [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) AC6 retains the reserved fallback, not a present bypass. Historical integration claims are not fresh acceptance.
 
 **Context:** Within a single browser SilverBullet (SB) rebuilds its IndexedDB index from scratch on every cold load ([codeflare#445](https://github.com/nikolanovoselec/codeflare/issues/445)): a browser restart against a still-running session, same `:sid`, same encryption key, re-crawls and re-indexes the entire vault over HTTP.
 
@@ -2044,7 +2150,9 @@ Mitigated by integration-only rollout and keeping the shim available as a one-li
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-06-02); authority model refined by [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence).
+**Status:** Accepted (2026-06-02); authority model refined by [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence). Partially superseded by [AD155](#ad155-d1-owns-complete-session-lifecycle-authority) for session KV/SDK authority and repair claims.
+
+**Current-scope qualification (documentary, not a new acceptance):** AD155 now owns complete session authority in D1 with owner scope and generation/sequence fencing; historical KV status/metrics authority and SDK/KV repair language below are not current authority. Best-effort admission still has no atomic reservation. Startup guards and protection from unordered negative observations remain, but an ordered D1 stop may apply after the startup guard despite lingering transport. Exit/status and no-heartbeat-guess rationale, including AD151 refinement history, remain.
 
 **Context:** Two user-facing symptoms shared one defect. (1) A live session was falsely flipped to `stopped` and the user bounced to the dashboard; reopening showed "Starting session" then instantly green. (2) A container that exited unexpectedly (crash, deploy-roll, or platform idle-reap) dangled as `running` in KV forever and had to be deleted by hand. Production observability (96h) proved the chain: when a container exits via an unexpected path the SDK (`@cloudflare/containers`) calls `onError()`, **not** `onStop()`; `onError` only logged, `collectMetrics`'s `!running` branch only logged-and-returned, and `onStop` (which does write `stopped`) was never invoked. So KV dangled at `running` and the heartbeat `metrics.updatedAt` froze.
 
@@ -2145,9 +2253,11 @@ turning on Cloudflare Access for the `*.workers.dev` hostname is the operator's 
 
 **Category:** Architecture, Security
 
-**Status:** Accepted (2026-06-05); partially superseded by [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) for native/custom-provider dispatch and by the current discovery amendment below for newly discovered compatibility contracts. Historical Dynamic assignments retain REST-first transport.
+**Status:** Accepted (2026-06-05); partially superseded by [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) for native/custom-provider dispatch and by the current discovery amendment below for newly discovered compatibility contracts. Historical Dynamic assignments retain REST-first transport. Remaining replacement clauses are separated into present-day documentary successor records AD159–AD164 below; their recorded amendment dates are not new acceptance dates.
 
-**Context:** [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) established platform outbound-HTTPS interception as the enterprise LLM transport, forwarding intercepted provider traffic to the customer's AI Gateway. The original implementation targeted the gateway's legacy endpoints on `gateway.ai.cloudflare.com` — the OpenAI-compatible `/compat/chat/completions` path and the provider-native `/anthropic/v1/messages` path, authenticated with the `cf-aig-authorization` header. Cloudflare has since **deprecated** those paths (they "continue to work for existing integrations") and recommends the REST API at `api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/*` (standard `Authorization` header) for new integrations.
+**Documentary successor crosswalk:** Reuse [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) for the 2026-09-09 native/custom replacement and its 2026-09-13 native qualification. Remaining distinct recorded replacements are [AD159](#ad159-recorded-dual-transport-replacement-of-rest-only-routing) (dual transport, 2026-06-07), [AD160](#ad160-recorded-compat-field-stripping-and-email-attribution) (field stripping/email, 2026-06-07), [AD161](#ad161-recorded-catalog-routing-and-bounded-group-attribution) (catalog/groups replacing the 2026-06-05 single-variable stamp, 2026-06-09), [AD162](#ad162-recorded-capability-profile-administration-replacement) (profile administration, 2026-09-05), [AD163](#ad163-recorded-discovered-compatibility-transport-replacement) (discovered compat wire contract, 2026-09-13) and [AD164](#ad164-recorded-independent-capability-qualification-replacement) (independent capability dimensions, 2026-09-13). These records separate documentary scope only; all original and dated text below remains immutable history. The recorded authority is not an independently authenticated user decision or new hosted acceptance. The normal-hosted Dispatcher replacement remains Planned/unaccepted under AD152’s 2026-11-01 correction.
+
+**Context:** [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) established platform outbound-HTTPS interception as the enterprise LLM transport, forwarding intercepted provider traffic to the customer's AI Gateway. The original implementation targeted the gateway's legacy endpoints on `gateway.ai.cloudflare.com` — the OpenAI-compatible `/compat/chat/completions` path and the provider-native `/anthropic/v1/messages` path, authenticated with the `cf-aig-authorization` header. Cloudflare has since **deprecated** those paths (they "continue to work for existing integrations") and recommends the REST API at `api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/*` (standard `Authorization` header) for new integrations. Current transport ownership confirms that the dated amendments below refine this original REST migration; the source is not fresh proof of the historical vendor deprecation, token permissions or live smoke test. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
 Building enterprise on a deprecated surface was latent migration debt; a live smoke test against the `codeflare-enterprise` gateway confirmed the REST API supports everything the transport needs — dynamic routing via `model: "dynamic/<route>"`, SSE streaming, `cf-aig-metadata` attribution, BYOK + Workers AI.
 
@@ -2359,6 +2469,8 @@ PR-boundary reviewers are now report-only and the root main session applies find
 **Category:** Performance
 
 **Status:** Accepted (2026-06-10)
+
+**Current-scope qualification (documentary, not a new acceptance):** The all-mode baked-relay/cache-hit claim below has a managed-release exception under [AD136](#ad136-managed-environments-reconcile-signed-releases-before-session-start): `entrypoint.sh::lay_down_agent_seed_preseed` skips baked lay-down for verified remote curation; `relay_managed_pi_extensions` copies declared image companions only, preserving signed release-owned bytes. Arbitrary curated bytes need not match baked Jiti cache keys. Performance rationale is retained, never authority to overwrite signed content for cache parity.
 
 **Context:** The 2026-06-10 preseed bundle grew Pi's loaded extension set from 1 npm package to 6 (context-mode enabled by default + four tool extensions). Pi loads every extension through jiti (`moduleCache: false`); jiti caches transpiles on disk under `$TMPDIR/jiti` because no `node_modules` directory sits next to `~/.pi/agent/extensions/` (and this pi build ignores a path-valued `JITI_FS_CACHE` env — verified empirically). `/tmp` starts empty in every fresh container, so **every session cold-transpiled the full extension graph before Pi's first PTY output** — measured live at ~9s cold vs ~4s warm.
 
@@ -2722,9 +2834,9 @@ This keeps the required PR lane below 60 seconds while the deployment image buil
 
 **Category:** Architecture, Security, Storage
 
-**Status:** Accepted (2026-06-28).
+**Status:** Accepted (2026-06-28). Partially superseded by [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) for COPY, boolean regime state and lazy-login migration only; the policy toggle remains accepted.
 
-**Context:** In enterprise, bucket data is corporate-owned and the company must be able to scan agent config (skills, hooks, extensions) for malicious content with its own security tooling. By default every R2 object is SSE-C encrypted with `ENCRYPTION_KEY`, so the bucket is opaque even to the company's R2-credential holders. The customer asked for a way to make the bucket scannable; their first instinct was to **nuke and recreate** each bucket on toggle, which would lose the user's own content (custom skills/hooks/extensions, transcripts, vault, workspace).
+**Context:** In enterprise, bucket data is corporate-owned and the company must be able to scan agent config (skills, hooks, extensions) for malicious content with its own security tooling. By default every R2 object is SSE-C encrypted with `ENCRYPTION_KEY`, so the bucket is opaque even to the company's R2-credential holders. The customer asked for a way to make the bucket scannable; their first instinct was to **nuke and recreate** each bucket on toggle, which would lose the user's own content (custom skills/hooks/extensions, transcripts, vault, workspace). Current regime resolution supports the policy toggle, not the superseded COPY/boolean/lazy-login mechanism or a universal losslessness guarantee. <!-- @impl: src/lib/r2-regime-state.ts::getBucketR2Regime -->
 
 **Decision:** A deployment-wide, enterprise-only, **default-OFF** toggle (`SETUP_KEYS.R2_SSE_DISABLED`, `'active'`/`'inactive'`, in the Setup wizard, no redeploy to flip — the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off)/[REQ-ENTERPRISE-016](../../sdd/spec/security.md#req-enterprise-016-strict-gateway-egress) toggle precedent). When ON, R2 SSE-C is disabled so objects use R2's default at-rest encryption and are readable/scannable.
 
@@ -2765,6 +2877,8 @@ as `R2_SSE_DISABLED` (mirrors the `_strictEgress` state field): emitted only whe
 
 **Status:** Accepted (2026-06-28).
 
+**Current-scope qualification (documentary, not a new acceptance):** The all-mode baked-relay/cache-hit claim below has a managed-release exception under [AD136](#ad136-managed-environments-reconcile-signed-releases-before-session-start): `entrypoint.sh::lay_down_agent_seed_preseed` skips baked lay-down for verified remote curation; `relay_managed_pi_extensions` copies declared image companions only, preserving signed release-owned bytes. Arbitrary curated bytes need not match baked Jiti cache keys. Performance rationale is retained, never authority to overwrite signed content for cache parity.
+
 **Context:** The blocking `initial_sync_from_r2` re-downloads the entire agent seed (~627 files, ~9 MB — about half of a populated bucket) on every boot, because the container filesystem is ephemeral and the seed lives only in R2. It used `--size-only` (the only safe comparison under SSE-C, whose ETags are opaque), so even with the seed present locally it could not prove content equality and re-downloaded everything. Disabling SSE-C (AD89) restores usable MD5 ETags, which makes `--checksum` viable — and `--checksum` with a locally-present seed skips the unchanged files.
 
 **Decision:** In Governed Mode only:
@@ -2793,6 +2907,8 @@ Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`, be
 **Category:** Storage
 
 **Status:** Accepted (2026-06-30). Supersedes the migration mechanics of [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) (the policy toggle + intent are unchanged).
+
+**Current-scope qualification (documentary, not a new acceptance):** Current D1 workload ownership defers migration and requests that the user stop sessions; background reconciliation does not destroy an owning workload. `src/routes/session/lifecycle.ts` supplies ownership-refusing callbacks to `src/lib/r2-migration.ts::advanceMigration`; the destructive helper in `src/lib/migration-containers.ts` is not the current background-poll contract. The first slice intentionally runs unconditionally for forward progress; subsequent slices use deadline admission. Thus the original universal deadline-fit assertion is not a current guarantee. REPLACE/state/verify, resumability and recorded incident/iterations remain; no live acceptance is inferred.
 
 **Context:** The AD89 first-login lazy reconcile broke in production on an enterprise bucket. Verified live via the R2 S3 API: of 663 objects, 0 were migrated, the boolean `UserPreferences.r2SseRegime` marker was never set, and the migration lock was stuck — yet the in-container rclone bisync daemon wrote a few plaintext files, leaving a **mixed** bucket whose SSE-C reads then 400'd, so R2 sync failed and the vault never became ready; toggling OFF did not recover (the revert path early-returned without scanning for the outliers).
 
@@ -2839,6 +2955,8 @@ Reads try the committed regime then fall back once on a 400/403; a fallback hit 
 **Category:** Agents
 
 **Status:** Accepted (2026-06-30).
+
+**Current-scope qualification (documentary, not a new acceptance):** The 11-skill count below records the original inventory. Current Claude manifest/skill inventory contains 13 upstream Cloudflare skills; command delivery is Claude-only, not every skill-capable agent. Retrieval-first and advanced-mode rationale remain, without inventing a historical inventory date or extending compiler delivery.
 
 **Context:** Codeflare is a Cloudflare-native build platform (agents scaffold/deploy Workers, D1, R2, KV, DNS) AND an enterprise Zero Trust product (the enterprise mode *is* Cloudflare One — Access, Secure Web Gateway, WARP, AI Gateway). The official Cloudflare skills repo ([github.com/cloudflare/skills](https://github.com/cloudflare/skills), Apache-2.0, ~2k★) ships 11 Agent Skills + 2 commands directly on-point for what Codeflare's Pro agents do. The agent seed is bundled into the Worker (`r2-seed.ts` imports `AGENTS_SEEDED_CONFIGS`), and every skill is copied per-agent (Claude/Codex/Gemini/OpenCode/Pi), so seed size is a **Worker-bundle-size** concern, not just per-bucket sync.
 
@@ -2899,7 +3017,9 @@ Enterprise registers its API handler even without Browser configuration. Managed
 
 **Status:** Accepted (2026-07-05); the polling cadence and 60-second cost consequence are partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
 
-**Context:** vault-extract detected user edits by **file mtime**: `vault-extract.last` (a marker in ephemeral `~/.cache/codeflare-hooks/`) plus a `find -newer` scan (Claude daemon + contract) / `statSync().mtimeMs > since` walk (Pi). The boot R2 restore is `rclone sync` **without** `--use-server-modtime` (only the later bisync baseline uses it), and it rewrites **every** vault file's mtime to download-time — measured live on a real vault: a May-authored note comes back stamped that day's date, all 31 files clustered at one instant. `~/.cache/**` is excluded from R2 sync ([entrypoint.sh](../../entrypoint.sh) filters), so the marker is re-seeded fresh each boot.
+**Current-scope qualification (documentary, not a new acceptance):** Cross-runtime byte parity applies to matching regular-file sets, not all Vault content. `preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::collect` opens file-symlink targets; `preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes` selects Dirent regular files and excludes symlinks. The file-symlink/outside-Vault parity and provenance gap remains explicit (C0413); no manifest algorithm change or new parity execution is claimed.
+
+**Context:** vault-extract detected user edits by **file mtime**: `vault-extract.last` (a marker in ephemeral `~/.cache/codeflare-hooks/`) plus a `find -newer` scan (Claude daemon + contract) / `statSync().mtimeMs > since` walk (Pi). The boot R2 restore is `rclone sync` **without** `--use-server-modtime` (only the later bisync baseline uses it), and it rewrites **every** vault file's mtime to download-time — measured live on a real vault: a May-authored note comes back stamped that day's date, all 31 files clustered at one instant. `~/.cache/**` is excluded from R2 sync ([entrypoint.sh](../../entrypoint.sh) filters), so the marker is re-seeded fresh each boot. Current filesystem hashing explains the regular-file mechanism, not the old measured token cost or cross-runtime file-symlink equivalence. <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes -->
 
 On the boot where the restore (or a subsequent bisync with `--conflict-resolve newer`) stamps file mtimes *after* the seeded marker, `find -newer` matches the whole vault and the sonnet extractor re-reads every note — **~200k tokens / ~20 min every session**. The failure is a race, which is why it presented intermittently.
 
@@ -2926,6 +3046,8 @@ The manifest is baselined from current content **only when absent** (the first s
 **Category:** Architecture, Security
 
 **Status:** Accepted (2026-07-11); amended by [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) and [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) on 2026-07-28, then by [AD132](#ad132-user-extensions-are-a-bounded-manifest-over-an-immutable-base-inventory) on 2026-08-17.
+
+**Current-scope qualification (documentary, not a new acceptance):** Current [AD141](#ad141-browser-ide-startup-follows-the-session-workspace-snapshot) and [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) use the immutable session workspace snapshot: editor sessions eagerly start the IDE, while Terminal sessions retain lazy startup/prewarm. Session-keyed isolation remains; advanced-only/lazy-everywhere statements below are historical, not authority to migrate sessions.
 
 **Context:** The Vault editor (SilverBullet) is deliberately **bucket-stable** ([REQ-VAULT-021](../../sdd/spec/vault.md)): it is served under `/api/vault/<bucketToken>/` (a per-R2-bucket token; the session id rides in the `cf_vault_sid` cookie, never the URL) so `location.href`, the service-worker scope, and IndexedDB store names stay identical across all of a user's sessions — one persistent notes store, no re-index every session. The new browser IDE (OpenVSCode Server, [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy)) reuses the same Worker → Container → host proxy chain, so the obvious move is to copy the vault pattern wholesale.
 
@@ -3067,6 +3189,8 @@ AD144 removes the durable CI-head checkpoint and settled recovery. Current round
 
 **Status:** Accepted (2026-07-14)
 
+**Current-scope qualification (documentary, not a new acceptance):** Current context-mode 2.1.4 uses explicit `context-mode server --agent claude-code`, bundled dependencies and Pi’s in-process extension without a bridge child. The dedicated Shadow Pins job atomically owns the pins, rather than the historical four-literal/Dependabot account. `preseed/agents/claude/plugins/context-mode/README.md` records this package boundary. Original installer/bridge incidents and external license accounts remain historical, not independently reverified; AD109 registration, foreground ownership and hook eligibility remain.
+
 **Context:** `@gotgenes/pi-subagents` creates child `AgentSession`s inside the foreground Pi process and deliberately loads the parent's extension set. The then-shipped context-mode package assumes one Pi extension owner per process: each registration has a local start latch, but its bridge handle/readiness and session identity are module-global. Concurrent child registrations overwrite the foreground bridge handle. Child bridges eventually idle-reap, but the displaced foreground bridge has `CONTEXT_MODE_BRIDGE_IDLE_MS=0`; later root reload cleanup cannot reach it. A live long-running session accumulated 17 idle-disabled `server.bundle.mjs` children (~0.78 GiB PSS). The then-current npm release has the same lifecycle, and modifying either installed upstream package would create an unowned fork.
 
 **Decision:** Keep context-mode installed and keep its skills visible, but filter its Pi extension out of the shared package resource set (`extensions: []`). The managed `context-mode-runtime.ts` extension owns a process-global claim: the first/root Pi resource load imports and initializes the installed context-mode adapter; subsequent in-process subagent loads observe the claim and return without initializing it. The root releases the claim on `session_shutdown` after context-mode registers its own cleanup, so `/reload` and `/ctx off|on` can detach and reattach cleanly. `/ctx off` is represented by filtering both extensions and skills; `/ctx on` restores skills while extension loading remains owner-guarded. Pi reviewers declare only `bash` and consume the same exact review packet through Bash/Node.
@@ -3161,7 +3285,7 @@ Required graph publication remains unchanged. Each worker writes its graph to `<
 
 **Category:** Architecture, Mobile
 
-**Status:** Accepted (2026-07-16)
+**Status:** Accepted (2026-07-16) Partially superseded by [AD110](#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops) for force-flush-at-cap and all-at-once release only; freeze and gesture authority remain accepted.
 
 **Context:** [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) accepted that a full 1000-line scrollback trims under a reader, "correctly" leaving them at the oldest available line. In practice agent bursts fill the buffer within seconds, so any scrolled-up reader slid to `viewportY = 0` and watched their content get destroyed — one form of the reported "terminal snaps to the top while the agent is outputting".
 
@@ -3195,9 +3319,11 @@ Keyboard-open gestures are deterministic again: arrows while typing, wheel/scrol
 
 **Category:** Process, Agents
 
-**Status:** Accepted (2026-07-17)
+**Status:** Accepted (2026-07-17) Partially superseded by [AD108](#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors) for the one-test-anchor prohibition and its greedy-parser rationale only; canonical policy and per-AC manual evidence remain accepted.
 
-**Context:** The seven SDD enforcement skills (`spec-enforce`, `spec-enforce-ac`, `spec-enforce-truth`, `doc-enforce`, `doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`) existed twice: full versions in the Claude preseed and hand-maintained condensed rewrites in the Pi preseed, each declaring itself authoritative. The copies drifted within weeks of the split — different element budgets (list items 40 vs ~60 words), different severities (`prose-unverifiable` HIGH vs MEDIUM), Pi missing the mandated index-integrity command, Claude missing Pi's one-`@test`-per-AC rule and the deterministic round-limit override — so the same repository received different findings depending on which agent reviewed it.
+**Current-scope qualification (documentary, not a new acceptance):** Identical findings across all runtimes is design intent, not established delivery/execution parity. The retained spec-1 F27/C0027 limit is explicit: Claude/Pi embed canonical policies; Gemini/OpenCode receive retrieval pointers and Copilot lacks canonical skill delivery. This does not weaken required manual-per-AC evidence or alter policy.
+
+**Context:** The seven SDD enforcement skills (`spec-enforce`, `spec-enforce-ac`, `spec-enforce-truth`, `doc-enforce`, `doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`) existed twice: full versions in the Claude preseed and hand-maintained condensed rewrites in the Pi preseed, each declaring itself authoritative. The copies drifted within weeks of the split — different element budgets (list items 40 vs ~60 words), different severities (`prose-unverifiable` HIGH vs MEDIUM), Pi missing the mandated index-integrity command, Claude missing Pi's one-`@test`-per-AC rule and the deterministic round-limit override — so the same repository received different findings depending on which agent reviewed it. Current compiler removes embedded policy for transformed non-Pi reviewers, qualifying the original all-runtime parity intent rather than proving it. <!-- @impl: scripts/agent-seed-core.mjs::stripEmbeddedPolicySection -->
 
 Separately, manual verification was REQ-level: `Verification: Manual check` exempted a whole REQ (157 of 341) from every anchor requirement even when most of its ACs carried resolving anchors, sustained by 161 boilerplate Notes pointers into four generated checklist sections whose rows were almost all "verify every acceptance criterion". The `.doc-coverage.md` lane-scope-broad escalation had already concluded the clean resolution was a whole-structure decision requiring explicit user direction.
 
@@ -3254,7 +3380,11 @@ Manual verification became per-AC: an AC that cannot be automatically verified c
 
 **Status:** Accepted (2026-07-18)
 
-**Context:** AD49 originally assigned Claude MCP registration to either plugin metadata or entrypoint according to tier. The shipped plugin manifest is now intentionally bare, while the container entrypoint writes the `context-mode` MCP registration for every Claude user. The image already installs and patches the package before any session starts.
+**Current-scope qualification (documentary, not a new acceptance):** Current context-mode 2.1.4 uses explicit `context-mode server --agent claude-code`, bundled dependencies and Pi’s in-process extension without a bridge child. The dedicated Shadow Pins job atomically owns the pins, rather than the historical four-literal/Dependabot account. `preseed/agents/claude/plugins/context-mode/README.md` records this package boundary. Original installer/bridge incidents and external license accounts remain historical, not independently reverified; AD109 registration, foreground ownership and hook eligibility remain.
+
+**Current-scope qualification (documentary, not a new acceptance):** Claude registration remains entrypoint-owned. The Pi reference to AD138 below records superseded enablement history: current [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) and [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) describe disabled startup with explicit /ctx opt-in and foreground ownership. The inherited AD140 enabled-start annotation conflict (C0650) is qualified there; no contrary historical user authority is inferred or erased.
+
+**Context:** AD49 originally assigned Claude MCP registration to either plugin metadata or entrypoint according to tier. The shipped plugin manifest is now intentionally bare, while the container entrypoint writes the `context-mode` MCP registration for every Claude user. The image already installs and patches the package before any session starts. Current entrypoint assembles disabled Pi package defaults separately from Claude registration; it does not validate the superseded AD138 default. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory -->
 
 **Decision:** Keep one Claude registration owner: entrypoint always writes the MCP server configuration, independent of tier. Custom-tier Advanced delivery adds the context-mode plugin hooks only; it does not register a second MCP server. Pi uses its separate image-prewarmed package and enables it through the managed single foreground owner under [AD138](#ad138-context-mode-is-on-by-default-in-pi).
 
@@ -3331,6 +3461,8 @@ On timeout xterm abandons atomicity and paints the partially rebuilt transcript,
 
 **Status:** Accepted (2026-07-20); amended 2026-08-02 to keep container construction exclusively in deployment; amended 2026-08-05 to partition scheduled verification and verify retained-image provenance
 
+**Current-scope qualification (documentary, not a new acceptance):** The coverage-suite/path-specific rerun narrative below is historical. Current `.github/workflows/test.yml` coverage-backend and coverage-frontend jobs call `.github/actions/merge-coverage/action.yml` to merge shard artifacts and enforce coverage without rerunning tests. `.github/actions/coverage-suite` is absent, not a current implementation locator. Parallel source-only PR checks and deployment-owned images remain; no CI result or adoption date is inferred.
+
 **Context:** PR Checks ran as one serial job (~10 min: lint → knip → build → backend tests → host → frontend → landing → typecheck → audit) regardless of what changed, with the backend suite forced to `maxWorkers: 1` by the Workers-pool teardown crash and gated by a grep-on-prose guard duplicated in test.yml and deploy.yml. Deploy was a single 729-line job that re-ran the entire test suite it had already gated on via `workflow_run`, rebuilt and rescanned the multi-GB container image on every deploy even when no container input changed, and carried a 533-line Docker Hub near-copy (`deploy-dockerhub.yml`).
 
 The scripted e2e suite was dispatch-only, fully serial, and fail-open — `describe.skipIf(!isSetup)` turned a failed setup probe into a green run with zero executed tests.
@@ -3341,7 +3473,7 @@ The scripted e2e suite was dispatch-only, fully serial, and fail-open — `descr
 - [Dependency review](../../.github/workflows/test.yml) is an independent pull-request-only gate.
 - A `summary` job keeps the required `test` status context. Path-filtered skips pass; failed or cancelled lanes fail.
 - Ordinary test suites use `.github/actions/vitest-suite`; its teardown-crash guard requires `scripts/ci/check-vitest-report.mjs` to accept a parsed Vitest JSON report rather than grepping reporter prose.
-- Path-specific coverage jobs use `.github/actions/coverage-suite`; its classifier requires the coverage table, rejects reported test or threshold failures, and bounds the backend-only crash exception.
+- Historically, path-specific coverage jobs used the now-removed `.github/actions/coverage-suite`; its classifier requires the coverage table, rejects reported test or threshold failures, and bounds the backend-only crash exception.
 - Non-zero ordinary-suite exits are accepted only with a parsed report showing >0 tests, 0 failures, and the exact crash fingerprint; coverage accepts its backend exception only after the required coverage evidence passes. Missing or corrupt evidence fails closed.
 - Deploy stages into `prepare` → (`build-worker` ∥ `container`) → `deploy`, drops test re-runs after verification, uploads secrets through one `wrangler secret bulk` call, and prunes the registry through `scripts/ci/prune-registry.mjs`.
 - Manual dispatch can reuse an explicit successful PR Checks run when its uploaded checked-out-tree receipt equals the deploy tree; otherwise checks run inline.
@@ -3469,6 +3601,8 @@ The subprocess is also time-bounded, and the bound is validated rather than mere
 
 **Status:** Accepted (2026-07-26). Implements [REQ-AGENT-103](../../sdd/spec/agents.md#req-agent-103-deterministic-lane-triage).
 
+**Current-scope qualification (documentary, not a new acceptance):** The universal fail-to-review statement below is retained design intent/history, not proof of present enforcement. C0039/C0040 retain the canonical round-gate versus pre-triage counting/verdict and direct-user-override residual: pre-triage can suppress review before the canonical override is applied. Deterministic preparation does not by itself prove every failure invokes review. No gate or policy repair is claimed.
+
 **Context:** Every PR-boundary lane opened with a six-step Phase 0 — SDD bootstrap, layout resolution, config read, transition check, round counter, bulk-op audit. Each step was its own Bash call and therefore its own turn. Measured at ~3,945 tokens and 5–6 turns per lane before any reviewing began. Because a lane re-sends its whole prompt every turn, triage output is the most expensive evidence a lane can hold: arriving first, it is re-read on every turn that follows. Not one of the six steps requires a model — they are `test -f`, a config read, and two `git log` walks — and the diff-classification step was already answered by the lane classifier before the lane was spawned.
 
 **Decision:** Resolve Phase 0 in `lib/lane-triage.mjs` before the subprocess starts and inline the result, with the already-built review packet, into the lane's opening prompt. The reviewer documents instruct the lane to treat that block as authoritative and never re-derive it. A triage-proven no-op (no SDD bootstrap, an active transition, a round limit) returns without invoking a model, extending the existing zero-token short-circuit. Lane ownership is still computed by the shell classifier and passed in rather than reimplemented, so there remains one source of truth for it.
@@ -3485,7 +3619,9 @@ The subprocess is also time-bounded, and the bound is validated rather than mere
 
 **Status:** Accepted (2026-07-26). Implements [REQ-AGENT-105](../../sdd/spec/agents.md#req-agent-105-review-lane-turn-economy).
 
-**Context:** Four measured review rounds refused to correlate with diff size — a two-commit range cost 1.30M prompt tokens while a nine-commit range cost 0.80M. Fitting all twelve lane-runs gives `prompt_tokens ~= T*(S+E) + 2.75k*T^2`, where `T` is turns, `S` the system prompt and `E` the inlined evidence. The fit is close: the spec lane at sixteen turns predicts 1,113k against 1,117k actual, the doc lane at eight predicts 362k against 401k. A lane re-sends its entire prompt every turn, so the accumulated conversation makes the second term quadratic and it dominates everything else past a handful of turns.
+**Current-scope qualification (documentary, not a new acceptance):** Current `preseed/agents/claude/agents/spec-reviewer.md` embeds the conditional policies instead of fetching them in wave one, explicitly reversing that cost choice. Wave completeness and advisory budgets remain. Separate retained spec-2 F038/C0076 base-only packet preparation and F039/C0077 whole-block evidence-shedding gaps are not resolved by embedding; missing-evidence recovery remains required and resolved JSON retention is not universal. Original benchmark history is unchanged.
+
+**Context:** Four measured review rounds refused to correlate with diff size — a two-commit range cost 1.30M prompt tokens while a nine-commit range cost 0.80M. Fitting all twelve lane-runs gives `prompt_tokens ~= T*(S+E) + 2.75k*T^2`, where `T` is turns, `S` the system prompt and `E` the inlined evidence. The fit is close: the spec lane at sixteen turns predicts 1,113k against 1,117k actual, the doc lane at eight predicts 362k against 401k. A lane re-sends its entire prompt every turn, so the accumulated conversation makes the second term quadratic and it dominates everything else past a handful of turns. Current reviewer embeds conditional policies; that source explains the reversal, not a rerun of the recorded benchmark. <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Embedded canonical policy -->
 
 Every cost lever considered before this was linear in `T` and therefore worth 5-10%: trimming reviewer prose, splitting apply-only policy out of the enforcement skills, narrowing the packet. The one lever that is quadratic had not been touched.
 
@@ -3505,7 +3641,9 @@ The same measurement settles what to embed. Inlining beats fetching only when th
 
 **Category:** Storage, Agents
 
-**Status:** Accepted (2026-07-27). Implements [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
+**Status:** Accepted (2026-07-27). Implements [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed). Partially superseded by [AD147](#ad147-active-managed-resource-policy-supersedes-provenance-ownership) for active protected inventory only; provenance ownership elsewhere remains accepted.
+
+**Current-scope qualification (documentary, not a new acceptance):** The absolute positive-evidence deletion wording below is bounded by its own recorded, frozen one-time by-name clean-slate exception. That exception is not recurring deletion authority and may not grow a new retirement list. AD147 governs active protected paths; no signed-publication acceptance is inferred.
 
 **Context:** Files a release stopped shipping were never removed from existing buckets, so retired policy kept loading beside whatever replaced it. Cleanup derived its delete list from the generated seed, so a key dropped from the seed also vanished from the delete list; the escape hatch was a hand-maintained enumeration carrying three entries against a real backlog of 165.
 
@@ -3581,15 +3719,6 @@ The Pi inventory activates after startup, marks generic Chat setup complete to s
 
 ---
 
-## Related Documentation
-
-- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
-- [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
-- [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
-- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
-- [Terminal & IDE - Scroll Stability](../lanes/terminal-and-ide.md#scroll-stability) - Mobile terminal design decisions
-- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders
-
 ### AD121: A review boundary is a delivery subcommand, not any Git invocation
 
 **Category:** Architecture, Build / Container
@@ -3616,6 +3745,8 @@ A PR opened by a path outside that vocabulary, `gh api repos/.../pulls` or a pus
 
 **Status:** Accepted (2026-08-11). Amends [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation)'s sibling work on the CI monitor.
 
+**Current-scope qualification (documentary, not a new acceptance):** No cancellation remains the choice. Current Pi `preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs` reads authoritative PR head before checks and again before terminal acceptance. A mismatch returns `timeout` with reason `superseded`, rather than waiting to the deadline. This narrow head-identity check is not branch chasing or cancellation; the deadline-only narrative below is historical.
+
 **Context:** Two mechanisms were added to the CI-monitoring skill and both were the wrong answer to a real problem.
 
 The first was a launcher step that listed in-flight runs on the branch and cancelled the ones whose head was not the current HEAD. It was wrong three times in a row: an ancestry guard that excluded exactly the amended and force-pushed heads worth cancelling, then no guard at all, which exposed fork pull requests sharing a branch name, then a lineage guard that was merely less wrong. An older section of the same skill told the agent to cancel every non-completed run on the branch with no head filter at all, which cancels the run it is about to monitor.
@@ -3640,6 +3771,8 @@ A future agent that notices a superseded matrix still running must add or fix a 
 ### AD123: The Claude fix directive owns delivery; Pi leaves it to standing rules
 
 **Status:** Partially superseded by [AD156](#ad156-pi-fix-directive-owns-automatic-delivery) (2026-09-20) for Pi delivery; the Claude decision remains accepted.
+
+**Current-scope qualification (documentary, not a new acceptance):** The no-monitor push escape below is historical and grants no present bypass. Current exact-terminal-CI rules require the relevant exact head’s terminal CI evidence before delivery; missing or stalled monitoring is not success. AD156 remains the Pi delivery successor. This annotation changes no hook/policy and closes no enforcement debt.
 
 **Context:** Both runtimes end a review round the same way: acknowledge the reviewed head, then hand the accepted findings to a separate FIX turn. Pi's FIX follow-up says only that the head is acknowledged and fixes may begin. It names no push, so delivery falls to the agent's standing rules, which forbid pushing while a review is incomplete and require a CI result first. That absence is why a Pi round never delivers a head whose CI is still in flight.
 
@@ -3959,7 +4092,9 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 
 **Category:** Agents, Architecture, Performance
 
-**Status:** Partially superseded; tool exposure and ownership remain accepted (2026-08-24). The startup-off portion below is historical: on 2026-10-18 the user selected enabled-by-default startup under [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), retaining `/ctx off`, foreground-only ownership and the bounded initial tool set. That current policy supersedes only this decision's startup default. This decision originally superseded [AD138](#ad138-context-mode-is-on-by-default-in-pi).
+**Status:** Accepted (2026-08-24) for source-backed disabled startup, foreground ownership and on-demand tool exposure; supersedes [AD138](#ad138-context-mode-is-on-by-default-in-pi). **Unverified historical attribution (C0650):** the inherited annotation claimed that on 2026-10-18 the user selected enabled-by-default startup under REQ-AGENT-076. That attribution is retained, not authenticated by the available evidence and not operative proof of enabled startup. Root must reconcile any authenticated contrary user decision before changing the historical attribution.
+
+**Current-scope qualification (documentary, not a new acceptance):** Current [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), entrypoint package assembly (`extensions: [], skills: []`), `context-mode-runtime.ts::contextModeEnabled` and `/ctx` command retain disabled startup and explicit opt-in. This corrects current representation only, not the original startup-off decision or retained tool ownership.
 
 **Context:** The compact skill index reduced the managed Advanced prompt projection from 32,416 to about 12,417 characters, but a fresh production `hi` request still rose from roughly 8,477 to 11,256 input tokens. Provider-boundary evidence separated the successful prompt reduction from active tool schemas: enabling context-mode on every fresh container registered its bridge tools, while capability filtering ran too early to contain later registrations. A tool installed in Pi costs no provider tokens until Pi marks it active and serializes its description and parameter schema.
 
@@ -4185,7 +4320,9 @@ Pi no longer infers completion from `agent_settled`, stop reasons, interactive l
 
 **Category:** Architecture, Session lifecycle, Storage
 
-**Status:** Partially superseded (2026-09-24); the SDK-only terminal stop decision below is historical. Current terminal stop authority is owner-scoped D1 ([REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits) AC1–AC2); failed no-start health verification or terminal-not-ready gates retryable readiness, while a verified survivor can forward despite stale SDK state. Other decisions remain accepted.
+**Status:** Partially superseded (2026-09-24); the SDK-only terminal stop decision below is historical. Current terminal stop authority is owner-scoped D1 ([REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits) AC1–AC2); failed no-start health verification or terminal-not-ready gates retryable readiness, while a verified survivor can forward despite stale SDK state. Other decisions remain accepted. Partially superseded by [AD155](#ad155-d1-owns-complete-session-lifecycle-authority) for session KV/SDK authority and repair claims.
+
+**Current-scope qualification (documentary, not a new acceptance):** AD155 now owns complete session authority in D1 with owner scope and generation/sequence fencing; historical KV status/metrics authority and SDK/KV repair language below are not current authority. Best-effort admission still has no atomic reservation. Startup guards and protection from unordered negative observations remain, but an ordered D1 stop may apply after the startup guard despite lingering transport. Exit/status and no-heartbeat-guess rationale, including AD151 refinement history, remain.
 
 **Context:** Session records and compact LIST metadata are stored in eventually-consistent KV. Whole-record writes can expose stale values independently from LIST metadata or temporarily omit a record. The dashboard treated `stopped` and missing observations as runtime truth, disposed terminal ownership, and redirected users while containers and WebSockets remained live. Terminal admission compounded the fault by converting stale KV `stopped` into close code 4503. Container start also issued two immediate whole-record writes, allowing the second stale read to restore pre-start status. ([historical KV writer](https://github.com/nikolanovoselec/codeflare/blob/690bb312effaa5561515fc766ba003f70e7d97d2/src/lib/kv-keys.ts#L103-L110)) <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/container/container-lifecycle.ts::onStart -->
 
@@ -4205,7 +4342,7 @@ A fresh-generation `onStart()` publishes `running`, `lastStartedAt`, and `lastAc
 
 **Category:** Architecture, Security
 
-**Status:** Accepted (2026-09-09), with the current discovery amendment below; partially superseded for normal-hosted Dispatcher configured-Pi model calls by the [2026-10-27 amendment](#ad152-normal-hosted-dispatcher-amendment). Other interceptor/container routes remain active.
+**Status:** Accepted (2026-09-09) for interceptor/container scope, with the discovery amendment below. Normal-hosted Dispatcher replacement follows the [2026-11-01 correction](#ad152-normal-hosted-dispatcher-amendment), **Planned / unaccepted**, not the superseded configured-Pi clause of 2026-10-27. Other interceptor routes and Conductor behavior remain unchanged. Flue remains pinned at 2.3.0; this record authorizes no upgrade.
 
 **Context:** AD74 remains the Dynamic Route transport decision, but its later Bedrock-only native amendment no longer describes the configured native and custom providers supported by the interceptor. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
@@ -4320,3 +4457,134 @@ Vault semantic extraction continues excluding all of `Raw/Sessions/`, including 
 Upstream nominal query-header/resource paths are not rebound by this narrow seam; no resource rewrite or full resource-parity claim is made. Authentic MCP tests cover relations, directed/parallel edges, empty startup and generation/source changes; image and hosted qualification remain separate.
 
 **Related REQs:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify).
+
+---
+
+### AD159: Recorded dual-transport replacement of REST-only routing
+
+**Category:** Historical/provenance documentation
+
+**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-06-07; no separate original ADR acceptance date is asserted.
+
+**Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — Transport only: AD74 original REST-only and no-migration-debt clauses; later discovery scope is recorded by AD163.
+
+**Source attribution:** AD74 “Dual-transport amendment” (2026-06-07), retained verbatim in the parent ledger and present in Git `5851c80800938df4aca2b35dd33fb8ce4aef76d0:documentation/decisions/README.md`. This attests to the recorded text, not independently recovered user authority, incident truth or an original separate adoption event.
+
+**Context:** The recorded Gemini 404 account narrowed the original REST-only/no-migration-debt choice. Current source supports only the qualified mechanism below. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+
+**Recorded replacement:** For historical Dynamic assignments, use REST first and compat replay only after a complete 404 for a model-routable, buffered request. The recorded token-scope consequence requires both transport permissions; it replaces the original single-surface permission account.
+
+**Current-source qualification:** Current dispatch retains REST-first fallback for historical assignments but selects direct compat for saved compatibility contracts and native targets. The vendor capability/token-scope and no-double-billing accounts remain dated observations, not fresh vendor certification.
+
+**Consequences:** This extraction separates one recorded replacement from the parent narrative while preserving the original text, dates, rationale and trade-offs there. It creates no runtime policy, rollout receipt, stronger guarantee or new actor authority; unsupported historical authority remains provenance debt.
+
+---
+
+### AD160: Recorded compat field stripping and email attribution
+
+**Category:** Historical/provenance documentation
+
+**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-06-07; no separate original ADR acceptance date is asserted.
+
+**Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 request-body passthrough and attribution clauses only; AD161 records later group attribution.
+
+**Source attribution:** AD74 “Compat field-strip + email attribution amendment” (2026-06-07), retained verbatim in the parent ledger and present in Git `5851c80800938df4aca2b35dd33fb8ce4aef76d0:documentation/decisions/README.md`. This attests to the recorded text, not independently recovered user authority, incident truth or an original separate adoption event.
+
+**Context:** The retained amendment records Google rejecting OpenAI-only fields and a need for customer-account user attribution. Current source supports only the qualified mechanism below. <!-- @impl: src/llm-interceptor.ts::stripOpenAiOnlyFields -->
+
+**Recorded replacement:** Strip store and prompt_cache_key on the compat leg while retaining them on REST; stamp IdP-verified email from the DO attribution rather than only an opaque bucket ID. This records the dated replacement of the earlier body-passthrough/no-email clauses, not new disclosure authority.
+
+**Current-source qualification:** Current interceptor strips incompatible fields on compat and builds metadata from trusted props. Missing user now falls back to unknown, not proof of the historical bucket fallback; operator attribution also consumes metadata budget. Customer-account-only exposure and historical incident facts are not independently certified here.
+
+**Consequences:** This extraction separates one recorded replacement from the parent narrative while preserving the original text, dates, rationale and trade-offs there. It creates no runtime policy, rollout receipt, stronger guarantee or new actor authority; unsupported historical authority remains provenance debt.
+
+---
+
+### AD161: Recorded catalog routing and bounded group attribution
+
+**Category:** Historical/provenance documentation
+
+**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-06-09; no separate original ADR acceptance date is asserted.
+
+**Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 2026-06-05 single-variable route-pinning and scalar group clauses only; the route-pinning incident remains historical.
+
+**Source attribution:** AD74 “Catalog-driven routing + multi-group attribution amendment” (2026-06-09), retained verbatim in the parent ledger and present in Git `5851c80800938df4aca2b35dd33fb8ce4aef76d0:documentation/decisions/README.md`. This attests to the recorded text, not independently recovered user authority, incident truth or an original separate adoption event.
+
+**Context:** The dated amendment replaces the single Worker-variable route stamp and scalar group attribution. Current source supports only the qualified mechanism below. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+
+**Recorded replacement:** Map slash-free handles through the Setup-configured catalog/default/reasoning rather than AIG_LANGUAGE_MODEL; emit bounded equals-filterable group tags rather than one scalar group. Retain the recorded configured-order truncation, no extra group authority and Worker-owned routing rationale.
+
+**Current-source qualification:** Current loadRouteCatalog and metadata construction support catalog selection and bounded tags. Operator metadata reduces the ordinary four-group budget, so that dated ordinary-request count is not universal. A short hash reduces sanitized-name collisions; it is not a mathematical collision-freedom guarantee. No historical provider behavior or live acceptance is inferred.
+
+**Consequences:** This extraction separates one recorded replacement from the parent narrative while preserving the original text, dates, rationale and trade-offs there. It creates no runtime policy, rollout receipt, stronger guarantee or new actor authority; unsupported historical authority remains provenance debt.
+
+---
+
+### AD162: Recorded capability-profile administration replacement
+
+**Category:** Historical/provenance documentation
+
+**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-09-05; no separate original ADR acceptance date is asserted.
+
+**Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 pre-profile Chat Completions/administration assumptions only; native/custom dispatch already belongs to AD152.
+
+**Source attribution:** AD74 “Capability-profile administration amendment” (2026-09-05), retained verbatim in the parent ledger and present in Git `5851c80800938df4aca2b35dd33fb8ce4aef76d0:documentation/decisions/README.md`. This attests to the recorded text, not independently recovered user authority, incident truth or an original separate adoption event.
+
+**Context:** The recorded amendment makes immutable profile selection precede Dynamic Route dispatch while leaving route policy administrator-owned. Current source supports only the qualified mechanism below. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+
+**Recorded replacement:** Resolve one active immutable route profile for Chat Completions, translate canonical reasoning before dispatch, and discover route inventory with Worker-held credentials. Per-leg discovery is evidence, not runtime selection. Retain the preview/run/Apply authority and exact-assignment boundaries.
+
+**Current-source qualification:** Current route profile/verification lookup and reasoning translation support that ownership. The dated seven-profile inventory and notices remain historical, not a current exhaustive catalog. Exact server receipts and protected hosted acceptance remain necessary; an anchor does not prove either.
+
+**Consequences:** This extraction separates one recorded replacement from the parent narrative while preserving the original text, dates, rationale and trade-offs there. It creates no runtime policy, rollout receipt, stronger guarantee or new actor authority; unsupported historical authority remains provenance debt.
+
+---
+
+### AD163: Recorded discovered compatibility transport replacement
+
+**Category:** Historical/provenance documentation
+
+**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-09-13; no separate original ADR acceptance date is asserted.
+
+**Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 new-discovery REST-first and unconditional zero-copy clauses only; original/dated bodies remain intact.
+
+**Source attribution:** AD74 “Current discovery amendment” (2026-09-13), retained verbatim in the parent ledger and present in Git `5851c80800938df4aca2b35dd33fb8ce4aef76d0:documentation/decisions/README.md`. This attests to the recorded text, not independently recovered user authority, incident truth or an original separate adoption event.
+
+**Context:** The recorded discovery contract distinguishes newly discovered compatibility contracts from historical REST-first assignments. Current source supports only the qualified mechanism below. <!-- @impl: src/lib/ai-capability-discovery/index.ts::capabilityCandidates -->
+
+**Recorded replacement:** Bind new discovered contracts to compat and share the saved streaming or bounded completed-JSON response contract plus narrow complete-tool-name repair between discovery and runtime. Keep REST-first/complete-404 replay only for historical assignments. This narrows original universal zero-copy claims without migrating saved native transports.
+
+**Current-source qualification:** Current capabilityCandidates records compat; compatibilityRequest/compatibilityResponse implement saved wire forms and bounded completed-JSON-to-SSE delivery. Synthesized SSE is not incremental-generation evidence. AD152 already owns native/custom exceptions; no new provider acceptance is claimed.
+
+**Consequences:** This extraction separates one recorded replacement from the parent narrative while preserving the original text, dates, rationale and trade-offs there. It creates no runtime policy, rollout receipt, stronger guarantee or new actor authority; unsupported historical authority remains provenance debt.
+
+---
+
+### AD164: Recorded independent-capability qualification replacement
+
+**Category:** Historical/provenance documentation
+
+**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-09-13; no separate original ADR acceptance date is asserted.
+
+**Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 prior cumulative qualification/cache-prerequisite description only; no change to transport, Worker credentials or historical-assignment replay.
+
+**Source attribution:** AD74 “Independent-capability clarification” (2026-09-13), retained verbatim in the parent ledger and present in Git `5851c80800938df4aca2b35dd33fb8ce4aef76d0:documentation/decisions/README.md`. This attests to the recorded text, not independently recovered user authority, incident truth or an original separate adoption event.
+
+**Context:** The recorded clarification separates capability dimensions instead of promoting cumulative grades or requiring cache evidence for every new mapping. Current source supports only the qualified mechanism below. <!-- @impl: src/lib/ai-capability-discovery/contract.ts::parseCapabilitySummary -->
+
+**Recorded replacement:** Report tools/replay, reasoning, streaming and caching independently. Preserve exact server receipt requirements and strict legacy evidence authority without silent promotion. Reuse AD152’s same-date clarification for native six-form/Provider-default scope rather than creating a second native decision.
+
+**Current-source qualification:** Current schema-2 mapping decoder keeps independent fields; schema-1 legacy decoding/qualification remains separate. This proves representation boundaries, not completed receipt provenance, graduated reasoning fidelity or actual deployed capability.
+
+**Consequences:** This extraction separates one recorded replacement from the parent narrative while preserving the original text, dates, rationale and trade-offs there. It creates no runtime policy, rollout receipt, stronger guarantee or new actor authority; unsupported historical authority remains provenance debt.
+
+---
+
+## Related Documentation
+
+- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
+- [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
+- [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
+- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Terminal & IDE - Scroll Stability](../lanes/terminal-and-ide.md#scroll-stability) - Mobile terminal design decisions
+- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders

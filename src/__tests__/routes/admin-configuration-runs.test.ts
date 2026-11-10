@@ -121,9 +121,13 @@ describe('configuration runs (REQ-SETUP-018)', () => {
 
     const staleRevision = createApp();
     await staleRevision.kv.put(ADMIN_CONFIGURATION_KEYS.REVISION, '2');
+    await staleRevision.kv.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'saved-client-id');
+    const before = Array.from(staleRevision.kv._store.entries());
     const revisionResponse = await post(staleRevision.app, { section: 'github', baseRevision: 1, values: githubValues });
     expect(revisionResponse.status).toBe(409);
+    expect(revisionResponse.headers.get('content-type')).toContain('application/json');
     expect(await revisionResponse.json()).toMatchObject({ code: 'configuration_revision_conflict', currentRevision: 2 });
+    expect(Array.from(staleRevision.kv._store.entries())).toEqual(before);
   });
 
   it('streams sanitized snapshots, applies one section, increments revision once, and releases admission', async () => {
@@ -262,13 +266,61 @@ describe('configuration runs (REQ-SETUP-018)', () => {
 
     const response = await post(app, { section: 'github', baseRevision: 0, values: githubValues });
     expect(response.status).toBe(200);
-    const terminal = snapshots(await response.text()).at(-1).run;
-    expect(terminal).toMatchObject({
+    expect(response.headers.get('content-type')).toContain('application/x-ndjson');
+    const events = snapshots(await response.text());
+    expect(events[0].run.state).toBe('queued');
+    expect(events.at(-1).run).toMatchObject({
       state: 'failed',
       error: { code: 'configuration_revision_conflict' },
       tasks: [{ id: 'configure_github', state: 'skipped' }],
     });
     expect(await kv.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE)).toBeNull();
+    expect(await kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
+  });
+
+  it('REQ-SETUP-018 AC2: an admitted revision conflict leaves Domain and Access provider state unchanged', async () => {
+    const { app, kv } = createApp({
+      CLOUDFLARE_API_TOKEN: 'cloudflare-token', CLOUDFLARE_WORKER_NAME: 'codeflare-integration',
+    });
+    await kv.put(SETUP_KEYS.ACCOUNT_ID, 'account-1');
+    await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'saved.example.com');
+    await kv.put('user:admin@example.com', JSON.stringify({ role: 'admin' }));
+    const providerState = { domain: 'saved.example.com', accessDomain: 'saved.example.com' };
+    setupOperations.configureCustomDomain.mockImplementation(async () => { providerState.domain = 'new.example.com'; });
+    setupOperations.createAccessApp.mockImplementation(async () => { providerState.accessDomain = 'new.example.com'; });
+    const get = kv.get.getMockImplementation()!;
+    kv.get.mockImplementation(async (key, type) => {
+      const value = await get(key, type);
+      if (key === ADMIN_CONFIGURATION_KEYS.REVISION && !kv._store.has(key)) {
+        // The first revision lookup sees 0; a concurrent update commits before
+        // the admitted run's pre-work lookup.
+        kv._store.set(key, '1');
+      }
+      return value;
+    });
+    try {
+      const response = await post(app, {
+        section: 'domain', baseRevision: 0, values: { customDomain: 'new.example.com' },
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('application/x-ndjson');
+      const events = snapshots(await response.text());
+      expect(events[0].run.state).toBe('queued');
+      expect(events.at(-1).run).toMatchObject({
+        state: 'failed', error: { code: 'configuration_revision_conflict' },
+        tasks: [
+          { id: 'configure_custom_domain', state: 'skipped' },
+          { id: 'create_access_app', state: 'skipped' },
+        ],
+      });
+      expect(providerState).toEqual({ domain: 'saved.example.com', accessDomain: 'saved.example.com' });
+      expect(await kv.get(SETUP_KEYS.CUSTOM_DOMAIN)).toBe('saved.example.com');
+      expect(await kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBe('1');
+      expect(await kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
+    } finally {
+      setupOperations.configureCustomDomain.mockImplementation(async () => {});
+      setupOperations.createAccessApp.mockImplementation(async () => {});
+    }
   });
 
   it('reconnects to the same run shape and lists Activity newest-first with a stable cursor', async () => {

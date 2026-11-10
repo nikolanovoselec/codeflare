@@ -390,32 +390,38 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     const pid = await readDaemonPid(h.child);
     try {
       // Wait until the daemon enters the first bisync (now blocked).
-      await waitFor(h.logFile, (s) => /BISYNC_CALLED n=1/.test(s), 4000);
+      const active = await waitFor(h.logFile, (s) => /BISYNC_CALLED n=1/.test(s), 4000);
+      assert.match(active, /BISYNC_CALLED n=1/, 'first cycle must be active before triggers are sent');
       // Fire 5 SIGUSR1s mid-flight. BISYNC_IN_FLIGHT=1, so each trap
       // call sets BISYNC_RERUN_REQUESTED=1 (idempotent — N signals
       // collapse to one rerun, not N).
       for (let i = 0; i < 5; i++) {
         process.kill(pid, 'SIGUSR1');
+        // Space deliveries across the fixture's 50ms blocking poll so this
+        // exercises repeated active-cycle requests, not only OS signal merging.
+        await new Promise((r) => setTimeout(r, 100));
       }
+      assert.equal(existsSync(releaseFile), false, 'all triggers precede release of the active cycle');
       // Release the in-flight bisync. The daemon now finishes cycle 1,
       // sees BISYNC_RERUN_REQUESTED=1, runs ONE rerun (cycle 2), then
       // continues to the next sleep.
       writeFileSync(releaseFile, '');
       // Wait for the rerun (n=2) to appear.
-      await waitFor(h.logFile, (s) => /BISYNC_CALLED n=2/.test(s), 5000);
+      const completed = await waitFor(h.logFile,
+        (s) => (s.match(/STATUS status=success/g) || []).length === 2, 5000);
+      assert.equal((completed.match(/STATUS status=success/g) || []).length, 2,
+        'both the blocked cycle and its real daemon rerun must publish successful completion');
       // The first fixture cadence is one second, later natural cadences ten.
       // Observe queued reruns without counting unrelated scheduled cycles.
       await new Promise((r) => setTimeout(r, 3500));
       const finalLog = readFileSync(h.logFile, 'utf8');
       const matches = finalLog.match(/BISYNC_CALLED n=\d+/g) || [];
-      // Count distinct n=1, n=2 occurrences. The bisync stub increments
-      // its counter once per invocation, so n=3 appearing means 5
-      // SIGUSR1s produced 4 reruns instead of 1.
       const ns = matches.map((m) => m.match(/n=(\d+)/)[1]);
-      assert.equal(ns.includes('1'), true, 'cycle 1 must be logged');
-      assert.equal(ns.includes('2'), true, 'cycle 2 (the rerun) must be logged');
-      assert.equal(ns.includes('3'), false,
-        `5 SIGUSR1s mid-flight must coalesce into exactly one rerun, not multiple. Saw ns=[${ns.join(',')}]`);
+      assert.deepEqual(ns, ['1', '2'],
+        'five active-cycle triggers must produce only the original cycle and one rerun');
+      assert.equal((finalLog.match(/STATUS status=success/g) || []).length, 2);
+      assert.doesNotMatch(finalLog, /RECOVER_CALLED|RESYNC_CALLED|STATUS status=failed/,
+        'ordinary triggers must not enter recovery or baseline fallback');
     } finally {
       // Make sure the daemon never hangs the test cleanup.
       try { writeFileSync(releaseFile, ''); } catch { /* ignore */ }

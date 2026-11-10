@@ -99,7 +99,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. Each mediated git/REST/MCP request decrypts the bound user's token, strips supplied auth, then stamps git Basic, REST bearer plus API version, or Copilot MCP bearer without API version so remote MCP authenticates. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: Copilot remote GitHub MCP credential injection) -->
 3. When no valid mediated GitHub token exists, git/REST/MCP fails closed with a clear error and performs no upstream request. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: fail closed) -->
 4. The container holds only a non-secret GitHub placeholder identical for all users; user-scoping comes solely from the per-session interceptor binding, never the request; a session can inject only its own user's token. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)) -->
-5. In non-enterprise modes the token reaches the container through the unchanged deploy-credential environment transport (see [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
+5. In ordinary non-enterprise human sessions the token reaches the container through the unchanged deploy-credential environment transport; restricted operators retain placeholder transport in every mode (see [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
 
 **Constraints:**
 
@@ -129,12 +129,13 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. Clone offers running sessions first and a separated new-session option; all rows share the option layout and left edge, while running rows use their session agent icon and subtitle. <!-- @impl: web-ui/src/components/github/ClonePickerOptionRow.tsx::ClonePickerOptionRow --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @impl: web-ui/src/components/github/ClonePickerSessionRow.tsx::ClonePickerSessionRow --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders the running group before the new-session group through shared option rows) -->
 2. New session → the repo is cloned before the agent process starts (from the `clone` field on session create); running session → cloned via an authenticated internal RPC into the live container. <!-- @test: src/__tests__/routes/github.test.ts (forwards to the container /internal/git-clone and relays a 200) --> <!-- @manual -->
 3. The validated repository basename is preserved verbatim as a direct child of the normalized user workspace; cloning refuses an existing target with a clear message. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004: resolveGitClone validation + dir computation) -->
-4. The clone targets the chosen branch (default branch preselected); authentication uses the per-mode credential path: egress injection in enterprise, ordinary GitHub token environment transport otherwise. <!-- @impl: host/src/git-clone.ts::buildCloneArgs --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+4. The panel displays the repository's default branch; both live-session and new-session actions omit a ref and clone that default, without a visible branch picker. Authentication retains egress injection in enterprise and ordinary GitHub token environment transport for non-enterprise human sessions, with restricted-operator placeholder isolation unchanged. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (selecting a running session clones with {repo, sessionId} and NO ref) --> <!-- @impl: host/src/git-clone.ts::buildCloneArgs --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @manual -->
 
 **Constraints:**
 
 - The running-session clone is authenticated by the existing `CONTAINER_AUTH_TOKEN` Worker→DO mechanism.
+- Backend clone transport accepts a supplied ref separately; that capability is not a branch-selection control in the panel.
 
 **Priority:** P1
 
@@ -215,8 +216,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 1. Resume attempts each tracked repository whose workspace folder is absent. <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-015 AC4: restores every tracked repository when a stopped session resumes) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-015 AC4: forwards every tracked repository with the session repository first) -->
 2. Resume leaves an existing workspace folder untouched. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC4: restores every tracked repository in order and leaves an existing folder alone) -->
-3. No restore attempt starts after the overall budget of 180 seconds is spent. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: stops attempting repositories once the overall budget is spent) -->
-4. Each started restore attempt is capped at 120 seconds. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: abandons a repository that exceeds its own time limit and still tries the next) -->
+3. No restore attempt starts after the overall budget (180 seconds by default, configurable with `GIT_CLONE_TOTAL_BUDGET_SECONDS`) is spent; the budget is checked before attempts, not a hard deadline on an already-running attempt. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: stops attempting repositories once the overall budget is spent) -->
+4. Each started restore attempt uses a default per-repository timeout of 120 seconds, overridden by `GIT_CLONE_PER_REPO_TIMEOUT_SECONDS`; `0` disables this timeout and larger values are not clamped. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: abandons a repository that exceeds its own time limit and still tries the next) -->
 5. Restore never waits for interactive credentials. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
 6. Every abandoned or failed restore attempt is logged. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
 7. Restore failure does not prevent the session from reaching a usable state. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
@@ -267,18 +268,18 @@ None.
 
 ### REQ-GITHUB-006: Other-mode container transport
 
-**Intent:** In SaaS / non-enterprise modes the GitHub token retains the existing deploy-credential environment transport unchanged.
+**Intent:** Ordinary SaaS / non-enterprise human sessions retain the existing GitHub deploy-credential environment transport; restricted operator containers retain placeholder isolation regardless of deployment mode.
 
 **Applies To:** System
 
 **Acceptance Criteria:**
 
-1. A connected token in a non-enterprise session is present in the container environment exactly as a manually pasted PAT. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
+1. A connected token in an ordinary non-enterprise human session is present in the container environment exactly as a manually pasted PAT; restricted operator containers instead receive only the non-secret placeholder in every mode. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
 2. In enterprise mode the container receives a non-secret GitHub credential placeholder, never the real token; the real token is injected at egress per [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)) -->
 
 **Constraints:**
 
-- For non-enterprise modes this is documented as leakage-hygiene, not agent-containment: the agent can read its own user's token (which the user already has).
+- For ordinary non-enterprise human sessions this is leakage-hygiene, not agent-containment: the agent can read its own user's token (which the user already has). Restricted operators never receive the real token, regardless of Enterprise mode; outbound substitution remains bound to the user, and disconnected sessions receive no `GH_TOKEN`.
 
 **Priority:** P1
 
@@ -334,7 +335,7 @@ None.
 
 **Constraints:**
 
-- Non-enterprise modes carry the real token in the container env (leakage-hygiene only, not agent-containment), unchanged from [REQ-GITHUB-006](#req-github-006-other-mode-container-transport).
+- Ordinary non-enterprise human sessions carry the real token in the container env (leakage-hygiene only, not agent-containment); restricted operators retain the non-secret placeholder regardless of Enterprise mode, as in [REQ-GITHUB-006](#req-github-006-other-mode-container-transport).
 - The scope catalog lives server-side; the client sends only the tier name (untrusted, normalized to a known tier, default `recommended`).
 
 **Priority:** P1
@@ -467,7 +468,7 @@ None.
 **Acceptance Criteria:**
 
 1. On desktop and tablet both panels stack as an anchoring split: GitHub anchored to the top, Storage to the bottom. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @manual: On the protected integration deployment, use browser-e2e at tablet and desktop viewports; confirm GitHub is top-anchored and Storage bottom-anchored in the simultaneously visible stacked right column. -->
-2. The column collapses to a single panel with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short to show both panels usably. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
+2. The column collapses to a single panel with a flip control when measured viewport width is positive and below 600px, or when both viewport width and column height are positive and column height is below 600px. Zero or partial measurements retain split mode unless a positive narrow width already requires flip; exact 600px boundaries retain split unless the other dimension requires flip. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
 3. In single-panel mobile/flip mode, the active face uses its own content height up to the current viewport cap, so short content stays compact. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
 4. Flipping between unequal GitHub and Storage faces recomputes the used height from the newly active face. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
 5. Resizing the viewport recomputes the active face's cap without requiring a face or content change. <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
@@ -491,7 +492,7 @@ None.
 <!-- Title retains "Mobile ..." for anchor stability; the disclosure now applies on
      EVERY breakpoint (desktop included), not only touch. -->
 
-**Intent:** The GitHub panel's repository search is disclosed on demand on every breakpoint — hidden behind a magnify toggle so the repository list keeps its full whole-row viewport, revealed (and focused) on tap/click and hidden again on a second tap. The only touch-specific behaviour is scrolling the field above the on-screen keyboard once it opens.
+**Intent:** The GitHub panel's repository search is disclosed on demand on every breakpoint — hidden behind a magnify toggle so the repository list keeps its available-height viewport, revealed (and focused) on tap/click and hidden again on a second tap. The only touch-specific behaviour is scrolling the field above the on-screen keyboard once it opens.
 
 **Applies To:** User
 
@@ -505,7 +506,7 @@ None.
 
 **Constraints:**
 
-- The repository list's whole-row viewport cap ([REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states) AC4) is unaffected: showing the search row shifts the list down but the `max-height` row cap still shows only complete rows.
+- The repository list uses adaptive available-height scrolling ([REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states) AC4), not a fixed complete-row cap. Revealing search leaves its input visible and reachable while every fetched repository remains accessible through the scroll container.
 - The on-screen keyboard opens.
 - Touch detection uses `isTouchDevice()` (touch hardware + coarse pointer), the same gate as the rest of the mobile UI; capability is read once and never changes mid-session.
 - Reuses the shared `IconButton` primitive (magnify face, `active` state); no new control primitive.

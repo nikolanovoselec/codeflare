@@ -35,7 +35,7 @@ Codeflare selects one authentication branch for a request. Entering a configured
 | Session-OIDC deployment with `OAUTH_CLIENT_ID` | Worker-managed GitHub OAuth | `codeflare_session` cookie | Cryptographically verified GitHub identity plus durable user record |
 | Otherwise | Cloudflare Access | `CF_Authorization` JWT | Verified Access identity plus configured/durable admission policy |
 | Service secret configured and matching `X-Service-Auth` | Service automation path, evaluated first | Custom header | Synthetic admin automation identity; AD68 restrictions remain unimplemented |
-| Setup incomplete and no configured identity path | Bounded pre-setup fallback only | Verified edge header under the setup guard | Bootstrap administration; disabled once configuration completes |
+| No current Access auth configuration and none previously observed in this isolate | Pre-setup header fallback | Trusted email header, not cryptographic verifier provenance | Bootstrap fallback; gated by `authConfigured`/`authConfigFetched`, not `setup:complete` |
 
 Session-OIDC includes the configured SaaS or onboarding flows. SaaS mode alone does not imply GitHub OAuth: without `OAUTH_CLIENT_ID`, requests stay on Cloudflare Access. <!-- @impl: src/lib/access.ts::authenticateRequest -->
 
@@ -47,7 +47,7 @@ For onboarding sign-in assets, `ONBOARDING_LANDING_PAGE=active` together with `S
 1. Validate the optional `X-Service-Auth` path.
 2. When session-OIDC is active and GitHub OAuth is configured, validate `codeflare_session`.
 3. Otherwise validate the Cloudflare Access JWT.
-4. Permit the tightly bounded pre-setup fallback only while setup is incomplete.
+4. Permit pre-setup email-header fallback only when both `authConfigured` and the isolate's sticky `authConfigFetched` observation are false.
 5. Reject invalid, expired, unverified, or missing credentials; never continue into another user-auth branch after failure.
 
 ### Failure posture
@@ -183,7 +183,7 @@ The root route chooses the landing, login, authenticated application, or setup p
 <a id="cf-access-resources"></a>
 ### Setup boundary
 
-Session-OIDC deployments do not create competing Cloudflare Access resources for the same application hostname. Access-backed modes may create and reconcile their Access application/policies during setup. Once setup is complete, the pre-setup identity fallback is disabled.
+Session-OIDC deployments do not create competing Cloudflare Access resources for the same application hostname. Access-backed modes may create and reconcile their Access application/policies during setup. The pre-setup header fallback checks `authConfigured`/`authConfigFetched`, not `setup:complete`. Fetching an auth domain plus a nonempty audience configuration sets the sticky observation for that isolate; later absent configuration does not clear it. `resetAuthConfigCache()` explicitly clears it, and a fresh isolate starts without that history. This is not a new setup-completion security guard. <!-- @impl: src/lib/access.ts::preSetupHeaderFallback --> <!-- @impl: src/lib/access.ts::loadAuthConfig -->
 
 ## Provisioning State Model
 
@@ -213,12 +213,12 @@ This flow is provider-independent: a verified Cloudflare Access-backed SaaS iden
 
 ### Concurrent first login
 
-Workers KV is eventually consistent. Simultaneous first requests may both observe no record and write the same initial state; identical writes converge, but there is no per-key serialization. Bucket authority and welcome delivery use their own stronger boundaries so duplicate first-login observations do not grant another user's storage or send repeated welcome messages.
+Workers KV is eventually consistent. Simultaneous first requests may both observe no record and write the same initial state; identical writes converge, but there is no per-key serialization. Bucket authority and welcome delivery use their own stronger boundaries so duplicate first-login observations do not grant another user's storage or send repeated welcome messages. Welcome serialization and retry ownership are [REQ-AUTH-012 AC1–4](../../sdd/spec/authentication.md#req-auth-012-welcome-email-on-first-login), not KV per-key serialization. <!-- @impl: src/timekeeper/index.ts::handleWelcome -->
 
 <a id="welcome-delivery-consistency-req-auth-012"></a>
 ### Welcome-delivery handoff
 
-After successful first provisioning, a strongly serialized Timekeeper claim selects one welcome-delivery owner. The email provider receives a deterministic idempotency key. Delivery is best effort and does not roll back the durable user record; absence or failure remains observable in logs and retry ownership rather than a `welcome-sent:*` KV flag.
+After successful first provisioning, login awaits submission to the per-user Timekeeper. Its concurrency boundary encloses provider send and accepted-state persistence; the provider receives a deterministic idempotency key. Accepted state prevents another send; rejected or unconfigured-provider delivery remains unclaimed and retryable on a later JIT-user login. Failure is logged without failing login or rolling back the durable user record, rather than tracked by a `welcome-sent:*` KV flag. [REQ-AUTH-012 AC1–4](../../sdd/spec/authentication.md#req-auth-012-welcome-email-on-first-login). <!-- @impl: src/lib/access.ts::queueWelcomeEmail --> <!-- @impl: src/timekeeper/index.ts::handleWelcome -->
 
 <a id="enterprise-mode-provisioning"></a>
 ## Enterprise JIT Provisioning

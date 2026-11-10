@@ -861,6 +861,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       it('clears the default-route key when defaultRoute is null', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
+        mockKV._set('setup:default_route', { route: 'old', reasoning: 'off' });
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
           method: 'POST',
@@ -869,8 +870,22 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         });
 
         expect(res.status).toBe(200);
-        await readNdjson(res);
+        expect(getNdjsonSummary(await readNdjson(res)).success).toBe(true);
         expect(mockKV.delete).toHaveBeenCalledWith('setup:default_route');
+        expect(await mockKV.get('setup:default_route', 'json')).toBeNull();
+      });
+
+      it('REQ-ENTERPRISE-012 AC2: an omitted default stays absent without selecting the first catalog route', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: ['development'] })),
+        });
+        expect(res.status).toBe(200);
+        expect(getNdjsonSummary(await readNdjson(res)).success).toBe(true);
+        expect(await mockKV.get('setup:default_route', 'json')).toBeNull();
+        expect(await mockKV.get('setup:dynamic_routes', 'json')).toEqual(['development']);
       });
 
       it('returns 400 when a group name contains a comma', async () => {

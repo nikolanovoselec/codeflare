@@ -15,11 +15,11 @@ This is non-normative delivery tracking, not an operational lane, a new product 
 - **T01:** completed and successfully published at `416732e4eca05900bc5da21dc46582f65944f58e`.
 - **T02:** completed and successfully published at `5851c80800938df4aca2b35dd33fb8ce4aef76d0`.
 - **T03:** completed at `7196edb77628d323efa4cd5e48e336c27d545be8`; 54 representation scopes closed with preserved clause, guard, actor, status, fragment and reference mappings.
-- **T04:** 53 primary traceability corrections implemented for this checkpoint, with bounded test prerequisites and source-correspondence review. Task completion and test-dependent closure remain pending exact-head CI and successful publication.
-- **T05:** pending — four approved prerequisite contributions accompany T03; the whole alignment task is not complete.
+- **T04:** completed at `6f668162fd592ad82330e8c08eaa1a4929adbb4d`; 53 primary traceability scopes closed after source/assertion review and [applicable exact-head GREEN CI](https://github.com/nikolanovoselec/codeflare/actions/runs/42790665277). There were 39 successful jobs; the inapplicable PR-only Dependency Review skip is not counted as a pass.
+- **T05:** disjoint implementation batches delivered; root verification and publication are in progress. Earlier prerequisite contributions remain separately accounted; the whole alignment task is not complete.
 - **T06:** direct documentation implementation is in progress in disjoint file batches; no task closure or publication is inferred.
 - **T07:** direct historical/provenance implementation is in progress under one ledger owner; acceptance and dates are not invented.
-- **T08:** bounded prerequisites accompany T04: production Session.write bytes/activity, encrypted configuration roundtrip/rejection, speech controls and quota upgrade-link outcomes in existing suites. Managed syntax passed; local host assertions could not load missing dependencies. No behavioral PASS or whole-T08 completion is claimed.
+- **T08:** T04 prerequisites passed component CI at `6f668162`: production Session.write bytes/activity, encrypted configuration roundtrip/rejection, speech controls and quota upgrade-link outcomes. Additional approved T05 prerequisites are in progress; whole-T08 and native/hosted/manual acceptance remain open.
 - **T09:** in progress — root verifies and publishes task milestones in dependency order. Each implementation agent handles one task.
 - **T10:** pending — reconcile closure and obtain applicable required GREEN CI for the exact final pushed SHA.
 
@@ -56,7 +56,7 @@ The checkpoint repairs 53 primary traceability scopes and records other task fac
 
 Tests and their matching specification anchors travel together. The already-approved terminal response-filter qualification and scoped quota-state design alignment change specifications only; backend enforcement, runtime behavior and error codes remain unchanged. Unrelated T05/T06/T07 working-tree changes are excluded from the publication snapshot.
 
-The first full exact-head CI ran the host and frontend prerequisites successfully, but failed three setup-fixture assertions; T04 remains open. The followup restores the existing ownership-namespace fixture and distinguishes the exact required rate-limit counter from protected configuration. Admin rejection, independent ciphertext roundtrip and fail-closed no-write assertions remain intact. New exact-head CI is required before completion; prior successes are not a whole-run GREEN receipt. Existing whole-file formatting warnings are retained honestly.
+The first full CI failed three setup-fixture assertions. The followup restored the existing ownership-namespace fixture and distinguished the exact required rate-limit counter from protected configuration. Admin rejection, independent ciphertext roundtrip and fail-closed no-write assertions remained intact and passed in the successful exact-head run above, alongside host and frontend prerequisites. T03/T04 together close 107 scopes; 542 remain unclosed. Later repository changes need their own pushed checkpoint and exact-head validation; this is not final remediation or native acceptance. Existing whole-file formatting warnings are retained honestly.
 
 ## Verification and publication boundary
 

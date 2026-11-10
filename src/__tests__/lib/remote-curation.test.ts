@@ -556,6 +556,110 @@ describe('managed release resolver', () => {
     expect(resolved.active?.digest).toBe(await sha256(compatible.compressed));
   });
 
+  describe.each([
+    ['unrelated latest assets', /exactly two immutable assets/i],
+    ['invalid latest metadata', /latest release is not immutable or has invalid metadata/i],
+    ['incomplete latest assets', /immutable assets are incomplete/i],
+  ] as const)('REQ-AGENT-154 AC4 IG0051: %s', (failure, expectedError) => {
+    it.each([
+      [true, 'matching'], [false, 'matching'],
+      [true, 'absent'], [false, 'absent'],
+      [true, 'mismatching'], [false, 'mismatching'],
+    ] as const)('fails closed without compatible-history activation (fresh-required=%s, cache=%s)', async (requireFresh, cacheKind) => {
+      const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
+      const cachedRuntimeHash = (cacheKind === 'mismatching' ? 'd' : 'c').repeat(64);
+      const fixture = await signedFixture(release({ runtimeDependencyHash: cachedRuntimeHash }), keyPair);
+      const kv = createMockKV();
+      const state = resolverCache();
+      const input = {
+        kv: kv as unknown as KVNamespace,
+        stateKey: 'state',
+        cache: state.cache,
+        repository: 'acme/curation',
+        repositoryId: 123456,
+        token: 'secret-pat',
+        publicKeyHex: fixture.publicKeyHex,
+      };
+      // Establish the pointer and immutable bytes through real signature/digest
+      // verification, not a fabricated ActiveManagedRelease or crypto substitute.
+      if (cacheKind !== 'absent') {
+        const seeded = await resolveManagedEnvironmentRelease({
+          ...input,
+          expectedRuntimeHash: cachedRuntimeHash,
+          requireFresh: true,
+          now: new Date('2026-08-18T00:00:00.000Z'),
+          fetcher: vi.fn()
+            .mockResolvedValueOnce(latestReleaseResponse({
+              bundleDigest: await sha256(fixture.compressed),
+              signatureDigest: await sha256(fixture.signature),
+            }))
+            .mockResolvedValueOnce(new Response(fixture.compressed, { status: 200 }))
+            .mockResolvedValueOnce(new Response(fixture.signature, { status: 200 })),
+        });
+        expect(seeded.freshness).toBe('fresh');
+        expect(seeded.active?.digest).toBe(await sha256(fixture.compressed));
+      }
+      const originalActive = state.active();
+      const compatible = await signedFixture(release({
+        sequence: 8,
+        source: { repositoryId: 123456, commitSha: '8'.repeat(40), releaseTag: 'release-8', compilerCommit: 'b'.repeat(40) },
+      }), keyPair);
+      const compatibleMetadata = releaseMetadata({
+        releaseId: 88,
+        releaseTag: 'release-8',
+        bundleDigest: await sha256(compatible.compressed),
+        signatureDigest: await sha256(compatible.signature),
+      });
+      const metadata = releaseMetadata({
+        releaseId: 99,
+        releaseTag: 'ordinary-v1',
+        bundleDigest: await sha256(compatible.compressed),
+        signatureDigest: await sha256(compatible.signature),
+        immutable: failure !== 'invalid latest metadata',
+      });
+      if (failure === 'unrelated latest assets') metadata.assets = [];
+      if (failure === 'incomplete latest assets') {
+        metadata.assets = metadata.assets.map(asset => asset.name === 'seed-v1.sig' ? { ...asset, name: 'ordinary.txt' } : asset);
+      }
+      // A valid compatible history candidate is available: wrongly entering
+      // history would activate sequence 8 rather than produce the required failure.
+      const fetcher = vi.fn(async (request: Request) => {
+        const url = new URL(request.url);
+        if (url.pathname.endsWith('/releases/latest')) {
+          return new Response(JSON.stringify(metadata), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname.endsWith('/releases')) return releaseListResponse([compatibleMetadata]);
+        if (url.pathname.endsWith('/assets/881')) return new Response(compatible.compressed, { status: 200 });
+        if (url.pathname.endsWith('/assets/882')) return new Response(compatible.signature, { status: 200 });
+        throw new Error(`Unexpected fixture request: ${url.pathname}`);
+      });
+      const checkedAt = '2026-08-18T00:05:01.000Z';
+      const resolution = resolveManagedEnvironmentRelease({
+        ...input,
+        expectedRuntimeHash: 'c'.repeat(64),
+        requireFresh,
+        now: new Date(checkedAt),
+        fetcher,
+      });
+      const expectedActive = cacheKind === 'matching' ? originalActive : undefined;
+      if (requireFresh) {
+        await expect(resolution).rejects.toThrow(expectedError);
+      } else {
+        const resolved = await resolution;
+        expect(resolved.active).toEqual(expectedActive);
+        expect(resolved).toMatchObject({
+          freshness: 'degraded', lastCheckedAt: checkedAt,
+          lastError: expect.stringMatching(expectedError),
+        });
+      }
+      expect(state.active()).toEqual(originalActive);
+      const persisted = JSON.parse(kv._store.get('state') ?? '{}') as ManagedEnvironmentFreshnessState;
+      expect(persisted.active).toEqual(expectedActive);
+      expect(persisted.lastCheckedAt).toBe(checkedAt);
+      expect(persisted.lastError).toMatch(expectedError);
+    });
+  });
+
   it.each([true, false])('REQ-AGENT-154 AC5: stops when an advertised history release fails validation (fresh-required=%s)', async requireFresh => {
     const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
     const bundleDigest = await sha256(fixture.compressed);

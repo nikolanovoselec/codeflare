@@ -193,11 +193,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. The final bisync runs only when the bisync-initialized marker is set. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 3. Files created during the session are available in R2 after shutdown completes successfully. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @manual -->
 4. The final bisync runs under a hard watchdog. If it has not completed before the watchdog expires the process is force-killed; the user accepts that the last writes may not have synced. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
-5. The container orchestrator's destroy budget exceeds the final-sync watchdog by enough time for a clean process exit so the orchestrator does not tear down mid-sync. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+5. Teardown shares a 135-second cap from entry. The primary awaited live drain receives up to its allocated 120-second bound, limited by remaining teardown time; the SIGTERM final-sync trap is only a best-effort backstop within the remaining time, not a fresh 120-second allowance. Forced teardown may interrupt it and the last writes may be lost. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Constraints:**
 
-- The shutdown handler's watchdog and the orchestrator's destroy budget must remain coordinated: destroy budget > watchdog + exit time.
+- All teardown stages share the 135-second cap; the live drain is bounded by the lesser of its 120-second allocation and remaining time. The trap's nominal 120-second watchdog does not extend that cap or guarantee clean exit after SIGTERM; final-byte persistence still requires acceptance.
 - The final bisync uses the same correctness flags as the periodic bisync so behavior at shutdown matches steady-state.
 
 **Priority:** P0
@@ -252,7 +252,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. The upload endpoint stores a file at a specified R2 key. <!-- @manual --> <!-- @impl: src/routes/storage/upload.ts::app -->
 3. The download endpoint returns file contents as an attachment with a sanitized filename. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/routes/storage-download.test.ts (Storage Download Routes) -->
 4. The delete endpoint removes objects by key and/or prefix in a single server-side bulk operation, reports only confirmed deletions, and reports explicit failures for unconfirmed responses, per-object rejection or incomplete pagination. <!-- @impl: src/routes/storage/delete.ts::app --> <!-- @impl: src/lib/r2-client.ts::emptyR2Bucket --> <!-- @test: src/__tests__/routes/storage-delete.test.ts (Storage Delete Route) --> <!-- @test: src/__tests__/routes/storage-delete-prefix-results.test.ts (Storage Delete Route real prefix results / REQ-STOR-007 AC4) --> <!-- @test: src/__tests__/lib/r2-client.test.ts (emptyR2Bucket) -->
-5. The preview endpoint returns text content inline for text files and metadata-only for other types. <!-- @test: src/__tests__/routes/storage-preview.test.ts (Storage Preview Routes) --> <!-- @manual -->
+5. The preview endpoint returns text content inline only for recognized text types at or below 1 MiB (1,048,576 bytes); larger text and other types return binary metadata without content. <!-- @test: src/__tests__/routes/storage-preview.test.ts (Storage Preview Routes) --> <!-- @manual -->
 6. On request, the download endpoint serves a file inline for in-browser viewing rather than as an attachment when the caller passes `?disposition=inline`. <!-- @impl: src/routes/storage/download.ts::INLINE_IMAGE_TYPES --> <!-- @test: src/__tests__/routes/storage-download.test.ts (REQ-STOR-007: serves an inline image with its real type, inline disposition, and nosniff) -->
 7. The inline view path enforces an XSS-safe content-type: known image types and PDF keep their real MIME type while all other types, including HTML and SVG, are served as inert text so user-supplied markup cannot execute in the user's session. <!-- @impl: src/routes/storage/download.ts::safeInlineContentType --> <!-- @test: src/__tests__/routes/storage-download.test.ts (safeInlineContentType) -->
 
@@ -385,7 +385,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Unknown future files inside admitted durable namespaces remain eligible; detecting every novel cache is not guaranteed.
 - Exclusion authorizes neither deletion nor classifying user content as disposable.
 - Administration’s single Data governance selector applies to new/restarted sessions; workspace toggle remains independent; no per-file enrollment/second settings surface/additional scheduler.
-- Sync filters have explicit precedence, not order-sensitive include/exclude lists, so overlapping scope is unambiguous.
+- Sync filters use deterministic first-match precedence: managed-resource and recovery rules precede the base scope filters in normal restore/sync. Ordering is significant; all exclusions and live-file/nondeletion guarantees above remain unchanged.
 - Container API remains binary workspace sync (full/none); metadata scope is direct-configuration-only.
 
 **Priority:** P1
@@ -466,7 +466,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The sync-trigger endpoint fans out an immediate sync to every running session belonging to the authenticated user. Stopped sessions are skipped client-side using the session batch-status output before fan-out. <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @test: src/__tests__/lib/sync-fanout.test.ts (fanOutBisyncTrigger (REQ-STOR-015 backfill)) -->
+1. The sync-trigger endpoint selects the authenticated user's workload-owning sessions from authoritative D1 lifecycle state (`starting`, `running`, `unreachable`, `stopping`) and fans out an immediate sync. Stopped sessions are excluded server-side, not by client batch-status filtering. <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @test: src/__tests__/lib/sync-fanout.test.ts (fanOutBisyncTrigger (REQ-STOR-015 backfill)) -->
 2. Fan-out runs in parallel with a bounded concurrency cap; remaining sessions are queued so a user with many concurrent sessions cannot exhaust Worker subrequest budget. <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @test: src/__tests__/lib/sync-fanout.test.ts (fanOutBisyncTrigger (REQ-STOR-015 backfill)) -->
 3. Per-session failures are isolated: one session's bisync failure does not prevent other sessions from completing. The response carries per-session sync status. <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @test: src/__tests__/lib/sync-fanout.test.ts (fanOutBisyncTrigger (REQ-STOR-015 backfill)) -->
 4. The sync-trigger endpoint is rate-limited per user using the same destructive-action rate-limiter pattern applied to other expensive endpoints. <!-- @impl: src/routes/session/lifecycle.ts::sessionsSyncRateLimiter --> <!-- @manual -->
@@ -581,7 +581,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. Every R2 sync excludes the exact retired Pi durable-review extension paths, so stale persisted copies cannot return before runtime initialization. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync) -->
-2. In the applicable baked relay branch, the managed-extension relay prunes the exact retired durable-review filenames locally before Pi loads. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC7: removes retired durable-review extensions without deleting user additions) -->
+2. In the applicable baked relay branch, the managed-extension relay prunes the exact retired durable-review filenames locally before Pi loads. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC7: removes retired durable-review extensions without deleting user additions) --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) -->
 
 **Constraints:**
 
@@ -591,7 +591,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-STOR-017](#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)
 
-**Verification:** Automated: [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js), [agent-seed-bake.test.ts](../../src/__tests__/lib/agent-seed-bake.test.ts)
+**Verification:** Automated: [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js), [agent-seed-bake.test.ts](../../src/__tests__/lib/agent-seed-bake.test.ts), [entrypoint-managed-curation.test.js](../../host/__tests__/entrypoint-managed-curation.test.js)
 
 **Status:** Implemented
 
@@ -729,7 +729,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. A release mismatch performs no bucket mutation while any persisted Container SDK state owns the bucket; stale running or stopped KV projections do not decide ownership. <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @impl: src/routes/storage/seed.ts::assertNoOwningSession --> <!-- @test: src/__tests__/lib/session-helpers.test.ts (hasOwningSessionContainer) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (retries automatic reconciliation when stale running metadata points to persisted stopped state) -->
+1. A release mismatch performs no bucket mutation while any D1 session lifecycle is workload-owning (`starting`, `running`, `unreachable`, `stopping`); stale running or stopped KV projections do not decide ownership. Unavailable D1 reads fail closed rather than authorizing mutation. <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @impl: src/routes/storage/seed.ts::assertNoOwningSession --> <!-- @test: src/__tests__/lib/session-helpers.test.ts (hasOwningSessionContainer) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (retries automatic reconciliation when stale running metadata points to persisted stopped state) -->
 2. A reconcilable mismatch or pending target reports pending status while a container owns the bucket and upgrading after the last owner stops. Journal-only targets remain visible. <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-STOR-023 AC4: journal-only reconciliation remains visible with bucket ownership %s) --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-STOR-022: stale running metadata does not strand reconciliation after persisted stop) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-022 AC2: maps update_pending without invoking reconciliation) -->
 3. The backend rejects another start until mismatch or pending-target reconciliation succeeds. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (returns a typed 409 before user-bucket or container work when the active release is not applied) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-STOR-022 AC3: blocks container start while interrupted targets remain pending) -->
 4. Disabling curation restores baked reconciliation expectations. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
@@ -823,7 +823,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. A release mismatch with no owning session reads one verified cached gzip for reconciliation. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC4: successful managed reconcile loads cached content and stamps applied state last) -->
 2. Reconciliation writes byte-identical content selected for the resolved mode and deployment coding-agent set. <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (reconciles and stamps the entitlement-clamped mode for a downgraded SaaS user) -->
-3. Reconciliation uses at most six concurrent R2 operations. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC3: bounds R2 concurrency for a maximum-size managed document set) -->
+3. The main document phase uses at most six concurrent R2 operations and settles before stale-marker cleanup. That separate phase uses batches of at most 25 cleanup tasks, each awaiting HEAD before any conditional DELETE; the six-operation document bound is not a cleanup bound. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC3: bounds R2 concurrency for a maximum-size managed document set) -->
 4. Applied release, projection, and synthesized-manifest identities are stamped only after every reconciliation operation succeeds. <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) --> <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::managedExtensionsDocumentDigest --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC4: successful managed reconcile loads cached content and stamps applied state last) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC4: does not stamp applied state when context-mode reconciliation fails) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC4 + REQ-STOR-039 AC1: failed automatic byte verification does not publish applied state) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC4: trusted digest hashes the exact valid empty company manifest bytes) -->
 5. Applying a current release after deployment-cache replacement does not require a historical cached bundle. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC5 + REQ-STOR-033 AC5: reconciles from current release when disposable cache history is absent) -->
 6. Cacheless application removes exact current-release paths excluded by mode or verified inactive ownership. <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (REQ-STOR-024: filters baked planning and inactive cleanup by the canonical agent selection) --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC6: cacheless application cleans only current-release paths outside the effective mode) -->
@@ -1074,7 +1074,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
-- No more than six R2 operations run concurrently.
+- The main document phase runs at most six R2 operations concurrently and settles before stale-marker cleanup; that separate phase runs at most 25 tasks, each awaiting HEAD before conditional DELETE. Cleanup retains its candidate cap, ownership-marker checks, ETag preconditions and all deletion safeguards; document-concurrency evidence alone does not establish cleanup concurrency.
 - Same-target retries do not replay completed target objects.
 
 **Priority:** P0
@@ -1783,9 +1783,9 @@ The migration integrity, safe retry, termination and session-creation constraint
 
 **Acceptance Criteria:**
 
-1. Migration start aborts every in-flight multipart upload. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (aborts every in-flight multipart upload before the first migration chunk) -->
+1. Migration start makes one capped best-effort multipart preparation pass: it lists at most 100 uploads without continuation and attempts bounded-concurrency aborts before the first migration chunk. List/abort failures do not stop migration; this is not an exhaustive-abort guarantee. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (aborts every in-flight multipart upload before the first migration chunk) -->
 
-**Constraints:** None.
+**Constraints:** Every-upload, late-completion and read-repair safety remain required independently of this preparation pass: a later completion must not leave an object in an unsafe encryption regime. Capped listing or attempted aborts do not establish that obligation or safe finalization.
 
 **Priority:** P2
 

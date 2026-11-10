@@ -41,7 +41,7 @@ Codeflare uses eight stable tier IDs. Deployments may edit commercial values, bu
 | `max` | Max | 160h | 3 | Standard, Pro | 2 GB | yes |
 | `unlimited` | Custom | unlimited | 5 | Standard, Pro | unlimited | yes |
 
-`tiers:config` in KV stores deployment overrides. `getTierConfig()` caches the record for sixty seconds and falls back to source-defined defaults when no valid override is available. The provider returns display prices; admin configuration owns Standard and Pro Stripe price slots. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
+`tiers:config` in KV stores deployment overrides. `getTierConfig()` caches the result for sixty seconds. Absent data and caught KV read/JSON-parse failures use source-defined defaults; stored admin values take priority while missing fields merge from defaults. Stored shape is not validated here: valid JSON with an invalid shape can throw during the merge outside the read catch. The provider returns display prices; admin configuration owns Standard and Pro Stripe price slots. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
 
 ### Effective entitlement
 
@@ -60,9 +60,11 @@ When Stripe is intentionally not configured, deployment policy may permit the di
 
 ### Stripe signal-and-sync
 
-Webhooks are authenticated signals, not subscription truth. `checkout.session.completed`, update, and deletion events cause Codeflare to fetch current provider state. `syncSubscriptionState()` resolves the user, obtains a monotonic per-user synchronization-start token from Timekeeper, and permits only the newest-started in-flight synchronization to apply. It preserves unrelated user fields; `lastSyncedAt` is recorded but is not ordering authority. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+Webhooks are authenticated signals. Checkout completion and subscription updates call `syncSubscriptionState()` to fetch current provider state. It resolves the user, obtains a monotonic per-user synchronization-start token from Timekeeper, and permits only the newest-started in-flight synchronization to apply. It preserves unrelated user fields; `lastSyncedAt` is recorded but is not ordering authority. Subscription deletion instead uses the same coordinator to apply billing cleanup and canceled/free/default state directly, without fetching a subscription snapshot. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 
-Price metadata supplies mode when present; otherwise configured Standard/Pro price slots determine tier and mode. A mode or entitlement change reconciles agent configuration so removed capabilities do not persist from the previous subscription.
+Price metadata supplies mode when present; otherwise configured Standard/Pro price slots can recover mode only. Snapshot tier fields are written only when non-null; a missing snapshot tier preserves the prior tier, not inferred price-slot entitlement. Non-deletion synchronization reconciles agent configuration and flips the session-mode preference only when the subscribed mode actually changes. Tier-only or same-mode entitlement changes do not enter that branch; this describes its scope, not certification that retained capabilities are safe. Deletion separately attempts default-mode reconciliation and preference reset after its coordinated cleanup.
+
+Successful webhook handling writes an event-ID marker for 72 hours; failed handling leaves no marker so the provider can retry. KV suppression is eventual and non-atomic: concurrent requests or propagation lag can process the same event again. Latest-provider-state synchronization limits stale billing-state application, but checkout replay can rewrite `subscribedAt` and repeat notification emails. Neither the marker nor the coordinator guarantees exactly-once webhook side effects or billing-wide atomicity.
 
 ### Cancellation, past due, and provider unavailability
 
@@ -116,7 +118,7 @@ Changing a user to `advanced`, `max`, or `unlimited` may initialize the next-ses
 <a id="email-notifications"></a>
 ## Commercial Notifications
 
-Subscription and administrator notifications are best-effort Resend messages scheduled without blocking the commercial state transition. Subscriber messages identify old/new plan and mode, quota/session effects, provider/trial status, and activation time. Administrator messages use the subscriber as reply-to. Provider-secret placement belongs to [Configuration](configuration.md).
+Subscription and administrator notifications are best-effort Resend messages scheduled without blocking the commercial state transition. Subscriber messages identify old/new plan and mode, quota/session effects, provider/trial status, and activation time. Subscription-notification administrator messages use the subscriber as reply-to. Administrator-initiated tier-change mail instead uses `changedBy` as reply-to when it contains an email address; the users route supplies the acting administrator, not the subscriber. Provider-secret placement belongs to [Configuration](configuration.md).
 
 Welcome delivery is not a billing event. It is claimed through the strongly serialized provisioning path and uses deterministic provider idempotency; [Authentication](authentication.md#welcome-delivery-handoff) owns that handoff.
 
@@ -199,7 +201,7 @@ Use existing authorized checkout, signed-event, portal and invoice records, matc
 | Contract | Action and required outcome |
 |---|---|
 | REQ-SUB-004 AC4 | Follow an existing `checkout=success` trace through pending activation and five minutes. Auth polls every three seconds; report-problem appears without ending polling. Activation ends the flow. Read `SubscribePage.tsx` to verify no total polling deadline. |
-| REQ-SUB-004 AC5/7 | Match completed/updated/deleted signed-event histories to authoritative synchronization. Inspect `stripe-webhook.ts`: successful events get the 72-hour marker; failures do not. Compare duplicate receipts for no second application. Eventual KV deduplication is not atomic exactly-once delivery. |
+| REQ-SUB-004 AC5/7 | Match completed/updated signed-event histories to latest-provider-state synchronization and deleted histories to coordinated direct canceled/free/default cleanup. Inspect `stripe-webhook.ts`: successful events get the 72-hour marker; failures do not. Compare available duplicate receipts with marker visibility and resulting state; visible markers suppress processing, but concurrent/propagation replays may process again, rewrite `subscribedAt` and repeat emails. Eventual KV suppression is not atomic exactly-once side-effect delivery; missing replay observations stay unavailable. |
 | REQ-SUB-016 AC2/6 | Match hosted plan confirmation to selected price/subscription item. Portal creation is authenticated, customer-bound and limited to five per minute. Existing unauthorized/no-customer/over-limit cases return no portal URL. |
 | REQ-SUB-021 AC2/3/5 | Compare new/trial-end subscriptions and invoices: initial charge prorates to the next UTC month; later monthly anchors fall on its first day. A pre-change subscription retains its recorded anniversary. Checkout parameters alone cannot prove recurring billing. |
 
@@ -223,7 +225,7 @@ For REQ-ENTERPRISE-001 AC4, search candidate production `src/` for `ENTERPRISE_M
 | Invalid checkout input or signature | Fail closed | No provider or user mutation; API/Security |
 | Intentionally optional Stripe | Configured direct flow | Deployment policy must be explicit |
 | Stale/out-of-order webhook | Newest-start token rejects older sync | Retry provider fetch; Billing |
-| Tier-config read invalid/missing | Source defaults | Temporary configuration mismatch/cache window |
+| Tier-config data absent or read/parse fails | Source defaults | Temporary configuration mismatch/cache window; invalid stored shape can instead throw during merge |
 | Usage KV unavailable | Quota fails open | Temporary overrun/cost; later confirmed check retries |
 | Session authority unavailable | Start fails closed | Never infer authority from quota, SDK, or client cache |
 | Simultaneous starts | Best effort | Nominal per-user limit may be exceeded |

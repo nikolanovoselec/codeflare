@@ -4,7 +4,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 ## Principles
 
-1. **Isolation per session** -- Every session runs in its own container. No shared shells, no cross-session access. An agent can `rm -rf /` and the only victim is itself.
+1. **Isolation per session** -- Every session has its own container processes, shells, transport and authorization boundary. Same-owner sessions intentionally share persistent R2 files; process isolation is not persistent-file isolation or protection from an agent deleting its owner's synced files. Cross-tenant access remains forbidden.
 
 2. **Files persist, containers don't** -- Selected files persist in R2; containers and local disk are ephemeral. Lifecycle sync, the manual Sync-now trigger, and a bounded final drain reduce loss, but sync is periodic rather than transactional and abrupt failure can lose changes not yet persisted. Git remains the preferred source-code authority.
 

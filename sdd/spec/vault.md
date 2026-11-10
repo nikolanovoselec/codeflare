@@ -9,10 +9,10 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 ### Key Concepts
 
 - **Vault** -- The persistent per-user vault directory holding markdown notes, pasted assets, and derived graph output. Attachment uploads land next to the note that referenced them; the dedicated raw-pasted directory is reserved for user-owned drag-drop. The vault is bisynced to R2 so it survives across sessions and is always present in the unified global graph (tagged as the user-vault source; never pruned by the active-repo prune-on-switch logic).
-- **Capture Agent** -- The background worker that writes one markdown file per batch into the vault's raw-sessions subdirectory and merges it into the unified graph. Claude is pinned to Sonnet per AD58; Pi uses the optional provider-neutral model lever with medium reasoning and bounded one-pass input per AD103. The image-owned compactor alone may fold cold captures into `Raw/Sessions/Archive.md`.
+- **Capture Agent** -- The background worker that writes one markdown file and graph chunk per batch into the vault; the launcher owns locked merging, global publication and success-only cleanup. Claude is pinned to Sonnet per AD58; Pi uses the optional provider-neutral model lever with medium reasoning and bounded one-pass input per AD103. The image-owned compactor alone may fold cold captures into `Raw/Sessions/Archive.md`.
 - **Vault-monitor Daemon** -- A polling loop in the entrypoint that watches for user-curated edits anywhere under the vault except the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four codeflare-authoritative root pages. When changes are found, writes a trigger marker. Detects changes by comparing each file's content hash against a durable manifest (REQ-VAULT-026), not its mtime, so the R2 restore's mtime reset cannot misfire a full re-extraction.
 - **Vault-extract Agent** -- The background worker that reads only detected changed files and merges their subgraph into the unified graph. Claude is pinned to Sonnet and commits its manifest; Pi uses medium reasoning/seven turns and the root promotes staged manifest bytes only after a post-commit request chunk.
-- **Unified Global Graph** -- The merged graph that combines every per-repo graph with the vault's own graph; merges are hash-keyed and serialized under a shared multi-writer lock. The graphify MCP wrapper prefers this graph when present so structural queries return a unified view across all sources.
+- **Unified Global Graph** -- The merged graph that combines `user_vault` with the current active repository's graph when present; merges are hash-keyed and serialized under a shared multi-writer lock. The graphify MCP wrapper prefers this graph when present so structural queries return a unified view across all sources.
 - **SilverBullet** -- The markdown editor running inside the container, bound to localhost only and reachable from the codeflare UI through the Worker proxy. The auth boundary lives at the Worker.
 
 ### Out of Scope
@@ -47,7 +47,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. The vault directory tree is included in rclone sync; within its derived-graph output directory only the cumulative graph and extraction manifest are re-included, not regenerable graph-data or visualization intermediates. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
+1. The vault directory tree is included in rclone sync; within its derived-graph output directory the cumulative graph, extraction manifest and durable `vault-extract-initialized` record are re-included, not regenerable graph-data or visualization intermediates. The initialization record preserves the first-initialization boundary required by [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
 2. The ephemeral global-graph workspace directory is excluded from sync so the merged graph is regenerated on boot from per-source graph artifacts rather than carrying stale state across sessions. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2 sync) / REQ-MEM-006 (advanced-only) / REQ-VAULT-001 (vault filter order) / REQ-STOR-004 (static excludes)) -->
 3. The vault initializer creates raw-sessions, raw-pasted, notes, references, graphify-out, and SilverBullet config subdirectories on every boot. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 4. The vault initializer runs after the bisync baseline is established and before the daemon launch block so the empty skeleton never overwrites R2-restored content. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
@@ -80,8 +80,8 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 1. The capture agent writes one markdown file per batch into the vault's raw-sessions subdirectory using a dated filename and the YAML-frontmatter + Context/Decisions/Observations/References template. <!-- @manual -->
 2. Concept references use wikilink syntax; file paths, code symbols, and PR/issue references stay as prose. <!-- @manual -->
-3. The capture agent builds the vault graph inline: the agent emits chunk JSON matching the graph builder's schema, then a graph-build step materializes the per-extraction graph. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/build-memory-graph.py::build_graph --> <!-- @manual -->
-4. The agent merges the per-extraction graph into the unified global graph under the shared multi-writer lock and tags it as the vault source. <!-- @manual -->
+3. The capture worker writes the note and emits chunk JSON matching the graph builder's schema inline; graph materialization and publication belong to the launcher publisher, without another inference call. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/build-memory-graph.py::build_graph --> <!-- @manual -->
+4. After the capture worker exits, the launcher publisher merges its graph contribution into the cumulative Vault graph and publishes it to the unified global graph as `user_vault` under the shared multi-writer lock. Only successful publication advances capture state and cleans up the request carrier; failure retains delivery state for the owning request lifecycle to retry. <!-- @manual -->
 5. If extraction fails, the markdown file stays on disk; Vault hash checks exclude the session capture directory, so memory delivery recovery remains owned by its bounded request lifecycle rather than starting a Vault extraction. <!-- @manual -->
 6. The historical MCP memory subsystem has been removed entirely; the capture agent does not invoke it, and no legacy JSONL graph is read. <!-- @manual -->
 
@@ -89,8 +89,8 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- The dedup gate (the marker-file delete as the agent's first step) is unchanged from the pre-vault flow.
-- Compaction is not automated; the user prunes captured sessions manually via the editor when the directory becomes unwieldy.
+- The launcher owns the capture request carrier and dedup lifecycle; the worker does not delete the trigger as its first step or advance capture state. Publication failure retains the carrier for bounded delivery recovery.
+- The image-owned compactor automatically performs daily UTC deterministic cold-capture compaction after successful natural sync, recording the day complete only after success or no cold sources: prepare the archive, relocate and publish graph provenance under the shared lock, delete only verified unchanged manifest sources, then bisync the result. Agents must not edit the archive or delete captures; machine-only archive ownership and the sync contract remain as specified by [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory).
 - The headless extraction CLI is bypassed, with no extra inference, per [REQ-MEM-001](memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC6.
 
 **Priority:** P0
@@ -174,7 +174,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 <a id="req-vault-004-unified-global-knowledge-graph"></a>
 ### REQ-VAULT-004: Unified global graph merges vault and active repos
 
-**Intent:** A single `mcp__graphify__*` call returns nodes from the vault and from every per-repo graphify-out the session has touched, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.
+**Intent:** A single `mcp__graphify__*` call returns nodes from `user_vault` plus the current active repository when it has a graph, not every historically touched repository, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.
 
 **Applies To:** Agent
 
@@ -240,21 +240,21 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 ### REQ-VAULT-006: Shutdown bisync completes vault writes before SIGKILL
 
-**Intent:** A user who stops a session and closes their browser within seconds finds their latest vault edits intact on the next session, instead of losing them to a mid-bisync SIGKILL.
+**Intent:** Stopping a session drains final Vault writes before signalling stop to reduce loss from a mid-bisync SIGKILL. Failed or timed-out sync can still leave the latest edits unpersisted; this is not a no-data-loss guarantee.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The entrypoint shutdown handler wraps the final bisync in a background subshell with a watchdog that hard-kills on timeout, so the orchestrator's destroy budget always lands after bisync finishes or gives up cleanly. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
+1. The Container DO attempts the authoritative final-sync drain before SIGTERM, with up to 120 seconds inside the shared 135-second teardown deadline. Its audited failed or timed-out outcomes remain visible and do not prevent stop. The entrypoint's watchdog-bounded final bisync is a best-effort trap backstop, not a separately guaranteed drain window. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 2. The shutdown handler also terminates the vault-monitor daemon and the editor supervisor so neither lingers past container shutdown. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 3. The shutdown elapsed time is logged so operators can tune the watchdog over time if user edit volumes grow large enough to need more headroom. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @manual -->
-4. The Container DO's destroy budget is sized to cover the bisync watchdog plus enough additional time for clean process exit. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+4. The Container DO shares one 135-second teardown deadline across the pre-SIGTERM drain, audit and stop; the drain receives at most 120 seconds and at most the remaining teardown time, leaving only the remaining deadline for process exit. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 5. The container's stop handler logs the total shutdown elapsed time so operators have telemetry on whether the budget is right. <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/index.ts::onStop --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Constraints:**
 
-- The bisync-watchdog timeout and the orchestrator's destroy budget must stay coordinated so the destroy budget exceeds the watchdog plus the minimum time required for graceful process termination.
+- Drain and stop remain coordinated within the shared 135-second deadline; the post-SIGTERM trap is not promised an additional 120 seconds. Failed, timed-out or abruptly interrupted sync can lose writes not yet persisted.
 
 **Priority:** P0
 
@@ -429,7 +429,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- The dashboard is codeflare-authoritative preseed content.
+- Codeflare owns the initial dashboard seed, created only when `Index.md` is absent; an existing differing dashboard is preserved rather than overwritten, including user edits and editor normalization. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (seeds Index.md create-if-missing but NEVER force-overwrites an existing differing Index.md (prevents the 2nd-start sync conflict)) -->
 
 **Priority:** P0
 
@@ -454,7 +454,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- The dashboard is codeflare-authoritative preseed content.
+- Codeflare owns the initial dashboard seed, created only when `Index.md` is absent; an existing differing dashboard is preserved rather than overwritten, including user edits and editor normalization.
 
 **Priority:** P0
 
@@ -689,7 +689,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Constraints:**
 
-- Raw session captures and other folders remain visible during prewarm; priority indexing is out of scope.
+- Machine-owned `Raw/Sessions/` captures remain hidden from SilverBullet listing and client sync/index during prewarm as at all other times, per [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters); protected client-mutation boundaries remain unchanged. Priority indexing is out of scope.
 - The generic shell bridge stays inert unless the prewarm query and identifier are valid.
 - Sync-complete evidence must come from the current canonical controller, not another worker or the client's unscoped completion flag.
 - Controller replacement resets sync evidence and the readiness streak.

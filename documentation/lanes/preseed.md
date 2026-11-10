@@ -528,9 +528,9 @@ A managed release may replace agent code without rebuilding the container. That 
 5. Publication signs the exact deterministic compressed bundle and publishes it with its raw 64-byte Ed25519 signature. <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle -->
 6. The Codeflare Worker build contains `PRESEED_RUNTIME_DEPENDENCY_HASH`, generated from the same three lockfiles used to build its image. <!-- @impl: scripts/agent-seed-core.mjs::toGeneratedModuleSource -->
 7. On its periodic release check, the Worker verifies immutable metadata, asset digests, signature, schema, sequence, and runtime hash before activation. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream -->
-8. Explicit fresh-required Setup validation scans at most ten 100-record history pages and activates the first release whose verified runtime hash equals the deployment's build hash. Background refresh checks only the latest release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+8. Both foreground Setup validation and background refresh search compatible history on a runtime-hash mismatch, scanning at most ten 100-record pages (1,000 records) and activating the first verified compatible release. `requireFresh` controls cache freshness and error propagation, not history eligibility. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
-During explicit fresh-required validation, only a runtime-hash mismatch continues discovery. Any other managed-release validation failure stops it; unrelated published releases are ignored. See [REQ-AGENT-154](../../sdd/spec/agents.md#req-agent-154-build-compatible-managed-release-discovery). <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+In both foreground and background resolution, only a runtime-hash mismatch continues discovery. Any other managed-release validation failure stops it; unrelated published releases are ignored. See [REQ-AGENT-154](../../sdd/spec/agents.md#req-agent-154-build-compatible-managed-release-discovery). <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
 The seed never asks running instances to provide a hash. Curation embeds the hash from its pinned Codeflare commit, and the Worker compares it with its generated build constant. Unchanged lockfiles keep the same npm hash, but a release needs no image redeploy only when its other runtime prerequisites are already installed.
 
@@ -549,7 +549,7 @@ All preseed content is deployed via the manifest pipeline:
    writes the generated runtime module.
 4. On first bucket creation, `reconcileAgentConfigs()` writes files for the resolved mode and deployment-selected coding agents to R2.
 5. **Recreate skills & rules** runs a full selected-target reconcile and removes exact generated paths owned by inactive agents.
-6. On first dashboard load after a release, the frontend compares the baked seed hash and projection identity with the user's stored values.
+6. The Worker's ancillary status route constructs upgrade identity and compares stored state; the frontend consumes that projection. Active managed releases compare digest, sequence, resolved mode, agent projection and resource policy (including required applied digests/pending targets). Only inactive curation compares baked content hash/projection. An owning session blocks upgrade; discovery errors fail closed without an upgrade offer.
 7. Bisync pulls from R2 to container config directories
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
@@ -776,7 +776,7 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/skills/pr-workflow/SKILL.md` | default, advanced | `~/.pi/agent/skills/pr-workflow/SKILL.md` | PR creation and material rewrite procedure |
 | `preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md` (reaches Pi through the seed transform) | default, advanced | `~/.pi/agent/skills/pr-workflow/references/pull-request-authoring.md` | Canonical branch-independent PR body shape and history-linking contract |
 | `preseed/agents/pi/skills/git-review-pipeline/SKILL.md` | advanced | `~/.pi/agent/skills/git-review-pipeline/SKILL.md` | Session-scoped review procedure |
-| `preseed/agents/pi/rules/engineering-constitution.md` | default, advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact universal engineering, security, user-authority, dependency, and continuity policy |
+| `preseed/agents/claude/rules/engineering-constitution.md` (canonical source assembled by compiler) | default, advanced | `~/.pi/agent/AGENTS.md` | Compact universal engineering, security, user-authority, dependency, and continuity policy |
 | `preseed/agents/pi/extensions/capability.ts` + `capability-helpers.ts` + `zz-tool-exposure-finalizer.ts` | default, advanced | `~/.pi/agent/extensions/` | Registered-tool search, additive activation, and post-registration bootstrap filtering through Pi's public API |
 | `preseed/agents/pi/skills/review-scope/SKILL.md` | advanced | `~/.pi/agent/skills/review-scope/SKILL.md` | Shared `diff`/`all` scope resolver |
 | `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs` (reaches Pi through the seed transform) | advanced | `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs` | Ancestry-validated lane file/hunk packet builder |
@@ -784,7 +784,7 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/extensions/review-tool-guard.ts` | advanced | `~/.pi/agent/extensions/review-tool-guard.ts` | Reviewer-only direct-execution intent stripping |
 | `preseed/agents/pi/skills/{spec-enforce*,doc-enforce*}/SKILL.md` | advanced | `~/.pi/agent/skills/` | Native scoped SDD enforcement |
 | `preseed/agents/pi/extensions/active-repo-memory.ts` | default, advanced | `~/.pi/agent/extensions/active-repo-memory.ts` | Shared foreground repository memory without loading advanced commands |
-| `preseed/agents/pi/extensions/review-enforcement.ts` | default, advanced | `~/.pi/agent/extensions/review-enforcement.ts` | Ordered boundary launch plan, settled missing-wave follow-up, acknowledgement |
+| `preseed/agents/pi/extensions/review-enforcement.ts` | default, advanced | `~/.pi/agent/extensions/review-enforcement.ts` | Ordered boundary launch plan, settled current-round evidence and triage, exact-identity completion |
 | `preseed/agents/pi/extensions/review-helpers.ts` | default, advanced | `~/.pi/agent/extensions/review-helpers.ts` | Command grammar, lane classification, transcript correlation |
 | `preseed/agents/pi/extensions/review-scope.ts` | default, advanced | `~/.pi/agent/extensions/review-scope.ts` | Executable shared scope/work-set contract for commands and boundaries |
 
@@ -859,11 +859,10 @@ Copilot, OpenCode, and Antigravity. Pi instead receives a compact `AGENTS.md`:
 the Cloudflare Workers path-scoped rule becomes one grouped native skill, while rules
 already owned by canonical skills are not duplicated.
 
-The Pi-native constitution carries the same compact substantive policy as Claude in both
-modes. Git workflow owns boundary event mechanics, launch order, triage, and FIX
+The compiler assembles the canonical Claude constitution into Pi `AGENTS.md` in both
+modes; native Pi overrides remain authoritative where a matching native rule exists. Git workflow owns boundary event mechanics, launch order, triage, and FIX
 sequencing instead of duplicating them in the constitution.
-Implements [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
-AC7, [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents),
+Shared operational gate delivery is [REQ-AGENT-006 AC6](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth). Constitution ownership is [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents),
 [REQ-AGENT-198](../../sdd/spec/agents.md#req-agent-198-engineering-constitution-security-policy),
 [REQ-AGENT-199](../../sdd/spec/agents.md#req-agent-199-engineering-constitution-dependency-policy), and
 [REQ-AGENT-200](../../sdd/spec/agents.md#req-agent-200-engineering-constitution-work-continuity).
@@ -1056,7 +1055,7 @@ alone cannot establish the native behavior.
 
 (Implements [REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start) AC3, [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
 
-`entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json`
+`entrypoint.sh` merges `enabledPlugins` into `~/.claude.json`
 to enable both the `codeflare-memory` and `codeflare-hooks` plugins.
 This is permanent (not mode-gated) because missing plugins are
 silently skipped by Claude Code -- when the plugin files are absent
@@ -1088,14 +1087,14 @@ fixes. Doc-updater remains report-only; the root may retain a substantive covera
 [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill),
 and [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
 
-The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`. The nudge records the unacknowledged head it emitted so later commands cannot repeat the launch reminder; the Stop hook remains the enforcement fallback and injects FIX only after the root ends its mutation-free triage turn. Generated-only `graphify-out/` diffs require no review lanes and are auto-acked with a durable audit event; generated artifacts never suppress review for mixed diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn `spec-reviewer` and `doc-updater` in parallel; source pushes spawn all three.
+The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`. The nudge records the unacknowledged head it emitted so later commands cannot repeat the launch reminder; the Stop hook remains the enforcement fallback and injects FIX only after the root ends its mutation-free triage turn. Generated-only `graphify-out/` diffs require no review lanes and are auto-acked with a durable audit event; generated artifacts never suppress review for mixed diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn `spec-reviewer` and `doc-updater` in parallel; behavioral source pushes require `code-reviewer`, adding `spec-reviewer` and/or `doc-updater` only for affected spec/doc surfaces or their anchors citing changed source files (a changed spec surface also earns documentation review). Claude and Pi share this lane-classification contract; exact-head boundary rules remain unchanged.
 
 A source delta the shared `inert-source-delta.mjs` prover proves is comments and whitespace only spawns `code-reviewer` alone, plus any `sdd/` or `documentation/` lane the same diff independently earns. When source cannot be proved inert, the code lane remains required; prover uncertainty does not invent spec or documentation ownership. Non-SDD projects fire no review agents.
 
 Each tool-gated hook is registered on two matcher entries covering three
 tool names: the `Bash` matcher (with `Bash(git *)` and `Bash(gh *)`
 predicates) and the pipe-alternated MCP matcher
-`mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`.
+`mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch`.
 This keeps attribution blocking and push detection effective whether
 context-mode is active or not. Implements
 [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3 and
@@ -1138,7 +1137,7 @@ See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-
 <a id="graphify-req-agent-023"></a>
 ## Graphify Toolchain ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
 
-Graphify shortest paths and callflow respect stored edge direction; ignored-file pruning and merge shrink protection fail closed, and Java external annotations do not collapse into local classes. BFS/DFS neighborhoods explore connections in both directions while retaining displayed edge direction. Directed shortest-path and callflow evidence remain separate: neighborhood connectivity never proves a directed path, and an absent reverse path does not authorize reversing edges.
+Graphify shortest paths preserve calls/references direction, but structural `contains` edges may be traversed backward, printed honestly as `<--contains--`; callflow remains directional; ignored-file pruning and merge shrink protection fail closed, and Java external annotations do not collapse into local classes. BFS/DFS neighborhoods explore connections in both directions while retaining displayed edge direction. Directed shortest-path and callflow evidence remain separate: neighborhood connectivity never proves a directed path, and an absent reverse call/reference path does not authorize reversing those relations. Backward containment is structural traversal, not a reverse call.
 
 [REQ-AGENT-215](../../sdd/spec/agents.md#req-agent-215-managed-graphify-skill-ownership) owns managed skill preservation: the image defaults upstream auto-refresh off, and bounded Claude/Pi update wrappers enforce that opt-out even when the caller enables refresh. Image-default acceptance is separate from wrapper behavioral proof.
 
@@ -1162,7 +1161,7 @@ Freshness plus on-disk existence are resolved at clone-event time via `exists`/`
 
 Full semantic build/refresh records clone-time intent only: after corpus detection, the graphify skill must show actual uncached file/subagent counts and get confirmation before dispatching semantic subagents. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
 
-Clone detection is scoped to shell-only command text: Bash `.command` fields, `ctx_execute` blocks with `language: "shell"`, and `ctx_batch_execute` `.commands[].command` entries. Non-shell `ctx_execute` bodies are excluded so a source literal containing `git clone` cannot trigger the prompt.
+Clone detection is scoped to shell-only command text: Bash `.command` fields, `ctx_execute` blocks with `language: "shell"`, and `ctx_batch` string command arrays. The shell parsers also accept legacy `ctx_batch_execute` and object entries with `.command` (and string entries) for compatibility; current startup hook matchers register `ctx_batch`, not the legacy name. Non-shell `ctx_execute` bodies are excluded so a source literal containing `git clone` cannot trigger the prompt.
 
 The detection regex also tolerates a leading env-var prefix (`BROWSER="" gh repo clone`, `GIT_TERMINAL_PROMPT=0 git clone`, `env BROWSER="" gh repo clone`).
 
@@ -1338,9 +1337,9 @@ Failure modes are CRITICAL: `phase-7b-self-attestation`, `phase-7b-incomplete-co
 
 Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` excludes specific framework-boilerplate files from the coverage check. Use one repo-relative path per line; `#` comments are allowed and entries require a one-line justification.
 
-Phase 7b is advisory for greenfield. `enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet, but the commit body line is still required so the audit-trail format stays uniform. Implements [REQ-AGENT-035](../../sdd/spec/agents.md#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) AC2.
+Phase 7b is advisory for greenfield. `enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet, but the commit body line is still required so the audit-trail format stays uniform. Implements [REQ-AGENT-039](../../sdd/spec/agents.md#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate) AC7.
 
-**Tool surface compatibility.** Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`). Discovery commands that produce more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through `ctx_execute`/ `ctx_batch_execute` in context-mode environments and through Bash in plain environments.
+**Tool surface compatibility.** Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch`, `mcp__context-mode__ctx_search`). Discovery commands that produce more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through `ctx_execute`/ `ctx_batch` in context-mode environments and through Bash in plain environments.
 
 While `sdd/.init-triage.md` contains any open items, `sdd/config.yml` carries `transition: true`. The transition gate condition is the conjunction `transition: true` in config AND `**Status:** open` items in the triage file (case-insensitive on `open`); all enforcement layers test both. During transition the entire review pipeline is suspended:
 
@@ -1421,71 +1420,29 @@ Extend the existing SDD bootstrap acceptance cases, using its disposable-reposit
 
 ### Common Issues
 
-- **Attribution blocking not working**:
-  - Check `~/.claude/settings.json` has `PreToolUse` hook entries pointing to `block-attributed-commits.sh`.
-  - Confirm two matcher entries cover three tool names: a `Bash` matcher and a pipe-alternated MCP matcher.
-  - The `Bash` matcher uses `"if": "Bash(git *)"` and `"if": "Bash(gh *)"` predicates.
-  - The MCP matcher is `"matcher": "mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute"`.
-  - Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
-  - If attribution appears via `gh pr create` in a context-mode session, re-run the entrypoint or check the `SETTINGS_CONFIG` merge in `entrypoint.sh`.
-
-- **Review-spawn enforcement not firing on push**: see [Review completion prompt or FIX is missing](#review-completion-prompt-or-fix-is-missing) below. Do not recreate retired checkpoint files.
-
-- **Default mode has Advanced-only managed hooks**:
-
-Inspect the active `SESSION_MODE`, manifest membership, and image-owned settings assembly. Default mode may retain core or user-owned hooks; their presence alone is not a gating failure. Restore only the current Codeflare-owned entries through managed startup. Do not delete the whole `.hooks` object or unrelated custom settings.
-
-- **`/dev/fd/63: No such file or directory` from a custom hook**:
-  - A bash hook using process substitution (`done < <(...)`) is running where `/proc/self/fd` is unavailable.
-  - The kernel cannot resolve the `/dev/fd/<N>` symlink the shell created.
-  - Most codeflare hooks default to here-strings (`done <<< "$STR"`) because they stage through a real temp file and work in every runner.
-  - The documented exception is `enforce-review-spawn.sh`'s `compute_required_lanes`, which uses `done < <(git diff -z ...)`.
-  - That exception preserves the NUL delimiter needed by the `-z`/`read -d ''` pair, because bash strips NUL bytes from command substitution captures.
-  - If a custom hook hits this error in another runner, switch the read loop to a here-string and accept the NUL-stripping tradeoff if you also need `-z`.
-
-- **Stop hook spawns all three review agents even on a doc-only push (partially-deployed install)**:
-  - `enforce-review-spawn.sh` and `git-push-review-reminder.sh` both source `scripts/lib/lane-classifier.sh`.
-  - The path is relative to the hooks plugin root.
-  - In source it lives at `preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh`.
-  - The helper determines which lanes a diff requires.
-  - If the helper is missing or fails to source, both hooks fail-closed to the legacy all-three-lanes posture: `code-reviewer spec-reviewer doc-updater`.
-  - This keeps a partially-synced plugin set from disabling review.
-  - To diagnose, check `ls ~/.claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh`.
-  - If absent, re-run `entrypoint.sh` or trigger a full R2 sync to restore the complete plugin payload.
+Symptom-led hook diagnosis, corrections and verification belong to [Troubleshooting](troubleshooting.md#preseed-common-issues). Manifest, mode, compiler and delivery ownership remain in this lane.
 
 <a id="resetting-review-spawn-checkpoints"></a>
 ### Review completion prompt or FIX is missing
 
-Both runtimes require an advanced SDD checkout whose local branch and full `HEAD` exactly match an open PR to `main`, `master`, or `develop`. Check that identity first. GitHub failure, detached state, an unrelated push ref, or a non-protected base fails closed without a prompt.
-
-Completion lives under `~/.codeflare/review-state/v1`, not under `.git`. Do not create or repair legacy acknowledgement, plan, CI, count, bypass, or cache files. A valid exact marker suppresses the dialog. Invalid and expired markers act as absent; the first root startup per container prunes them, keeps ten per repository and branch, and asks again.
-
-Pi registers SessionStart plus supported shell-result exposures. Claude registers `git-push-review-reminder.sh` for SessionStart, PreToolUse, PostToolUse, and PostToolUseFailure. If Claude never asks, verify all four hook entries in `~/.claude/settings.json`, the helper and classifier under the plugin's `scripts/lib/`, and the resolved `${CODEFLARE_REVIEW_SESSION_DIR:-/run/codeflare/review-session}` directory is writable. PreToolUse only snapshots merge state and PostToolUseFailure removes a failed command's snapshot; the retired review-specific mutation gate remains absent while attribution and local-build guards stay on PreToolUse.
-
-A selected Claude round runs headless lanes through `run-review-lane.sh`. Its caller-supplied `--range` or `--base` is authoritative; runner never reads completion state. Stop handling inspects only transcript bytes after the current SessionStart offset. A failed or stopped lane advances that offset and emits nothing. The next supported exposure should ask again.
-
-The CI monitor does not return on the first failed row. Pi waits for every observed exact-head check, and Claude waits for every observed exact-head workflow, then requires the complete terminal fingerprint to remain stable across two polls. Failure evidence lists every failed or cancelled row together so triage sees the whole run ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy), [REQ-AGENT-125](../../sdd/spec/agents.md#req-agent-125-pi-ci-result-and-launch-checkpoint)).
-
-If terminal evidence exists but FIX does not appear, confirm canonical triage followed every required reviewer and exact-head CI result. CI failure or timeout needs a row with FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`; Pi issues one correction follow-up when a table is present but that row is malformed. Head drift and marker-write failure intentionally suppress FIX.
-
-Marker writes acknowledge locally before R2 convergence and do not trigger an extra sync. Regular cadence or final sync carries them to R2. Another clone or device may ask again until bisync converges; that duplicate prompt is safer than claiming review completion that never reached storage ([REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync)).
+See [Troubleshooting: review completion prompt or FIX is missing](troubleshooting.md#review-completion-prompt-or-fix-is-missing). Interrupted/reloaded rounds are not recovered by delayed notifications: use a fresh supported exposure of the current exact identity. Completion requires current-round terminal reviewer/CI evidence and canonical mutation-free triage. Do not recreate legacy checkpoint files.
 
 ## Image-Baked Delivery Alias
 
-In addition to seeding the agent config into R2 at session start, the container image **bakes** the same seed as an on-disk file tree so a [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) container can avoid re-downloading it every boot (REQ-STOR-017, [AD90](../decisions/README.md#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync)).
+In addition to seeding the agent config into R2 at session start, the container image **bakes** the same seed as an on-disk file tree so a [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) container can avoid re-downloading it every boot ([REQ-STOR-256 AC1–2](../../sdd/spec/storage.md#req-stor-256-image-seed-relay-cache-reuse-and-prewarm-priority), [AD90](../decisions/README.md#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync)).
 
 - **Build (in-image).** The Dockerfile runs `scripts/materialize-agent-seed.mjs` against the committed, freshness-enforced `src/lib/agent-seed.generated.ts`.
   - It writes `getConfigsForMode('default'/'advanced', false)` to `/opt/codeflare/agent-seed-bake/<mode>/<key>`.
-  - Because `getConfigsForMode` is a pure filter, the baked tree is **byte-identical** to what is seeded to R2.
+  - For the same generated payload, mode and selected-agent projection, the baked tree is **byte-identical** to its baked R2 projection. Independently published signed managed content is not required to equal that fallback.
   - That byte identity is the precondition for the checksum skip and is guarded by the `agent-seed-bake` byte-identity test.
   - The tier-gated context-mode subtree is excluded because it delta-syncs from R2.
   - Generating in-image needs no host build ordering and cannot drift from the seed.
-- **Runtime (Governed Mode only).** Before the initial R2 sync, `entrypoint.sh::lay_down_agent_seed_preseed` copies the mode's baked tree into the user home.
-  - The copy mirrors the R2 key layout, so one copy lands every agent home.
+- **Runtime (inactive managed curation, Governed Mode only).** Before the initial R2 sync, `entrypoint.sh::lay_down_agent_seed_preseed` copies the mode's baked tree into the user home.
+  - The copy mirrors the R2 key layout but lays down only deployment-selected agent roots. Active managed curation skips the bake; post-restore relay restores only declared image-owned companions, preserving release-owned bytes.
   - It also `chmod +x`'s the hooks.
   - The initial sync then compares by `--checksum`, using MD5 ETags available only when SSE-C is off.
   - Unchanged seed files are skipped and only user deltas transfer.
-- **Gated.** Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`.
+- **Gated.** Lay-down requires inactive managed curation and `R2_SSE_DISABLED=true`; the separate initial-sync `--checksum` gate requires `R2_SSE_DISABLED=true`. Selected-agent roots further bound lay-down.
   - Under SSE-C, no bake is laid down and initial restore uses rclone's size plus modification-time comparison because opaque ETags cannot support `--checksum`.
   - The prior `--size-only` comparison was removed because it retained stale local bytes for same-size release changes.
   - Avoiding the bake under SSE-C also prevents it from overwriting an in-container edit. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed -->
@@ -1511,7 +1468,7 @@ Use separately authorized disposable owners/objects and the existing Settings/se
 | [REQ-AGENT-008 AC1](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) | For a separately authorized disposable first-bucket creation, prearrange a harmless existing sentinel object and inspect before/after object inventories: only missing current-mode managed entries may be added; existing bytes and unrelated objects must survive. No bucket creation is authorized by this draft. | First seeding adds only missing current-mode managed objects; preexisting objects retain exact bytes and no object disappears. An empty baseline alone cannot establish the nonoverwrite branch. |
 | [REQ-AGENT-008 AC2](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) | Inspect existing initial-sync/startup logs and nonsecret managed-file presence for an authorized disposable session. For timeout, require an existing failure receipt; do not force outages or change credentials. | Successful restore precedes agent launch. An observed timeout ends the bounded wait without bypassing required managed startup checks. Missing branch evidence remains unverified, not a passing result. |
 | [REQ-AGENT-009](../../sdd/spec/agents.md#req-agent-009-llm-api-key-storage-encrypted-in-kv) | Use two separately authorized disposable owner accounts with distinct test credentials; inspect each owner's normal masked credential listing and rejected cross-owner access through the supported boundary. Review durable owner-key mapping and encrypted representation without printing key values. One account's success is not isolation proof. | Each owner sees only its own durable masked credentials, cross-owner access is denied and stored representation is encrypted; no report exposes key material. |
-| [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token) | In an authorized disposable account with test deploy credentials, use the single clear-all control once, reopen Settings and inspect the normal masked listing to confirm both credential slots are absent; do not clear real credentials. | One clear-all action removes both stored deploy credential slots; reopening Settings shows neither credential remains. |
+| [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token) | In an authorized disposable account with test deploy credentials, make one authorized `DELETE /api/deploy-keys` request, then read the normal masked `GET /api/deploy-keys` response to confirm both credential slots are absent (`null`); do not clear real credentials. | One authorized DELETE removes both stored deploy credential slots; the subsequent masked GET shows neither remains. The current Settings OAuth cards have per-provider Disconnect, not a single clear-all control. |
 | [REQ-AGENT-011](../../sdd/spec/agents.md#req-agent-011-agent-skills--rules-manually-recreatable-from-settings) | For an authorized disposable owner, record managed paths, unrelated user bytes and storage statistics. Invoke Recreate in each mode; check desired-path replacement, inactive-managed-path removal, preserved user bytes and fresh statistics. Probe a fourth request within one minute only with separate approval; never erase production settings. | Recreate rewrites desired managed paths and removes inactive managed paths while unrelated user bytes survive. The fourth request inside one minute is limited, and subsequent statistics reflect invalidated/recomputed cache rather than stale values. |
 | [REQ-AGENT-012](../../sdd/spec/agents.md#req-agent-012-fast-cli-start-configurable) | Open Settings session defaults in an authorized account, toggle Fast Start, reload the view and inspect the saved value; restore the baseline only with authorization. Confirm this is the session preference, not a model-tier control. | The Settings session-defaults Fast Start toggle reflects the selected persisted preference after reload. |
 | [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | After a separately authorized disposable credential save and fresh-container start, exercise an approved read-only GitHub/Cloudflare operation through configured managed access and inspect only boolean presence/scope and redacted results. Do not print environment values or replace credentials when placeholders are present. | Approved managed read-only operations authenticate using propagated deploy credentials without extra manual configuration or secret disclosure. |

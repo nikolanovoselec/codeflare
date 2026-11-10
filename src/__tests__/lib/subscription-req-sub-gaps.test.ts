@@ -298,14 +298,21 @@ describe('REQ-SUB-010: Tier Config 60-second cache', () => {
     expect(mockKV.get.mock.calls.length).toBeGreaterThan(getCallsAfterFirst);
   });
 
-  it('REQ-SUB-010 AC4: resetTierConfigCache forces next call to read from KV', async () => {
-    await getTierConfig(mockKV as unknown as KVNamespace);
-    const callsAfterFirst = mockKV.get.mock.calls.length;
+  it('REQ-SUB-010 AC4: next lookup returns updated tier values after local cache reset', async () => {
+    const stored = getDefaultTiers();
+    mockKV._set('tiers:config', stored);
+    const initial = await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(initial.find((tier) => tier.id === 'standard')!.monthlySeconds).toBe(144000);
+
+    mockKV._set('tiers:config', stored.map((tier) => tier.id === 'standard'
+      ? { ...tier, monthlySeconds: 99999, maxSessions: 3 } : tier));
+    const cached = await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(cached.find((tier) => tier.id === 'standard')).toMatchObject({ monthlySeconds: 144000, maxSessions: 1 });
 
     resetTierConfigCache();
-    await getTierConfig(mockKV as unknown as KVNamespace);
-
-    expect(mockKV.get.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    const refreshed = await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(refreshed.find((tier) => tier.id === 'standard')).toMatchObject({ monthlySeconds: 99999, maxSessions: 3 });
+    expect(refreshed.find((tier) => tier.id === 'free')).toEqual(initial.find((tier) => tier.id === 'free'));
   });
 });
 

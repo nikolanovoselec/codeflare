@@ -60,7 +60,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Visiting the root URL in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
+1. In SaaS mode, the anonymous root serves the marketing landing owned by [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving); the SPA app/login entry presents the provider chooser with a "Continue with GitHub" control. Signed-in active users retain the `/app/` redirect and pending/blocked users the `/app/subscribe` redirect. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / in SaaS mode (unauthenticated)) --> <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage --> <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (should render provider buttons after loading) --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 2. The login endpoint initiates a GitHub OAuth flow with a signed, self-contained state token (no cookie required during the redirect). <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @impl: src/lib/oauth-state.ts::claimOauthNonce --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 4. Valid callbacks create a session and redirect active users to workspaces or pending/blocked users to subscriptions; the exchanged GitHub access token exists only during callback and is never persisted. <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
@@ -68,7 +68,7 @@ None. Authentication is foundational; other domains depend on it.
 6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes. <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 7. Only verified primary GitHub emails are accepted. <!-- @test: src/__tests__/routes/github-auth.test.ts (redirects to /?error=no-verified-email when no verified email) --> <!-- @manual -->
 
-**Notes:** State replay tracking uses a non-atomic read/write pair; concurrent callbacks with different valid provider codes can pass the same state check. Complete application-owned auth/authz consolidation into D1 is deferred to [issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386), not a cleanup-authorized nonce-only migration; [Identity & Access](../../documentation/lanes/authentication.md) owns the current boundary.
+**Notes:** Root-serving evidence belongs to `index.test.ts` and the landing owner; `LoginPage` owns the provider control, while the OAuth-route suite supports the handshake rather than rendered page copy. State replay tracking uses a non-atomic read/write pair; concurrent callbacks with different valid provider codes can pass the same state check. Complete application-owned auth/authz consolidation into D1 is deferred to [issue #1386](https://github.com/nikolanovoselec/codeflare/issues/1386), not a cleanup-authorized nonce-only migration; [Identity & Access](../../documentation/lanes/authentication.md) owns the current boundary.
 
 **Constraints:**
 
@@ -80,7 +80,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated: [github-auth.test.ts](../../src/__tests__/routes/github-auth.test.ts); Manual: [Verified primary email acceptance](../../documentation/lanes/authentication.md#verified-primary-email-acceptance)
+**Verification:** Automated: [github-auth.test.ts](../../src/__tests__/routes/github-auth.test.ts), [index.test.ts](../../src/__tests__/index.test.ts), [LoginPage.test.tsx](../../web-ui/src/__tests__/components/LoginPage.test.tsx); Manual: [Verified primary email acceptance](../../documentation/lanes/authentication.md#verified-primary-email-acceptance)
 
 **Status:** Implemented
 
@@ -295,14 +295,14 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Once auth configuration has been successfully fetched from persistent storage at least once, the isolate records that fact for its lifetime. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 AC2: header trust disabled permanently once auth config fetched from KV) -->
+1. Once a successful persistent-storage fetch contains a nonempty auth domain and at least one configured audience, the isolate latches that configured state for its lifetime. A successful empty fetch leaves pre-setup header fallback available until populated configuration has been fetched. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 AC2: header trust disabled permanently once auth config fetched from KV) -->
 2. Once that flag is set, the pre-setup header-trust fallback is permanently disabled for the isolate. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 AC2: header trust disabled permanently once auth config fetched from KV) -->
 3. Subsequent transient storage failures do not revert the flag. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest() / REQ-AUTH-010 AC1/AC2/AC3/AC4 (authConfigFetched sentinel disables pre-setup header trust after first KV success) / REQ-AUTH-011 AC1/AC2 (resolution order: service token, cookie, JWT, pre-setup header)) -->
 4. The cached state can be explicitly invalidated for test purposes. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010: Auth bypass prevention sentinel) -->
 
 **Constraints:**
 
-- This is a per-isolate flag; new isolates must complete the initial auth-config fetch before the pre-setup fallback is disabled.
+- This is a per-isolate flag; new isolates must successfully fetch a nonempty auth domain and at least one configured audience before the pre-setup fallback is disabled.
 - Concurrent cold-start auth-config fetches are deduplicated; no redundant storage reads are issued.
 
 **Priority:** P0
@@ -713,7 +713,7 @@ None.
 
 - Codeflare trusts a valid Access JWT as proof that the customer's Access policy authorized the user; it does not re-implement IdP authentication.
 - `ENTERPRISE_ACCESS_GROUP` is configured during the setup wizard and stored in KV, alongside the existing setup Access config, so an admin changes it by re-running setup.
-- The account key is the IdP-verified `email`; the JWT `sub` is stored for reference; An email change at the IdP yields a new account (consistent with the existing SaaS JIT behavior).
+- The legacy Access verifier returns the IdP-verified `email`, which is the persisted JIT account key; it does not return or persist JWT `sub`. An email change at the IdP yields a new account (consistent with the existing SaaS JIT behavior).
 - The group check runs once at provisioning; the resulting record is the cache, so steady-state requests incur no `get-identity` call.
 - This REQ uses only the deployment's existing Cloudflare Access auth mode; it adds no new identity-provider integration (consistent with this domain's Out of Scope).
 

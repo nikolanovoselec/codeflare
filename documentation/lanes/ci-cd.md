@@ -177,7 +177,7 @@ The automatic path already carries its exact green gate. Same-repository success
    - Push retries thirty times at thirty-second intervals. COPY coverage guards reuse; ignore/scan policy is hashed. Registry credentials are masked/step-scoped away from build/scan actions.
 4. **deploy:** downloads assets, resolves/creates KV, prepares one environment-local usage D1 binding and additive migrations, patches Worker/container configuration, and applies reviewed authorization/config before Worker promotion (REQ-OPS-056/060).
    - `RESSOURCE_TIER` selects deployment CPU(vCPU)/memory(GiB)/disk(GB): low 0.25/1/4, default or saas 1/3/6, high 2/6/12; default max instances ten, positive `MAX_INSTANCES` override. This is deployment allocation, not capacity certification.
-   - Binds the selected registry image/digest; Wrangler deploy retries thirty times/thirty seconds without wasting the completed build.
+   - Binds a fresh image by its content-addressed tag, or a retained reused image by its required provenance-verified digest. Downstream digest readback/attestation is separate from that binding choice; neither branch permits an unverified image identity. Wrangler deploy retries thirty times/thirty seconds without wasting the completed build.
    - One secret-bulk call follows Worker creation; optional mode-gated secrets remain Configuration/private-owned. Configured service auth gets bounded fail-closed user seeding; absent service auth skips it. Optional VAPID is all-or-none and validated before promotion.
    - Best-effort registry pruning retains ten newest tags, deployed tag, aliases of its digest and unresolved-creation-time tags. Uncertain creation time never authorizes deletion.
    - Always publishes environment/Worker/image/reuse summary.
@@ -200,9 +200,9 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **frontend-tests:** three duration-weighted test groups through the same action. Dispatcher capacity-validation matrices and remaining controls register separately, preserving all373 cases; historical measured weights guide assignment, not a verified post-partition runtime. <!-- @impl: .github/workflows/test.yml::frontend-tests -->
 - **frontend-build:** independent frontend production-build gate, separate from the test matrix. <!-- @impl: .github/workflows/test.yml::frontend-build -->
 - **landing-tests:** rendering/unit tests plus Astro production build.
-- **host-tests:** nonempty, nonzero-assertion Node-runner selection reconciled against `ci-excluded.txt`; rclone for real sync-filter behavior. Approved Ubuntu sandbox package sources and real sandbox probe remain required.
+- **host-tests:** nonempty Node-runner selection with at least one JUnit `<testcase>` across its partitions, reconciled against `ci-excluded.txt` (test-case counting, not assertion-call enforcement); rclone for real sync-filter behavior. Approved Ubuntu sandbox package sources and real sandbox probe remain required.
 - **browser-ide:** clean install with the pinned IDE Node runtime, owned dependency/license audit, typecheck, deterministic bundle, context/RPC/approval and official Claude behavior, coverage and JSON gate.
-- **dependency-review:** fail-closed PR vulnerability/license checks with visible available OpenSSF scores; six exact Codex platform license exceptions backed by Apache-2.0 lock metadata, not future-version exceptions (REQ-OPS-053).
+- **dependency-review:** fail-closed PR vulnerability/license checks with visible available OpenSSF scores; six exact historical Codex 0.147.0 platform-release license exceptions, backed by Apache-2.0 metadata in the historical committed lock, not equivalence to the current 0.166.0 lock or exceptions for future versions (REQ-OPS-053). The historical evidence is `preseed/npm-tools/package-lock.json` at `88a0dddbf2a4da18222ccda21f5a15e2c49d65ea^`, for darwin/linux/win32 × arm64/x64. Versioned PURLs retain future-release review; current-lock integrity checks are a separate assertion, not proof that historical exception identities equal current locked releases.
 - **workflow-audit:** pinned/checksummed zizmor/actionlint over `.github/**` inside required `test`; standalone SARIF is not a bypass (REQ-OPS-021).
 - **impeccable-engine:** pinned-source focused native regressions, one-minute timeout, no image build (REQ-OPS-058).
 - **bundle-size:** Wrangler dry-run with container configuration repointed away from Dockerfile; one unambiguous measurement, valid positive budget or explicit opt-out sentinel (REQ-OPS-024).
@@ -532,7 +532,7 @@ VU counts are workload inputs. No conversion to real users or supported capacity
 <a id="concurrency-input"></a>
 #### Concurrency Scaling
 
-`CONCURRENCY = parseInt(value || '0', 10)`; per-suite `SCALE = positive ? CONCURRENCY / BASE_VUS : 1`; each target is `max(1, round(vus * SCALE))`. Baselines are ten/three/five. Zero/unset keeps baseline; fifty/two hundred/one thousand scale target VUs proportionally. Current scripts retain all fixed thresholds under positive concurrency; the old prose claiming loosened thresholds contradicts source and REQ-OPS-008 AC3 remains an explicit unresolved normative ambiguity, not silently changed here.
+`CONCURRENCY = parseInt(value || '0', 10)`; per-suite `SCALE = positive ? CONCURRENCY / BASE_VUS : 1`; each target is `max(1, round(vus * SCALE))`. Baselines are ten/three/five. Zero/unset keeps baseline; fifty/two hundred/one thousand scale target VUs proportionally. The override is disabled by default. Positive concurrency changes VU targets only; all existing latency thresholds remain fixed, as required by REQ-OPS-008 AC3. This is the retained approved contract, not an unresolved normative ambiguity or a measured capacity claim.
 
 <a id="rate-limit-bypass"></a>
 ### Target Safety and Rate-Limit Bypass
@@ -584,7 +584,7 @@ Current suites do not exercise subscription/tiers/usage/admin/onboarding-config 
 
 ### Backend Tests
 
-Root `vitest.config.ts` uses real Workers runtime via `@cloudflare/vitest-pool-workers` `cloudflareTest()`, not Node. `npm test`; Istanbul coverage because host V8 cannot profile workerd isolates. Floors remain source-owned in package configs; affected PRs/full runs enforce them before promotion. Changed-line LCOV excludes deletions/test-only changes, follows rename destinations, bounds diff/report/line counts and fails absent production records.
+Root `vitest.config.ts` uses real Workers runtime via `cloudflareTest()` imported from `@cloudflare/vitest-plugin`, not Node. `npm test`; Istanbul coverage because host V8 cannot profile workerd isolates. Floors remain source-owned in package configs; affected PRs/full runs enforce them before promotion. Changed-line LCOV excludes deletions/test-only changes, follows rename destinations, bounds diff/report/line counts and fails absent production records.
 
 Closed Administration material-state owners assigned to user-owned Integration validation are `ActivityPage.tsx`, `AdministrationLayout.tsx`, `AdministrationOverview.tsx`, `AnalyticsPage.tsx`, `AnalyticsUserDetail.tsx`, `EnvironmentAreaFields.tsx`, `EnvironmentIndex.tsx`, `ReportsPage.tsx` and `environment-areas.ts` under `web-ui/src/components/admin/`. Exceptions do not extend to backend/shared infrastructure/other production code (REQ-OPS-022).
 

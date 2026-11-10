@@ -17,7 +17,7 @@ Default deployment execution, verification, rollback, and development references
 - [Development Reference](#development-reference)
 - [Source and Runtime Composition Aliases](#source-and-runtime-composition-aliases)
 - [Historical Cost Alias](#cost-analysis)
-- [Governed Mode migration (batch-status driven)](#governed-mode-migration-batch-status-driven)
+- [Governed Mode migration (ancillary-status driven)](#governed-mode-migration-ancillary-status-driven)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
@@ -33,7 +33,7 @@ Web Push is optional. To enable it, define `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, 
 
 Without the group, Push delivery and the Settings enrollment control are unavailable. When configured, keep the private key out of Wrangler configuration and logs. Rotating the pair invalidates existing Push subscriptions across every environment and requires re-enrollment; follow [Shared settings and Web Push identity](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md). For a manual retry, confirm the failed automatic run did not already promote the same tree.
 
-**Action:** For normal promotion, retain the automatically triggered `Deploy` run. For initial deployment or retry, run GitHub's `Deploy` workflow from `main` with target **production**; the manual target defaults to integration. Never substitute a local Wrangler deploy. The workflow verifies the source tree, builds/scans or provenance-verifies a retained container image, publishes/binds its digest, and deploys the Worker and binding. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
+**Action:** For normal promotion, retain the automatically triggered `Deploy` run. For initial deployment or retry, run GitHub's `Deploy` workflow from `main` with target **production**; the manual target defaults to integration. Never substitute a local Wrangler deploy. The workflow verifies the source tree, builds/scans or provenance-verifies a retained container image, publishes and binds a fresh image by its content-addressed tag or reuses a retained image by its required provenance-verified digest, and deploys the Worker and binding. Downstream digest readback/attestation remains a separate identity check, not evidence that the fresh branch binds by digest. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
 
 **Verify:** Retain the successful run URL and deployed commit. After secret upload and service-user provisioning, confirm the final version serves 100% of traffic and verify the deployed origin explicitly:
 
@@ -226,9 +226,12 @@ The dated account arithmetic remains only in [the immutable original cost exampl
 
 ---
 
-## Governed Mode migration (batch-status driven)
+<a id="governed-mode-migration-batch-status-driven"></a>
+## Governed Mode migration (ancillary-status driven)
 
 **Type:** Canonical private-runbook redirect.
+
+The owner's slower/event-driven `/api/sessions/ancillary-status` request plans regime reconciliation and schedules verified resumable migration advancement. Frequent `batch-status` returns only the D1 session projection; it does not drive migration. Migration never runs on the container-start path. [REQ-SESSION-244 AC2](../../sdd/spec/session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling) owns the separate ancillary scheduling boundary. <!-- @impl: src/routes/session/lifecycle.ts::app -->
 
 The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in the [Governed Mode migration runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/governed-mode-migration.md). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
 

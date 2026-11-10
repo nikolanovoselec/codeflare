@@ -16,6 +16,7 @@ assert.ok(companionDeclaration, 'image-owned companion declaration missing');
 const companionResult = spawnSync('bash', ['-c', `${companionDeclaration}\nprintf '%s\\n' "\${IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS[@]}"`], { encoding: 'utf8' });
 assert.equal(companionResult.status, 0, companionResult.stderr);
 const imageOwnedCompanions = companionResult.stdout.trim().split('\n').filter(Boolean);
+const retiredExtensions = ['review-job-helpers.ts', 'review-jobs.ts', 'review-lane-guards.ts'];
 
 function functionSource(name) {
   const start = lines.findIndex((line) => line === `${name}() {`);
@@ -55,6 +56,10 @@ function fixture() {
   writeFileSync(join(bake, 'default/.pi/agent/extensions/company.ts'), 'baked pi');
   writeFileSync(join(home, '.pi/agent/extensions/codeflare.ts'), 'restored release');
   writeFileSync(join(warm, 'codeflare.ts'), 'baked image');
+  writeFileSync(join(warm, 'warm-only.ts'), 'unfiltered image only');
+  for (const name of retiredExtensions) {
+    writeFileSync(join(home, '.pi/agent/extensions', name), `restored release ${name}`);
+  }
   for (const companion of imageOwnedCompanions) {
     writeFileSync(join(warm, companion), `image-owned ${companion}`);
   }
@@ -132,6 +137,13 @@ describe('managed curation entrypoint behavior', () => {
     assert.equal(run.result.status, 0, run.result.stderr);
     assert.equal(existsSync(run.companyFile), false);
     assert.equal(readFileSync(run.extensionFile, 'utf8'), 'restored release');
+    assert.equal(existsSync(run.piCompanyFile), false, 'remote curation must not backfill from the mode bake');
+    assert.equal(existsSync(join(run.home, '.pi/agent/extensions/warm-only.ts')), false,
+      'undeclared image files must not be restored as companions');
+    for (const name of retiredExtensions) {
+      assert.equal(readFileSync(join(run.home, '.pi/agent/extensions', name), 'utf8'),
+        `restored release ${name}`, 'remote relay must not apply baked-only local pruning');
+    }
     for (const companion of run.companionFiles) {
       assert.equal(readFileSync(companion.destination, 'utf8'), companion.content);
     }

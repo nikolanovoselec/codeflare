@@ -1386,7 +1386,7 @@ A full code-server browser editor for an advanced running session. The editor op
 **Constraints:**
 
 - Historical sessions and absent workspace fields resolve to Terminal.
-- Only VS Code sessions persist an explicit workspace field.
+- New complete D1 session records persist an explicit `terminal` or `vscode` workspace snapshot; historical missing fields normalize to Terminal without changing the immutable snapshot contract.
 - Workspace selection is server-owned and cannot be injected through the session-create body.
 
 **Priority:** P1
@@ -1455,7 +1455,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 ### REQ-IDE-054: Browser IDE card activation
 
-**Intent:** Whole-card activation performs exactly the action allowed by VS Code session state without disabling child controls.
+**Intent:** Whole-card activation performs exactly the action allowed by VS Code session state, preserving ordinary child controls except on stopped cards blocked by managed reconciliation.
 
 **Applies To:** User
 
@@ -1466,9 +1466,9 @@ A full code-server browser editor for an advanced running session. The editor op
 3. Activating a ready VS Code card opens the editor. <!-- @impl: web-ui/src/components/Dashboard.tsx::handleSessionSelect --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-IDE-054 AC3: opens from the whole card only after editor readiness) -->
 4. A whole-card selection control is the sole Open surface and remains separate from menu and timer buttons. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-IDE-054 AC4: keeps whole-card Open control separate from child buttons) -->
 5. Keyboard actions handled by child controls do not activate the card. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the kebab handles %p) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (does not activate the card when the timer handles %p) -->
-6. A stopped card blocked by a preseed upgrade has no parent button semantics or tab stop. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (applies reduced opacity and blocks clicks during %s) -->
+6. A stopped card blocked by a preseed upgrade or managed reconciliation has no parent button semantics or tab stop; the blocked card may also disable pointer interaction with descendant controls. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (applies reduced opacity and blocks clicks during %s) -->
 
-**Constraints:** Card activation does not create terminal ownership or disable nested menu and timer controls.
+**Constraints:** Card activation does not create terminal ownership or disable ordinary nested menu and timer controls. The stopped-card managed-update block in AC6 may block descendants too; managed launch and ownership safeguards remain unchanged.
 
 **Priority:** P1
 

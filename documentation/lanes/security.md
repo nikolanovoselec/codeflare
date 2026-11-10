@@ -39,7 +39,7 @@ Security records below state the protected asset, threat/failure, control, failu
 | Provider/deployment credentials | Prompt injection or compromised container reads/exfiltrates token | Withhold master credentials, scope what enters, boundary-inject where interception exists | Legitimately scoped operation may still be destructive |
 | Durable user data | Cross-bucket selection, stale encryption regime, partial shutdown, overwrite race | Server-derived claim, encryption where configured, mixed-regime reconciliation, audited final drain | Eventual consistency, key rotation, concurrent same-path writes |
 | Public/authenticated APIs | Flooding, oversized/malformed input, CSRF, privileged bypass | Validation, body bounds, origin/request marker, route-specific auth/limits | General resource limiters may degrade open |
-| Network egress | Credential use on wrong host/account, bypass of inspection | Exact host/path/account interception; optional strict Gateway routing | DNS rebinding/allowed-provider and startup availability trade-offs |
+| Network egress | Credential use on wrong host/account, bypass of inspection | Exact host/path/account interception; optional strict Gateway routing | DNS rebinding/allowed-provider abuse; uncertain strict policy retains strict transport |
 | Build/release inputs | Mutable artifact, malicious dependency, vulnerable image | Governed pins, source/image scans, exact-tree checks, provenance/SBOM/signing | Scanner/advisory incompleteness and reviewed exceptions |
 
 ## Identity and Authorization Controls
@@ -144,9 +144,10 @@ Validated credential rotation replaces the strict catch-all before later traffic
 
 Gateway policy remains customer-owned. Codeflare does not create or weaken external allow/deny/DLP rules. Hostname policy cannot eliminate every DNS-rebinding or allowed-provider abuse scenario; account/path interception and provider policy remain defense in depth.
 
-### Startup availability exception
+<a id="startup-availability-exception"></a>
+### Startup strict-policy resolution
 
-Some strict-egress runtime configuration is read from eventually consistent KV during startup. The accepted availability trade-off is to avoid falsely bricking an already configured deployment on transient state uncertainty where the contract says so; this must not be generalized into credential or account-boundary fail-open behavior. Exact activation and rollback belong to the private [Strict Gateway Egress runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/strict-gateway-egress.md).
+Non-Enterprise startup stays OFF without a KV read. Enterprise startup disables strict transport only for a successfully read absent key or explicit `inactive`. Rejected reads, missing KV binding and malformed values retain strict transport; uncertainty never selects direct fallback. A missing `EGRESS` binding then fails the routed request closed. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> Exact activation and rollback belong to the private [Strict Gateway Egress runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/strict-gateway-egress.md).
 
 <a id="view-only-storage-enterprise-anti-exfil"></a>
 ### View-only storage
@@ -157,7 +158,7 @@ Enterprise anti-exfil policy can disable downloads while preserving approved vie
 
 ### Bucket and path authority
 
-User bucket authority is resolved server-side. Storage keys reject traversal, null bytes, malformed encoding, and disallowed prefixes at the route boundary. `PROTECTED_PATHS` is intentionally empty because a user already has unrestricted access to the same bucket-scoped files inside their own container; this is an explicit negative control, not a missing implementation.
+User bucket authority is resolved server-side. Storage key validation strips literal NUL characters before decoding and validating the cleaned key. It rejects traversal (`..` after one decode), malformed URI encoding, excessive length and a leading slash; protected-prefix checks apply only when `PROTECTED_PATHS` is nonempty. <!-- @impl: src/routes/storage/validation.ts::validateKey --> `PROTECTED_PATHS` is intentionally empty because a user already has unrestricted access to the same bucket-scoped files inside their own container; this is an explicit negative control, not a missing implementation.
 
 ### Input and response hardening
 
@@ -188,7 +189,7 @@ The DO enriches fixed host events from its trusted Session record, bounds event 
 
 ### Outbound email boundary
 
-Interpolated email values are HTML-escaped. Provider calls have a ten-second timeout and remain non-fatal to the successful primary operation. Failure logs may identify the recipient and provider error, but never include the email body.
+Interpolated email values are HTML-escaped. Provider calls have a ten-second timeout. The generic helper returns boolean failure; only callers that tolerate it keep their primary operation successful (for example, welcome delivery does not fail login). Public contact/waitlist routes await their provider send and surface non-2xx responses as 502 errors before success; authenticated contact-team returns retryable 503 on false delivery or exceptions. Failure logs may identify the recipient and provider error, but never include the email body.
 
 ### Governed-mode encryption regime
 
@@ -276,7 +277,7 @@ The image pins gh 2.103.3, rebuilds the required rclone source with Go 1.27.3 an
 
 The latest stable upstream lazygit 0.66.2 binary embeds affected Go 1.26.9. This image instead rebuilds the same release from commit/checksum-pinned source with Go 1.27.3 and vendored dependencies; exact-head image build, scan and deployment verification remain required. <!-- @impl: Dockerfile::LAZYGIT_VERSION --> No new suppression is added. The owner's existing CVE-2026-111943 exception, renewed on October 29, 2026, expires automatically on November 5, 2026. Its CVE-wide scope accepts residual CLI-process risk, not proof of unreachability; retire it after the fixed artifact is qualified. See [image pins](../../Dockerfile).
 
-The owner's October 26 image-wide exceptions for CVE-2026-111181 (body-parser), CVE-2026-109869 (undici) and CVE-2023-54404 (zod) expire on November 2, 2026, accepting reachable process-crash and resource-exhaustion risks rather than claiming remediation. See [image pins](../../Dockerfile) and [expiry and scope](../../.trivyignore). Fresh scanning and deployment are still required.
+The image-wide CVE-2026-111181 (body-parser) exception, renewed November 2, expires November 9, 2026. The CVE-2026-109869 (undici) and CVE-2023-54404 (zod) exceptions expire independently on November 2, 2026. These accept reachable process-crash and resource-exhaustion risks rather than claiming remediation; expired entries are not current waivers. See [image pins](../../Dockerfile) and [expiry and scope](../../.trivyignore). Fresh scanning and deployment are still required.
 
 The required runtime security floors are `libpcre2-8-0` at `10.42-1+deb12u2`, `libde265-0` at `1.0.11-1+deb12u3`, `libevent-core-2.1-7` at `2.1.12-stable-8+deb12u1`, and `libgit2-1.5` at `1.5.1+ds-1+deb12u2`. A runtime below any floor fails before image push under [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy).
 
@@ -293,7 +294,7 @@ Historical CVE-retirement receipts remain in Git and Actions; they are not curre
 
 Patched declarations and locks do not establish fresh image validation or default-branch alert closure. Compare the active artifact and default branch with the patched dependency before claiming either outcome. Earlier alert inventories remain in [Git history](https://github.com/nikolanovoselec/codeflare/blob/911196bc525c5ad9ab7ecf86480f3113b408a48c/documentation/lanes/security.md#dependabot-audit--2026-10-18), not a current security certification.
 
-Separately, [basic-ftp CVE-2026-102990](https://github.com/advisories/GHSA-c475-qrg2-pj4r) affects versions through 6.2.0, fixed in 6.2.1. The image now pins an integrity-verified 6.2.3 overlay for code-server's bundled copy; packaged smoke checks the version and FTP parsing through its installed get-uri consumer. <!-- @impl: Dockerfile::BASIC_FTP_VERSION --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> The former 5.3.1 exception is removed, not renewed or globally ignored: a clean report passes and recurrence fails. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> Source changes do not repair already-running images; exact-head CI, a fresh image scan and separately authorized deployment remain required. Historical Dependabot closure covers different advisories and does not establish this repair.
+Separately, [basic-ftp CVE-2026-102990](https://github.com/advisories/GHSA-c475-qrg2-pj4r) affects versions through 6.2.0, fixed in 6.2.1. The image now pins an integrity-verified 6.2.4 overlay for code-server's bundled copy; packaged smoke checks the version and FTP parsing through its installed get-uri consumer. <!-- @impl: Dockerfile::BASIC_FTP_VERSION --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> The former 5.3.1 exception is removed, not renewed or globally ignored: a clean report passes and recurrence fails. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> Source changes do not repair already-running images; exact-head CI, a fresh image scan and separately authorized deployment remain required. Historical Dependabot closure covers different advisories and does not establish this repair.
 
 <a id="keyless-source-release-identity"></a>
 ### Release identity alias
@@ -308,7 +309,7 @@ Eligibility, deterministic archives, checksums, Sigstore bundles, and provenance
 | AD68 service-auth environment/host restrictions absent | Accepted but unimplemented; privileged secret grants automation admin | Security/Auth; issue #130 |
 | Trusted session agents are unsandboxed | Required for engineering work; boundary is the session/container/provider scope | Product/security review on capability expansion |
 | Optional encryption key permits covered plaintext fallback | AD32 compatibility; critical warning, Vault unavailable | Operator/configuration; production readiness |
-| Strict-egress startup state can favor availability in bounded cases | Accepted availability trade-off, not credential fallback | Enterprise operations |
+| Strict-egress policy read is uncertain | Retain strict transport; only confirmed absent/`inactive` permits OFF in Enterprise | Enterprise operations |
 | `PROTECTED_PATHS` empty | Bucket authority is the isolation boundary | Storage/security review if in-container trust changes |
 | General rate-limit KV failure may degrade open | Resource/cost exposure, not authentication bypass | Owning route/Billing |
 | Concurrent session cap is best effort | Nominal limit can overrun | Billing/Operations; issue #880 tracks Enterprise simplification |
