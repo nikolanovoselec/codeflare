@@ -516,11 +516,11 @@ None.
 
 1. An admin can approve pending users. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
 2. An admin can change tiers. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
-3. Deleting a user removes all owned settings, sessions, notification enrollments, R2 data, and scoped tokens. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
+3. Deleting a user removes all owned settings, sessions, notification enrollments, R2 data, and scoped tokens. Confirm container cleanup, then provider revocation while user data and scoped access remain; only afterward revoke scoped tokens and remove storage/local state, with the user record last. <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges) --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 (user management admin panel)) --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
 4. An admin can request user deletion. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Exercise search, approval, tier change, and deletion from the admin user page and confirm each successful action updates the displayed user state. -->
 5. In onboarding mode the bulk action approves all pending users to the same full-access tier as the per-user Approve control. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
 
-**Notes:** Partial pending manual SaaS/onboarding checks for grouping, search, approval, tier/session-mode changes, capacity, deletion presentation, and mode-specific bulk approval. Push-subscription cleanup is automated.
+**Notes:** SaaS/onboarding grouping, search, approval, tier/session-mode changes, capacity, deletion presentation and bulk approval have the linked manual procedure; manual execution is not claimed. Push-subscription and fail-closed offboarding outcomes have automated assertions.
 
 **Constraints:**
 
@@ -533,7 +533,7 @@ None.
 
 **Verification:** Automated: [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [users.test.ts](../../src/__tests__/routes/users.test.ts); Manual: [Admin user panel acceptance](../../documentation/lanes/authentication.md#admin-user-panel-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

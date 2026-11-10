@@ -98,7 +98,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 3. Tokens are cached per user (encrypted when operator-provided encryption is configured). <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (should return cached token from KV r2token:{email} if exists and token is valid) -->
 4. Cached tokens are validated before use; only a definitive 404 from the token-existence check invalidates the cache. <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC2 (createBucketIfNotExists is idempotent and race-safe)) -->
 5. Transient verification errors assume the token is still valid to prevent unnecessary downstream auth failures. <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC2 (createBucketIfNotExists is idempotent and race-safe)) -->
-6. Tokens are revoked on user deletion. <!-- @impl: src/lib/r2-admin.ts::deleteScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (should DELETE to CF API /accounts/{id}/tokens/{tokenId} (not /r2/tokens)) -->
+6. Tokens are revoked on user deletion after confirmed container cleanup and provider revocation, before bucket/local cleanup; failed provider revocation retains scoped access and user bytes for retry. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges) --> <!-- @impl: src/lib/r2-admin.ts::deleteScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (should DELETE to CF API /accounts/{id}/tokens/{tokenId} (not /r2/tokens)) -->
 7. Token creation requires the upstream API permission to manage tokens on the deploy credential. <!-- @impl: src/lib/r2-admin.ts::createScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC2 (createBucketIfNotExists is idempotent and race-safe)) -->
 
 **Constraints:**
@@ -110,7 +110,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated: [r2-admin.test.ts](../../src/__tests__/lib/r2-admin.test.ts)
+**Verification:** Automated: [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [r2-admin.test.ts](../../src/__tests__/lib/r2-admin.test.ts)
 
 **Status:** Implemented
 
@@ -251,11 +251,11 @@ Security requirements for authentication enforcement, credential isolation, encr
 4. Normal responses use `X-Frame-Options: DENY`; authenticated SilverBullet and Browser IDE proxy responses may use `SAMEORIGIN`. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/early-return-security.test.ts (CF-001: security headers on pre-Hono early-return responses) -->
 5. `Referrer-Policy: strict-origin-when-cross-origin` is set. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008: Security headers on every worker response) -->
 6. The authenticated SPA permits microphone input only to the same origin while camera and geolocation remain denied; other Worker responses deny microphone access. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (permits the SPA Vault bootstrap frame, Gravatar probe, and same-origin microphone at %s) -->
-7. `X-Powered-By` header is absent. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 AC7: X-Powered-By header is absent) -->
+7. `X-Powered-By` is stripped from applicable early-return, Hono and static Assets responses without losing unrelated headers. <!-- @test: src/__tests__/security/early-return-security.test.ts (REQ-SEC-008 AC7: strips upstream disclosure on proxy and asset responses without losing other headers) --> <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 AC7: X-Powered-By header is absent) -->
 
 **Constraints:**
 
-- Headers are applied globally; every response path inherits them.
+- Headers are applied in owning response paths; 101 upgrades retain the protocol no-op exception. The MCP OAuth callback retains `Referrer-Policy: no-referrer`.
 - Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
 - Coverage of non-standard response paths (redirect responses, helper-emitted responses) lives in [REQ-SEC-021](#req-sec-021-hsts-coverage-on-redirect-response-paths).
 - Proxied SilverBullet vault content uses `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` so same-origin prewarm works while cross-site framing stays blocked.
@@ -310,9 +310,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Acceptance Criteria:**
 
 1. Storage paths are URI-decoded before the parent-directory traversal check so encoded traversal sequences are caught. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC1/AC2: URI-decoded traversal attacks are caught) -->
-2. A single URI-decode catches single-encoded parent-directory sequences (`..`); a double-encoded sequence (`%252E%252E`) decodes only once to an inert literal segment (`%2E%2E`) that is used verbatim as an R2 object key and never re-decoded, so it cannot traverse. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC2: double-encoded %252E%252E decodes once to an inert literal, used verbatim and never re-decoded) -->
+2. A single URI-decode catches single-encoded parent-directory sequences (`..`); a double-encoded sequence (`%252E%252E`) decodes only once to an inert literal segment (`%2E%2E`) that is used verbatim as an R2 object key and never re-decoded. The URL owner encodes raw segments and verifies final parsed bucket/path identity before signing or fetching. <!-- @impl: src/lib/r2-client.ts::getR2Url --> <!-- @test: src/__tests__/lib/r2-client.test.ts (REQ-SEC-010: final signed URL identity) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration refuses literal dot normalization before object I/O) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration preserves leading slash and escaped object identity at fetch and copy) --> <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC2: double-encoded %252E%252E decodes once to an inert literal, used verbatim and never re-decoded) -->
 3. Malformed URI encoding is rejected with a validation error. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC3: malformed URI encoding throws ValidationError) -->
-4. The validator returns the decoded key so callers operate on the value the user sees, not the encoded request form. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC4: validateKey returns decoded key for callers) -->
+4. The validator returns the decoded key. URL owners preserve literal percent/escaped segments, Unicode and query/fragment characters as object bytes; unrepresentable literal-dot normalization is refused before object I/O. Migration separately preserves legal leading slashes. <!-- @impl: src/lib/r2-migration.ts::objectUrl --> <!-- @test: src/__tests__/lib/r2-client.test.ts (REQ-SEC-010: final signed URL identity) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration refuses literal dot normalization before object I/O) --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-SEC-010: migration preserves leading slash and escaped object identity at fetch and copy) --> <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC4: validateKey returns decoded key for callers) -->
 5. The browse endpoint validates the prefix parameter against parent-directory traversal. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/routes/storage-browse.test.ts (rejects prefix with path traversal (..) with 400) -->
 
 **Constraints:**
@@ -323,7 +323,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated: [storage-browse.test.ts](../../src/__tests__/routes/storage-browse.test.ts), [storage-security.test.ts](../../src/__tests__/security/storage-security.test.ts)
+**Verification:** Automated: [r2-client.test.ts](../../src/__tests__/lib/r2-client.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts), [storage-browse.test.ts](../../src/__tests__/routes/storage-browse.test.ts), [storage-security.test.ts](../../src/__tests__/security/storage-security.test.ts)
 
 **Status:** Implemented
 

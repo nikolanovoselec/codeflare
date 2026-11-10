@@ -427,21 +427,22 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Acceptance Criteria:**
 
-1. Destroying a session clears all transient session state from the Durable Object; subsequent fetch attempts return 503. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-009 AC1: public destroy removes the forwarding credential and subsequent fetch stays unavailable without starting) -->
-2. Session mode resets to default on destroy. <!-- @impl: src/container/container-lifecycle.ts::clearOperationalMemory -->
+1. Successful destroy clears operational session state; subsequent fetch attempts return 503. Current-generation warm secrets/configuration and cached environment are revoked even when persistent deletion fails; failure remains incomplete and retryable. <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-009: deletion rejection clears warm secrets but retains durable retry authority and reports failure) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-009: rejected KILL %s revokes warm credentials and keeps the termination claim retryable) --> <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-009 AC1: public destroy removes the forwarding credential and subsequent fetch stays unavailable without starting) -->
+2. Session mode resets to default with current-generation warm-state revocation, including persistent-deletion failure. <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-009: deletion rejection clears warm secrets but retains durable retry authority and reports failure) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-009: rejected KILL %s revokes warm credentials and keeps the termination claim retryable) --> <!-- @impl: src/container/container-lifecycle.ts::clearOperationalMemory -->
 3. Scheduled idle-metric polling is cancelled on destroy. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-009 AC4: a delivered metrics callback after public destroy leaves schedules and service effects unchanged) -->
 4. After destroy, any delayed polling that fires detects the missing session state and exits without re-arming. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-009 AC4: a delivered metrics callback after public destroy leaves schedules and service effects unchanged) -->
 5. The user's persistent storage bucket and its contents are NOT deleted by destroy; files persist across sessions. <!-- @impl: src/container/index.ts::destroy --> <!-- @manual: Session replacement storage acceptance -->
 
 **Constraints:**
 
-- Durable Object storage and in-memory state must be cleared before the platform teardown call to prevent asynchronous writebacks from re-creating a stale record.
+- Operational deletion precedes platform teardown, but persistent failure still clears current-generation memory in a generation-fenced finally and reports incomplete cleanup. Retain durable shutdown/lifecycle generation and D1 termination retry authority; do not claim every durable key was erased. A changed stored generation protects replacement memory.
+- Graceful failure continues bounded drain/platform teardown then rejects; platform exit alone is not cleanup success. KILL deletion/transaction failure revokes current-generation warm state but refuses dispatch/confirmed-stop publication and retains retry authority.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts); Manual: [Session replacement storage acceptance](../../documentation/lanes/storage-and-sync.md#session-replacement-storage-acceptance)
+**Verification:** Automated: [lifecycle.test.ts](../../src/__tests__/container/lifecycle.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts); Manual: [Session replacement storage acceptance](../../documentation/lanes/storage-and-sync.md#session-replacement-storage-acceptance)
 
 **Status:** Implemented
 

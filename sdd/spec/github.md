@@ -240,7 +240,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ### REQ-GITHUB-005: Disconnect and offboarding revocation
 
-**Intent:** Disconnecting or offboarding removes the local GitHub credential after a best-effort provider revocation.
+**Intent:** Ordinary disconnect removes local GitHub credentials after best-effort provider revocation; explicit user offboarding requires confirmed revocation for App/OAuth credentials before destructive storage cleanup.
 
 **Applies To:** User
 
@@ -250,7 +250,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. Disconnect clears local GitHub fields even when provider configuration, network access, or revocation fails. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (REQ-GITHUB-005 AC2: provider failure clears GitHub fields while preserving unrelated deploy keys) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation returns non-success) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation rejects) -->
 3. Disconnect removes an otherwise empty deploy-keys entry. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider configuration is unavailable) -->
 4. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (does NOT call GitHub revoke for a manually-pasted PAT but still clears it) -->
-5. User offboarding attempts GitHub revocation without blocking local cleanup on failure. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-GITHUB-005: a failed GitHub revocation does not block local offboarding) -->
+5. User offboarding uses strict GitHub App/OAuth revocation: failure retains outstanding provider credentials, storage and scoped access for authorized retry. Ordinary disconnect and manual PAT behavior remain unchanged. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges) -->
 
 **Constraints:**
 

@@ -405,20 +405,15 @@ Default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, with `Acc
 
 **Category:** Security
 
-**Status:** Accepted (date not recorded)
+**Status:** Amended: existing Container DO admission replaces non-atomic KV exclusion.
 
-**Context:** Retained compact-record rationale: “Read `setup:complete`, check if false, perform setup, write true. Not atomic -- two simultaneous requests could both proceed.” Current setup routing also acquires its lock through separate KV get/put operations. This supports the best-effort mechanism, not the historical assertion that every duplicate sub-step is harmless. <!-- @impl: src/routes/setup/index.ts::default -->
+**Context:** Configure can be retried after partial provider effects. A KV status timestamp cannot establish exclusive authority.
 
-**Decision:** Read-then-write pattern, acceptable for one-time setup.
+**Decision:** The existing `setup:configuration` Container DO persists a task token and canonical input/target-worker fingerprint before effects and owns live exclusion and task lifetime. `setup:configuring` KV remains compatibility/status only. <!-- @impl: src/container/index.ts::configureDeployment -->
 
-Read `setup:complete`, check if false, perform setup, write true. Not atomic -- two simultaneous requests could both proceed.
+Successful settlement releases the matching token. A fresh positively established terminal `ValidationError` permits corrected input only after started operations drain. Provider/transport uncertainty or crash retains same-input recovery authority until successful convergence; a subsequent validation failure cannot release prior uncertainty. No TTL takeover, replacement/reset API or automatic replay is introduced.
 
-**Trade-off**: Accepted because setup is a one-time operation by a single admin. Each sub-step (CF API calls) is individually idempotent -- duplicate execution produces the same result. Worst case is redundant API calls, not corrupted state.
-
-**Future**: Moving to a Durable Object would provide strict serialization, deferred until there's evidence of the race occurring.
-
-
-**Consequences:** The original compact ADR did not record a separate consequences field.
+**Consequences:** Authorized callers must inspect partial provider effects and resubmit the original validated configuration after uncertainty. Configure-versus-configure serialization does not fence arbitrary external provider/control-plane actors or promise universally harmless whole-run replay. Admission stores a fingerprint/token, not submitted secrets.
 
 ---
 
@@ -2001,9 +1996,9 @@ Alternative 2 — Self-guard `review-enforcement` to no-op when loaded in a lane
 
 **Status:** Partially superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) (2026-06-01): the no-preseed-lane clause only; accepted 2026-05-30, with the remaining decisions active.
 
-**Context:** `@google/gemini-cli` (npm, `gemini` command) was removed from the Dockerfile and entrypoint. The replacement is Antigravity (`agy`), Google's successor CLI, installed via `curl -fsSL https://antigravity.google/cli/install.sh | bash` as a Go-native binary. Because `agy` is not an npm package it is excluded from the V8 compile-cache warm-up step (same as `opencode`). The `~/.gemini/settings.json` auto-update suppressor written by Fast Start is also removed; `agy` has no equivalent config-file suppressor mechanism at this time.
+**Context:** Antigravity (`agy`) is a native, non-npm coding-agent CLI. Its image installation requires committed artifact identity, not execution of a mutable vendor installer; native runtime self-update behavior is not qualified by the image pin.
 
-**Decision:** Install Antigravity via its official curl installer in the Dockerfile. Do not add it to the npm `install -g` line. ~~Antigravity gets no preseed adaptation lane (it has no stable config-file convention to target).~~ (Superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored): agy reads the Gemini CLI `~/.gemini/` config tree, so the lane was restored.) The `--filter "- .gemini/tmp/**"` rclone filter excludes only agy's transient tmp dir; the seeded `~/.gemini/` config does sync.
+**Decision:** Install selected Antigravity from the Dockerfile’s committed versioned native URL and SHA512, verifying before archive parsing/extraction/execution. The existing Shadow Pins updater advances version/URL/digest together within the pinned major and rechecks candidate and previous identity. No publication-age gate is established from the vendor manifest, which supplies no timestamp. Keep it outside npm installation. [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) owns the `.gemini/` adaptation lane; the existing tmp exclusion is unchanged.
 
 **Consequences:**
 - The Gemini CLI interactive agent (`gemini`) is no longer available in containers; users needing the Google AI agent use `agy` instead.
@@ -2935,16 +2930,16 @@ Four root causes: (1) `migrateBucketEncryption` issued a same-key self-copy with
   Draft 3: page pinned to one 6-object slice, gated on the WORST-CASE page wall-clock (~20s of a 26s budget) — correct, but it reserved ~77% of every invocation as headroom → ~30 objects/poll → minutes for a few-hundred-object bucket (user-rejected as too slow). Draft 4 (this one): gate per-SLICE on real elapsed time with `start-after` checkpointing and a 2-op object chain, using the whole budget → a small bucket converges in ONE poll in seconds. Root-caused/validated via GPT-5.5 consults + code-review passes over live KV/worker forensics.
 - **Backend gate + container drain (the safety boundary).**
 
-While not `ready`, every writer returns `409 BUCKET_MIGRATING`, the sync fan-out is skipped, running containers are drained (best-effort — a drain failure leaves a brief stray-write window, caught by the verification rescan + read self-heal), and in-flight multipart uploads are aborted. The frontend reuses the "Upgrading" affordance (New Session → "Migrating N%").
+While not `ready`, platform writers return `409 BUCKET_MIGRATING` except explicit matching uncertain-completion abort recovery; sync fan-out is skipped. D1 workload ownership defers migration, including unhealthy workloads. The existing bucket Container DO serializes platform multipart operations and migration chunks, retaining durable upload generation/regime and pending-completion uncertainty. Verified identity persists before KV ready publication. Provider preparation lists at most 100 uploads without continuation and settles bounded abort attempts; discovery/abort failure prevents drained/ready publication. Direct R2 writers must remain quiescent during migration maintenance; this is not an exhaustive external-upload abort guarantee. The frontend displays migration progress.
 - **Dual-regime reads + self-heal.**
 
 Reads try the committed regime then fall back once on a 400/403; a fallback hit on a `ready` bucket triggers a one-time `mixed-recovery` scan that re-encrypts strays to the committed regime — exactly the production-incident shape, now self-healing.
 
 **Revised 2026-07-01 (migration UX, no engine change):** live forensics (1,068-object integration bucket) confirmed the engine completes in ~2 min (`status:ready`, `generation` bumped) — the "stuck on Migrating" report was two UI gaps, now fixed: the 5s background poll (`refreshSessionStatuses`), not just the full load, mirrors the migration flags so a completed migration clears without a reload; and a 0–99 `bucketMigrationPercent` (from a one-time object `total` count + `processed` across both passes, suppressed when `halted`) drives a "Migrating N%" label. The ~2 min is at the platform ceiling (6 connections/invocation × single-invocation lease); the fix is UX, not concurrency.
 
-**Rejected — container regime generation guard.** A secondary guard threading a regime `generation` into the container and refusing stale-regime bisync was scoped but **not built**: `/start` is gated and containers are drained at migration start, so no container runs with a stale regime; and the verify-rescan + read self-heal already catch any object an un-drainable zombie writes. It added surface (container-env, entrypoint, container-router) for no coverage the gate+verify+self-heal don't provide. **Rejected — Durable Object / Queue / Workflow:** overkill for single-tenant ~hundreds-of-objects buckets; a chunked-resumable `waitUntil` pass is provably sufficient under either subrequest budget. **Rejected — ENCRYPTION_KEY old-key fallback:** key rotation is detect-only via `keyMd5`.
+**Current boundary:** The bucket DO generation fence covers platform multipart admission, not container-side bisync generation or arbitrary external R2 writers. A lost or unverifiable completion response retains durable authority until explicit matching abort confirms removal/absence. Verification and dual-regime read self-heal remain independent recovery safeguards. Key rotation is detect-only via `keyMd5`, without an old-key fallback.
 
-**Consequences:** A regime flip (both directions) is atomic from the user's view, resumable, verified, and never leaves the bucket unreadable; the prior mixed-bucket incident self-heals on next read. Residual risk: a container whose best-effort drain `destroy()` fails could write a stray during the ~tens-of-seconds window — caught by the verify-rescan and read self-heal, and bounded by the idle timeout. New modules: `src/lib/r2-regime-state.ts` (state), `src/lib/migration-containers.ts` (drain/health). Verified on enterprise-integration by an R2 S3 HEAD-scan (0 objects in the wrong regime) both directions.
+**Consequences:** Migration is resumable and publishes regime/generation only after verification; it is not an atomic provider transaction. D1-owned workloads defer conversion and external writers require maintenance quiescence. Source fixtures and static checks do not establish deployed migration acceptance.
 
 **Related:** [REQ-ENTERPRISE-020](../../sdd/spec/storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-021](../../sdd/spec/storage.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary), [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration), [Deployment lane](../lanes/deployment.md#governed-mode-migration-batch-status-driven), [Configuration lane](../lanes/configuration.md), [Storage & Sync lane](../lanes/storage-and-sync.md), [Security lane](../lanes/security.md).
 

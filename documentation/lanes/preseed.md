@@ -351,6 +351,8 @@ MCP server. Its skill hard-gates use to explicit current user requests naming
 external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
+Consult keys are read fresh from KV on each start. Authoritative absence travels as explicit `null` and clears warm namespaced keys and the emitted environment; omitted partial-update fields preserve existing values. Consult secrets are not persisted in DO storage. Bare provider names remain scoped to MCP children.
+
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
 `~/.pi/agent/mcp-adapter.json` using the native adapter proxy/deferred tools. The [Pi manifest and
 lock](../../preseed/agents/pi/package.json) own the exact package and SDK pins.

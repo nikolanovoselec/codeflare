@@ -800,13 +800,13 @@ If another configure run is already in progress, the stream immediately emits:
 {"done":true,"success":false,"error":"Setup configuration is already in progress. Please wait and try again."}
 ```
 
-No step progress messages are sent in this case.
+No step progress messages are sent in this case. The existing `setup:configuration` Container DO owns live exclusion and durable input-bound recovery. Successful completion releases admission; a fresh definite terminal `ValidationError` permits corrected input after all started operations settle. Uncertain provider/transport outcomes or interruption retain the original configuration fingerprint: resubmit that same validated configuration through the authorized route until success. A later validation failure does not release a previously uncertain task. Different input is refused with a terminal `success: false` recovery message. There is no TTL takeover or reset endpoint; the NDJSON envelope is unchanged.
 
 ### Error Recovery
 
 On step failure, the handler sends terminal completion with `success: false`, the cumulative attempted-step list and error details, then closes the stream. Partial KV progress remains. Initial setup is not marked complete by a failed run; failed admin reconfiguration preserves an existing `setup:complete = "true"` and remains admin-gated rather than reopening bootstrap.
 
-Operator retry and lock diagnosis belong in [Troubleshooting: setup retry and lock recovery](troubleshooting.md#setup-retry-and-lock-recovery). The [NDJSON stream contract](#ndjson-stream-contract) above owns request completion/failure and lock-contention responses.
+Operator retry and lock diagnosis belong in [Troubleshooting: setup configure fails or appears locked](troubleshooting.md#setup-configure-fails-or-appears-locked). The [NDJSON stream contract](#ndjson-stream-contract) above owns request completion/failure and lock-contention responses.
 
 ### KV State Management
 
@@ -821,7 +821,7 @@ The following KV keys are written during setup. All keys use the `setup:` prefix
 | `setup:custom_domain` | post-step-5 | Lowercased custom domain |
 | `setup:allowed_origins` | post-step-5 | JSON array of origin suffix patterns |
 | `setup:onboarding_landing_page` | post-step-5 | `"active"` or `"inactive"` |
-| `setup:configuring` | lock acquire | Unix timestamp (ms); deleted on completion |
+| `setup:configuring` | configure task | Compatibility/status timestamp only; best-effort deletion on settlement, never admission authority |
 | `setup:access_aud` | step 5 | Primary Access audience tag |
 | `setup:access_aud_list` | step 5 | JSON array of audience tags |
 | `setup:access_app_id` | step 5 | Access application ID |
@@ -919,6 +919,8 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 | POST | `/api/storage/upload/part` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Upload a single part (base64 body) |
 | POST | `/api/storage/upload/complete` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Complete multipart upload |
 | POST | `/api/storage/upload/abort` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Abort multipart upload |
+
+Multipart schemas and part-size envelope are unchanged. Initiation records a bucket-owner/key/regime/generation-bound ID; platform phases serialize with migration at the existing bucket DO. Unknown, legacy or stale part/completion IDs return `409 MULTIPART_RESTART_REQUIRED` without deleting parts. Lost, malformed or unverifiable completion retains a durable pending fence and blocks migration. Explicit matching abort can recover that fence during migration; provider acceptance or definitive 404 absence confirms recovery. Ordinary abort still rejects non-2xx. Provider migration cleanup is capped at 100 uploads without continuation, fails closed on discovery/abort failure, and is not universal external-upload tracking. Direct R2 writers require maintenance quiescence; dual-regime reads remain independent safeguards.
 
 ## Preferences
 

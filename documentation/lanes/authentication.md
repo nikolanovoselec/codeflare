@@ -268,22 +268,22 @@ Configured tier modes, paid `subscribedMode`, stored next-session preference, do
 
 **Requirement:** [REQ-SETUP-013 AC6](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration)
 
-Managed environment Setup is deployment configuration, not an entitlement source. Enabling, replacing, disabling, or omitting its fields does not infer offboarding or invoke the user-cleanup path. Destructive offboarding requires the explicit authoritative workflow tracked separately in issue #905. <!-- @impl: src/routes/setup/index.ts::default -->
+Managed environment Setup is deployment configuration, not an entitlement source. Enabling, replacing, disabling, or omitting its fields does not infer offboarding or invoke the user-cleanup path. Destructive offboarding requires the explicit authorized user-removal workflow, never an inferred change in a Setup payload. <!-- @impl: src/routes/setup/index.ts::default -->
 
 Provisioning owns orchestration; specialist owners perform each operation. Explicit account cleanup is not the same contract as an individual session Stop/Delete.
 
 | Handoff | Current result contract |
 |---|---|
 | Historical accounting | D1 tombstone must succeed before live account cleanup; failure returns `503 history_delete_unavailable` before live data removal |
-| Active sessions | Cleanup attempts destruction, logs failures, then deletes eligible D1 owner rows. Rows with a pending boundary activity are retained; `deletedSessions` counts deleted rows, not confirmed teardowns |
-| GitHub provider binding | Attempt revocation, log failure, clear local credential, and continue |
-| Cloudflare provider binding | Revocation failure aborts cleanup under its provider-owned contract |
-| User/bucket KV | Remove normalized user-scoped control keys after provider handoffs settle |
-| R2 token | Deletion failure is logged and can leave `tokenDeleted: false` |
-| R2 objects and bucket | Empty/delete failure is logged and can leave `bucketDeleted: false` |
+| Active sessions | Confirm each owned container cleanup before deleting eligible D1 owner rows; unconfirmed cleanup fails with `503 user_cleanup_incomplete` |
+| GitHub provider binding | Strict App/OAuth revocation precedes storage destruction; failure retains outstanding credentials and stops cleanup. Manual PATs clear locally without provider revocation |
+| Cloudflare provider binding | OAuth revocation must succeed before storage destruction; failure retains outstanding retry credentials |
+| R2 token | Revoke only after provider handoffs succeed; retain cached identity until bucket cleanup also succeeds |
+| R2 objects and bucket | Empty/delete after provider and scoped-token revocation; unconfirmed bucket deletion fails with `503 user_cleanup_incomplete` |
+| User/bucket KV | Remove scoped-token identity and bucket control keys after confirmed bucket cleanup; delete the user record last |
 | Usage/accounting state | Remove the live KV usage projection; preserve retained historical accounting under Billing |
 
-The route logs the cleanup result but returns `{ success: true, email }` even when container, token, or bucket cleanup is unconfirmed. GitHub warnings indicate possible residual provider access but do not retain local credentials or stop cleanup. Operators must treat container warnings and false `tokenDeleted`/`bucketDeleted` as residual work; a session count is not teardown proof. The API has no fail-closed completion receipt for those best-effort handoffs. This limitation must not be generalized to the generation-fenced individual [session contract](api-reference.md#session-management). The [original KV cleanup wording](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740/documentation/lanes/user-provisioning.md#offboarding-handoff) is historical, not current session-storage authority.
+The deletion route awaits `cleanupUserData` before success and Access-policy synchronization. Provider rejection leaves user data, scoped access, the user record and outstanding provider credentials available for authorized retry; a previously confirmed provider revocation need not be undone. Provider credentials live in the encrypted KV deploy-keys record, not R2, and remain readable independently of bucket cleanup. There is no atomic cross-provider transaction: inspect partial effects before retry. Ordinary GitHub disconnect remains best effort; Cloudflare disconnect and manual PAT behavior keep their provider-specific contracts. A session count alone is not teardown proof. <!-- @impl: src/routes/users.ts::default --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
 
 ## Compatibility and Migration
 

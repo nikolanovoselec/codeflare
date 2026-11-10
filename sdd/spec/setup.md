@@ -165,14 +165,15 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Constraints:**
 
-- A persistent lock prevents concurrent configure runs and is released on completion or failure; staleness has an upper bound.
-- The lock check returns an immediate error (with no step progress) if another configure run is already active and not yet stale.
+- The existing `setup:configuration` Container DO owns configure-versus-configure admission and task lifetime. A durable token and canonical input/target-worker fingerprint precede effects; submitted secrets are not stored in admission. Live overlap refuses immediately without step progress. <!-- @impl: src/container/index.ts::configureDeployment --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SETUP-004: concurrent configure cannot both publish; interrupted same-task retry recovers without takeover) --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: confirmed zone absence releases admission for corrected input) --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: live provider operation denies overlapping corrected input) --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: uncertain Access failure drains started deletions and retains changed-input fence) -->
+- Successful completion releases the matching token. A fresh, positively established terminal `ValidationError` also permits corrected input, only after started sibling operations settle. Confirmed zone absence requires successful, well-formed empty lookups for every candidate; `SetupError` can wrap transport uncertainty and does not qualify.
+- Transport/provider uncertainty or crash retains authority: resubmit the original validated configuration through the authorized route until successful same-input convergence. A later validation failure cannot clear a prior uncertain fence. No TTL takeover, reset API or automatic replay exists. `setup:configuring` KV is status only, not exclusion authority; arbitrary external provider/control-plane actors are not fenced.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated: [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [custom-domain.test.ts](../../src/__tests__/routes/setup/custom-domain.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
+**Verification:** Automated: [setup-provisioning-flows.test.ts](../../src/__tests__/routes/setup-provisioning-flows.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [custom-domain.test.ts](../../src/__tests__/routes/setup/custom-domain.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 

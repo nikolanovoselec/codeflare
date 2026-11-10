@@ -91,7 +91,7 @@ For mediated platform routes, boundary interceptors resolve credentials from the
 <a id="github-token-handling"></a>
 ### GitHub credentials
 
-Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic uses the configured organization/repository boundary and does not expose the real token in the container. GitHub App/OAuth disconnect and offboarding attempt provider revocation, log failures, and clear the local GitHub credential even when revocation is unconfirmed so local cleanup can continue ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). Cloudflare OAuth retains its provider-owned failure and retry-state contract. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare -->
+Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic uses the configured organization/repository boundary and does not expose the real token in the container. Ordinary GitHub App/OAuth disconnect attempts provider revocation and clears the local credential even on failure. Explicit offboarding instead requires confirmed container cleanup and provider revocation while user bytes and scoped access remain, then scoped-token/storage/local cleanup with the user record last; provider failure retains outstanding encrypted KV retry credentials ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). Cloudflare OAuth retains its provider-owned failure and retry-state contract. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare -->
 
 <a id="container-auth-token-req-sec-012-req-sec-022"></a>
 ### Worker-to-container bearer
