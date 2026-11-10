@@ -25,7 +25,7 @@ export function createR2Client(env: Pick<Env, 'R2_ACCESS_KEY_ID' | 'R2_SECRET_AC
  * Construct an S3-compatible URL for an R2 object.
  */
 export function getR2Url(endpoint: string, bucketName: string, key?: string): string {
-  const base = endpoint.replace(/\/+$/, '');
+  const base = new URL(endpoint).href.replace(/\/+$/, '');
   // Inputs are object names, not URL syntax. Encode once at this owner so %2E,
   // query/fragment characters and Unicode remain literal signed object bytes.
   if (!bucketName || /[/\\]/.test(bucketName) || bucketName === '.' || bucketName === '..') {

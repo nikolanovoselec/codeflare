@@ -320,9 +320,10 @@ describe('Fuzz: getR2Url', () => {
             const beforeBucket = afterProtocol.substring(0, idx + 1);
             expect(beforeBucket).not.toMatch(/\/\/$/);
           }
+          expect(new URL(url).pathname).toBe(`${new URL(endpoint).pathname.replace(/\/+$/, '')}/${bucket}`);
         },
       ),
-      { numRuns: NUM_RUNS },
+      { numRuns: NUM_RUNS, examples: [['http://a.aa//.', 'a0-']] },
     );
   });
 
