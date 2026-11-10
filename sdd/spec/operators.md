@@ -482,9 +482,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 2. Catalog search and cursor pages are authorization-filtered before return, with a default page size of 50 and maximum of 100. <!-- @impl: src/routes/operator-management.ts::query --> <!-- @impl: src/operators/registry.ts::listManagementOperators --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (REQ-OPERATOR-043) --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (enumerates populated operator catalog pages without skipping, duplicating or exposing hidden records) -->
 3. A release or configuration change in one installation does not change another installation. <!-- @impl: src/operators/registry.ts::promoteManagementInstallation --> <!-- @impl: src/operators/registry.ts::configureManagementInstallation --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (REQ-OPERATOR-043) -->
 
-**Notes:** Deployed restore evidence remains incomplete.
+**Notes:** Collision refusal, authorization-filtered search/pages and installation-local release/configuration updates are implemented. The pinned-version fixture reads back the unchanged sibling after promotion and configuration.
 
-**Constraints:** Catalog and installation projections contain no stored source credential or hidden unauthorized count.
+**Constraints:** Catalog and installation projections contain no stored source credential or hidden unauthorized count. Shared operator-policy changes are not installation-local configuration changes.
 
 **Priority:** P0
 
@@ -492,7 +492,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Verification:** Automated: [operator-catalog.test.ts](../../src/__tests__/operators/operator-catalog.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1875,14 +1875,14 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 **Acceptance Criteria:**
 
 1. The parent binds the Conductor to the exact activity generation, installation revisions, human expiry and cancellation state before every protected effect except cleanup-only stopping of its already-owned session; revocation never grants new work. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
-2. The parent selects and owns the restricted session profile, bucket and fixed attachment destination; package input cannot replace them. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
-3. Before Conductor work, the parent restores only immutable attachment bytes bound to the admitted digest and size, including any claimed packets. Changed or undeclared bytes cannot enter the reviewer session. <!-- @impl: src/operators/attachments.ts::projectOperatorAttachments --> <!-- @impl: src/operators/attachments.ts::persistApprovedPacketAttachment --> <!-- @impl: src/operators/activity.ts::saveApprovedPacketAttachment --> <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @impl: scripts/restore-operator-attachments.mjs::restoreOperatorAttachments --> <!-- @test: src/__tests__/operators/attachments.test.ts (operator opaque attachment ownership) --> <!-- @test: src/__tests__/operators/approved-packet-storage.test.ts (REQ-OPERATOR-050/052: parent-owned immutable packet storage) --> <!-- @test: src/__tests__/operators/conductor-production-packet.test.ts (REQ-OPERATOR-050/053: claimed parent packet crosses only the ordinary Host and sealed storage) -->
+2. The parent selects and owns the restricted session profile, bucket and fixed attachment destination; package input cannot replace them. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) --> <!-- @manual -->
+3. Before Conductor work, the parent restores only immutable attachment bytes bound to the admitted digest and size, including any claimed packets. Changed or undeclared bytes cannot enter the reviewer session. <!-- @impl: src/operators/attachments.ts::projectOperatorAttachments --> <!-- @impl: src/operators/attachments.ts::persistApprovedPacketAttachment --> <!-- @impl: src/operators/activity.ts::saveApprovedPacketAttachment --> <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @impl: scripts/restore-operator-attachments.mjs::restoreOperatorAttachments --> <!-- @test: src/__tests__/operators/attachments.test.ts (operator opaque attachment ownership) --> <!-- @test: src/__tests__/operators/approved-packet-storage.test.ts (REQ-OPERATOR-050/052: parent-owned immutable packet storage) --> <!-- @test: src/__tests__/operators/conductor-production-packet.test.ts (REQ-OPERATOR-050/053: claimed parent packet crosses only the ordinary Host and sealed storage) --> <!-- @manual -->
 4. For claimed packets, the parent compares requested initialization with the private current-generation Activity checkpoint before Pi startup. <!-- @impl: src/operators/activity.ts::getCurrentDriveCheckpointJson --> <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-production-packet.test.ts (REQ-OPERATOR-050: claimed packet initialization requires its private Activity checkpoint) -->
 5. Structured Pi tasks expose no credential or unrestricted filesystem authority. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
 6. Synchronization seals exact declared outputs and requires independent verification before completion. <!-- @impl: src/operators/conductor-capability.ts::OperatorConductorCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
 7. Storage inspection is owner-scoped, canonical-path bounded and read-only. <!-- @impl: src/operators/conductor-production.ts::createConductorProductionCapability --> <!-- @test: src/__tests__/operators/conductor-capability.test.ts (generic installed Conductor capability) -->
 
-**Notes:** The parent checks initialization only when claimed packets exist; complete-checkpoint matching for every initialization remains unmet. Deployed protected-Action and owned-session restore acceptance remain unverified.
+**Notes:** Claimed-packet initialization must exactly match the private current-generation Activity checkpoint before startup. Other initialization undergoes bounded profile, file, task and authority validation; checkpoint equality is not a universal initialization check. Native owned-session profile and restore verification uses the manual method below alongside component automation.
 
 **Constraints:**
 
@@ -1894,9 +1894,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle)
 
-**Verification:** Automated: [Conductor capability](../../src/__tests__/operators/conductor-capability.test.ts), [attachment ownership](../../src/__tests__/operators/attachments.test.ts), [approved packet storage](../../src/__tests__/operators/approved-packet-storage.test.ts), [claimed packet restoration](../../src/__tests__/operators/conductor-production-packet.test.ts)
+**Verification:** Automated: [Conductor capability](../../src/__tests__/operators/conductor-capability.test.ts), [attachment ownership](../../src/__tests__/operators/attachments.test.ts), [approved packet storage](../../src/__tests__/operators/approved-packet-storage.test.ts), [claimed packet restoration](../../src/__tests__/operators/conductor-production-packet.test.ts); Manual: [Owned-session and resource acceptance table](../../documentation/lanes/operators.md#owned-session-and-resource-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1911,11 +1911,11 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 1. An admitted package may declare bounded generic resources; packages without resources retain existing behavior. <!-- @impl: src/operators/package-resources.ts::projectOperatorPackageResources --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) -->
 2. The parent projects only digest-and-size-verified bytes from canonical declared paths. <!-- @impl: src/operators/package-resources.ts::projectOperatorPackageResources --> <!-- @impl: src/operators/package-resources.ts::verifyOperatorPackageResourceProjection --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) -->
-3. Activity-owned resource persistence remains inert and non-authoritative. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (retains exact admitted resource bytes across Activity reconstruction and refuses another artifact) -->
-4. Verified resources are available before package work starts and never enter synchronized user storage. <!-- @impl: src/container/index.ts::configureOperatorResources --> <!-- @impl: src/operators/package-resources.ts::verifyOperatorPackageResourceProjection --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) -->
-5. Missing, oversized, path-escaping, symlinked or digest-mismatched resources fail closed before package work starts. <!-- @impl: scripts/restore-operator-attachments.mjs::restoreOperatorAttachments --> <!-- @test: host/__tests__/operator-attachment-restore.test.js (opaque operator attachments reject missing, oversized, unsafe and mismatched resources) -->
+3. Activity-owned resource persistence remains inert and non-authoritative. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/operators/activity.ts::savePackageResources --> <!-- @impl: src/operators/activity.ts::getPackageResources --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (retains exact admitted resource bytes across Activity reconstruction and refuses another artifact) -->
+4. Verified resources are available before package work starts and never enter synchronized user storage. <!-- @impl: src/container/index.ts::configureOperatorResources --> <!-- @impl: src/operators/package-resources.ts::verifyOperatorPackageResourceProjection --> <!-- @impl: scripts/materialize-operator-inputs.mjs::materializeOperatorInputs --> <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (REQ-OPERATOR-005: owned container runtime) --> <!-- @test: host/__tests__/operator-review-startup.test.js (REQ-OPERATOR-021: stages the approved packets/resources at the actual restricted Pi paths before readiness) --> <!-- @manual -->
+5. Missing, oversized, path-escaping, symlinked or digest-mismatched resources fail closed before package work starts. <!-- @impl: src/operators/package-resources.ts::verifyOperatorPackageResourceProjection --> <!-- @impl: scripts/materialize-operator-inputs.mjs::materializeOperatorInputs --> <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: src/__tests__/operators/package-resources.test.ts (generic admitted Operator package resources) --> <!-- @test: host/__tests__/operator-review-startup.test.js (REQ-OPERATOR-052 AC5: invalid inline resources leave no staged package input) --> <!-- @test: host/__tests__/operator-review-startup.test.js (REQ-OPERATOR-021: forged package resources cannot replace the approved reviewer instructions) --> <!-- @manual -->
 
-**Notes:** Deployed restore evidence remains incomplete.
+**Notes:** Activity persistence retains the admitted artifact-bound inline-resource projection. Inline restore writes beneath `/run/codeflare/operator-resources/<artifactDigest>/`; input materialization precedes readiness. Component tests cover reconstruction, projection validation and real-file materializer rejection, not native early restore or work-start ordering. Those native outcomes and exclusion from synchronized storage use the manual method below.
 
 **Constraints:** Package resources grant no authority; Codeflare stores only opaque locator and integrity metadata, and package code alone interprets contents.
 
@@ -1923,9 +1923,9 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-050](#req-operator-050-generic-conductor-capability)
 
-**Verification:** Automated: [package-resources.test.ts](../../src/__tests__/operators/package-resources.test.ts), [owned-session-runtime.test.ts](../../src/__tests__/operators/owned-session-runtime.test.ts), [operator-attachment-restore.test.js](../../host/__tests__/operator-attachment-restore.test.js), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts)
+**Verification:** Automated: [package-resources.test.ts](../../src/__tests__/operators/package-resources.test.ts), [owned-session-runtime.test.ts](../../src/__tests__/operators/owned-session-runtime.test.ts), [operator-review-startup.test.js](../../host/__tests__/operator-review-startup.test.js), [dispatcher-production-lifecycle.test.ts](../../src/__tests__/operators/dispatcher-production-lifecycle.test.ts); Manual: [Owned-session and resource acceptance table](../../documentation/lanes/operators.md#owned-session-and-resource-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

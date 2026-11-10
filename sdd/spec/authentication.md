@@ -551,8 +551,6 @@ None.
 3. The admin page displays the user count against configured capacity. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Open the admin user page with a configured capacity and confirm the current and maximum user counts are displayed. -->
 4. In SaaS mode the admin panel renders the full tier + session-mode selectors per user; in onboarding mode it renders a per-user Approve / Block (`blocked` tier) control. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement --> <!-- @manual: Compare SaaS and onboarding deployments and confirm their user controls and bulk-approval outcomes match the criterion. -->
 
-**Notes:** Partial pending manual SaaS/onboarding checks for grouping, search, approval, tier/session-mode changes, capacity, deletion presentation, and mode-specific bulk approval. Push-subscription cleanup is automated.
-
 **Constraints:**
 
 - Tier mutation approves access only in app-owned OIDC modes gated by `isSessionOidcMode`.
@@ -564,7 +562,7 @@ None.
 
 **Verification:** Manual: [Admin user panel acceptance](../../documentation/lanes/authentication.md#admin-user-panel-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

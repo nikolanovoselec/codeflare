@@ -1663,9 +1663,18 @@ For [REQ-AGENT-165](../../sdd/spec/agents.md), read the exact [pinned source](ht
 
 | Contract | Review action and required outcome |
 |---|---|
-| AC1/2 | Trace `--update` (`serve_question.rs:1369–1419`): missing/empty options reject before hand/delivery writes; card/comps gates and same-key liveness precede recording a new hand and copying/touching that key’s `.next.json`. GET `/` then consumes the keyed pending round (`:1614–1635`). This is source correspondence, not proof that a delivery copy succeeded or a native session displayed it. Use existing update/wait interfaces as source entry points, not execution instructions. |
-| AC3/4 | Read `NEXT_CLAIM_GRACE_MS = 10000` (`serve_question.rs:18`) and the wait branch (`:1288–1303`): delivery mtime or nonzero `claimedAt` suppresses page closure only when age is strictly less than 10,000 ms. At equality or outside, stale nonzero `lastBeat` older than 15,000 ms can produce PAGE CLOSED if no answer exists. The daemon watchdog separately exits only beyond its grace bound (`:1577–1592`); do not conflate its strict `>` with wait-side `<`. |
-| AC5/6 | Follow keyed delivery consumption into page-claim state after the delivery file disappears: GET `/` loads the pending round, removes the file, records `last_claim_at`, then atomically writes `claimedAt` in state (`serve_question.rs:1614–1632`). The whole read/remove/claim sequence is not one atomic filesystem operation. Wait-side suppression uses claim age strictly below 10,000 ms (`:1288–1291`); equality and older claims cannot suppress page closure. No live timestamp or delivery-file mutation is permitted. |
+| AC1/2 | Trace keyed update and pending-round consumption; distinguish source correspondence from native delivery evidence. See [full conditions](#impeccable-update-review-conditions). |
+| AC3/4 | Compare wait-side suppression with the separate daemon watchdog; retain their distinct strict timing bounds. See [full conditions](#impeccable-wait-review-conditions). |
+| AC5/6 | Trace delivery consumption and claim-state publication without live mutation; distinguish atomic state writes from the whole sequence. See [full conditions](#impeccable-claim-review-conditions). |
+
+<a id="impeccable-update-review-conditions"></a>
+**AC1/2 review conditions:** Trace `--update` (`serve_question.rs:1369–1419`): missing/empty options reject before hand/delivery writes; card/comps gates and same-key liveness precede recording a new hand and copying/touching that key’s `.next.json`. GET `/` then consumes the keyed pending round (`:1614–1635`). This is source correspondence, not proof that a delivery copy succeeded or a native session displayed it. Use existing update/wait interfaces as source entry points, not execution instructions.
+
+<a id="impeccable-wait-review-conditions"></a>
+**AC3/4 review conditions:** Read `NEXT_CLAIM_GRACE_MS = 10000` (`serve_question.rs:18`) and the wait branch (`:1288–1303`): delivery mtime or nonzero `claimedAt` suppresses page closure only when age is strictly less than 10,000 ms. At equality or outside, stale nonzero `lastBeat` older than 15,000 ms can produce PAGE CLOSED if no answer exists. The daemon watchdog separately exits only beyond its grace bound (`:1577–1592`); do not conflate its strict `>` with wait-side `<`.
+
+<a id="impeccable-claim-review-conditions"></a>
+**AC5/6 review conditions:** Follow keyed delivery consumption into page-claim state after the delivery file disappears: GET `/` loads the pending round, removes the file, records `last_claim_at`, then atomically writes `claimedAt` in state (`serve_question.rs:1614–1632`). The whole read/remove/claim sequence is not one atomic filesystem operation. Wait-side suppression uses claim age strictly below 10,000 ms (`:1288–1291`); equality and older claims cannot suppress page closure. No live timestamp or delivery-file mutation is permitted.
 
 ### Impeccable native acceptance
 

@@ -482,6 +482,8 @@ export function runSetupConfiguration(
         try {
           const routinePointer = JSON.parse(routinePointerRaw) as { runId?: string; expiresAt?: string };
           if (routinePointer.runId && routinePointer.expiresAt && Date.parse(routinePointer.expiresAt) > Date.now()) {
+            // No provisioning started: a fresh admission may accept corrected input.
+            terminalFailure = true;
             await send({ done: true, success: false, error: 'An Environment settings change is already in progress. Please wait and try again.' });
             return;
           }

@@ -1055,13 +1055,11 @@ None.
 **Acceptance Criteria:**
 
 1. Exact reviewed Pi or Claude OSC 777 frames from terminal one create fixed four-field events; malformed, oversized, unknown, near-match, and non-primary-terminal frames create no event and never alter PTY bytes. <!-- @impl: host/src/agent-events.ts::OscAgentEventParser --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC1 / H1: bounded stream-safe OSC 777 parser) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-023 AC1 / REQ-TERM-028 AC1-AC4: Session owns primary-terminal event coordination) -->
-2. Every attached client submits one event-specific disposition; any initial or granted-client late `suppress` cancels local display and undelivered fallback for that event. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (lets one active client suppress every device before any display grant) --> <!-- @test: host/__tests__/agent-events.test.js (accepts a late suppress from the granted client and never makes the event drain-eligible) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (cannot use a socket attached to another Session to affect the originating queue) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-023 AC2: submits late suppression when presence changes during display) -->
-3. When every snapshotted client reports away, the host grants one local display; only the grantee displays and confirms, and absent confirmation enables fallback. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (grants exactly one display only after every snapshotted client reports away) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (native agent notifications / REQ-TERM-023 AC2/AC3) -->
-4. Zero-client and timed-out events enter the authenticated DO drain and remain re-offered while retained, until processed, acknowledged, or expired after 15 minutes. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC2-AC4 / H2-H3: global client coordination) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC4 / D2-D4: drains, validates, enriches, sends, then ACK-clears on every running tick) -->
-5. Every notification contains fixed reason text plus trusted Session identity; terminal or agent prose, names, paths, output, tool data, and arbitrary links never reach display. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (sends only the fixed seven-field payload enriched from the DO-owned Session) -->
-6. Notification coordination, polling, delivery, and worker handling never mutate user activity, extend idle time, wake a stopped container, or create notification history. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC5: a stalled push provider cannot stop metrics or alarm re-arming) --> <!-- @test: src/__tests__/container-metrics.test.ts (D3/D4: delivered notifications preserve parsed activity and cannot extend the idle deadline) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (registers no fetch, cache, or sync handlers) -->
-
-**Notes:** Partial pending deployed one-active-client suppression, all-away single local display, no-client Push fallback, bounded pickup residue, and no-wake/no-idle-extension evidence.
+2. Every attached client submits one event-specific disposition; any initial or granted-client late `suppress` cancels local display and undelivered fallback for that event. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (lets one active client suppress every device before any display grant) --> <!-- @test: host/__tests__/agent-events.test.js (accepts a late suppress from the granted client and never makes the event drain-eligible) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (cannot use a socket attached to another Session to affect the originating queue) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-023 AC2: submits late suppression when presence changes during display) --> <!-- @manual -->
+3. When every snapshotted client reports away, the host grants one local display; only the grantee displays and confirms, and absent confirmation enables fallback. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: host/__tests__/agent-events.test.js (grants exactly one display only after every snapshotted client reports away) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (native agent notifications / REQ-TERM-023 AC2/AC3) --> <!-- @manual -->
+4. Zero-client and timed-out events enter the authenticated DO drain and remain re-offered while retained, until processed, acknowledged, or expired after 15 minutes. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC2-AC4 / H2-H3: global client coordination) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC4 / D2-D4: drains, validates, enriches, sends, then ACK-clears on every running tick) --> <!-- @manual -->
+5. Every notification contains fixed reason text plus trusted Session identity; terminal or agent prose, names, paths, output, tool data, and arbitrary links never reach display. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (sends only the fixed seven-field payload enriched from the DO-owned Session) --> <!-- @manual -->
+6. Notification coordination, polling, delivery, and worker handling never mutate user activity, extend idle time, wake a stopped container, or create notification history. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC5: a stalled push provider cannot stop metrics or alarm re-arming) --> <!-- @test: src/__tests__/container-metrics.test.ts (D3/D4: delivered notifications preserve parsed activity and cannot extend the idle deadline) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (registers no fetch, cache, or sync handlers) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1075,9 +1073,9 @@ None.
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [terminal-agent-events.test.js](../../host/__tests__/terminal-agent-events.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [push-sender.test.ts](../../src/__tests__/lib/push-sender.test.ts), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [agent-notifications.test.ts](../../web-ui/src/__tests__/lib/agent-notifications.test.ts), [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts)
+**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [terminal-agent-events.test.js](../../host/__tests__/terminal-agent-events.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [push-sender.test.ts](../../src/__tests__/lib/push-sender.test.ts), [useTerminal.test.ts](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [agent-notifications.test.ts](../../web-ui/src/__tests__/lib/agent-notifications.test.ts), [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1089,12 +1087,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. A newly attached client receives every unresolved event for the originating Session. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-028 AC1-AC4 / H4 and queue lifecycle bounds) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-023 AC1 / REQ-TERM-028 AC1-AC4: Session owns primary-terminal event coordination) -->
-2. Attachment without a suppress disposition preserves the event's fallback eligibility. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (reconciles a newly attached away client without discarding unresolved fallback) -->
-3. A newly attached client's event-specific suppress disposition cancels local display and undelivered fallback globally. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/agent-events.test.js (lets a newly attached active client suppress an unresolved fallback event) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (a new attachment reconciles the pending event before active presence can suppress it) -->
-4. Classified user input cancels pending, eligible, and drained-unacknowledged events. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (classified input cancels pending, eligible, and drained-unacknowledged events) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (classified user input cancels pending and drained-unacknowledged events) -->
-
-**Notes:** Partial pending deployed hidden-reconnect fallback preservation and active-reconnect suppression evidence.
+1. A newly attached client receives every unresolved event for the originating Session. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-028 AC1-AC4 / H4 and queue lifecycle bounds) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-023 AC1 / REQ-TERM-028 AC1-AC4: Session owns primary-terminal event coordination) --> <!-- @manual -->
+2. Attachment without a suppress disposition preserves the event's fallback eligibility. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (reconciles a newly attached away client without discarding unresolved fallback) --> <!-- @manual -->
+3. A newly attached client's event-specific suppress disposition cancels local display and undelivered fallback globally. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/agent-events.test.js (lets a newly attached active client suppress an unresolved fallback event) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (a new attachment reconciles the pending event before active presence can suppress it) --> <!-- @manual -->
+4. Classified user input cancels pending, eligible, and drained-unacknowledged events. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (classified input cancels pending, eligible, and drained-unacknowledged events) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (classified user input cancels pending and drained-unacknowledged events) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1105,9 +1101,9 @@ None.
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js)
+**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1119,14 +1115,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. One Settings switch per device is the only permission-request path. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-025 AC1-AC6) -->
-2. Enabling reports on only after re-registering an existing valid subscription with the current application-server key. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (re-registers an existing matching subscription before reporting enrollment on) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-025 AC2: enrollment stays pending until existing capability registration succeeds) -->
-3. Otherwise enabling replaces stale capability state and completes permission, worker readiness, subscription, and authenticated registration in one gesture. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (enables in one gesture: permission, public config, subscribe, then authenticated save) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (replaces an existing subscription whose application server key cannot match current config) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-025 AC3: worker readiness precedes subscription and registration precedes on) -->
-4. Disabling deletes the server registration before unsubscribing locally. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (disables by deleting server capability then unsubscribing locally) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-025 AC4: pending or failed server deletion retains the local subscription) -->
-5. Denied permission reads denied, while granted permission without a valid subscription reads off. <!-- @impl: web-ui/src/lib/agent-notifications.ts::agentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (reads on only when permission is granted and a valid subscription exists) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (does not subscribe or save after permission denial) -->
-6. Settings omits the notification control when the authenticated sender-config route reports that notification delivery is not configured. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-025 AC1-AC6) -->
-
-**Notes:** Partial pending desktop, Android-class, and installed iOS PWA enrollment, denial, disable, and re-enrollment evidence.
+1. One Settings switch per device is the only permission-request path. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-025 AC1-AC6) --> <!-- @manual -->
+2. Enabling reports on only after re-registering an existing valid subscription with the current application-server key. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (re-registers an existing matching subscription before reporting enrollment on) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-025 AC2: enrollment stays pending until existing capability registration succeeds) --> <!-- @manual -->
+3. Otherwise enabling replaces stale capability state and completes permission, worker readiness, subscription, and authenticated registration in one gesture. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (enables in one gesture: permission, public config, subscribe, then authenticated save) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (replaces an existing subscription whose application server key cannot match current config) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-025 AC3: worker readiness precedes subscription and registration precedes on) --> <!-- @manual -->
+4. Disabling deletes the server registration before unsubscribing locally. <!-- @impl: web-ui/src/lib/agent-notifications.ts::setAgentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (disables by deleting server capability then unsubscribing locally) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-025 AC4: pending or failed server deletion retains the local subscription) --> <!-- @manual -->
+5. Denied permission reads denied, while granted permission without a valid subscription reads off. <!-- @impl: web-ui/src/lib/agent-notifications.ts::agentNotificationsEnabled --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (reads on only when permission is granted and a valid subscription exists) --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (does not subscribe or save after permission denial) --> <!-- @manual -->
+6. Settings omits the notification control when the authenticated sender-config route reports that notification delivery is not configured. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (Agent notifications / REQ-TERM-025 AC1-AC6) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1137,9 +1131,9 @@ None.
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries)
 
-**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [agent-notifications.test.ts](../../web-ui/src/__tests__/lib/agent-notifications.test.ts)
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [agent-notifications.test.ts](../../web-ui/src/__tests__/lib/agent-notifications.test.ts); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1152,10 +1146,8 @@ None.
 **Acceptance Criteria:**
 
 1. Invalid, unknown, or unsafe notification payloads produce no display. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC1-AC2 / REQ-SEC-024 AC4: agent notification service worker push) -->
-2. Receiving the same identifiable event again visibly presents the notification again. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC1-AC2 / REQ-SEC-024 AC4: agent notification service worker push) -->
-3. Notification clicks select only a loaded user-owned session at the canonical same-origin session path. <!-- @impl: web-ui/src/lib/session-path.ts::parseSessionPath --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-027 AC3: canonical session deep links) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC3: canonical notification click navigation) -->
-
-**Notes:** Partial pending desktop, Android-class, and installed iOS PWA display plus exact two-session click-routing evidence.
+2. Receiving the same identifiable event again visibly presents the notification again. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC1-AC2 / REQ-SEC-024 AC4: agent notification service worker push) --> <!-- @manual -->
+3. Notification clicks select only a loaded user-owned session at the canonical same-origin session path. <!-- @impl: web-ui/src/lib/session-path.ts::parseSessionPath --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-027 AC3: canonical session deep links) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC3: canonical notification click navigation) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1167,9 +1159,9 @@ None.
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-025](#req-term-025-per-device-notification-enrollment), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated: [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** Automated: [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1298,11 +1290,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Standard and Pro retain Claude's native permission notifications; Classic adds no competing producer, while Herdr uses the fixed ingress in [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary). <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-026 AC1: Claude keeps native Ghostty notifications and adds only the fixed Herdr permission hook) -->
-2. Only the exact reviewed Claude permission frame maps to `input-required`; every other Claude or near-match frame emits nothing. <!-- @impl: host/src/agent-events.ts::AGENT_EVENT_FRAMES --> <!-- @impl: host/src/agent-events.ts::OscAgentEventParser --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-026 AC2: maps only reviewed Pi and Claude frames and ignores every near-match) -->
-3. Claude notification handling preserves focus-in and focus-out bytes and never synthesizes focus-out on detach. <!-- @impl: host/src/session.ts::stripTerminalResponses --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-026 AC3: Claude notification focus independence) -->
-
-**Notes:** Partial pending a fresh terminal-one record of Claude's native permission frame and silence for unsupported notification kinds.
+1. Standard and Pro retain Claude's native permission notifications; Classic adds no competing producer, while Herdr uses the fixed ingress in [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary). <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-026 AC1: Claude keeps native Ghostty notifications and adds only the fixed Herdr permission hook) --> <!-- @manual -->
+2. Only the exact reviewed Claude permission frame maps to `input-required`; every other Claude or near-match frame emits nothing. <!-- @impl: host/src/agent-events.ts::AGENT_EVENT_FRAMES --> <!-- @impl: host/src/agent-events.ts::OscAgentEventParser --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-026 AC2: maps only reviewed Pi and Claude frames and ignores every near-match) --> <!-- @manual -->
+3. Claude notification handling preserves focus-in and focus-out bytes and never synthesizes focus-out on detach. <!-- @impl: host/src/session.ts::stripTerminalResponses --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-026 AC3: Claude notification focus independence) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1313,9 +1303,9 @@ None.
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary)
 
-**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js)
+**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [agent-events.test.js](../../host/__tests__/agent-events.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

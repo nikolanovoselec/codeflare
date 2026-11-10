@@ -466,8 +466,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 6. Deployment permits notification sender configuration to be absent; when any sender field is configured, all three fields must be present, valid, whitespace-trimmed, and internally consistent before Worker promotion. <!-- @impl: scripts/ci/validate-vapid-config.mjs::validateSubject --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (allows notifications to be omitted and validates a configured matching P-256 keypair before Worker promotion) -->
 7. Deployment logs identify whether notification fields are configured without printing their values. <!-- @impl: scripts/ci/validate-vapid-config.mjs::required --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (rejects partial, whitespace, malformed, and mismatched configuration without printing key values) -->
 
-**Notes:** Partial pending a successful deployment record showing accepted sender configuration, value-free logs, a public-only config response, and off/on re-enrollment after controlled key rotation.
-
 **Constraints:**
 
 - Worker secrets are written after worker creation.
@@ -480,7 +478,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated: [seed-service-user](../../host/__tests__/seed-service-user.test.js), [notification deployment contract](../../host/__tests__/deploy-requires-tests.test.js); Manual: [Standard deployment verification](../../documentation/lanes/deployment.md#standard-deployment)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

@@ -209,9 +209,12 @@ Use existing authorized checkout, signed-event, portal and invoice records, matc
 | Contract | Action and required outcome |
 |---|---|
 | REQ-SUB-004 AC4 | Follow an existing `checkout=success` trace through pending activation and five minutes. Auth polls every three seconds; report-problem appears without ending polling. Activation ends the flow. Read `SubscribePage.tsx` to verify no total polling deadline. |
-| REQ-SUB-004 AC5/7 | Match completed/updated signed events to latest-provider-state synchronization and deletions to coordinated canceled/free/default cleanup. Compare event-marker visibility separately from durable per-checkout receipts: replay after marker expiry preserves same-subscription date/trial history and does not claim notices again. Check stale different-subscription updates/deletions leave replacement state unchanged, and an unavailable initial snapshot or transient stale-token rejection leaves checkout retryable without partial activation or a processed event marker. Notices remain best-effort after claim, not guaranteed inbox delivery or billing-wide exactly-once effects. |
+| REQ-SUB-004 AC5/7 | Compare signed events, latest-provider synchronization, cleanup and retry evidence under the [full lifecycle conditions](#checkout-provider-lifecycle-conditions). |
 | REQ-SUB-016 AC2/6 | Match hosted plan confirmation to selected price/subscription item. Portal creation is authenticated, customer-bound and limited to five per minute. Existing unauthorized/no-customer/over-limit cases return no portal URL. |
 | REQ-SUB-021 AC2/3/5 | Compare new/trial-end subscriptions and invoices: initial charge prorates to the next UTC month; later monthly anchors fall on its first day. A pre-change subscription retains its recorded anniversary. Checkout parameters alone cannot prove recurring billing. |
+
+<a id="checkout-provider-lifecycle-conditions"></a>
+**REQ-SUB-004 AC5/7 lifecycle conditions:** Match completed/updated signed events to latest-provider-state synchronization and deletions to coordinated canceled/free/default cleanup. Compare event-marker visibility separately from durable per-checkout receipts: replay after marker expiry preserves same-subscription date/trial history and does not claim notices again. Check stale different-subscription updates/deletions leave replacement state unchanged, and an unavailable initial snapshot or transient stale-token rejection leaves checkout retryable without partial activation or a processed event marker. Notices remain best-effort after claim, not guaranteed inbox delivery or billing-wide exactly-once effects.
 
 ### Integration analytics and report presentation acceptance
 

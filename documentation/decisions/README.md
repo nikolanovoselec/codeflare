@@ -9,7 +9,8 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 - **Superseded:** a newer linked decision or requirement replaced the whole record. Superseded entries are struck through in the index, while their original sections remain readable as history.
 - **Partially superseded:** only the explicitly named clause was replaced; the record remains active for everything else.
 - **Redirect anchor:** the numbered heading remains for inbound links, but its content moved to another ADR or canonical documentation lane. Follow the destination in the index and section status.
-- **Documentary extraction:** a present-day record of an already-dated amendment, not a new acceptance/adoption or an invented original decision date. Original text remains in its parent ADR.
+
+Documentary extractions are present-day records of already-dated amendments, not new acceptance/adoption or invented original decision dates. AD159–AD164 are redirect anchors to their canonical parent AD74; their retained summaries do not confer independent authority.
 
 Current-scope annotations and Context source anchors support only the named current mechanism. They do not authenticate old incidents, measurements, vendor guarantees, actor authority, deployed acceptance or signed publication. Unrecovered original Context/Consequences and historical authority remain explicit provenance debt (AQ03); placeholder fields are not evidence. Contexts labeled “retained compact-record rationale” reuse text already recorded in `5851c808:documentation/decisions/README.md`; their adjacent current-source anchors support only the expressly bounded mechanism, not original acceptance or external claims. The original Decision paragraphs remain intact.
 
@@ -180,12 +181,12 @@ Current-scope annotations and Context source anchors support only the named curr
 | [AD153](#ad153-session-capture-compaction-preserves-durable-memory) | Compact cold session captures through the existing sync lifecycle | Daily compaction keeps a filename-derived one-month hot set, relocates graph provenance, deletes exact local sources, and publishes the result with one bisync. | Architecture, Memory, Storage | Active |
 | [AD154](#ad154-pi-discovers-skills-through-native-metadata-and-generated-invocation-policy) | Discover Pi skills through native metadata | Existing capability search uses native winners and generated eligibility policy without an eager index, a new executor, or context-lifecycle changes. | Agents, Architecture, Performance | Active |
 | [AD158](#ad158-select-complete-upstream-graphify-contexts-per-request) | Select complete upstream Graphify contexts per request | Graphify delegates graph/community/index loading to upstream so parallel relations and fresh generations stay consistent without a watcher. | Architecture | Active |
-| [AD159](#ad159-recorded-dual-transport-replacement-of-rest-only-routing) | Recorded dual-transport replacement of REST-only routing | The recorded 2026-06-07 amendment narrows REST-only routing to REST-first/complete-404 compat replay for historical assignments. | Historical/provenance | Documentary extraction |
-| [AD160](#ad160-recorded-compat-field-stripping-and-email-attribution) | Recorded compat field stripping and email attribution | The recorded 2026-06-07 amendment separates compat field stripping from REST and records trusted-email attribution without new disclosure authority. | Historical/provenance | Documentary extraction |
-| [AD161](#ad161-recorded-catalog-routing-and-bounded-group-attribution) | Recorded catalog routing and bounded group attribution | The recorded 2026-06-09 amendment replaces single-variable routing and scalar group metadata with catalog selection and bounded group tags. | Historical/provenance | Documentary extraction |
-| [AD162](#ad162-recorded-capability-profile-administration-replacement) | Recorded capability-profile administration replacement | The recorded 2026-09-05 amendment adds immutable active profiles and administration boundaries without certifying the historical catalog inventory. | Historical/provenance | Documentary extraction |
-| [AD163](#ad163-recorded-discovered-compatibility-transport-replacement) | Recorded discovered compatibility transport replacement | The recorded 2026-09-13 amendment binds new compatibility discovery to saved compat wire contracts, retaining historical assignment behavior. | Historical/provenance | Documentary extraction |
-| [AD164](#ad164-recorded-independent-capability-qualification-replacement) | Recorded independent-capability qualification replacement | The recorded 2026-09-13 clarification separates capability dimensions and legacy evidence without promoting missing receipts. | Historical/provenance | Documentary extraction |
+| [AD159](#ad159-recorded-dual-transport-replacement-of-rest-only-routing) | Recorded dual-transport replacement of REST-only routing | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)’s recorded 2026-06-07 amendment narrows REST-only routing to REST-first/complete-404 compat replay for historical assignments. | Historical/provenance | Redirect anchor |
+| [AD160](#ad160-recorded-compat-field-stripping-and-email-attribution) | Recorded compat field stripping and email attribution | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)’s recorded 2026-06-07 amendment separates compat field stripping from REST and records trusted-email attribution without new disclosure authority. | Historical/provenance | Redirect anchor |
+| [AD161](#ad161-recorded-catalog-routing-and-bounded-group-attribution) | Recorded catalog routing and bounded group attribution | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)’s recorded 2026-06-09 amendment replaces single-variable routing and scalar group metadata with catalog selection and bounded group tags. | Historical/provenance | Redirect anchor |
+| [AD162](#ad162-recorded-capability-profile-administration-replacement) | Recorded capability-profile administration replacement | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)’s recorded 2026-09-05 amendment adds immutable active profiles and administration boundaries without certifying the historical catalog inventory. | Historical/provenance | Redirect anchor |
+| [AD163](#ad163-recorded-discovered-compatibility-transport-replacement) | Recorded discovered compatibility transport replacement | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)’s recorded 2026-09-13 amendment binds new compatibility discovery to saved compat wire contracts, retaining historical assignment behavior. | Historical/provenance | Redirect anchor |
+| [AD164](#ad164-recorded-independent-capability-qualification-replacement) | Recorded independent-capability qualification replacement | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)’s recorded 2026-09-13 clarification separates capability dimensions and legacy evidence without promoting missing receipts. | Historical/provenance | Redirect anchor |
 
 ---
 
@@ -4461,7 +4462,9 @@ Upstream nominal query-header/resource paths are not rebound by this narrow seam
 
 **Category:** Historical/provenance documentation
 
-**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-06-07; no separate original ADR acceptance date is asserted.
+**Status:** Merged into [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for canonical amendment authority; this stable anchor retains its documentary summary.
+
+**Provenance:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-06-07; no separate original ADR acceptance date is asserted.
 
 **Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — Transport only: AD74 original REST-only and no-migration-debt clauses; later discovery scope is recorded by AD163.
 
@@ -4481,7 +4484,9 @@ Upstream nominal query-header/resource paths are not rebound by this narrow seam
 
 **Category:** Historical/provenance documentation
 
-**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-06-07; no separate original ADR acceptance date is asserted.
+**Status:** Merged into [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for canonical amendment authority; this stable anchor retains its documentary summary.
+
+**Provenance:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-06-07; no separate original ADR acceptance date is asserted.
 
 **Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 request-body passthrough and attribution clauses only; AD161 records later group attribution.
 
@@ -4501,7 +4506,9 @@ Upstream nominal query-header/resource paths are not rebound by this narrow seam
 
 **Category:** Historical/provenance documentation
 
-**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-06-09; no separate original ADR acceptance date is asserted.
+**Status:** Merged into [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for canonical amendment authority; this stable anchor retains its documentary summary.
+
+**Provenance:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-06-09; no separate original ADR acceptance date is asserted.
 
 **Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 2026-06-05 single-variable route-pinning and scalar group clauses only; the route-pinning incident remains historical.
 
@@ -4521,7 +4528,9 @@ Upstream nominal query-header/resource paths are not rebound by this narrow seam
 
 **Category:** Historical/provenance documentation
 
-**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-09-05; no separate original ADR acceptance date is asserted.
+**Status:** Merged into [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for canonical amendment authority; this stable anchor retains its documentary summary.
+
+**Provenance:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-09-05; no separate original ADR acceptance date is asserted.
 
 **Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 pre-profile Chat Completions/administration assumptions only; native/custom dispatch already belongs to AD152.
 
@@ -4541,7 +4550,9 @@ Upstream nominal query-header/resource paths are not rebound by this narrow seam
 
 **Category:** Historical/provenance documentation
 
-**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-09-13; no separate original ADR acceptance date is asserted.
+**Status:** Merged into [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for canonical amendment authority; this stable anchor retains its documentary summary.
+
+**Provenance:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-09-13; no separate original ADR acceptance date is asserted.
 
 **Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 new-discovery REST-first and unconditional zero-copy clauses only; original/dated bodies remain intact.
 
@@ -4561,7 +4572,9 @@ Upstream nominal query-header/resource paths are not rebound by this narrow seam
 
 **Category:** Historical/provenance documentation
 
-**Status:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-09-13; no separate original ADR acceptance date is asserted.
+**Status:** Merged into [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for canonical amendment authority; this stable anchor retains its documentary summary.
+
+**Provenance:** Documentary extraction in this remediation, not a new acceptance or adoption. Recorded amendment date: 2026-09-13; no separate original ADR acceptance date is asserted.
 
 **Supersedes (documentary scope):** [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) — AD74 prior cumulative qualification/cache-prerequisite description only; no change to transport, Worker credentials or historical-assignment replay.
 

@@ -324,6 +324,7 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const currentRevision = (await current.json() as { operator: { revision: number } }).operator.revision;
     const first = await request(`/operators/${operator.id}/installations`, 'POST', { name: 'inactive', policy, revision: currentRevision });
     expect(first.status).toBe(201);
+    const sibling = await first.json() as { id: string };
     const next = await request(`/operators/${operator.id}`);
     const nextRevision = (await next.json() as { operator: { revision: number } }).operator.revision;
     const second = await request(`/operators/${operator.id}/installations`, 'POST', { name: 'active', policy, revision: nextRevision });
@@ -332,7 +333,23 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const promoted = await request(`/installations/${active.id}/promote`, 'POST', { releaseId: release.id, revision: active.revision });
     expect(promoted.status).toBe(200);
     const pinned = await promoted.json() as { revision: number };
-    const enabled = await request(`/installations/${active.id}/enable`, 'POST', { enabled: true, revision: pinned.revision });
+    // REQ-OPERATOR-043 AC3: read the untouched sibling through the public detail API.
+    const afterPromotion = await request(`/operators/${operator.id}`);
+    expect(afterPromotion.status).toBe(200);
+    expect((await afterPromotion.json() as { installations: Array<{ id: string }> }).installations
+      .find(item => item.id === sibling.id)).toEqual(sibling);
+    const configured = await request(`/installations/${active.id}/configure`, 'POST', {
+      policy, configuration: { lane: 'active-only' }, revision: pinned.revision,
+    });
+    expect(configured.status).toBe(200);
+    const configuredInstallation = await configured.json() as { revision: number };
+    expect(configuredInstallation).toMatchObject({ id: active.id, releaseId: release.id,
+      configuration: { lane: 'active-only' } });
+    const afterConfiguration = await request(`/operators/${operator.id}`);
+    expect(afterConfiguration.status).toBe(200);
+    expect((await afterConfiguration.json() as { installations: Array<{ id: string }> }).installations
+      .find(item => item.id === sibling.id)).toEqual(sibling);
+    const enabled = await request(`/installations/${active.id}/enable`, 'POST', { enabled: true, revision: configuredInstallation.revision });
     expect(enabled.status).toBe(200);
     const enabledRevision = (await enabled.json() as { revision: number }).revision;
     const sourceRow = ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=?', release.id).one();

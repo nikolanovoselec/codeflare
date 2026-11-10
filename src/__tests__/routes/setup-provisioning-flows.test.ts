@@ -8,6 +8,7 @@ import { ValidationError, AuthError, SetupError, ForbiddenError } from '../../li
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
+import { ADMIN_CONFIGURATION_KEYS } from '../../lib/kv-keys';
 import { container as SetupOwner } from '../../container/index';
 
 // Only the platform base is replaced: admission and the complete setup task run unchanged.
@@ -298,6 +299,37 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         body: JSON.stringify({ ...standardBody, customDomain }),
       });
 
+    it('REQ-SETUP-004: fresh Environment refusal releases admission for changed input without provisioning', async () => {
+      const app = createTestApp({}, true);
+      await mockKV.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({
+        runId: 'environment-run', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }));
+      const providerRequests: string[] = [];
+      globalThis.fetch = async (url) => {
+        providerRequests.push(String(url));
+        throw new Error('Environment refusal must not provision');
+      };
+
+      const refused = await readNdjson(await configure(app, standardBody.customDomain));
+      expect(refused).toEqual([{
+        done: true, success: false,
+        error: 'An Environment settings change is already in progress. Please wait and try again.',
+      }]);
+      expect(providerRequests).toEqual([]);
+      expect(await mockKV.get('setup:configuring')).toBeNull();
+      expect(await mockKV.get('setup:custom_domain')).toBeNull();
+      expect(await mockKV.get('setup:complete')).toBeNull();
+      expect(await mockKV.get('user:user@example.com')).toBeNull();
+
+      await mockKV.delete(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
+      mockFullSuccessFlow();
+      const changedDomain = 'corrected.example.com';
+      const corrected = getNdjsonSummary(await readNdjson(await configure(app, changedDomain)));
+      expect(corrected.success).toBe(true);
+      expect(await mockKV.get('setup:custom_domain')).toBe(changedDomain);
+      expect(await mockKV.get('setup:complete')).toBe('true');
+    });
+
     it('REQ-SETUP-004: confirmed zone absence releases admission for corrected input', async () => {
       const app = createTestApp({}, true);
       globalThis.fetch = createUrlMockFetch({
@@ -378,6 +410,15 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       });
       expect(legacyApps.has('legacy-two')).toBe(false);
       expect(legacyApps.has('legacy-one')).toBe(true);
+      await mockKV.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({
+        runId: 'environment-run', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }));
+      const refusedRetry = getNdjsonSummary(await readNdjson(await configure(app, standardBody.customDomain)));
+      expect(refusedRetry).toMatchObject({
+        success: false,
+        error: 'An Environment settings change is already in progress. Please wait and try again.',
+      });
+      await mockKV.delete(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
       const changed = getNdjsonSummary(await readNdjson(await configure(app, 'corrected.example.com')));
       expect(changed.error).toMatch(/same configuration/);
       expect(await mockKV.get('setup:complete')).toBeNull();

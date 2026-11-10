@@ -433,14 +433,12 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Acceptance Criteria:**
 
 1. Notification enrollment and removal require authenticated user context. <!-- @impl: src/routes/notifications.ts::app --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-TERM-025 AC1-AC6 / REQ-SEC-023 AC1-AC4/AC7: notification routes) -->
-2. One user cannot read or change another user's device capabilities. <!-- @impl: src/routes/notifications.ts::app --> <!-- @impl: src/lib/kv-keys.ts::getPushSubKey --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-TERM-025 AC1-AC6 / REQ-SEC-023 AC1-AC4/AC7: notification routes) -->
+2. One user cannot read or change another user's device capabilities. <!-- @impl: src/routes/notifications.ts::app --> <!-- @impl: src/lib/kv-keys.ts::getPushSubKey --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-TERM-025 AC1-AC6 / REQ-SEC-023 AC1-AC4/AC7: notification routes) --> <!-- @manual -->
 3. Malformed, oversized, insecure, or unsupported subscriptions are rejected before they can be stored or used for delivery. <!-- @impl: src/routes/notifications.ts::parsePushSubscription --> <!-- @test: src/__tests__/routes/notifications.test.ts (rejects unknown providers, insecure endpoints, malformed keys, extra fields, and oversized bodies) --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-SEC-023: accepts exactly 4096 body bytes and rejects excess UTF-8 bytes without changing subscriptions) -->
 4. Application logs, analytics, responses, and route errors never contain Push endpoints or encryption keys. <!-- @impl: src/routes/notifications.ts::app --> <!-- @test: src/__tests__/routes/notifications.test.ts (does not log or return endpoint and key capability material on validation failure) -->
 5. User deletion removes all notification enrollments owned by that user. <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
-6. The VAPID private key exists only as a deployment secret. <!-- @impl: src/types.ts::Env --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (sources every VAPID field from Actions secret context so step metadata stays masked) -->
-7. The authenticated notification config route returns only the public key when all sender fields exist, and reports unavailable without exposing secret state when any field is absent. <!-- @impl: src/routes/notifications.ts::app --> <!-- @test: src/__tests__/routes/notifications.test.ts (returns only the public VAPID key from authenticated config) --> <!-- @test: src/__tests__/routes/notifications.test.ts (reports config unavailable when the %s is absent) -->
-
-**Notes:** Partial pending deployed subscription-isolation observations on desktop, Android-class, and installed iOS PWA devices.
+6. The VAPID private key exists only as a deployment secret. <!-- @impl: src/types.ts::Env --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (sources every VAPID field from Actions secret context so step metadata stays masked) --> <!-- @manual -->
+7. The authenticated notification config route returns only the public key when all sender fields exist, and reports unavailable without exposing secret state when any field is absent. <!-- @impl: src/routes/notifications.ts::app --> <!-- @test: src/__tests__/routes/notifications.test.ts (returns only the public VAPID key from authenticated config) --> <!-- @test: src/__tests__/routes/notifications.test.ts (reports config unavailable when the %s is absent) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -451,9 +449,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-022](#req-sec-022-terminal-server-bearer-authentication), [REQ-AUTH-018](authentication.md#req-auth-018-user-management-admin-panel)
 
-**Verification:** Automated: [deploy-requires-tests.test.js](../../host/__tests__/deploy-requires-tests.test.js), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [notifications.test.ts](../../src/__tests__/routes/notifications.test.ts)
+**Verification:** Automated: [deploy-requires-tests.test.js](../../host/__tests__/deploy-requires-tests.test.js), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [notifications.test.ts](../../src/__tests__/routes/notifications.test.ts); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -465,14 +463,12 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. The DO rejects invalid or display-shaped drain fields and enriches valid events only from its session ID and owner-scoped D1 session record. <!-- @impl: src/container/container-metrics.ts::validateAgentEvents --> <!-- @impl: src/container/container-metrics.ts::loadTrustedTickSession --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SEC-024 AC1 / D3: rejects invalid version, kind, age, count, and display-shaped fields) -->
+1. The DO rejects invalid or display-shaped drain fields and enriches valid events only from its session ID and owner-scoped D1 session record. <!-- @impl: src/container/container-metrics.ts::validateAgentEvents --> <!-- @impl: src/container/container-metrics.ts::loadTrustedTickSession --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SEC-024 AC1 / D3: rejects $eventId independently without delivery, ACK or payload logging) --> <!-- @test: src/__tests__/container-metrics.test.ts (D3: rejects an over-cap response instead of delivering a truncated attacker-controlled batch) -->
 2. Provider-accepted and expired-subscription outcomes are terminal. <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: src/__tests__/lib/push-sender.test.ts (deletes 404/410 subscriptions and treats that terminal outcome as processed) -->
 3. The sender wrapper never logs library errors containing capability material. <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: src/__tests__/lib/push-sender.test.ts (retains transient failures for re-offer and never deletes their subscription) -->
-4. Push payload and click targets use canonical same-origin session paths; invalid versions, absolute targets, and cross-origin targets produce no display or navigation. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC1-AC2 / REQ-SEC-024 AC4: agent notification service worker push) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC3: canonical notification click navigation) -->
-5. Queue, drain, subscription, payload, and fan-out bounds confine fixed notifications to the originating user. <!-- @impl: host/src/agent-events.ts::AGENT_EVENT_LIMITS --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-028 AC1-AC4 / H4 and queue lifecycle bounds) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (bounds events, subscriptions, and total fan-out) -->
+4. Push payload and click targets use canonical same-origin session paths; invalid versions, absolute targets, and cross-origin targets produce no display or navigation. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @impl: web-ui/public/agent-notifications-sw.js::notificationclick --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC1-AC2 / REQ-SEC-024 AC4: agent notification service worker push) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-027 AC3: canonical notification click navigation) --> <!-- @manual -->
+5. Queue, drain, subscription, payload, and fan-out bounds confine fixed notifications to the originating user. <!-- @impl: host/src/agent-events.ts::AGENT_EVENT_LIMITS --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-028 AC1-AC4 / H4 and queue lifecycle bounds) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (bounds events, subscriptions, and total fan-out) --> <!-- @manual -->
 6. Transient or timed-out provider outcomes remain eligible for bounded retry. <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: src/__tests__/lib/push-sender.test.ts (retains transient failures for re-offer and never deletes their subscription) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (aborts a provider request that never settles and retains the event for re-offer) -->
-
-**Notes:** Partial pending deployed fixed-content, canonical same-origin click, global-suppression, bounded pickup-residue, and no-wake/no-idle-extension observations.
 
 **Constraints:**
 
@@ -485,9 +481,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-022](#req-sec-022-terminal-server-bearer-authentication), [REQ-SEC-023](#req-sec-023-agent-notification-capability-boundaries)
 
-**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [push-sender.test.ts](../../src/__tests__/lib/push-sender.test.ts), [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts), [dockerfile-dependency-integrity.test.js](../../host/__tests__/dockerfile-dependency-integrity.test.js)
+**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [push-sender.test.ts](../../src/__tests__/lib/push-sender.test.ts), [agent-notification-worker.test.ts](../../web-ui/src/__tests__/lib/agent-notification-worker.test.ts), [dockerfile-dependency-integrity.test.js](../../host/__tests__/dockerfile-dependency-integrity.test.js); Manual: [Notification device and deployment acceptance](../../documentation/lanes/security.md#notification-device-and-deployment-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

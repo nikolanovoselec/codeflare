@@ -247,7 +247,9 @@ A classic OAuth App allows one callback URL, so each deployment domain needs its
 
 **Known rotation limitation.** [REQ-AGENT-230](../../sdd/spec/setup.md#req-agent-230-administrator-cloudflare-oauth-client-configuration) records creation-secret authentication and failed rotated secrets. That limitation does not establish permanent global client bricking or irreversible public visibility.
 
-**Diagnose/Fix:** Inspect the existing provider `error_description` without exposing codes, tokens or secrets. Successful consent alone is not exchange evidence. Correct the method through an authorized operator; do not switch methods or replay real codes as a probe. For the known rotation case, use the approved provider recovery/client-replacement procedure and save the intended client id/creation secret in admin Setup. Credential replacement and leaked-secret incident handling require explicit authorization, not repeated rotation as a presumed fix. Visibility/publisher changes belong to current provider documentation.
+**Diagnose:** Inspect the existing provider `error_description` without exposing codes, tokens or secrets. Successful consent alone is not exchange evidence.
+
+**Fix:** Correct the method through an authorized operator; do not switch methods or replay real codes as a probe. For the known rotation case, use the approved provider recovery/client-replacement procedure and save the intended client id/creation secret in admin Setup. Credential replacement and leaked-secret incident handling require explicit authorization, not repeated rotation as a presumed fix. Visibility/publisher changes belong to current provider documentation.
 
 **Verify:** On the next authorized normal connect flow, confirm exchange and persisted per-user OAuth connection status without reading credential values. The former production/integration success claim lacks a target/head-bound receipt here and is unverified for the current build; observations remain in [original history](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/troubleshooting.md#connect-to-cloudflare-fails-with-401-invalid_client-even-after-re-saving--rotating-the-secret).
 
@@ -257,11 +259,15 @@ A classic OAuth App allows one callback URL, so each deployment domain needs its
 
 The [API Reference](api-reference.md#error-recovery) owns request/completion/failure wire fields. This procedure concerns legacy `POST /api/setup/configure`, not permission to reconfigure resources.
 
-**Diagnose:** Correlate the failed step and terminal message. Calls actually wrapped in `withSetupRetry` get up to three attempts, exponential backoff and a 1-second base; an open circuit is not retried. Not every API operation is necessarily wrapped. Partial KV/provider effects survive failure: a failure message neither rolls them back nor clears a previously complete deployment.
+**Symptom:** Setup configure fails or appears locked.
+
+**Cause:** Partial KV/provider effects survive failure: a failure message neither rolls them back nor clears a previously complete deployment.
+
+**Diagnose:** Correlate the failed step and terminal message. Calls actually wrapped in `withSetupRetry` get up to three attempts, exponential backoff and a 1-second base; an open circuit is not retried. Not every API operation is necessarily wrapped.
 
 The existing `setup:configuration` Container DO owns admission, not the `setup:configuring` KV status timestamp. Live work excludes overlapping configure calls through settlement of started sibling operations. A durable token/input fingerprint survives interruption or uncertain provider/transport failure; it has no TTL takeover or reset endpoint. Do not erase status or durable authority to force overlap.
 
-**Fix:** Wait for live work to settle and inspect partial effects and completion state. After a fresh definite terminal `ValidationError` (for example, confirmed absent zone), correct the validated input and resubmit. After uncertainty or interruption, recover with the original validated configuration until successful convergence before changing input; a later validation error cannot clear retained uncertainty. Finalization alone writes completion; catch preserves an existing completion value. Existing create/update steps support retry, not universal harmless replay or exclusion of external provider changes.
+**Fix:** Wait for live work to settle and inspect partial effects and completion state. After a fresh definite terminal `ValidationError` (for example, confirmed absent zone) or a known pre-provisioning refusal because an Environment run is active, admission releases after started operations settle; correct the validated input or wait for that run to finish, then resubmit. After uncertainty or interruption, recover with the original validated configuration until successful convergence before changing input; a later validation error or pre-provisioning refusal cannot clear retained uncertainty. Finalization alone writes completion; catch preserves an existing completion value. Existing create/update steps support retry, not universal harmless replay or exclusion of external provider changes.
 
 **Verify:** Require intended step outcomes, final completion/status and resource state, not just HTTP success or stream closure. Missing provider readback remains unverified; escalate with sanitized step evidence.
 
@@ -400,11 +406,11 @@ See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
 
 ### R2 Bucket Cleanup on User Deletion
 
-Explicit user removal calls `cleanupUserData()` in `src/lib/user-cleanup.ts`, which first requires a D1 usage tombstone before live deletion, attempts each owned container destruction (logging failures and continuing), deletes eligible owner rows while retaining `boundary_activity_id` rows, and deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `user-prefs:`), reads the scoped R2 token via `getAndDecrypt()` (required because `r2token:{email}` values are encrypted when `ENCRYPTION_KEY` is set; raw `KV.get('json')` throws `SyntaxError` on the `v1:...` ciphertext prefix), and deletes the scoped R2 token. Setup reconfiguration never invokes this destructive workflow.
+Follow the [Authentication offboarding contract](authentication.md#offboarding-handoff) for explicit user removal, ordering and retained retry authority. Setup reconfiguration never invokes this destructive workflow. Ordinary GitHub disconnect is best effort; strict offboarding is not. Provider credentials are in encrypted KV, not R2.
 
-It then empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials via `createR2Client` + `emptyR2Bucket`), and deletes the empty bucket via Cloudflare API with one attempt for an already empty bucket, or up to three after deleting objects. Only `BucketNotEmpty` is retried, with 2-second then 3-second waits, not exponential/general-error retries.
+For bucket-specific diagnosis, `cleanupUserData()` reads encrypted `r2token:{email}` through `getAndDecrypt()`; raw `KV.get('json')` fails on the `v1:...` ciphertext prefix when `ENCRYPTION_KEY` is set. Bucket emptying uses worker-level R2 credentials with S3 `ListObjectsV2` + `DeleteObjects`, then Cloudflare API deletion. Deletion gets one attempt if no objects were deleted, or up to three after deleting objects. Only `BucketNotEmpty`/“not empty” responses are retried, with 2-second then 3-second waits, not exponential/general-error retries.
 
-If worker-level R2 credentials are not configured (for example, setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. GitHub revocation is best-effort and can clear local credentials on failure; Cloudflare retains its provider-owned failure contract and can interrupt later cleanup. Returned `deletedSessions`, `tokenDeleted` and `bucketDeleted` report results, not confirmed cessation or complete teardown. See the [Authentication offboarding owner](authentication.md#offboarding-handoff) for provider/residual boundaries.
+If worker-level R2 credentials are missing, emptying is skipped; an emptying error is logged and deletion is still attempted. Unconfirmed bucket deletion blocks cleanup with `503 user_cleanup_incomplete`, retaining scoped-token identity and user/control KV for authorized retry. Inspect partial effects before retry: scoped-token revocation may already have succeeded. A warning or session count is not complete teardown evidence.
 
 <a id="agent-runtime-review-and-ci"></a>
 **Agent Runtime, Review, and CI**
