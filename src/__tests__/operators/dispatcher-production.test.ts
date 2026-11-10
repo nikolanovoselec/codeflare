@@ -27,12 +27,23 @@ describe('REQ-OPERATOR-047: closed protected refusal contract', () => {
     { name: 'invalid JSON', request: () => new Request('https://operator.internal/v1/dispatcher/source', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' }) },
     { name: 'forged authority', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, owner: 'another-user' }) },
+    { name: 'child principal', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, principal: 'another-user' }) },
+    { name: 'child bucket', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, bucket: 'foreign-bucket' }) },
+    { name: 'child policy', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, policy: { capabilities: ['fetch', 'inference', 'storage'] } }) },
     { name: 'GET with body', request: () => genericWire('source', { operationId: 'get-body', url: sourceUrl, method: 'GET', body: '{}' }) },
     { name: 'unsupported protected route', request: () => genericWire('unsupported', { operationId: 'wrong-route' }) },
   ])('REQ-OPERATOR-047: malformed $name is operation-local and permits a corrected authorized source', ({ request }) => fixture(async f => {
     await start(f);
+    const originalContext = await f.activity.getExecutionContext();
+    const originalAdmission = await f.activity.getAdmission();
+    expect(originalContext).toMatchObject({ principal: 'operator', owner: { subject: 'owner' }, artifactDigest: f.artifactDigest });
+    expect(originalAdmission).toMatchObject({ phase: 'queued', receipt: { activityId: f.activityId } });
     await refusal(await f.capability.fetch(request()), 403, 'OPERATOR_CAPABILITY_DENIED', 'request-invalid', 'operation-local');
     expect(f.sent).toEqual([]);
+    expect(await f.activity.getExecutionContext()).toEqual(originalContext);
+    expect(await f.activity.getAdmission()).toEqual(originalAdmission);
+    await refusal(await f.capability.fetch(genericWire('receipt', { operationId: 'forged' })), 403,
+      'OPERATOR_CAPABILITY_DENIED', 'receipt-unavailable', 'operation-local');
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
     const corrected = await f.capability.fetch(source('corrected-source'));
     expect(corrected.status).toBe(200);

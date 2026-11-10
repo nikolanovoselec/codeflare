@@ -24,6 +24,7 @@ vi.mock('../../lib/logger', () => ({
 }));
 
 import { Timekeeper, resetUserRecordCache } from '../../timekeeper/index';
+import { getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 import { getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../../lib/kv-keys';
 import { createAccountingState } from '../../timekeeper/accounting';
 
@@ -567,10 +568,17 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
   });
 
   describe('trial quota enforcement (CF-020)', () => {
-    it('returns quotaExceeded=true when trialing user exceeds trialQuotaHours', async () => {
-      // Standard tier: trialQuotaHours=40 => 144000s
+    it('ends the provider trial at its distinct trial cap before the monthly cap', async () => {
+      resetTierConfigCache();
+      const tiers = getDefaultTiers().map(tier => tier.id === 'standard'
+        ? { ...tier, trialQuotaHours: 1, monthlySeconds: 40 * 3600 } : tier);
+      const requests: Array<{ url: string; method: string | undefined; body: URLSearchParams }> = [];
+      vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+        requests.push({ url: String(url), method: init?.method, body: new URLSearchParams(String(init?.body)) });
+        return new Response('{}', { status: 200 });
+      }));
       mockKV.get.mockImplementation(async (key: string, type?: string) => {
-        if (key === 'tiers:config') return null; // use defaults
+        if (key === 'tiers:config') return type === 'json' ? tiers : JSON.stringify(tiers);
         if (key.startsWith('user:')) return JSON.stringify({
           subscriptionTier: 'standard', billingStatus: 'trialing',
           stripeSubscriptionId: 'sub_123',
@@ -579,21 +587,37 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
           const record = {
             today: { date: TODAY, seconds: 0 },
             thisWeek: { weekStart: THIS_WEEK_START, seconds: 0 },
-            thisMonth: { month: THIS_MONTH, seconds: 143900 },
-            thisYear: { year: THIS_YEAR, seconds: 143900 },
-            allTime: { seconds: 143900 },
+            thisMonth: { month: THIS_MONTH, seconds: 3590 },
+            thisYear: { year: THIS_YEAR, seconds: 3590 },
+            allTime: { seconds: 3590 },
             lastUpdatedAt: new Date().toISOString(),
           };
           return type === 'json' ? record : JSON.stringify(record);
         }
         return null;
       });
-      const tk = createTimekeeper();
-      const res = await tk.fetch(pingRequest({
-        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 200, email: 'alice@example.com',
-      }));
-      const body = await res.json() as { quotaExceeded: boolean };
-      expect(body.quotaExceeded).toBe(true);
+      try {
+        const tk = createTimekeeper({ STRIPE_SECRET_KEY: 'test-stripe-key' });
+        const res = await tk.fetch(pingRequest({
+          bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 200, email: 'alice@example.com',
+        }));
+        const body = await res.json() as { quotaExceeded: boolean; totalMonthlySeconds: number };
+        expect(body.quotaExceeded).toBe(true);
+        expect(body.totalMonthlySeconds).toBeGreaterThanOrEqual(3600);
+        expect(body.totalMonthlySeconds).toBeLessThan(40 * 3600);
+        expect(requests.map(({ url, method, body }) => ({ url, method, fields: Object.fromEntries(body) })))
+          .toEqual([{
+            url: 'https://api.stripe.com/v1/subscriptions/sub_123', method: 'POST',
+            fields: {
+              trial_end: 'now',
+              billing_cycle_anchor: String(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth() + 1, 1) / 1000),
+            },
+          }]);
+        expect(mockStorage.put).toHaveBeenCalledWith('trialEnded', true);
+      } finally {
+        vi.unstubAllGlobals();
+        resetTierConfigCache();
+      }
     });
   });
 

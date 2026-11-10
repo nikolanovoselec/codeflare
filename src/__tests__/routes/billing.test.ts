@@ -546,7 +546,7 @@ describe('POST /public/stripe/webhook', () => {
     expect(res.status).toBe(200);
   });
 
-  it('deduplicates events', async () => {
+  it('deduplicates visible successful events for 72 hours and leaves failed handling retryable', async () => {
     const secret = 'whsec_test_123';
     const event = {
       id: 'evt_dedupe_1',
@@ -563,15 +563,42 @@ describe('POST /public/stripe/webhook', () => {
     const body = JSON.stringify(event);
     const sig = await generateSignature(body, secret);
 
-    const { app, mockKV } = createApp();
+    const emails: unknown[] = [];
+    globalThis.fetch = vi.fn(async (_url, init) => {
+      emails.push(JSON.parse(String(init?.body)));
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    const { app, mockKV } = createApp({ RESEND_API_KEY: 'test-email-key' });
+    mockKV._set('user:admin@example.com', { role: 'admin' });
 
-    // First request
+    // A handler failure must not leave a success marker that prevents retry.
+    mockKV.put.mockRejectedValueOnce(new Error('KV temporarily unavailable'));
+    const failed = await app.request('/public/stripe/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
+      body,
+    });
+    expect(failed.status).toBe(500);
+    expect(await mockKV.get('stripe:event:evt_dedupe_1')).toBeNull();
+    expect(emails).toEqual([]);
+
     const res1 = await app.request('/public/stripe/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
       body,
     });
     expect(res1.status).toBe(200);
+    expect(await mockKV.get('user:dup@example.com', 'json')).toMatchObject({
+      subscriptionTier: 'standard', stripeCustomerId: 'cus_buyer', billingStatus: 'active',
+    });
+    expect(emails).toEqual([
+      expect.objectContaining({ to: ['dup@example.com'] }),
+      expect.objectContaining({ to: ['admin@example.com'] }),
+    ]);
+    const savedState = [...mockKV._store];
+    const sentEmails = [...emails];
+    // A visible marker must bypass state writes as well as email delivery.
+    mockKV.put.mockImplementation(async () => { throw new Error('duplicate state mutation'); });
 
     // Second request with same event ID (regenerate sig for fresh timestamp)
     const sig2 = await generateSignature(body, secret);
@@ -582,11 +609,13 @@ describe('POST /public/stripe/webhook', () => {
     });
     expect(res2.status).toBe(200);
 
-    // KV.put should have been called for dedupe key
+    expect([...mockKV._store]).toEqual(savedState);
+    expect(emails).toEqual(sentEmails);
+    // Success-marker retention is a wire contract, not global exactly-once.
     expect(mockKV.put).toHaveBeenCalledWith(
       'stripe:event:evt_dedupe_1',
       'processed',
-      expect.objectContaining({ expirationTtl: expect.any(Number) }),
+      { expirationTtl: 72 * 60 * 60 },
     );
   });
 

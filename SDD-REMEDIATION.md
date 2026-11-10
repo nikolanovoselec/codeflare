@@ -27,6 +27,12 @@ This is non-normative delivery tracking, not an operational lane, a new product 
 
 The user directs approximately 98% coverage rather than pristine, exhaustive coverage. Reuse sound evidence, stop low-value edge-case expansion and batch task-sized checkpoints. Record minor remaining coverage limits explicitly rather than calling them fixed. Security, authorization, tenant isolation and data-loss safeguards remain mandatory; protected residual decisions remain unresolved. This is a target, not a measured coverage result or a gate change.
 
+## Protected qualifications — not fixed
+
+Two newly adjudicated owner-lifecycle and Claude preservation obligations require runtime or agent-policy changes outside this pass. Their source-supported risks and originating records are retained in the private decision queue; neither is a reproduced incident, repaired behavior or a minor coverage waiver. Requirements and AUTH-002/AUTH-008 statuses remain unchanged.
+
+The final bounded tests add real post-admission expiry and child-authority refusal outcomes, synthetic Claude capture-output parsing, visible-marker billing retry/idempotency, distinct trial limits, and persisted per-recipient delivery recovery. Their new runtime results must come from the exact pushed checkpoint, not the earlier GREEN run.
+
 ## Ownership and validation freeze
 
 Ownership was frozen at the published T01 head, whose only changes from the audited baseline were tracking documentation. T03 now supplies explicit old-to-new clause mappings for its changed specifications; unchanged implementation evidence is reused without claiming a new whole-tree audit.

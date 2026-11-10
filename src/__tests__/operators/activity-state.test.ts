@@ -780,6 +780,24 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     const reconstructed = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
     expect(await reconstructed.getReviewState()).toMatchObject({ ...review,
       sealedSyncOperationId: 'sync-1', publication: { phase: 'completed', receipt: { checkId: 1, recordId: 2 } } });
+
+    const expiringSync = { ...sync, operationId: 'sync-expiry',
+      prefix: '.codeflare/operators/activity/sync-expiry/', deadline: claims.expiresAt * 1000 };
+    expect(await reconstructed.prepareSync(expiringSync)).toEqual({ ok: true, phase: 'prepared' });
+    expect(await reconstructed.authorizeSyncWrite(expiringSync.operationId, expiringSync.keys[0])).toEqual({ ok: true });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(claims.expiresAt * 1000 + 1);
+    try {
+      expect(await reconstructed.beginDrive()).toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await reconstructed.prepareSync(expiringSync)).toEqual({ ok: false, reason: 'authority-expired' });
+      for (const key of [expiringSync.keys[0], `${expiringSync.prefix}manifest.json`]) {
+        expect(await reconstructed.authorizeSyncWrite(expiringSync.operationId, key))
+          .toEqual({ ok: false, reason: 'authority-expired' });
+      }
+      expect(await reconstructed.recordSyncUploaded(expiringSync.operationId, 'e'.repeat(64)))
+        .toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await reconstructed.getSync(expiringSync.operationId))
+        .toMatchObject({ phase: 'prepared', manifestDigest: null, evidence: null });
+    } finally { clock.mockRestore(); }
   }, false));
 
   it('rejects context/intent substitution and authority extending beyond the signed expiry', () => withActivity(async ({ ctx, activityEnv }) => {

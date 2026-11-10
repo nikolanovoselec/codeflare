@@ -1,9 +1,9 @@
 import { env } from 'cloudflare:test';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryAdminUsageRows, queryAdminUsageSeries, reactivateUsageUser, tombstoneUsageUser, userKeyForEmail, writeUsageHistory } from '../../lib/admin-usage';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
-import { claimReportDelivery, completeReportDelivery, createDueScheduledDispatch, runUsageRetention } from '../../lib/usage-report-scheduler';
+import { claimReportDelivery, completeReportDelivery, createDueScheduledDispatch, createReportDispatch, runUsageReportScheduler, runUsageRetention } from '../../lib/usage-report-scheduler';
 import { applyPositiveDelta, createAccountingState, hashSessionId, type HistoryOutboxEntry } from '../../timekeeper/accounting';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
@@ -21,6 +21,7 @@ beforeEach(async () => {
   await db.exec('CREATE TABLE IF NOT EXISTS usage_users (user_key TEXT PRIMARY KEY, email TEXT NOT NULL, account_status TEXT NOT NULL, data_since TEXT NOT NULL, deleted_at TEXT)');
   await db.exec('CREATE TABLE IF NOT EXISTS usage_periods (user_key TEXT NOT NULL REFERENCES usage_users(user_key) ON DELETE CASCADE, period_kind TEXT NOT NULL, period_start TEXT NOT NULL, runtime_seconds INTEGER NOT NULL, session_count INTEGER NOT NULL, source_sequence INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (user_key, period_kind, period_start))');
   await db.exec('CREATE TABLE IF NOT EXISTS report_deliveries (id TEXT PRIMARY KEY, delivery_kind TEXT NOT NULL, dispatch_id TEXT NOT NULL, settings_revision INTEGER NOT NULL, report_month TEXT NOT NULL, recipient TEXT NOT NULL, state TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, claim_token TEXT, lease_expires_at TEXT, reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, accepted_at TEXT)');
+  await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS report_delivery_claim ON report_deliveries (delivery_kind, dispatch_id, recipient)');
   await db.exec('CREATE TABLE IF NOT EXISTS maintenance_claims (task TEXT NOT NULL, utc_date TEXT NOT NULL, claim_token TEXT NOT NULL, claimed_at TEXT NOT NULL, PRIMARY KEY (task, utc_date))');
   await db.exec('DROP TRIGGER IF EXISTS reject_report_prune');
   await db.exec('DROP TRIGGER IF EXISTS reject_first_live_history');
@@ -230,7 +231,58 @@ describe('REQ-SUB-028 AC2: retention rollback', () => {
   });
 });
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe('usage report delivery claims (REQ-SUB-027)', () => {
+  it('persists one recipient row per dispatch and keeps test dispatch identities independent', async () => {
+    const recipients = ['a@example.com', 'b@example.com', 'a@example.com'];
+    await createReportDispatch(db, 'scheduled', 'scheduled:7:2027-07', 7, '2027-07', recipients, now);
+    await createReportDispatch(db, 'scheduled', 'scheduled:7:2027-07', 7, '2027-07', recipients, now);
+    await createReportDispatch(db, 'test', 'test:request-a', 7, '2027-07', recipients, now);
+    await createReportDispatch(db, 'test', 'test:request-a', 7, '2027-07', recipients, now);
+    await createReportDispatch(db, 'test', 'test:request-b', 7, '2027-07', ['a@example.com'], now);
+    expect((await db.prepare(`SELECT delivery_kind, dispatch_id, recipient, state, attempt
+      FROM report_deliveries ORDER BY dispatch_id, recipient`).all()).results).toEqual([
+      { delivery_kind: 'scheduled', dispatch_id: 'scheduled:7:2027-07', recipient: 'a@example.com', state: 'pending', attempt: 0 },
+      { delivery_kind: 'scheduled', dispatch_id: 'scheduled:7:2027-07', recipient: 'b@example.com', state: 'pending', attempt: 0 },
+      { delivery_kind: 'test', dispatch_id: 'test:request-a', recipient: 'a@example.com', state: 'pending', attempt: 0 },
+      { delivery_kind: 'test', dispatch_id: 'test:request-a', recipient: 'b@example.com', state: 'pending', attempt: 0 },
+      { delivery_kind: 'test', dispatch_id: 'test:request-b', recipient: 'a@example.com', state: 'pending', attempt: 0 },
+    ]);
+  });
+
+  it('scheduled recovery sends failed, expired and test rows independently of request work while respecting leases and attempts', async () => {
+    await insertDelivery('pending', 'pending', 0);
+    await insertDelivery('failed', 'failed', 1);
+    await insertDelivery('expired', 'sending', 1, '2027-07-31T23:59:59.000Z');
+    await insertDelivery('active', 'sending', 1, '2027-08-01T00:00:01.000Z');
+    await insertDelivery('exhausted', 'failed', 3);
+    await createReportDispatch(db, 'test', 'test:abandoned-request', 7, '2027-07', ['test@example.com'], now);
+    const messages: Array<{ to: string[]; idempotencyKey: string | null }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+      messages.push({ to: JSON.parse(String(init?.body)).to,
+        idempotencyKey: new Headers(init?.headers).get('Idempotency-Key') });
+      return new Response('{}', { status: 200 });
+    }));
+    // No route, executionCtx or waitUntil: the scheduler itself must recover old rows.
+    const kv = createMockKV();
+    await runUsageReportScheduler({ KV: kv, USAGE_DB: db, RESEND_API_KEY: 'test-email-key' } as unknown as Env, now);
+    expect(messages.sort((a, b) => a.to[0].localeCompare(b.to[0]))).toEqual([
+      { to: ['expired@example.com'], idempotencyKey: 'usage-report:1:2027-07:expired@example.com' },
+      { to: ['failed@example.com'], idempotencyKey: 'usage-report:1:2027-07:failed@example.com' },
+      { to: ['pending@example.com'], idempotencyKey: 'usage-report:1:2027-07:pending@example.com' },
+      { to: ['test@example.com'], idempotencyKey: 'usage-report-test:test:abandoned-request:test@example.com' },
+    ]);
+    expect((await db.prepare(`SELECT recipient, state, attempt, claim_token, lease_expires_at
+      FROM report_deliveries ORDER BY recipient`).all()).results).toEqual([
+      { recipient: 'active@example.com', state: 'sending', attempt: 1, claim_token: 'old-token', lease_expires_at: '2027-08-01T00:00:01.000Z' },
+      { recipient: 'exhausted@example.com', state: 'failed', attempt: 3, claim_token: null, lease_expires_at: null },
+      { recipient: 'expired@example.com', state: 'accepted', attempt: 2, claim_token: null, lease_expires_at: null },
+      { recipient: 'failed@example.com', state: 'accepted', attempt: 2, claim_token: null, lease_expires_at: null },
+      { recipient: 'pending@example.com', state: 'accepted', attempt: 1, claim_token: null, lease_expires_at: null },
+      { recipient: 'test@example.com', state: 'accepted', attempt: 1, claim_token: null, lease_expires_at: null },
+    ]);
+  });
   it('claims pending, failed, and expired rows but not an active lease or exhausted row', async () => {
     await insertDelivery('pending', 'pending', 0);
     await insertDelivery('failed', 'failed', 1);
@@ -242,6 +294,8 @@ describe('usage report delivery claims (REQ-SUB-027)', () => {
       const row = await claimReportDelivery(db, id, now, `claim-${id}`);
       expect(row?.state).toBe('sending');
       expect(row?.claim_token).toBe(`claim-${id}`);
+      expect(await db.prepare('SELECT lease_expires_at FROM report_deliveries WHERE id = ?1').bind(id).first())
+        .toEqual({ lease_expires_at: '2027-08-01T00:05:00.000Z' });
     }
     expect(await claimReportDelivery(db, 'active', now, 'new-token')).toBeNull();
     expect(await claimReportDelivery(db, 'exhausted', now, 'new-token')).toBeNull();
