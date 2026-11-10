@@ -143,7 +143,7 @@ function boundaryOf(text, options) {
       }
       if (tool) {
         const match = boundaryMatch(tool, rest, options);
-        if (match) { found = match.kind; details = match; }
+        if (match && (!options?.kind || match.kind === options.kind)) { found = match.kind; details = match; }
       }
       tool = ''; rest = [];
     };
@@ -243,8 +243,8 @@ function boundaryOf(text, options) {
   return options?.details ? details : candidate ? (found || '-') : '';
 }
 
-function boundaryDetails(text) {
-  return boundaryOf(text, { details: true });
+function boundaryDetails(text, kind) {
+  return boundaryOf(text, { details: true, kind });
 }
 
 function isReviewMergeCommand(text) {
@@ -299,7 +299,7 @@ function exposureTargetsCheckedOutBranch(text, identity) {
 }
 
 function cloneTargetPath(text, cwd) {
-  const match = boundaryDetails(text);
+  const match = boundaryDetails(text, 'clone');
   if (!match || match.kind !== 'clone') return undefined;
   let source, destination;
   if (match.executable === 'gh') {

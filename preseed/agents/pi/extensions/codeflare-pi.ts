@@ -6,14 +6,13 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { clearCloneTargetState, cloneTargetHadGit, cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromptDecision, isFailedToolExecution, rememberCloneTargetHadGit, renderGraphifyCloneDirective } from "./graphify-helpers";
+import { clearCloneTargetState, cloneTargetHadGit, cloneTargetPath, effectiveCwdForCommand, graphifyClonePromptDecision, isFailedToolExecution, rememberCloneTargetHadGit, renderGraphifyCloneDirective } from "./graphify-helpers";
 import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
-import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
+import { attributionBlockReason, localBuildBlockReason, executableShellCommands, shellCommandArguments, shellCommandExecutable } from "./guard-helpers";
 
 export { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 
@@ -356,8 +355,11 @@ function fallbackGraphifyToolResult(event: any, ctx: ExtensionContext): { conten
 }
 
 function isGitClone(command: string): boolean {
-  return new RegExp(String.raw`(^|[;&|\n]\s*)` + ENV_PREFIX + String.raw`git\s+clone\b`).test(command)
-    || new RegExp(String.raw`(^|[;&|\n]\s*)` + ENV_PREFIX + String.raw`gh\s+repo\s+clone\b`).test(command);
+  return executableShellCommands(command).some((words) => {
+    const executable = shellCommandExecutable(words);
+    return executable === "git" ? shellCommandArguments(words, "git")[0] === "clone"
+      : executable === "gh" && shellCommandArguments(words, "gh").slice(0, 2).join(" ") === "repo clone";
+  });
 }
 
 export function shouldHandleClonePrompt(command: string, targetWasAlreadyCloned: boolean, reviewLaneDepth: number): boolean {
@@ -481,58 +483,65 @@ export function planGlobalGraphReconcile(
   return keepTag && !alreadyPublished ? { remove, add: { graph, tag: keepTag } } : { remove };
 }
 
-function readGlobalManifest(): string | undefined {
-  try {
-    return readFileSync(GLOBAL_MANIFEST, "utf8");
-  } catch {
-    return undefined;
-  }
-}
-
-function graphSourceHash(graph: string): string | undefined {
-  try {
-    // graphify records the first 16 hex chars of the file SHA-256.
-    return createHash("sha256").update(readFileSync(graph)).digest("hex").slice(0, 16);
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Returns false only for a genuine reconcile failure, which is what the
  * session_start handler surfaces. A missing CLI returns true (see the catch).
  */
 export function reconcileGlobalGraph(repo: string): boolean {
   const graph = join(repo, "graphify-out", "graph.json");
-  const hasGraphFile = existsSync(graph);
-  const plan = planGlobalGraphReconcile(
-    readGlobalManifest(),
-    repo,
-    hasGraphFile,
-    hasGraphFile ? graphSourceHash(graph) : undefined,
-  );
-  if (plan.remove.length === 0 && !plan.add) return true;
   try {
-    // Removals and the addition share one lock acquisition, so a concurrent
-    // writer cannot observe the manifest mid-reconciliation
-    // (REQ-VAULT-014 AC1). Arguments are passed positionally rather than
-    // interpolated, so a repo basename containing shell metacharacters is inert.
+    // The complete manifest/hash decision runs inside the existing writer lock,
+    // not just a stale precomputed set of writes. Positional paths stay inert.
     execFileSync(
       "flock",
       [
         "-w", "5", GLOBAL_GRAPH_LOCK, "bash", "-c",
-        'graph_json="$1"; repo_tag="$2"; need_add="$3"; shift 3\n' +
-          // Distinguishes "graphify is not installed" from "graphify failed".
-          // Without it both surface as exit 1 and the disabled-plugin
-          // configuration would warn on every session start.
-          'command -v graphify >/dev/null 2>&1 || exit 127\n' +
-          'for stale_tag in "$@"; do graphify global remove "$stale_tag" >/dev/null 2>&1 || exit 1; done\n' +
-          'if [ "$need_add" = "1" ]; then graphify global add "$graph_json" --as "$repo_tag" >/dev/null 2>&1 || exit 1; fi',
-        "_",
-        plan.add?.graph ?? "",
-        plan.add?.tag ?? "",
-        plan.add ? "1" : "0",
-        ...plan.remove,
+        `set -e
+graph_json="$1"
+repo_tag="$2"
+manifest="$3"
+command -v graphify >/dev/null 2>&1 || exit 127
+keep_tag=""
+need_add=0
+current_hash=""
+if [ -f "$graph_json" ]; then
+    keep_tag="$repo_tag"
+    need_add=1
+    current_hash=$(sha256sum "$graph_json" | awk '{print substr($1,1,16)}')
+    if [ -f "$manifest" ]; then
+        stored_hash=$(jq -r --arg tag "$repo_tag" '.repos[$tag].source_hash // empty' "$manifest")
+        stored_path=$(jq -r --arg tag "$repo_tag" '.repos[$tag].source_path // empty' "$manifest")
+        if [ "$stored_hash" = "$current_hash" ] && [ "$stored_path" = "$graph_json" ]; then
+            need_add=0
+        fi
+    fi
+fi
+# Decide from the manifest ONLY AFTER acquiring the shared writer lock.
+STALE_TAGS=()
+if [ -f "$manifest" ]; then
+    stale=$(jq -r --arg keep "$keep_tag" '.repos // {} | keys[] | select(. != "user_vault" and . != $keep)' "$manifest")
+    while IFS= read -r tag; do
+        [ -z "$tag" ] || STALE_TAGS+=("$tag")
+    done <<< "$stale"
+fi
+for tag in "\${STALE_TAGS[@]}"; do
+    graphify global remove "$tag" >/dev/null 2>&1 || exit 1
+done
+if [ "$need_add" = "1" ]; then
+    graphify global add "$graph_json" --as "$repo_tag" >/dev/null 2>&1 || exit 1
+    # Upstream global_add returns on equal hash before updating source_path.
+    # Compatibility repair: identical bytes need only atomic provenance rebinding,
+    # never removal/re-addition or a graph rebuild. Preserve every other field.
+    if [ -f "$manifest" ] && jq -e --arg tag "$repo_tag" --arg hash "$current_hash" --arg path "$graph_json" \\
+        '.repos[$tag].source_hash == $hash and .repos[$tag].source_path != $path' "$manifest" >/dev/null; then
+        temporary=$(mktemp "\${manifest}.tmp.XXXXXX")
+        trap 'rm -f -- "$temporary"' EXIT
+        jq --arg tag "$repo_tag" --arg path "$graph_json" '.repos[$tag].source_path = $path' "$manifest" > "$temporary"
+        chmod --reference="$manifest" "$temporary"
+        mv -f -- "$temporary" "$manifest"
+    fi
+fi`,
+        "_", graph, basename(repo), GLOBAL_MANIFEST,
       ],
       { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
@@ -679,7 +688,7 @@ export default function (pi: ExtensionAPI) {
     const toolName = String(event?.toolName ?? "").toLowerCase();
     const command = commandText(event);
 
-    if (isGraphifyTool(toolName) || isGraphifyQuery(command)) {
+    if (isGraphifyTool(toolName)) {
       return;
     }
 
@@ -688,6 +697,19 @@ export default function (pi: ExtensionAPI) {
     // this works whether or not context-mode is active. Also resolve command-local `cd ... &&`
     // and `git -C ...` forms into the active-repo sentinel before graph-first gating fires.
     if (command) {
+      const attributionReason = attributionBlockReason(command);
+      if (attributionReason) return { block: true, reason: attributionReason };
+      const buildReason = localBuildBlockReason(command, { existsSync, unlinkSync, realpathSync,
+        repositoryRoot: (cwd) => {
+          try {
+            return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+              cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5_000,
+            }).trim();
+          } catch { return undefined; }
+        },
+      }, ctx.sessionManager.getCwd());
+      if (buildReason) return { block: true, reason: buildReason };
+      if (isGraphifyQuery(command)) return;
       const id = toolEventId(event);
       const cloneCmd = shellCommandText(event);
       if (id && isGitClone(cloneCmd)) {
@@ -699,10 +721,6 @@ export default function (pi: ExtensionAPI) {
       try {
         updateActiveRepoFromPath(effectivePathForCommand(command, ctx.sessionManager.getCwd()));
       } catch { /* active-repo tracking must never block the tool */ }
-      const attributionReason = attributionBlockReason(command);
-      if (attributionReason) return { block: true, reason: attributionReason };
-      const buildReason = localBuildBlockReason(command, { existsSync, unlinkSync });
-      if (buildReason) return { block: true, reason: buildReason };
     }
   };
 

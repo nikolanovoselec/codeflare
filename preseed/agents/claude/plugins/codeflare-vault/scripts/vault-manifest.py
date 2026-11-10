@@ -72,11 +72,15 @@ def collect(vault_root):
         return out
     for dirpath, dirnames, filenames in os.walk(vault_root):
         # Prune excluded directories in place so we never descend into them.
-        dirnames[:] = [d for d in dirnames if not _excluded(_rel(vault_root, os.path.join(dirpath, d)))]
+        dirnames[:] = [d for d in dirnames
+                       if not os.path.islink(os.path.join(dirpath, d))
+                       and not _excluded(_rel(vault_root, os.path.join(dirpath, d)))]
         for name in filenames:
             abspath = os.path.join(dirpath, name)
             rel = _rel(vault_root, abspath)
-            if _excluded(rel):
+            # Match Pi Dirent semantics: never follow file or directory links,
+            # even contained ones, so link paths cannot misattribute provenance.
+            if os.path.islink(abspath) or _excluded(rel):
                 continue
             # Fail the complete scan when any eligible file cannot be read.
             # The caller advances its cadence counter only on exit 0, so a

@@ -11,6 +11,7 @@ import {
 } from '../../../preseed/agents/pi/extensions/memory-inject-helpers';
 import {
   buildInjection,
+  configuredCeiling,
   MEMORY_INJECT_TYPE,
   registerMemoryInject,
   resolveGraphPath,
@@ -61,6 +62,15 @@ function fakePi(): {
 }
 
 describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
+  it('REQ-MEM-013: accepts only positive decimal overrides up to 1 GiB', () => {
+    for (const invalid of ['0', '-1', '1073741825', '9007199254740992', '1e9', ' 500 ', '']) {
+      expect(configuredCeiling(invalid)).toBe(104857600);
+    }
+    expect(configuredCeiling('1')).toBe(1);
+    expect(configuredCeiling('134217728')).toBe(134217728);
+    expect(configuredCeiling('1073741824')).toBe(1073741824);
+  });
+
   it('AC1: keywords are unique words of four characters or more from the prompt head', () => {
     const keywords = extractKeywords('Fix the VAULT route, and the container proxy!! vault vault');
 

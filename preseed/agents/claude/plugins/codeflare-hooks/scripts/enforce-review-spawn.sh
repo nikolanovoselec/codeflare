@@ -49,9 +49,9 @@ PLAN_SCOPE=$(jq -r '.scope // empty' "$PLAN_FILE" 2>/dev/null)
 [ "$PLAN_HEAD" = "$HEAD" ] && [ "$PLAN_PR" = "$PR_NUMBER" ] \
   && [ "$PLAN_SCOPE" = "$EXPECTED_SCOPE" ] && [ -n "$EXPECTED_RUNNER" ] && [ -n "$EXPECTED_BOUNDARY" ] || exit 0
 
-ANALYSIS=$(node - "$TRANSCRIPT" "$OFFSET" "$PR_NUMBER" "$HEAD" "$REPOSITORY" "$REQUIRED_LANES" "$EXPECTED_SCOPE" "$EXPECTED_RUNNER" "$EXPECTED_BOUNDARY" <<'NODE'
+ANALYSIS=$(node - "$TRANSCRIPT" "$OFFSET" "$PR_NUMBER" "$HEAD" "$REPOSITORY" "$REQUIRED_LANES" "$EXPECTED_SCOPE" "$EXPECTED_RUNNER" "$EXPECTED_BOUNDARY" "$REPO" <<'NODE'
 const fs = require('node:fs');
-const [file, offsetText, pr, head, repository, requiredText, expectedScope, expectedRunner, expectedBoundary] = process.argv.slice(2);
+const [file, offsetText, pr, head, repository, requiredText, expectedScope, expectedRunner, expectedBoundary, repo] = process.argv.slice(2);
 const offset = Number(offsetText);
 const data = fs.readFileSync(file).subarray(offset).toString('utf8');
 const entries = data.split('\n').filter(Boolean).flatMap((line) => {
@@ -59,12 +59,6 @@ const entries = data.split('\n').filter(Boolean).flatMap((line) => {
 });
 const triageHeader = '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |';
 const triageDivider = '|---|---|---|---|---|';
-const textOf = (value) => {
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value)) return value.map(textOf).join('\n');
-  if (!value || typeof value !== 'object') return '';
-  return Object.values(value).map(textOf).join('\n');
-};
 const calls = [];
 entries.forEach((entry, index) => {
   const content = entry?.message?.content;
@@ -133,8 +127,21 @@ if (launches.length === 0) {
   process.stdout.write(JSON.stringify({ state: 'none' }));
   process.exit(0);
 }
-const terminal = (id) => entries.map((entry, index) => ({ index, text: textOf(entry) }))
-  .filter(({ text }) => text.includes(`<tool-use-id>${id}</tool-use-id>`))
+// Native task notifications use user text envelopes (string or text blocks),
+// never assistant prose or recursively flattened tool-result payloads.
+const notificationText = (entry) => {
+  if (entry?.message?.role !== 'user') return undefined;
+  const content = entry.message.content;
+  const text = typeof content === 'string' ? content
+    : Array.isArray(content) && content.every((part) => part?.type === 'text' && typeof part.text === 'string')
+      ? content.map((part) => part.text).join('\n') : '';
+  // Ignore the runtime's trailing output-file instructions, not arbitrary data
+  // before the native envelope or a tool_result's quoted notification.
+  return /^\s*(<task-notification>[\s\S]*?<\/task-notification>)/.exec(text)?.[1];
+};
+const terminal = (id, after = -1) => entries.map((entry, index) => ({ index, text: notificationText(entry) }))
+  .filter(({ index, text }) => index > after && typeof text === 'string')
+  .filter(({ text }) => /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(text)?.[1] === id)
   .map(({ index, text }) => {
     const status = /<status>([^<]+)<\/status>/i.exec(text)?.[1]?.trim().toLowerCase();
     return status && !['running', 'pending', 'in_progress'].includes(status)
@@ -163,11 +170,21 @@ let ciResult;
 let ciIndex = -1;
 if (ciRequired) {
   for (const call of calls) {
-    const all = textOf(entries[call.index]);
-    if (!all.includes('ci-monitor') || !all.includes(head) || !all.includes(repository)) continue;
-    const result = terminal(call.id);
-    const value = /CI_RESULT\s+(success|failure|timeout)\b/.exec(result?.text ?? '')?.[1];
-    if (result?.ok && value && result.text.includes(`pr=${pr} head=${head} repo=${repository}`)) {
+    if (call.role !== 'assistant' || call.name !== 'Agent'
+      || call.input?.subagent_type !== 'ci-monitor' || call.input?.run_in_background !== true
+      || typeof call.input.prompt !== 'string') continue;
+    let request;
+    try { request = JSON.parse(call.input.prompt); } catch { continue; }
+    if (!request || request.repo !== repository || request.pr !== Number(pr)
+      || request.head !== head || request.cwd !== repo) continue;
+    const receiptIndex = entries.findIndex((entry, index) => index > call.index && entry?.message?.role === 'user'
+      && Array.isArray(entry.message.content) && entry.message.content.some((part) => part?.type === 'tool_result'
+        && part.tool_use_id === call.id && part.is_error !== true));
+    if (receiptIndex < 0) continue;
+    const result = terminal(call.id, receiptIndex);
+    const value = /(?:^|>)CI_RESULT[ \t]+(success|failure|timeout)[ \t]*(?:\r?\n|<|$)/m.exec(result?.text ?? '')?.[1];
+    const identity = /^pr=(\d+) head=([0-9a-f]{40}) repo=([^\s<]+)(?=\s|<|$)/m.exec(result?.text ?? '');
+    if (result?.ok && value && identity?.[1] === pr && identity?.[2] === head && identity?.[3] === repository) {
       ciResult = value;
       ciIndex = result.index;
     }

@@ -1004,6 +1004,71 @@ exec /usr/bin/flock "$wait_flag" "$seconds" ${quote(lock)} "$@"
     assert.equal(sentinel(sentinelDir), empty);
   });
 
+  it('RQ0841: identical graphs rebind checkout provenance without rewriting global graph bytes', () => {
+    const f = actualFixture();
+    f.add(f.publish(join(f.home, 'Vault'), 'VaultProof'), 'user_vault');
+    const old = makeRepo(mkdtempSync(join(baseTmp, 'identical-old-')), 'same');
+    const next = makeRepo(mkdtempSync(join(baseTmp, 'identical-new-')), 'same');
+    const oldGraph = f.publish(old, 'IdenticalProof');
+    const nextGraph = f.publish(next, 'IdenticalProof');
+    f.add(oldGraph, 'same');
+    const graphBefore = readFileSync(f.globalGraph);
+    const hashBefore = f.read(f.manifest).repos.same.source_hash;
+    f.hook(next);
+    assert.equal(f.read(f.manifest).repos.same.source_path, nextGraph);
+    assert.equal(f.read(f.manifest).repos.same.source_hash, hashBefore);
+    assert.deepEqual(readFileSync(f.globalGraph), graphBefore);
+    rmSync(old, { recursive: true });
+    assert.ok(existsSync(f.read(f.manifest).repos.same.source_path));
+    assert.deepEqual(readFileSync(f.globalGraph), graphBefore);
+  });
+
+  it('RQ0081: overlapping Vault-only plans settle to one active repository under the real writer lock', async () => {
+    const f = actualFixture();
+    f.add(f.publish(join(f.home, 'Vault'), 'VaultProof'), 'user_vault');
+    const a = makeRepo(workspace, 'concurrent-a');
+    const b = makeRepo(workspace, 'concurrent-b');
+    f.publish(a, 'AProof');
+    f.publish(b, 'BProof');
+    // Hold the real fixture lock until BOTH hooks reach their lock acquisition.
+    // An unlocked planner sees Vault-only in both processes; a locked planner
+    // sees the preceding writer's addition before choosing its removal set.
+    const holder = spawn('/usr/bin/flock', [f.lock, 'bash', '-c', 'printf ready; read -r release'],
+      { stdio: ['pipe', 'pipe', 'pipe'] });
+    const held = new Promise((resolve, reject) => {
+      holder.stdout.once('data', resolve);
+      holder.once('error', reject);
+    });
+    const holderDone = new Promise(resolve => holder.once('close', resolve));
+    await held;
+    const flock = join(f.env.PATH.split(':')[0], 'flock');
+    const wrapper = readFileSync(flock, 'utf8');
+    // Announce arrival via stdout; no sleeps, polling or production lock.
+    writeFileSync(flock, wrapper.replace('wait_flag=', 'printf "lock-ready\\n"\nwait_flag='));
+    function start(cwd) {
+      const child = spawn('bash', [HOOK], { env: f.env, cwd: f.home, stdio: ['pipe', 'pipe', 'pipe'] });
+      const ready = new Promise((resolve, reject) => {
+        child.stdout.once('data', resolve);
+        child.once('error', reject);
+      });
+      const done = new Promise(resolve => child.once('close', code => resolve(code)));
+      child.stdin.end(JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'ls' } }));
+      return { ready, done };
+    }
+    const first = start(a);
+    const second = start(b);
+    try { await Promise.all([first.ready, second.ready]); }
+    finally { holder.stdin.end(); await holderDone; }
+    assert.deepEqual(await Promise.all([first.done, second.done]), [0, 0]);
+    const tags = Object.keys(f.read(f.manifest).repos).sort();
+    assert.equal(tags.length, 2);
+    assert.ok(tags.includes('user_vault'));
+    const active = tags.find(tag => tag !== 'user_vault');
+    assert.ok(['concurrent-a', 'concurrent-b'].includes(active));
+    assert.deepEqual(f.read(f.globalGraph).nodes.map(node => node.label).sort(),
+      [active === 'concurrent-a' ? 'AProof' : 'BProof', 'VaultProof'].sort());
+  });
+
   it('IG0318: real bounded lock contention preserves manifest/graph bytes and prior sentinel, then retries', async () => {
     const f = actualFixture();
     f.add(f.publish(join(f.home, 'Vault'), 'VaultProof'), 'user_vault');

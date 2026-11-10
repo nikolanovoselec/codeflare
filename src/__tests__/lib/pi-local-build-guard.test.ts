@@ -133,3 +133,29 @@ describe('REQ-AGENT-052 AC5: user-only consume-on-use build override', () => {
     expect(localBuildBlockReason(command, fs)).toMatch(/Direct local builds\/tests/);
   });
 });
+
+
+describe('REQ-AGENT-052 AC4: analyzer argv uses actual cwd and canonical repository containment', () => {
+  const wrapper = 'node /home/user/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs';
+  const fs = { ...noBypass,
+    repositoryRoot: () => '/repo',
+    realpathSync: (path: string) => {
+      if (path === '/repo/link' || path === '/repo/-link') return '/outside';
+      if (['/repo', '/repo/sub', '/repo/src', '/repo/src/a.ts', '/outside', '/outside/a.ts'].includes(path)) return path;
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    },
+  };
+  it.each(['/outside/a.ts', '../../outside/a.ts', '../link/a.ts', '--config=/outside/a.ts', '--config ../link/a.ts', '-c/outside/a.ts', '-- ../-link/a.ts', '~/outside.ts'])(
+    'blocks escaped analyzer targets: %s', (args) => {
+      expect(localBuildBlockReason(`${wrapper} oxlint ${args}`, fs, '/repo/sub')).toMatch(/outside|contain/i);
+    });
+  it.each(['../src/a.ts', '/repo/src/a.ts', '../src', '--config ../src/a.ts'])(
+    'allows contained analyzer targets relative to the tool cwd: %s', (args) => {
+      expect(localBuildBlockReason(`${wrapper} oxlint ${args}`, fs, '/repo/sub')).toBeUndefined();
+    });
+  it('resolves a command-local cd before validating argv and fails closed without canonical context', () => {
+    expect(localBuildBlockReason(`cd /repo/sub && ${wrapper} oxlint ../../outside/a.ts`, fs, '/repo')).toMatch(/outside|contain/i);
+    expect(localBuildBlockReason(`cd /repo/sub && ${wrapper} oxlint ../src/a.ts`, fs, '/repo')).toBeUndefined();
+    expect(localBuildBlockReason(`${wrapper} oxlint .`, noBypass)).toMatch(/contain/i);
+  });
+});

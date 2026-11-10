@@ -56,7 +56,7 @@ Re-extracts code structure only. Use after source code changes. Memory-safe (OOM
 9. Build, cluster, and optionally label communities (Steps 3-4)
 10. Generate HTML + Obsidian vault (Step 5)
 11. Benchmark + manifest + cleanup (Steps 6-7)
-12. Commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html` + merge into global graph (Note 3)
+12. Commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, optional requested labels + merge into global graph (Note 3); keep regenerable HTML ignored
 
 **If interrupted mid-wave:** re-run from step 2. Cache (Step B0) skips already-extracted files. Only uncached files get re-dispatched.
 
@@ -87,7 +87,7 @@ Community labels are optional and never block graph publication. **NEVER run `gr
    ```
    flock -w 5 /run/codeflare/locks/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
    ```
-   `global add` is hash-keyed on node/edge content, so it no-ops when only labels changed - that is expected, not a failure. Community **names** live in `graphify-out/.graphify_labels.json` and the regenerated `graph.html`, NOT in the global graph: `graph_stats` reporting `Communities: 0` for the global graph is its normal state and is not "fixed" by labeling. Commit `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and `callflow.html`; include `.graphify_labels.json` only when optional labeling was requested.
+   `global add` is hash-keyed on node/edge content, so it no-ops when only labels changed - that is expected, not a failure. Community **names** live in `graphify-out/.graphify_labels.json` and the regenerated `graph.html`, NOT in the global graph: `graph_stats` reporting `Communities: 0` for the global graph is its normal state and is not "fixed" by labeling. Commit `graph.json` and `GRAPH_REPORT.md`; include `.graphify_labels.json` only when optional labeling was requested. Keep regenerable `graph.html` and `callflow.html` ignored; never force-add them.
 
 When labeling is skipped, do not run prepare/apply. Keep Graphify's official report/html, remove `.graphify_labels.json` from the committed update, and generate `callflow.html` directly with `graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html`.
 
@@ -100,6 +100,8 @@ When labeling is skipped, do not run prepare/apply. Keep Graphify's official rep
 3. **Persistence lives in git, not R2.** The graph travels with the repo. After your first `/graphify` build in a repo the user has push permission to:
    - Add to the repo's `.gitignore` (create if absent):
      ```
+     graphify-out/graph.html
+     graphify-out/callflow.html
      graphify-out/cache/
      graphify-out/.cache/
      graphify-out/.chunks/
@@ -121,13 +123,13 @@ When labeling is skipped, do not run prepare/apply. Keep Graphify's official rep
      .graphify_root
      /.graphify_labels.json
      ```
-     All patterns are regenerable; only `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and `callflow.html` are always committed (plus optional `wiki/`). `.graphify_labels.json` is committed only when optional community labeling was requested. The leading `/` on `/.graphify_labels.json` ignores only a stray root-level marker. The `local-graphify-labels.sh prepare` worklist + batches are working intermediates - never commit them.
+     All patterns are regenerable; only `graph.json` and `GRAPH_REPORT.md` are always committed (plus optional `wiki/`). Keep HTML local and ignored; do not force-add it. `.graphify_labels.json` is committed only when optional community labeling was requested. The leading `/` on `/.graphify_labels.json` ignores only a stray root-level marker. The `local-graphify-labels.sh prepare` worklist + batches are working intermediates - never commit them.
    - Add to the repo's `.gitattributes` (create if absent):
      ```
      graphify-out/graph.json merge=graphify
      ```
      This wires the graphify semantic merge driver for `graph.json`. The driver itself is registered globally in the container image, so this `.gitattributes` line is the only per-repo setup needed. Without it, concurrent edits produce corrupt JSON on merge.
-   - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, `callflow.html`, optional `.graphify_labels.json` when labeling was requested, and optional `wiki/`.
+   - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, optional `.graphify_labels.json` when labeling was requested, and optional `wiki/`. Generate HTML for local viewing, but keep `graph.html` and `callflow.html` ignored; never force-add them.
    - For repos the user does NOT have push permission to (cloned open-source projects, read-only forks): graphify-out/ stays in the working tree only, ephemeral, no R2 fallback. Do not try to persist via bisync.
    - **Before the commit step, merge this repo's graph into the unified global graph** so `mcp__graphify__*` tool calls see it alongside the vault and any other active repos: `flock -w 5 /run/codeflare/locks/graphify-global.lock graphify global add graphify-out/graph.json --as <repo-basename>`. Hash-keyed and idempotent. The `flock -w 5` serialises against the capture agent and the vault-extract agent; the 5s timeout prevents a wedged writer from blocking the queue.
 

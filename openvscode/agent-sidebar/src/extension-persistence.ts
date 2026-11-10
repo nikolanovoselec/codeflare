@@ -1,17 +1,18 @@
-import { watch } from 'node:fs';
+import { constants, watch } from 'node:fs';
 import {
   lstat,
   mkdir,
   mkdtemp,
   open,
   readFile,
+  realpath,
   rename,
   rm,
   unlink,
 } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import * as vscode from 'vscode';
 
 import { MANAGED_OPENVSCODE_SETTING_KEYS } from '../../claude/managed-settings.mjs';
@@ -174,11 +175,26 @@ function isManifest(value: unknown): value is ExtensionManifest {
 }
 
 async function readBoundedRegularFile(path: string, maxBytes: number): Promise<Buffer> {
+  if (!(await parentChainIsSafe(path)) || await realpath(path) !== resolve(path)) throw new Error('unsafe bounded file path');
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > maxBytes) throw new Error('unsafe bounded file');
-  const bytes = await readFile(path);
-  if (bytes.length > maxBytes) throw new Error('file grew beyond bound');
-  return bytes;
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const opened = await handle.stat();
+    if (opened.dev !== info.dev || opened.ino !== info.ino || !opened.isFile() || opened.nlink !== 1) throw new Error('bounded file changed');
+    if (!(await parentChainIsSafe(path)) || await realpath(path) !== resolve(path)) throw new Error('unsafe bounded file path');
+    const bytes = Buffer.alloc(maxBytes + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const read = await handle.read(bytes, length, bytes.length - length, length);
+      if (read.bytesRead === 0) break;
+      length += read.bytesRead;
+    }
+    if (length > maxBytes) throw new Error('file grew beyond bound');
+    return bytes.subarray(0, length);
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function loadExtensionManifest(manifestPath: string): Promise<ManifestLoadResult> {

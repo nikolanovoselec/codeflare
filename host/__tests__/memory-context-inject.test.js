@@ -41,7 +41,7 @@ function runHook(opts) {
       ...process.env,
       HOME: home || process.env.HOME,
       MEMCAP_COUNTER_DIR: counterDir,
-      ...(maxGraphBytes ? { MEMORY_INJECT_MAX_GRAPH_BYTES: String(maxGraphBytes) } : {}),
+      ...(maxGraphBytes !== undefined ? { MEMORY_INJECT_MAX_GRAPH_BYTES: String(maxGraphBytes) } : {}),
     },
   });
   return {
@@ -311,6 +311,18 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     assert.equal(status, 0);
     assert.ok(json?.hookSpecificOutput?.additionalContext?.includes('handleVaultRequest'));
   });
+
+  for (const invalid of [0, -1, '1073741825', '9007199254740992', '1e9', ' 500 ']) {
+    it(`REQ-MEM-013: invalid override ${invalid} uses the safe default`, () => {
+      const counterDir = mkdtempSync(join(baseTmp, 'bounded-counter-'));
+      const home = mkdtempSync(join(baseTmp, 'bounded-home-'));
+      makeGraph(join(home, '.graphify'), [{ id: 'v', label: 'vault evidence' }]);
+      const result = runHook({ counterDir, home, maxGraphBytes: invalid,
+        prompt: 'recover the vault evidence from earlier work' });
+      assert.equal(result.status, 0);
+      assert.match(result.json?.hookSpecificOutput?.additionalContext ?? '', /vault evidence/);
+    });
+  }
 
   it('creates counter directory if missing', () => {
     const counterDir = join(baseTmp, 'mkdir-test-' + Date.now());

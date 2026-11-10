@@ -1069,6 +1069,19 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(readFileSync(harness.sessionFile, 'utf8')).toContain('retained conversation 1');
   });
 
+  it('REQ-MEM-015 AC1: an empty durable transcript never captures volatile agent_end history', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    writeHistoricalCapture(harness);
+    await harness.emit('agent_end', { messages: Array.from({ length: 21 }, (_, index) =>
+      ({ role: 'user', content: `volatile private conversation ${index}` })) });
+    await harness.emit('before_agent_start', { prompt: 'only current durable prompt' });
+    await harness.emit('agent_settled');
+    expect(harness.pi.sent.filter(item => item.message.customType === 'background-extraction-launch')).toEqual([]);
+    expect(existsSync(join(harness.paths.memoryCounterDir, `${harness.sessionId}.vars`))).toBe(false);
+    expect(JSON.stringify(harness.pi.sent)).not.toContain('volatile private conversation');
+  });
+
   it('REQ-MEM-025: resumes retained history when only a durable 1013 capture count survives', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');

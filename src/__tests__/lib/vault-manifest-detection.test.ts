@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -24,6 +24,7 @@ import {
 describe('vault-manifest content-hash detection', () => {
   let vault: string;
   let manifest: string;
+  let outside: string | undefined;
 
   const write = (rel: string, body: string) => {
     const abs = join(vault, rel);
@@ -42,6 +43,8 @@ describe('vault-manifest content-hash detection', () => {
 
   afterEach(() => {
     rmSync(vault, { recursive: true, force: true });
+    if (outside) rmSync(outside, { recursive: true, force: true });
+    outside = undefined;
   });
 
   it('reports every file as new when no manifest exists yet (first boot)', () => {
@@ -118,6 +121,15 @@ describe('vault-manifest content-hash detection', () => {
     write('Index.md', 'excluded root page');
     write('Raw/Sessions/generated.md', 'excluded generated note');
     write('Raw/Sessions/Archive.md', 'excluded machine archive');
+    // Both contained and outside file/directory links are ineligible in both runtimes.
+    symlinkSync(join(vault, 'Notes/a.md'), join(vault, 'Notes/contained-link.md'));
+    outside = mkdtempSync(join(tmpdir(), 'vault-symlink-outside-'));
+    writeFileSync(join(outside, 'private.md'), 'must not be attributed through a link');
+    symlinkSync(join(outside, 'private.md'), join(vault, 'Notes/outside-link.md'));
+    symlinkSync(outside, join(vault, 'Inbox/outside-directory'));
+    symlinkSync(join(vault, 'Notes/sub'), join(vault, 'Inbox/directory-link'));
+    symlinkSync(join(vault, 'missing'), join(vault, 'Notes/dangling-link.md'));
+
     execFileSync('python3', [
       resolve('preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py'),
       'commit',
@@ -128,6 +140,7 @@ describe('vault-manifest content-hash detection', () => {
 
     const piContent = JSON.parse(readFileSync(piManifest, 'utf8'));
     expect(piContent).toEqual(JSON.parse(readFileSync(claudeManifest, 'utf8')));
+    expect(Object.keys(piContent.files).sort()).toEqual(['Inbox/c.md', 'Notes/a.md', 'Notes/sub/b.md']);
     expect(Object.keys(piContent.files)).not.toContain('Index.md');
     expect(Object.keys(piContent.files)).not.toContain('Raw/Sessions/generated.md');
     expect(Object.keys(piContent.files)).not.toContain('Raw/Sessions/Archive.md');
