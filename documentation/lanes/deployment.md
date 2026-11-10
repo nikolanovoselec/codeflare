@@ -106,7 +106,7 @@ For OPS-061 use the private [persistent SSH runbook](https://github.com/nikolano
 - Leave Analytics, Reports and Activity idle through a stable polling interval: their data requests must not recur. Then exercise navigation, filters, explicit refresh and an applicable run reconnect; only those actions should request their data.
 - Verify five-second transition polling, 60-second stable polling, hidden cancellation, immediate visible refresh and no overlapping requests in browser network tools.
 - Verify desktop and mobile hierarchy against the approved Administration and Analytics design catalog.
-- Confirm one caught structured error and one uncaught route exception are discoverable in Integration logs.
+- Confirm one caught structured error and one uncaught route exception are discoverable in Integration logs ([REQ-OPS-167 AC2](../../sdd/spec/operations.md#req-ops-167-ping-log-omission-and-failure-discoverability)).
 
 **Verify:** Retain observations bound to the exact commit, Deploy run and tested mode/target. Integration exception-visibility evidence is mandatory before sampled Production promotion; independently verify operation/spend alerts before enabling Production history. Browser and visual acceptance belongs to the operator on Integration. CI does not pretend a component snapshot proved any of this.
 

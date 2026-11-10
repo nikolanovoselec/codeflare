@@ -209,7 +209,7 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **coverage:** affected-package and full-run global floors plus bounded changed-production-line LCOV floors, backend 80%, frontend 70% (REQ-OPS-022).
 - **summary:** rejects failed/cancelled relevant lanes, accepts unaffected skipped lanes, reconciles suite evidence and publishes exact-tree receipt.
 
-PR Dependency Review is dependency-security evidence for that reviewed tree and its main squash result; post-merge checks do not repeat registry-backed audits. Explicit full dispatch retains bounded one-minute fail-closed lockfile-only registry audits. Tool archives cache by OS/architecture/version/checksum and reject restored mismatch before execution (REQ-OPS-045).
+PR Dependency Review is dependency-security evidence for that reviewed tree and its main squash result; post-merge checks do not repeat registry-backed audits. Explicit full dispatch retains bounded one-minute fail-closed lockfile-only registry audits. Tool archives cache by OS/architecture/version/checksum and reject restored mismatch before execution ([REQ-OPS-165](../../sdd/spec/operations.md#req-ops-165-cached-external-tool-integrity-and-reuse)).
 
 Shared pipeline/manifests/config/selection rules occur in broad filters so a meaning-changing file reselects all lanes. Container inputs select source IDE/host/shell validation but construction waits for Deploy. Workers are workerd/miniflare isolates; shard parallelism divides per-file setup/transform work that extra local workers cannot eliminate.
 
@@ -460,7 +460,7 @@ Setup normalizes target, requires public provider discovery 200 and authenticate
 
 For [OPS-008](../../sdd/spec/operations.md), inspect existing authorized Integration records under [Execution Runbooks](#execution-runbooks): target revision/mode/profile, suite, redacted service identity, concurrency, k6 results and summary. Require separate mode-compatible load and limiter records; `all` cannot establish opposing bypass modes. Unset/zero concurrency uses baseline VUs; positive input scales VUs while the existing latency thresholds remain fixed.
 
-Correlate existing bypass-enabled HTTP/WebSocket and warning evidence, plus a separately prepared SaaS-and-stress rejection returning 503. Missing mode or WebSocket cases stay unavailable. Existing authentication-fallback, cleanup and partial-measurement limits remain; this inspection sends no traffic and performs no cleanup.
+For [REQ-OPS-164 AC1–AC3](../../sdd/spec/operations.md#req-ops-164-integration-stress-mode-runtime-boundary), correlate existing bypass-enabled HTTP/WebSocket and warning evidence, plus a separately prepared SaaS-and-stress rejection returning 503. Missing mode or WebSocket cases stay unavailable. Existing authentication-fallback, cleanup and partial-measurement limits remain; this inspection sends no traffic and performs no cleanup.
 
 <a id="test-suites"></a>
 ### Suite Contracts

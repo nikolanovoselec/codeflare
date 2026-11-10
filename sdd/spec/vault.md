@@ -85,11 +85,13 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 5. If extraction fails, the markdown file stays on disk; Vault hash checks exclude the session capture directory, so memory delivery recovery remains owned by its bounded request lifecycle rather than starting a Vault extraction. <!-- @manual -->
 6. The historical MCP memory subsystem has been removed entirely; the capture agent does not invoke it, and no legacy JSONL graph is read. <!-- @manual -->
 
+**Notes:** Codeflare ships no LLM provider key for the CLI and the capture agent already IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit; the capture pipeline is documented in [Vault](../../documentation/lanes/vault.md#capture-path-req-vault-002).
+
 **Constraints:**
 
 - The dedup gate (the marker-file delete as the agent's first step) is unchanged from the pre-vault flow.
 - Compaction is not automated; the user prunes captured sessions manually via the editor when the directory becomes unwieldy.
-- The headless extraction CLI is intentionally bypassed per [REQ-MEM-001](memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC6 - codeflare ships no LLM provider key for the CLI and the capture agent already IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
+- The headless extraction CLI is bypassed, with no extra inference, per [REQ-MEM-001](memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC6.
 
 **Priority:** P0
 

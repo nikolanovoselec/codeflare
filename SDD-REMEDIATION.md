@@ -6,21 +6,26 @@ This is non-normative delivery tracking, not an operational lane, a new product 
 
 - Audited baseline: `94eb6c2306573864b5804a193dc1a29eae883ffb` on `develop`.
 - All 661 source records are reconciled: 535 actionable, 86 decision, 27 duplicate, 2 accepted limitation, and 11 rejected/withdrawn.
-- The stable implementation register contains **649 approved scopes**, IG0001–IG0649. All are pending; none is implemented, verified, or closed by classification.
+- The stable implementation register contains **649 approved scopes**, IG0001–IG0649. Classification alone closed none; implementation, verification and successful publication are tracked separately.
 - Supplemental accounting retains 3174 expanded predicate/context rows, not 3174 defects. Existing methods and inherited feature comparisons are distinguished from missing execution receipts.
 - Residual protected, behavior-changing, external, and historical obligations are preserved separately and are not counted fixed. Detailed evidence and the canonical execution matrix remain private.
 
 ## Task progress
 
 - **T01:** completed and successfully published at `416732e4eca05900bc5da21dc46582f65944f58e`.
-- **T02:** baseline, disjoint file ownership, and validation targets frozen in this checkpoint; completion requires its successful publication.
-- **T03–T08:** pending — lossless structure, anchors/methods, approved alignment, documentation, history, and existing-behavior evidence.
-- **T09:** pending — validate and publish recoverable milestones throughout repairs.
+- **T02:** completed and successfully published at `5851c80800938df4aca2b35dd33fb8ce4aef76d0`.
+- **T03:** all 54 representation scopes implemented and semantically verified in this checkpoint; task completion requires successful publication. Clause, guard, actor, status, fragment and current-reference mappings are preserved.
+- **T04:** pending — source/test anchors and legitimate methods consume final clause mappings and actual assertion bodies.
+- **T05:** pending — four approved prerequisite contributions accompany T03; the whole alignment task is not complete.
+- **T06:** direct documentation implementation is in progress in disjoint file batches; no task closure or publication is inferred.
+- **T07:** direct historical/provenance implementation is in progress under one ledger owner; acceptance and dates are not invented.
+- **T08:** pending — observable unchanged-behavior evidence in existing suites only.
+- **T09:** in progress — root verifies and publishes task milestones in dependency order. Each implementation agent handles one task.
 - **T10:** pending — reconcile closure and obtain applicable required GREEN CI for the exact final pushed SHA.
 
 ## Ownership and validation freeze
 
-The execution baseline is the published T01 head. Its only changes from the audited baseline are tracking documentation; no product, specification, test, dependency, or policy evidence was invalidated.
+Ownership was frozen at the published T01 head, whose only changes from the audited baseline were tracking documentation. T03 now supplies explicit old-to-new clause mappings for its changed specifications; unchanged implementation evidence is reused without claiming a new whole-tree audit.
 
 The private ownership manifest assigns every approved scope to root integration and one exclusive owner per existing permitted file. Twelve disjoint owner groups cover agent specifications, operator/model specifications, lifecycle/storage specifications, adjacent specifications, three documentation partitions, historical decisions, and four test partitions. Reference paths are not permission to edit runtime or policy. New fixtures require an explicit existing-test-tree assignment before creation; no new harness or runtime export is authorized.
 
@@ -37,9 +42,17 @@ Secondary facets remain required without counting a joint scope twice. Preserve 
 
 Validation targets are claim-specific semantic review, the unchanged managed local-check route where applicable, and asynchronous applicable CI. No source strings, mock counts, CSS classes, method links, or retired fixtures substitute for the outcome being claimed. Protected/native/external acceptance remains separate. No broader audit is started.
 
+## T03 verification and remaining work
+
+The checkpoint covers 54 representation scopes; 595 other scopes are not closed by T03. Four approved T05 prerequisite contributions are recorded separately, without declaring T05 complete. No gap is counted closed before its successful pushed checkpoint.
+
+Verification inspected actual changed clauses and their guards, owner fields, references and dependency edges, not merely matching anchors. Root corrected normative parity placement, recovery retention scope, constraint inheritance, and oversized extracted criteria. Current documentation references accompany the moves; historical numbering and existing test titles remain intact.
+
+Managed JSON and overview-format preflights passed. The same 14 whole-file Markdown formatting warnings occur in both the audited baseline and final specifications; they are not reported as a clean formatting pass, and unrelated whole-file formatting was not changed. Source/test anchor completeness and behavioral evidence remain with T04/T08; protected, native and external acceptance remain unobserved.
+
 ## Verification and publication boundary
 
-This checkpoint changes tracking documentation only. It does not repair runtime behavior, grant new authority, change dependencies or enforcement, deploy anything, or establish hosted/native acceptance. Preserve accepted design and security/privacy/data-loss obligations.
+Representation changes preserve clause, guard, fragment and reference mappings; concurrently implemented documentation work is not automatically part of the T03 checkpoint. Nothing here repairs runtime behavior, grants new authority, changes dependencies or enforcement, deploys anything, or establishes hosted/native acceptance. Preserve accepted design and security/privacy/data-loss obligations.
 
 Each task requires a substantive validated commit and successful push before completion. Gap states are pending, in progress, implemented, verified, then closed; closure requires its pushed checkpoint. Actual milestone SHAs and evidence are recorded after successful publication in the canonical private tracker and subsequent overview updates, avoiding self-referential commit hashes.
 

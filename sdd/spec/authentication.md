@@ -127,13 +127,13 @@ None. Authentication is foundational; other domains depend on it.
 1. The service-token header is checked first, before any other authentication method, regardless of deployment mode. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-004: Service token authentication (X-Service-Auth)) -->
 2. The header value is compared against the configured service-auth secret using constant-time comparison. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/service-token-auth.test.ts (Service Token Authentication / REQ-AUTH-004 AC1/AC2/AC3/AC5 (X-Service-Auth header checked first, constant-time compare, admin role, disabled when secret unset)) -->
 3. Successful service-token auth returns an active-tier admin user with a preconfigured test identity. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-004 AC3: successful X-Service-Auth returns admin role and SERVICE_TOKEN_EMAIL) --> <!-- @test: src/__tests__/middleware/service-token-active-user.test.ts (REQ-AUTH-004: service automation reaches active-user APIs) -->
-4. The secret source varies by deployment mode but is unified under a single shared secret name at runtime. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (REQ-AUTH-004 AC4: service-auth secret unified under one runtime name across modes) -->
-5. When no service-token secret is configured, service auth is disabled (no fallback). <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/service-token-auth.test.ts (Service Token Authentication / REQ-AUTH-004 AC1/AC2/AC3/AC5 (X-Service-Auth header checked first, constant-time compare, admin role, disabled when secret unset)) -->
+4. When no service-token secret is configured, service auth is disabled (no fallback). <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/service-token-auth.test.ts (Service Token Authentication / REQ-AUTH-004 AC1/AC2/AC3/AC5 (X-Service-Auth header checked first, constant-time compare, admin role, disabled when secret unset)) -->
 
 **Constraints:**
 
 - Service token auth is the highest priority in the resolution order (checked before cookies or JWTs).
 - Constant-time comparison prevents timing attacks on the secret.
+- The secret source varies by deployment mode but is unified under a single shared secret name at runtime. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (REQ-AUTH-004 AC4: service-auth secret unified under one runtime name across modes) -->
 
 **Priority:** P0
 
@@ -634,10 +634,11 @@ None.
 **Acceptance Criteria:**
 
 1. The page offers a GitHub sign-in and enterprise SSO request controls that deep-link to the contact form. <!-- @impl: landing/src/scripts/contact-controller.ts::pickDeepLinkTopic --> <!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)) -->
-2. Non-approved onboarding GitHub users have their access request recorded and are redirected to the requested state. New users receive pending records; existing users retain their stored tiers, including blocked status. First-request notification and confirmation emails are best-effort. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/user-record.ts::updateUserRecord --> <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
+2. Non-approved onboarding GitHub users have their access request recorded and are redirected to the requested state. New users receive pending records; existing users retain their stored tiers, including blocked status. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/user-record.ts::updateUserRecord --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 3. The onboarding access-request branch never runs in SaaS mode or enterprise mode. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 4. Onboarding trusts and refreshes its app-owned session credential only in session-OIDC mode. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-021: valid codeflare_session authenticates in onboarding mode (SAAS inactive)) -->
 5. Active-tier middleware applies in onboarding; pending visitors with sessions remain gated out of app APIs. <!-- @impl: src/middleware/auth.ts::requireActiveUser --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (REQ-AUTH-021: blocks pending users with 403 PENDING in onboarding mode (SAAS inactive)) -->
+6. First-request notification and confirmation emails for non-approved onboarding GitHub users are best-effort. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation --> <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request) -->
 
 **Constraints:**
 

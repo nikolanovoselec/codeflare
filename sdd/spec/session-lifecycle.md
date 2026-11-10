@@ -45,7 +45,8 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 3. One complete non-secret D1 row durably stores owner, name, configuration, timestamps, lifecycle fencing and runtime projection fields. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-001 AC3 / REQ-SESSION-031 AC1: valid agent and six configured tabs retain complete nonsecret creation data) --> <!-- @impl: src/lib/session-repository.ts::create -->
 4. A missing workspace value resolves to Terminal and the immutable terminal/workspace stamps cannot be patched by clients. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC3/4/5 subsets: Create persists defaults and stopped generation zero; immutable PATCH preserves the row) --> <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @impl: src/routes/session/crud.ts::UpdateSessionBody --> <!-- @impl: src/routes/session/crud.ts::app -->
 5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC3/4/5 subsets: Create persists defaults and stopped generation zero; immutable PATCH preserves the row) -->
-6. Creation remains rate-limited and storage quota is checked in SaaS mode. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC6 subset: cached SaaS storage above the tier cap denies creation without inserting a row) --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC6 subset: route limiter rejects request eleven without creating any invalid session) --> <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter --> <!-- @impl: src/routes/session/crud.ts::app -->
+6. Creation remains rate-limited. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC6 subset: route limiter rejects request eleven without creating any invalid session) --> <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter -->
+7. Storage quota is checked in SaaS mode. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC6 subset: cached SaaS storage above the tier cap denies creation without inserting a row) --> <!-- @impl: src/routes/session/crud.ts::app -->
 
 **Constraints:**
 
@@ -101,8 +102,10 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 1. The user's persistent storage bucket is provisioned if it does not exist. <!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (createBucketIfNotExists) -->
 2. A scoped, bucket-specific credential pair is obtained or created for the user and injected into the container environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 AC2: scoped R2 token obtained and injected) -->
 3. An initial sync from persistent storage to the workspace settles before ordinary terminal traffic is released, with a shipped 120-second safety timeout; timeout records degraded restore and allows bounded startup to continue. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @manual: Stall the R2 source and confirm initial sync leaves its blocking phase after 120 seconds before bounded host fallback can release terminal traffic. -->
-4. After initial sync, changes are bidirectionally synced on a regular schedule for the container's lifetime, with support for on-demand triggers and a final sync on shutdown (see [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)). <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
-5. New buckets are seeded with getting-started docs and agent configs matching the user's session mode. <!-- @impl: src/lib/r2-seed.ts::CONTEXT_MODE_KEY_PREFIX --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 AC5: new buckets seeded with getting-started docs) -->
+4. After initial sync, changes are bidirectionally synced on a regular schedule for the container's lifetime (see [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)). <!-- @impl: entrypoint.sh::bisync_with_r2 -->
+5. After initial sync, on-demand triggers support bidirectional sync during the container's lifetime. <!-- @impl: entrypoint.sh::bisync_with_r2 -->
+6. A final sync runs on shutdown. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
+7. New buckets are seeded with getting-started docs and agent configs matching the user's session mode. <!-- @impl: src/lib/r2-seed.ts::CONTEXT_MODE_KEY_PREFIX --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 AC5: new buckets seeded with getting-started docs) -->
 
 **Constraints:**
 
@@ -130,9 +133,10 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 1. New configurable idle timeouts are 1h, 2h, 4h, 8h and 12h. <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-004: %s stays alive until its configured idle deadline and then requests SIGTERM) --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 2. New non-free users default to 1h; free-tier users remain locked to 15m regardless of stored preference. <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (defaults to 1h for non-free tiers without stored preference) --> <!-- @impl: src/routes/container/lifecycle-validation.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (flag-off: free tier is locked to 15m regardless of stored preference) -->
 3. The idle timer resets for classified terminal input and for each client-to-server Browser IDE frame; reconnections and server-to-client output do not reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
-4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) --> <!-- @test: src/__tests__/container-metrics.test.ts (stops after genuine idle expiry from the persisted startup reference) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-004/034: valid input enforces its 1h deadline with %s startup timing) --> <!-- @test: host/__tests__/session-idle-timeout.test.js (REQ-SESSION-004 AC4: PTY safety net respects the maximum idle preset) -->
-5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
-6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-SESSION-004 AC6: idle-timeout dropdown gating) -->
+4. The container is stopped once the user-configured idle threshold is exceeded. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) --> <!-- @test: src/__tests__/container-metrics.test.ts (stops after genuine idle expiry from the persisted startup reference) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-004/034: valid input enforces its 1h deadline with %s startup timing) -->
+5. The host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @test: host/__tests__/session-idle-timeout.test.js (REQ-SESSION-004 AC4: PTY safety net respects the maximum idle preset) -->
+6. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
+7. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-SESSION-004 AC6: idle-timeout dropdown gating) -->
 
 **Constraints:**
 
@@ -454,11 +458,6 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 1. Frequent batch status uses one owner-indexed primary-consistent D1 query, no session KV operation, no per-session query or container/SDK probe, and sends `no-store` semantics. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-repository.ts::listSessions --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC1/2 subsets: owner filtering, seeded lifecycle metadata and no-store response contract) -->
 2. Responses return complete session projections with lifecycle, generation, revision, readiness, incident/deadline, metrics and observation timestamps. <!-- @impl: src/lib/session-repository.ts::fromRow --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns ordered lifecycle, metrics, readiness, and incident fields) -->
-3. Clients apply responses monotonically by generation and revision so delayed success or failure cannot undo newer state. <!-- @impl: web-ui/src/lib/session-presentation.ts::applyOrderedProjection --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @test: web-ui/src/__tests__/lib/session-presentation.test.ts (ignores delayed generation and revision responses) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1/AC2: stale %s batch readiness and metrics cannot overwrite a newer projection) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
-4. For Terminal workspaces, backend `running` plus this device's connected terminal WebSocket renders green ACTIVE; without it, blue IDLE; neither label is persisted. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (REQ-TERM-045 AC3: local ACTIVE/IDLE never changes persisted workspace or shared lifecycle) -->
-5. `starting` and `unreachable` use yellow recovery presentation and `stopped` is gray, while D1 read failure retains the last ordered state and shows a separate status-unavailable warning. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-010/029: %s announces unavailable status without replacing cards and clears on recovery) -->
-6. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010 AC6: %s uses its transition or stable polling cadence) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/029 AC6: hidden polling pauses and repeated visible refreshes remain serialized) --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/stores/session-polling.ts::handlePollingVisibilityChange -->
-7. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010 AC7: failed ancillary lookup preserves last-good fields and recovery replaces them) --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus -->
 
 **Constraints:**
 
@@ -468,6 +467,60 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
+
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-243: Ordered lifecycle presentation and read availability
+
+**Intent:** Clients retain ordered lifecycle authority while presenting device-local activity and separate read availability.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Clients apply responses monotonically by generation and revision so delayed success or failure cannot undo newer state. <!-- @impl: web-ui/src/lib/session-presentation.ts::applyOrderedProjection --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @test: web-ui/src/__tests__/lib/session-presentation.test.ts (ignores delayed generation and revision responses) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1/AC2: stale %s batch readiness and metrics cannot overwrite a newer projection) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
+2. For Terminal workspaces, backend `running` plus this device's connected terminal WebSocket renders green ACTIVE; without it, blue IDLE; neither label is persisted. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (REQ-TERM-045 AC3: local ACTIVE/IDLE never changes persisted workspace or shared lifecycle) -->
+3. `starting` and `unreachable` use yellow recovery presentation and `stopped` is gray. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation -->
+4. D1 read failure retains the last ordered state and shows a separate status-unavailable warning. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-010/029: %s announces unavailable status without replacing cards and clears on recovery) -->
+
+**Constraints:**
+
+- Dashboard polling never wakes a container.
+- Authentication and revocation middleware may retain unrelated KV use.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
+
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-244: Lifecycle polling and ancillary scheduling
+
+**Intent:** Frequent lifecycle refresh and separately owned ancillary work preserve serialized polling and last-good dashboard state.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010 AC6: %s uses its transition or stable polling cadence) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/029 AC6: hidden polling pauses and repeated visible refreshes remain serialized) --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/stores/session-polling.ts::handlePollingVisibilityChange -->
+2. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010 AC7: failed ancillary lookup preserves last-good fields and recovery replaces them) --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus -->
+
+**Constraints:**
+
+- Dashboard polling never wakes a container.
+- Authentication and revocation middleware may retain unrelated KV use.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
 
 **Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
@@ -633,7 +686,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 1. Non-internal requests cannot auto-start a non-running container. After authenticated owner-scoped D1 authorization, a verified surviving workload may be forwarded through no-start even after coordinator reconstruction; SDK `running` is not definitive live-process evidence. <!-- @impl: src/container/index.ts::fetch --> <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/container-helpers.ts::forwardExisting --> <!-- @test: src/__tests__/container/index.test.ts (should return 503 for non-internal routes when container is not running) --> <!-- @test: src/__tests__/container/index.test.ts (forwards to the surviving runtime with its existing auth token despite stale persisted SDK state) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC1: absent runtime returns retryable 1013 without invoking auto-starting SDK fetch) -->
 2. WebSocket upgrades receive authoritative 4503 only from current D1 `stopping` or `stopped` evidence; transient forwarding failures remain retryable. <!-- @impl: src/routes/terminal.ts::app --> <!-- @impl: src/container/index.ts::fetch --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC2 / REQ-SEC-020 AC4: D1 %s remains retryable despite transient SDK stop) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC3 / REQ-SEC-020 AC2: D1 %s closes 4503 without probing a healthy SDK container) -->
-3. During `unreachable`, terminal/editor objects, tabs and tiling remain mounted with bounded-jitter retries. Terminal reattachment replaces client buffer/scrollback with the authoritative host snapshot; prior terminal selection and viewport position are not retained. Editor state stays intact. <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (REQ-SESSION-012 AC3: unreachable reconciliation retains workspace tabs, focus and layout through recovery) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-SESSION-012 AC3 / TERM-045 AC5: retains the same rendered panes through unreachable and recovery) --> <!-- @manual: Terminal snapshot restoration acceptance --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/lib/session-presentation.ts::isMountedLifecycle --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::terminalWorkspaceStore -->
+3. During `unreachable`, terminal/editor objects, tabs and tiling remain mounted with bounded-jitter retries. <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (REQ-SESSION-012 AC3: unreachable reconciliation retains workspace tabs, focus and layout through recovery) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-SESSION-012 AC3 / TERM-045 AC5: retains the same rendered panes through unreachable and recovery) --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/lib/session-presentation.ts::isMountedLifecycle --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::terminalWorkspaceStore -->
 4. Authenticated terminal upgrades reconnect to the verified existing process without starting a replacement or allocating a new generation. Absent or unverified runtime remains retryable; authoritative D1 `stopping`/`stopped` still closes 4503. <!-- @impl: src/container/index.ts::fetch --> <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/container/index.test.ts (native terminal upgrade fails closed when the existing runtime is absent) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-012 AC4: native terminal fetch probes only the existing port when SDK state is stale) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC4: a surviving runtime with stale SDK stopped state forwards health and authenticated terminal without starting) -->
 5. Client countdown expiry changes messaging only and cannot declare stopped or dispose the workspace. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (expires the rendered idle timer without inventing stopped lifecycle) -->
 6. D1 read failure retains transport state and shows status unavailable; it never synthesizes `unreachable` or `stopped`. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
@@ -643,6 +696,29 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
+
+**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx); Manual: [Terminal snapshot restoration acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-245: Transport recovery terminal snapshot and editor state
+
+**Intent:** Recovery restores authoritative terminal contents while retaining editor state and deliberately discarding prior terminal selection and viewport position.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Terminal reattachment replaces client buffer/scrollback with the authoritative host snapshot; prior terminal selection and viewport position are not retained. <!-- @manual: Terminal snapshot restoration acceptance --> <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
+2. During `unreachable` and terminal reattachment, editor state stays intact. <!-- @impl: web-ui/src/lib/session-presentation.ts::isMountedLifecycle -->
+
+**Constraints:** Disposal requires newer authoritative stopping/stopped evidence or explicit successful deletion.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident), [REQ-SESSION-012](#req-session-012-transport-retry-never-invents-lifecycle-state)
 
 **Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx); Manual: [Terminal snapshot restoration acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance)
 
@@ -753,8 +829,6 @@ None.
 3. Terminal pre-warm waits up to 130 seconds for initialization, then starts the stamped Classic or Herdr surface; timeout proceeds in degraded state. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm pre-warm remains gated until the 130-second bound, then starts with `/health.initFlagObserved` still false. -->
 4. The host rejects terminal WebSocket upgrades with retriable close code 1013 and a warming reason until pre-warm registers. <!-- @impl: host/src/server.ts::terminalServiceReady --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate (PR #365) / REQ-SEC-020 AC3 (1013 close BEFORE WS rate-limit while readiness is unverified)) -->
 5. Pre-warm registration normally follows initialization; after the 130-second bound, degraded startup may register without requiring `initFlagObserved`. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm degraded startup registers after the 130-second bound with `/health.initFlagObserved` still false. -->
-6. The image bakes a pre-transpiled cache for the full Pi extension set, with package extensions derived from the preseed manifest. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @manual -->
-7. The image build fails if the transpile cache is empty or a required package extension is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @manual -->
 
 **Constraints:**
 
@@ -767,6 +841,31 @@ None.
 **Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
 **Verification:** Automated: [entrypoint-pi-warmup-guard.test.js](../../host/__tests__/entrypoint-pi-warmup-guard.test.js), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts); Manual: [Startup and packaged image record acceptance](../../documentation/lanes/container.md#startup-and-packaged-image-record-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-246: Packaged Pi extension cache construction
+
+**Intent:** The image packages the complete pre-transpiled Pi extension cache and fails closed on incomplete cache construction.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The image bakes a pre-transpiled cache for the full Pi extension set, with package extensions derived from the preseed manifest. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @manual -->
+2. The image build fails if the transpile cache is empty or a required package extension is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @manual -->
+
+**Constraints:**
+
+Runtime readiness remains governed by [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition); extracting image-construction criteria changes none of its gates.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
+
+**Verification:** Manual: [Startup and packaged image record acceptance](../../documentation/lanes/container.md#startup-and-packaged-image-record-acceptance)
 
 **Status:** Implemented
 
@@ -899,6 +998,7 @@ None.
 
 4. Once the session DO accepts Stop, its complete claim, pending Protected Action cancellation, existing bounded graceful teardown and D1 exit confirmation continue independently of the calling HTTP request. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (protects the entire Stop when the caller disconnects during %s I/O) -->
 5. Before DO acceptance the Worker does not claim `stopping`. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: an RPC rejected before DO acceptance cannot leave a Worker-owned stopping claim) -->
+
 **Constraints:**
 
 - No automatic existing-record repair, migration or recovery scheduler.

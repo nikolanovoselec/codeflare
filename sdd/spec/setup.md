@@ -100,8 +100,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. Default mode uses Cloudflare Access authentication with manually allowlisted users via the setup wizard, gated by CF Access policies and a persistent allowlist. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/routes/setup-access-provisioning.test.ts (REQ-SETUP-003: CF Access provisioning gated by isSessionOidcMode + OAUTH_CLIENT_ID) -->
-2. Onboarding mode presents a public waitlist landing page for unauthenticated visitors and routes authenticated users into the application; when GitHub OAuth (`OAUTH_CLIENT_ID`) is configured the Worker authenticates via its own GitHub-OIDC session cookie and the setup wizard skips CF Access provisioning. <!-- @impl: src/lib/onboarding.ts::isOnboardingLandingPageActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
-3. SaaS mode uses a branded login and session credentials when GitHub OAuth is configured; setup skips CF Access, auto-provisions pending users, and manages state without Access groups or policies. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+2. Onboarding mode presents a public waitlist landing page for unauthenticated visitors and routes authenticated users into the application. <!-- @impl: src/lib/onboarding.ts::isOnboardingLandingPageActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+3. SaaS mode uses a branded login and session credentials when GitHub OAuth is configured. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
 4. Deployment mode is determined at deploy time via Worker bindings; the setup wizard skips CF Access provisioning in any session-OIDC mode (SaaS OR onboarding) with `OAUTH_CLIENT_ID` set, and provisions CF Access (groups, app, policy) plus the enterprise vault SW-bypass app otherwise. <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
 5. The frontend detects the active mode on load and renders the appropriate initial view: branded login for SaaS, setup wizard if unconfigured, or workspace redirect for default mode. <!-- @impl: web-ui/src/App.tsx::checkSetupStatus --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (App setup routing) -->
 
@@ -114,6 +114,34 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Priority:** P0
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
+
+**Verification:** Automated: [onboarding.test.ts](../../src/__tests__/lib/onboarding.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-230: Session OIDC setup provisioning
+
+**Intent:** Session-OIDC setup applies conditional Access omission and SaaS pending-user provisioning without changing deployment-mode fallback guards.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. In onboarding mode with GitHub OAuth (`OAUTH_CLIENT_ID`) configured, the Worker authenticates via its own GitHub-OIDC session cookie and the setup wizard skips CF Access provisioning. <!-- @impl: src/lib/onboarding.ts::isOnboardingLandingPageActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+2. In SaaS mode with GitHub OAuth configured, setup skips CF Access and manages state without Access groups or policies. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+3. SaaS setup auto-provisions pending users. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+
+**Constraints:**
+
+- Stress-test mode must not be active alongside SaaS mode (returns 503).
+- A session-OIDC mode (SaaS or onboarding) without `OAUTH_CLIENT_ID` configured falls back to CF Access authentication, and the setup wizard provisions CF Access for it.
+- The CF Access skip mirrors the runtime guard `isSessionOidcMode`, so a session-OIDC deployment never gets a stray Access app that would 302 the credential-less vault service-worker registration ([REQ-VAULT-017](vault.md#req-vault-017-silverbullet-native-service-worker)).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-SETUP-003](#req-setup-003-three-deployment-modes)
 
 **Verification:** Automated: [onboarding.test.ts](../../src/__tests__/lib/onboarding.test.ts)
 

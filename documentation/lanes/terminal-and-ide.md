@@ -272,7 +272,7 @@ Current mechanisms are synchronous follower guard, persistent correlated manual 
 <a id="websocket-recovery"></a>
 ## Transport Recovery
 
-Terminal reattachment restores the authoritative host snapshot, rather than preserving the previous client buffer, selection or viewport position. The client resets its buffer/scrollback, applies the serialized host state and returns to the live bottom. Terminal objects, tabs and tiling remain mounted during retry; editor state is unaffected by terminal restore. This is the intended recovery design ([REQ-SESSION-012 AC3](../../sdd/spec/session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state), [REQ-TERM-045 AC5](../../sdd/spec/terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle)). <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
+Terminal reattachment restores the authoritative host snapshot, rather than preserving the previous client buffer, selection or viewport position. The client resets its buffer/scrollback, applies the serialized host state and returns to the live bottom. Terminal objects, tabs and tiling remain mounted during retry; editor state is unaffected by terminal restore. This is the intended recovery design ([REQ-SESSION-012 AC3](../../sdd/spec/session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state), [REQ-SESSION-245 AC1–AC2](../../sdd/spec/session-lifecycle.md#req-session-245-transport-recovery-terminal-snapshot-and-editor-state), [REQ-TERM-045 AC5](../../sdd/spec/terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle)). <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
 
 ### Retryable Close Codes
 

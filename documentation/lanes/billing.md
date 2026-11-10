@@ -135,7 +135,7 @@ Historical rows retain normalized named user aggregates, including deleted-user 
 
 ## D1 Database and Migrations
 
-Each deployment uses one D1 database named `${WORKER_NAME}-usage`, bound as `USAGE_DB`. Deployment lists exact names, rejects duplicates, creates the database when absent, writes its ID into temporary `wrangler.toml`, and applies migrations before Worker deployment. Account and database IDs do not belong in source. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
+Each deployment uses one D1 database named `${WORKER_NAME}-usage`, bound as `USAGE_DB`. Deployment lists exact names, rejects duplicates, creates the database when absent, writes its ID into temporary `wrangler.toml`, and applies migrations before Worker deployment. Account and database IDs do not belong in source. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary), [REQ-OPS-166](../../sdd/spec/operations.md#req-ops-166-d1-type-validation-and-migration-ordering)) <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
 
 `migrations/usage/0001_initial.sql` additively creates historical users/periods, report deliveries, and maintenance claims. It is not the complete current schema: `migrations/usage/0002_runtime_sessions.sql` also defines D1 session records and cutover admission. Apply the deployment's full migration set before traffic; do not publish against missing schema. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: migrations/usage/0001_initial.sql::usage_users -->
 
@@ -187,7 +187,7 @@ Use the existing Subscribe, Subscription Management and Dashboard surfaces with 
 | REQ-SUB-003 AC1/3 | Compare free activation in both provider configurations. Auth status becomes active without checkout or provider interaction; require browser and provider-side observations, not browser silence alone. |
 | REQ-SUB-011 AC1 | Check every selectable subscription tier in the existing direct-activation matrix without a provider. Protected blocked/pending states remain non-purchasable. Record accepted and rejected selections explicitly; missing rows are unavailable. |
 | REQ-SUB-009 AC1/6 | Compare an authorized tier-array PUT with GET after its 60-second cache. Values persist; anonymous/inactive/non-admin requests preserve the array. In management, identity, order, defaults and provider prices remain read-only. |
-| REQ-SUB-014 AC1–4 | Compare configured modes with `getDefaultTiers`, `getAllowedSessionModes`, rejected preference requests and existing stale-preference startup records. Free/trial default-only; standard/advanced/max/unlimited permit both modes. Unsupported saved modes clamp to an allowed default. Never corrupt preferences to manufacture a case. |
+| REQ-SUB-014 AC1–5 | Compare configured modes with `getDefaultTiers`, `getAllowedSessionModes`, rejected preference requests and existing stale-preference startup records. Free/trial default-only; standard/advanced/max/unlimited permit both modes. Unsupported saved modes clamp to an allowed default. Never corrupt preferences to manufacture a case. |
 | REQ-SUB-013 AC4; REQ-SUB-019 AC3 | Compare effective tier, displayed maximum and one complete Dashboard response cycle. Verify the authoritative ancillary response supplies `maxSessions`, agrees with backend admission and requires no separate entitlement-only fetch. |
 
 ### Checkout and provider lifecycle acceptance

@@ -320,6 +320,8 @@ Under [REQ-STOR-051](../../sdd/spec/storage.md#req-stor-051-pi-transcript-confli
 
 ## Conflict Resolution
 
+Multi-session Sync-now fan-out relies on newest-file-wins comparison under absolute modification time. The commutative/associative rationale applies to that per-file comparison, not to arbitrary concurrently changing workspaces, deletion history, or a universal parallel-versus-serial convergence guarantee. The fan-out retains bounded concurrency and per-session failure isolation ([REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui)).
+
 After each existing user-storage sync attempt, shared cleanup removes eligible files whose basenames contain the case-sensitive `.conflict` marker from the same local and R2 roots. Protected `Operators/**` and `.codeflare/operators/**` subtrees are excluded on both sides. Nonmatching originals, directories, symlinks and unrelated prefixes are preserved. Cleanup cannot mask transfer failures; errors and exhausted deadlines remain visible in sync diagnostics. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts -->
 
 Startup and baseline remote cleanup use the remaining transfer-attempt deadline after local cleanup; ordinary remote cleanup uses the existing 30-second network policy. No additional sync or merge/archive workflow starts. The newer canonical file survives genuine divergence, but eligible loser copies are intentionally discarded under [REQ-STOR-054](../../sdd/spec/storage.md#req-stor-054-post-sync-rclone-conflict-copy-cleanup). <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts -->
@@ -528,7 +530,7 @@ Protected managed environments restore one canonical `.codeflare/managed-paths.j
 <a id="startup--steady-state-sync-performance"></a>
 ## Performance Characteristics
 
-Six startup costs and stale-state risks are controlled (REQ-STOR-017):
+Six startup costs and stale-state risks are controlled by [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [REQ-STOR-256](../../sdd/spec/storage.md#req-stor-256-image-seed-relay-cache-reuse-and-prewarm-priority), and [REQ-STOR-257](../../sdd/spec/storage.md#req-stor-257-retired-pi-extension-sync-exclusion-and-baked-pruning):
 
 - **Bisync compares via server-modtime (AD88, all modes).**
 

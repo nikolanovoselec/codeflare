@@ -77,10 +77,36 @@ These compatibility anchors resolve dated changelog references to retired review
 1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
 2. The supported agent-type values are schema-validated at the request boundary. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
 3. Each coding-agent CLI selected for a deployment is installed in the container image from a committed lock-backed npm tree or a checksum-pinned native artifact; an unspecified selection installs the full supported set. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
-4. Pi receives dedicated image-build pre-warming; Codex and Copilot skip the V8 compile-cache bake. <!-- @impl: Dockerfile::NODE_COMPILE_CACHE --> <!-- @manual -->
+4. Pi receives dedicated image-build pre-warming. <!-- @impl: Dockerfile::NODE_COMPILE_CACHE --> <!-- @manual -->
 5. Pi extension npm dependencies are available from the image cache without overwriting restored user package metadata. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001: Pi npm warm cache seeds dependencies without overwriting user package metadata) -->
 6. The image build fails if either committed pre-warmed Pi SDK dependency/override pin differs from the lock-backed runtime-agent pin or installed version. <!-- @impl: Dockerfile::verify-pi-lockstep --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyPiLockstep --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-001 AC6: Pi image lockstep fails closed) -->
-7. When Claude Code is selected, the image build verifies that its shared CLI can start; official Claude IDE inventory verification remains unconditional. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Build an image with and without Claude Code and inspect the packaged-image evidence. -->
+7. When Claude Code is selected, the image build verifies that its shared CLI can start. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Build an image with and without Claude Code and inspect the packaged-image evidence. -->
+
+**Constraints:**
+
+- Agent CLI versions move only through reviewed lockfile bump PRs after the configured cooldown.
+- Major version jumps remain compatibility-sensitive and require normal review and CI.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AGENT-233](#req-agent-233-agent-image-bake-exclusions-and-ide-inventory)
+
+**Verification:** Automated: [agent-config.test.ts](../../src/__tests__/lib/agent-config.test.ts), [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js); Manual: [Selected agent image acceptance](../../documentation/lanes/container.md#selected-agent-image-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-233: Agent image bake exclusions and IDE inventory
+
+**Intent:** Agent image preparation preserves the Codex/Copilot bake exclusions and unconditional official Claude IDE inventory verification.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Codex and Copilot skip the V8 compile-cache bake. <!-- @impl: Dockerfile::NODE_COMPILE_CACHE --> <!-- @manual -->
+2. Official Claude IDE inventory verification remains unconditional. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Build an image with and without Claude Code and inspect the packaged-image evidence. -->
 
 **Constraints:**
 
@@ -91,7 +117,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** None.
 
-**Verification:** Automated: [agent-config.test.ts](../../src/__tests__/lib/agent-config.test.ts), [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js); Manual: [Selected agent image acceptance](../../documentation/lanes/container.md#selected-agent-image-acceptance)
+**Verification:** Manual: [Selected agent image acceptance](../../documentation/lanes/container.md#selected-agent-image-acceptance)
 
 **Status:** Implemented
 
@@ -201,7 +227,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 2. Image construction rejects missing path-correct caches for local TypeScript extensions, Open TUI and the RPIV trio. The native JavaScript web-access entrypoint follows AC4's required native-import evidence. <!-- @impl: Dockerfile::advisor_source --> <!-- @impl: Dockerfile::open_tui_source --> <!-- @impl: Dockerfile::web_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a local cache warmed at the wrong path despite a matching basename) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 3. A second fresh warm-up process must report a JITI cache hit for every TypeScript entrypoint and no cache misses, including imported dependencies; construction fails without that evidence or when either process reports an extension-load error, even with exit code zero. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (REQ-AGENT-210: image extension cache reuse) -->
-4. Native JavaScript entrypoints and declared helper dependencies are warmed without requiring a JITI artifact; their native import must be observed. Helpers are imported through their owning extension, not registered as extension factories, and warming never runs transcript maintenance. <!-- @impl: Dockerfile::context_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (warms native JavaScript without requiring a nonexistent JITI artifact) -->
+4. Native JavaScript entrypoints and declared helper dependencies are warmed without requiring a JITI artifact; their native import must be observed. <!-- @impl: Dockerfile::context_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (warms native JavaScript without requiring a nonexistent JITI artifact) -->
 5. Managed extension dependency compatibility survives image construction, startup updates and repair without changing unrelated package metadata. <!-- @impl: scripts/patch-rpiv-host-peers.mjs::patchRpivHostPeers --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs::verifyRpivExtensionStartup --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-host-peers.test.js (REQ-AGENT-210: RPIV declares host TypeBox as a wildcard peer without changing other package contracts) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies) -->
 
 6. Packaged startup loads advisor, questionnaire and todo tools without dependency warnings or extension errors. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-AGENT-210 AC6: image-prepared RPIV packages load actual pinned tools without warnings) -->
@@ -215,9 +241,36 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-234](#req-agent-234-managed-warm-helper-ownership-and-maintenance-isolation)
 
 **Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [jiti-warm-reuse.test.js](../../host/__tests__/jiti-warm-reuse.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [rpiv-bump-gate.test.js](../../host/__tests__/rpiv-bump-gate.test.js), [rpiv-host-peers.test.js](../../host/__tests__/rpiv-host-peers.test.js), [enterprise-routing.test.mjs](../../preseed/agents/pi/test/enterprise-routing.test.mjs)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-234: Managed warm helper ownership and maintenance isolation
+
+**Intent:** Managed startup warming imports helpers through their owning extensions without running transcript maintenance.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Helpers are imported through their owning extension, not registered as extension factories. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints -->
+2. Warming never runs transcript maintenance. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints -->
+
+**Constraints:**
+
+- Image warming loads resources without requesting model completions.
+- Native-import evidence is not a V8 cache-hit measurement or an end-to-end startup-time guarantee.
+- Restored user content that differs from the image may legitimately require new compilation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
+**Verification:** Automated: [jiti-warm-reuse.test.js](../../host/__tests__/jiti-warm-reuse.test.js)
 
 **Status:** Implemented
 
@@ -960,9 +1013,10 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 **Acceptance Criteria:**
 
 1. Pro mode delivers a strict superset of Standard mode's content — memory persistence, language rules, agent definitions, slash commands, skills, the spec/docs/tests discipline triad, and commit-attribution/PR-boundary review hooks. <!-- @manual -->
-2. Pro mode enables persistent memory by including the user's Vault directory tree in the R2 sync filters; Standard mode excludes the Vault tree, so memory does not persist across container restarts. The legacy `.memory/` directory is no longer written. <!-- @manual -->
+2. Pro mode enables persistent memory by including the user's Vault directory tree in the R2 sync filters; Standard mode excludes the Vault tree, so memory does not persist across container restarts. <!-- @manual -->
 3. Pro-mode hooks produce identical attribution, review, blocking, and memory behavior across direct and context-mode tool surfaces. <!-- @impl: entrypoint.sh::CONTEXT_MODE_MANIFEST --> <!-- @manual -->
 4. Pi agents remain fully functional whether or not context-mode is active: native Bash/Read/Grep/Find/Edit/Write plus graphify tools suffice alone. Agent definitions declare context-mode helpers under Pi-native names in frontmatter. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::commandText --> <!-- @manual -->
+5. The legacy `.memory/` directory is no longer written. <!-- @manual -->
 
 **Notes:** The per-content-category matrix is documented in [Preseed](../../documentation/lanes/preseed.md#session-modes).
 
@@ -1803,7 +1857,7 @@ None.
 
 **Constraints:**
 
-- The client sends only the tier name (untrusted, normalized server-side to a known tier; default `recommended`); the concrete scope strings are defined once, server-side ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6, [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)).
+- The client sends only the tier name (untrusted, normalized server-side to a known tier; default `recommended`); the concrete scope strings are defined once, server-side ([REQ-GITHUB-317](github.md#req-github-317-additive-github-connection-and-scope-contract) AC4, [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)).
 - A GitHub App's permissions are fixed at registration, so the tier affects only the OAuth-App path.
 
 **Priority:** P1
@@ -3114,12 +3168,41 @@ None.
 
 **Acceptance Criteria:**
 
-1. The Cloudflare OAuth integration supports authorize, exchange, refresh, and revoke; encrypted OAuth credentials reuse the bucket deploy-key fields without a new key. Exchanges use `client_secret_post` and surface Cloudflare `error_description` on failure. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
+1. The Cloudflare OAuth integration supports authorize, exchange, refresh, and revoke. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 2. Cloudflare connection and disconnection APIs require active-user authorization; their callback reauthenticates the live session. Guided Setup and Settings expose connection without an advanced-session entitlement. API access still rejects pending/blocked users in app-owned OIDC modes; credentials never reach the browser. <!-- @impl: src/routes/cloudflare.ts::app --> <!-- @impl: src/middleware/auth.ts::requireActiveUser --> <!-- @impl: src/routes/cloudflare-auth.ts::app --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, PENDING/BLOCKED responses, outside-SaaS and authMiddleware backward compatibility)) -->
 3. The callback binds a signed, single-use state to the initiating user's bucket, rejecting forged, expired, or replayed states without exchanging the code; success stores the token and auto-selects a sole accessible account, else redirects to an account picker. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
 4. A currently valid token is returned, refreshed within the skew window, and fails closed rather than returning a stale token. <!-- @impl: src/lib/cloudflare-token.ts::getValidCloudflareToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (getValidCloudflareToken) -->
 5. The connect URL carries a scope `tier`; the server maps it to the OAuth `scope`, with every tier including `analytics.read` and `offline_access` so zone analytics are readable and a refresh token is issued. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (feeds every scope tier into OAuth with Analytics read and offline access) -->
 6. Enterprise has no per-user Cloudflare OAuth provider: authorization initiation and code exchange are unavailable. Status, account selection and disconnection helpers retain their separate contracts. Enterprise keeps the admin-global Browser Rendering token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). <!-- @impl: src/lib/cloudflare-token.ts::getCloudflareProvider --> <!-- @impl: src/routes/cloudflare.ts::app --> <!-- @impl: src/routes/cloudflare-auth.ts::app --> <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (returns null in enterprise mode even when the KV client is configured) -->
+
+**Constraints:**
+
+- One OAuth client per operator account; each user authorizes their own Cloudflare account.
+- The operator's OAuth client must be registered with `token_endpoint_auth_method = client_secret_post`.
+- Cloudflare's client-secret **rotation is broken** (Cloudflare-side bug): only the secret returned at client *creation* authenticates.
+- The exact OAuth scope set must be granted on the operator's client — see the [Configuration](../../documentation/lanes/configuration.md) lane and verify against `GET /client/v4/oauth/scopes`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container), [REQ-AGENT-235](#req-agent-235-cloudflare-oauth-storage-and-exchange-compatibility)
+
+**Verification:** Automated: [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [cloudflare-oauth.test.ts](../../src/__tests__/routes/cloudflare-oauth.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-235: Cloudflare OAuth storage and exchange compatibility
+
+**Intent:** Cloudflare OAuth retains existing encrypted deploy-key storage and its token-exchange authentication and failure diagnostics.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Encrypted OAuth credentials reuse the bucket deploy-key fields without a new key.
+2. Exchanges use `client_secret_post`. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
+3. Exchanges surface Cloudflare `error_description` on failure. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 
 **Constraints:**
 
@@ -4804,14 +4887,19 @@ None.
 **Acceptance Criteria:**
 
 1. The verdict demand requires a gate-matching table with one row per finding across all required lanes. A fully clean round still publishes the table shape but does not add redundant clean-lane rows. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (blocks with canonical triage instruction when terminal evidence is untriaged) -->
-2. Acknowledgement is followed by a fix directive that states the head is already acknowledged, then commits and pushes accepted file changes without renewed consent, waiting first for this head's terminal CI result; it never merges or creates a no-op commit. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
+2. After acknowledgement, the Pi FIX directive states that review completion is saved, instructs applying only accepted minimal decisions from the preceding triage, and orders an automatic push once fixes are complete. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
+3. Root commits and pushes accepted file changes without renewed consent under the fix-workflow delivery policy.
+4. Fix-workflow ordering waits first for this head's terminal CI result before committing and pushing accepted changes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
+5. Fix-workflow policy never merges or creates a no-op commit.
 
 **Constraints:**
 
 - A verdict requires the stacked table header, divider, and data row in assistant text; an inline quoted header is insufficient.
 - A terminal record may precede notification delivery; first Stop ends silently so queued reports reach root before triage.
 - Result retrieval may use `Read` or `TaskOutput`; only the final verdict is tool-free and ends the turn.
-- The Pi fix directive orders an automatic push after accepted fixes are complete; it never merges or creates a no-op commit.
+- The Pi fix directive orders an automatic push after accepted fixes are complete.
+- Root delivery policy, not FIX-message copy, owns commit semantics, no renewed consent, and the no-merge/no-no-op-commit restrictions; the [review pipeline](../../preseed/agents/pi/skills/git-review-pipeline/SKILL.md#triage-and-fix) owns root delivery, while [Git workflow policy](../../preseed/agents/claude/rules/git-workflow.md#hard-obligations) keeps merge manual.
+- The [exact-head acknowledgement barrier](#req-agent-098-pi-review-triage-acknowledgement-barrier) owns terminal-CI ordering, not the emitted FIX copy.
 - A successful fix push remains automatic review consent.
 - Verdict demands have independent counters/rate limits, separate from lane demands.
 - Both runtimes recognise the same portable verdict-table shape.
@@ -4826,6 +4914,7 @@ None.
 **Status:** Implemented
 
 ---
+
 ### REQ-AGENT-105: Review Lane Turn Economy
 
 **Intent:** A lane re-sends its whole prompt every turn, so cost grows with the square of the turn count and the drip — one lookup per turn — is what a review actually pays for.
@@ -5080,11 +5169,12 @@ None.
 **Acceptance Criteria:**
 
 1. Every ADR index row renders `ID`, `Decision`, `Summary`, `Category`, and `State` on one source line. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
-2. A Decision label is at most 90 rendered characters; its distinct Summary is one sentence of 40–180 rendered characters and starts with a named subject rather than an unexplained pronoun. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::validateAdrIndexRow --> <!-- @manual -->
+2. A Decision label is at most 90 rendered characters. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::validateAdrIndexRow --> <!-- @manual -->
 3. For an active row with a Decision body, shape enforcement rejects a Summary with no shared non-stopword token matching `[a-z0-9][a-z0-9-]{2,}`; documentation review separately verifies semantic support. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
 4. Documentation review verifies that each Summary's driver, consequence, and material trade-off are semantically supported rather than accepted through keywords alone. <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::ADR index semantic review --> <!-- @manual: During documentation review, cross-check every changed Summary against its ADR body and report unsupported rationale as adr-index-summary-semantic-gap. -->
 5. A historical Summary links its successor, retained scope plus replaced clause, or redirect destination, and its State matches the section Status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
 6. SDD initialization and shape enforcement use the same ADR index contract. <!-- @impl: preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-decisions-readme.md::Decision Index --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/SKILL.md::Decision ledger state rendering --> <!-- @manual -->
+7. A Decision label's distinct Summary is one sentence of 40–180 rendered characters and starts with a named subject rather than an unexplained pronoun. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::validateAdrIndexRow --> <!-- @manual -->
 
 **Constraints:**
 

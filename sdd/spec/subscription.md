@@ -424,7 +424,8 @@ Tiers, billing, usage tracking, and quotas.
 1. The tier-configuration lookup exposes the list of session modes allowed for any tier. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
 2. By default, free and trial tiers only allow Standard mode. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
 3. By default, standard, advanced, max, and unlimited tiers allow both Standard and Pro modes. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
-4. Explicit preference mode changes that the tier does not allow are rejected. Container startup clamps an unsupported stored mode to the tier's allowed default so stale preferences cannot retain advanced entitlement. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @manual -->
+4. Explicit preference mode changes that the tier does not allow are rejected. <!-- @manual -->
+5. Container startup clamps an unsupported stored mode to the tier's allowed default so stale preferences cannot retain advanced entitlement. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @manual -->
 
 **Constraints:**
 

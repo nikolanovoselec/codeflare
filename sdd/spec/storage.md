@@ -477,7 +477,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 - Sync runs only on the periodic cadence ([REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)), explicit user action, or final shutdown ([REQ-STOR-005](#req-stor-005-graceful-shutdown-performs-final-sync)).
 - R2 uploads never fan out automatically; users trigger sync or await the periodic cycle, avoiding subrequest bursts during multi-file uploads.
-- Multi-session fan-out is safe under the newest-file-wins bisync semantics: the merge operation is commutative and associative under absolute modification time, so parallel and serial fan-out produce the same final R2 state per file.
+- Multi-session fan-out retains newest-file-wins bisync semantics and its merge/concurrency qualifications; see [Conflict Resolution](../../documentation/lanes/storage-and-sync.md#conflict-resolution).
 
 **Priority:** P1
 
@@ -527,25 +527,69 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. Both bisync invocations (the retrying `--resync` baseline and steady-state cycle) compare object freshness via R2 server modification times from the bulk listing instead of a per-object metadata request, and check up to 64 objects concurrently, eliminating the per-file HEAD storm. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entrypoint.sh)) -->
-2. The image-baked agent tree is byte-identical to each mode's generated R2 seed, excluding the independently synchronized context-mode subtree. <!-- @impl: scripts/materialize-agent-seed.mjs::CONTEXT_MODE_KEY_PREFIX --> <!-- @test: src/__tests__/lib/agent-seed-bake.test.ts (agent-seed bake byte-identity (REQ-STOR-017 / AD90)) -->
-3. Governed Mode lays down the matching baked seed before checksum-based initial sync, transferring only changed user data. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh lay_down_agent_seed_preseed)) -->
-4. Pi's pre-transpilation cache hits in every deployment mode: entrypoint relays existing managed extensions from the unfiltered image, backfills managed extensions missing from the post-sync runtime out of the mode-filtered bake, and preserves mode gates. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.sh relay_managed_pi_extensions)) --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (backfills a managed extension missing from the runtime from the mode-filtered bake) -->
-5. Concurrent background initialization yields CPU and disk priority to Pi PTY pre-warm independently of the deployment resource profile. <!-- @impl: entrypoint.sh::renice --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC5: real background and child priorities change without changing the foreground) --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017: background init yields CPU/disk to pi pre-warm (entrypoint.sh)) -->
-6. Every R2 sync excludes the exact retired Pi durable-review extension paths, so stale persisted copies cannot return before runtime initialization. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync) -->
-7. The managed-extension relay prunes the exact retired durable-review filenames locally before Pi loads. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC7: removes retired durable-review extensions without deleting user additions) -->
 
-**Constraints:**
-
-- The preseed bake + `--checksum` initial sync are gated on Governed Mode.
-- The bake is derived in-image from the committed, freshness-enforced `src/lib/agent-seed.generated.ts`, so it never drifts from the seed and needs no host.
-- The jiti prewarm cache key is `hash(absolute path + source + version)` — path-sensitive, not content-only — so both the warm-bake path and the relayed runtime content must match the build for a cache hit.
-- The jiti bake is a fail-closed build gate: after the warm bake the image asserts every extension in the source dir produced a baked cache.
-- Retired-name pruning is exact and preserves every unrelated user-added extension.
-- The missing-extension backfill sources only the mode-filtered bake, never the unfiltered warm tree, so a default-mode session cannot gain advanced-only extensions.
+**Constraints:** None.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
+
+**Verification:** Automated: [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js), [agent-seed-bake.test.ts](../../src/__tests__/lib/agent-seed-bake.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-256: Image seed relay cache reuse and prewarm priority
+
+**Intent:** Applicable image seed and baked relay work accelerates startup while remote curation retains release ownership and background initialization yields to Pi pre-warm.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The image-baked agent tree is byte-identical to each mode's generated R2 seed, excluding the independently synchronized context-mode subtree. <!-- @impl: scripts/materialize-agent-seed.mjs::CONTEXT_MODE_KEY_PREFIX --> <!-- @test: src/__tests__/lib/agent-seed-bake.test.ts (agent-seed bake byte-identity (REQ-STOR-017 / AD90)) -->
+2. Governed Mode lays down the matching baked seed before checksum-based initial sync, transferring only changed user data. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh lay_down_agent_seed_preseed)) -->
+3. In the applicable baked relay branch, Pi's pre-transpilation cache hits across deployment modes: entrypoint relays existing managed extensions from the unfiltered image, backfills missing post-sync managed extensions from the mode-filtered bake, and preserves mode gates. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.sh relay_managed_pi_extensions)) --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (backfills a managed extension missing from the runtime from the mode-filtered bake) -->
+4. With remote curation active, the relay preserves release-owned extension bytes and restores only declared image-owned runtime companions, without promising baked Jiti cache hits for curated sources. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.sh relay_managed_pi_extensions)) --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (backfills a managed extension missing from the runtime from the mode-filtered bake) -->
+5. Concurrent background initialization yields CPU and disk priority to Pi PTY pre-warm independently of the deployment resource profile. <!-- @impl: entrypoint.sh::renice --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC5: real background and child priorities change without changing the foreground) --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017: background init yields CPU/disk to pi pre-warm (entrypoint.sh)) -->
+
+**Constraints:**
+
+- Preseed bake and checksum initial sync require Governed Mode.
+- The in-image bake derives from the committed, freshness-enforced `src/lib/agent-seed.generated.ts`; it cannot drift from the seed or require a host.
+- Jiti uses `hash(absolute path + source + version)`, so cache hits require matching paths and source, not content alone.
+- Image construction fails unless every extension in the source directory has a baked cache after warming.
+- Missing-extension backfill uses only the mode-filtered bake, never the unfiltered warm tree; Standard cannot gain advanced-only extensions.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-STOR-017](#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)
+
+**Verification:** Automated: [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js), [agent-seed-bake.test.ts](../../src/__tests__/lib/agent-seed-bake.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-257: Retired Pi extension sync exclusion and baked pruning
+
+**Intent:** Common R2 filters exclude retired extension paths and the applicable baked relay prunes exact local retired names without deleting unrelated user extensions.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every R2 sync excludes the exact retired Pi durable-review extension paths, so stale persisted copies cannot return before runtime initialization. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync) -->
+2. In the applicable baked relay branch, the managed-extension relay prunes the exact retired durable-review filenames locally before Pi loads. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC7: removes retired durable-review extensions without deleting user additions) -->
+
+**Constraints:**
+
+- Retired-name pruning is exact and preserves every unrelated user-added extension.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-STOR-017](#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)
 
 **Verification:** Automated: [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js), [agent-seed-bake.test.ts](../../src/__tests__/lib/agent-seed-bake.test.ts)
 
@@ -856,9 +900,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. A private user-scoped review-completion namespace holds one regular JSON file per normalized GitHub host, repository, PR, case-sensitive branch, protected base and lowercase full head. Reads validate schema, exact identity, timestamp and regular-file boundaries without following symbolic links. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::completionPath --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::completionPath --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (isolates host, repository, PR, branch, base, and head identities) --> <!-- @test: host/__tests__/review-completion-state.test.js (isolates protected bases in marker paths) -->
 2. Marker publication uses a mode-`0600` same-directory temporary file and atomic hard-link publication. A valid destination is idempotent and never refreshes `reviewedAt`; an invalid destination is removed and publication retries once. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::publish --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::publish --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (writes one immutable exact marker and never refreshes its age) --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (replaces an invalid exact destination once and rejects symlinks) -->
-3. Invalid or expired markers are pruned before lookup and after write; each repository branch retains ten newest markers, and first root startup performs one bounded symlink-safe global prune. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::pruneCompletionState --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::pruneCompletionState --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (deletes expired markers and retains ten newest per repository and branch) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (prunes marker state once on first root startup without traversing symlinks) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (prunes marker state once on first root startup without traversing symlinks) -->
-4. Every workspace sync mode includes only the review-completion namespace through common restore, baseline, regular bisync and final-sync filters, while other private coordination files remain excluded. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists user-scoped review completion in every workspace sync mode) -->
-5. Marker writes and pruning rely on regular or final workspace sync and do not force an additional sync. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (writes local acknowledgement without forcing an R2 sync) --> <!-- @test: host/__tests__/review-completion-state.test.js (writes local completion without forcing an R2 sync) -->
+3. Invalid or expired markers are pruned before lookup and after write; each repository branch retains ten newest markers. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::pruneCompletionState --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::pruneCompletionState --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (deletes expired markers and retains ten newest per repository and branch) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (prunes marker state once on first root startup without traversing symlinks) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (prunes marker state once on first root startup without traversing symlinks) -->
+4. First root startup performs one symlink-safe full global inventory prune, without a global count or time ceiling. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::pruneCompletionState --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::pruneCompletionState --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (deletes expired markers and retains ten newest per repository and branch) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (prunes marker state once on first root startup without traversing symlinks) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (prunes marker state once on first root startup without traversing symlinks) -->
+5. Every workspace sync mode includes only the review-completion namespace through common restore, baseline, regular bisync and final-sync filters, while other private coordination files remain excluded. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists user-scoped review completion in every workspace sync mode) -->
+6. Marker writes and pruning rely on regular or final workspace sync and do not force an additional sync. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (writes local acknowledgement without forcing an R2 sync) --> <!-- @test: host/__tests__/review-completion-state.test.js (writes local completion without forcing an R2 sync) -->
 
 **Constraints:**
 
@@ -1512,9 +1557,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Setup configuration accepts an enterprise-only Governed Mode Boolean, stores active/inactive setup state, reports the storage-encryption progress step and round-trips the value through prefill; non-enterprise configuration never writes it. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-018 AC1 + REQ-ENTERPRISE-019 AC1: configure server storage flag persistence) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) prefill) -->
-2. SSE helpers suppress headers for disabled buckets; every writer follows the bucket's committed regime, while readers use dual-regime fallback throughout migration. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @impl: src/lib/r2-sse.ts::getSseCopyHeaders --> <!-- @impl: src/lib/r2-regime-state.ts::isR2SseDisabledForBucket --> <!-- @impl: src/lib/r2-seed.ts::seedDocuments --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (regime helpers (REQ-ENTERPRISE-018)) -->
-3. The resolved bucket regime is forwarded to the container; Governed Mode omits SSE-C sync configuration, re-enables checksums and withholds the server encryption key from the container environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/container/container-env.ts::applyBucketName --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @test: src/__tests__/container/container-env.test.ts (applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression) / REQ-AGENT-029 (container env vars contract)) -->
+1. Setup configuration accepts an enterprise-only Governed Mode Boolean and stores active/inactive setup state; non-enterprise configuration never writes it. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-018 AC1 + REQ-ENTERPRISE-019 AC1: configure server storage flag persistence) -->
+2. Enterprise Setup configuration reports the storage-encryption progress step. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-018 AC1 + REQ-ENTERPRISE-019 AC1: configure server storage flag persistence) -->
+3. Enterprise Setup prefill round-trips the Governed Mode Boolean. <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) prefill) -->
 4. The Setup wizard renders an enterprise-only Governed Mode toggle (default off, not rendered outside enterprise) whose change requires an explicit admin confirmation of the re-encrypt consequence before it flips the store value. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
 
 **Constraints:**
@@ -1532,6 +1577,60 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
+### REQ-ENTERPRISE-300: Committed bucket regime for storage IO
+
+**Intent:** Storage helpers, every writer and migration readers obey their distinct encryption-regime obligations.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. SSE helpers suppress headers for disabled buckets. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @impl: src/lib/r2-sse.ts::getSseCopyHeaders --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (regime helpers (REQ-ENTERPRISE-018)) -->
+2. Every writer follows the bucket's committed regime. <!-- @impl: src/lib/r2-regime-state.ts::isR2SseDisabledForBucket --> <!-- @impl: src/lib/r2-seed.ts::seedDocuments -->
+3. Readers use dual-regime fallback throughout migration. <!-- @test: src/__tests__/lib/r2-migration.test.ts (regime helpers (REQ-ENTERPRISE-018)) -->
+
+**Constraints:**
+
+- Governed Mode gates only R2 SSE-C; vault and secret-at-rest encryption remain active.
+- Deployment-wide policy stored in KV (no redeploy to flip), mirroring [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress); With Governed Mode off (the default) all SSE-C behavior, seeding, and sync are byte-identical to before.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
+
+**Verification:** Automated: [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [r2-sse.test.ts](../../src/__tests__/lib/r2-sse.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-301: Container regime propagation and governed sync configuration
+
+**Intent:** Containers receive the resolved bucket regime without unused server encryption keys, and governed sync uses matching headers and checksums.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The resolved bucket regime is forwarded to the container. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/container/container-env.ts::applyBucketName --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-env.test.ts (applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression) / REQ-AGENT-029 (container env vars contract)) -->
+2. Governed Mode withholds the server encryption key from the container environment. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
+3. Governed Mode omits SSE-C sync configuration and re-enables checksums. <!-- @impl: entrypoint.sh::create_rclone_config -->
+
+**Constraints:**
+
+- Governed Mode gates only R2 SSE-C; vault and secret-at-rest encryption remain active.
+- Deployment-wide policy stored in KV (no redeploy to flip), mirroring [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress); With Governed Mode off (the default) all SSE-C behavior, seeding, and sync are byte-identical to before.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
+
+**Verification:** Automated: [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [r2-sse.test.ts](../../src/__tests__/lib/r2-sse.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts)
+
+**Status:** Implemented
+
+---
+
 ### REQ-ENTERPRISE-020: Governed Mode Re-Encrypt Migration Engine
 
 **Intent:** Flipping [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface)'s Governed Mode toggle must reconcile every existing bucket to the new SSE-C regime **losslessly** (in-place server-side re-encryption, never a nuke) rather than forcing an admin to accept data loss or a manual migration. The reconcile is a per-bucket **state machine** (`r2-regime:<bucket>`) driven in the background by the dashboard's `batch-status` poll, in resumable chunks verified before the regime commits. The safety boundary around this engine — write gate, container drain, dual-regime reads, and the zero-secret container footprint — is [REQ-ENTERPRISE-021](#req-enterprise-021-governed-mode-migration-safety-and-access-boundary).
@@ -1541,12 +1640,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. Re-encryption uses conditional same-key server copy, preserving metadata and ETag while applying source and destination SSE-C headers; success requires a parsed result ETag without an embedded error. <!-- @impl: src/lib/r2-migration.ts::migrateBucketEncryption --> <!-- @impl: src/lib/r2-sse.ts::computeKeyMd5 --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (migrateBucketEncryption (lossless REPLACE re-encrypt)) -->
-2. That same source-regime HEAD is the idempotency check: a `400`/`403` SSE-mismatch means the object already reads in the target regime and is skipped ([AD91](../../documentation/decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile)). An object over the 5 GB single-copy limit is recorded `oversized` and skipped. <!-- @impl: src/lib/r2-migration.ts::migrateBucketEncryption --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (migrateBucketEncryption (lossless REPLACE re-encrypt)) -->
-3. Each poll advances ready, migrating, and mixed-recovery bucket state: policy drift starts migration only when D1 confirms no workload-owning session, otherwise remaining pending. <!-- @impl: src/lib/r2-regime-state.ts::getRegimeState --> <!-- @impl: src/lib/r2-migration.ts::planRegimeReconcile --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC3/7: ancillary polls checkpoint and finish %s through real reconciliation) -->
-4. Each poll's background work scans at most 1,000 keys per page and re-encrypts in slices of at most six; per-object failures are isolated and each R2 operation has an aborting timeout. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
-5. After every chunk, the cursor checkpoints the last processed key so resume starts at the next key; each invocation accepts only work that fits its deadline and releases its lease before exit. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
-6. The migrate→verify transition happens within one invocation: migrate re-encrypts, verify HEAD-scans every object, and the regime plus `generation` advance only after a clean full verify. A failed chunk never throws — it records the last error and releases the lease for retry. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
-7. At drain, the bucket object `total` is counted once via a bounded listing, and `processed` accumulates across both passes. `batch-status` returns the rounded `bucketMigrationPercent`, omitted until `total` is known and while `halted`. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+2. That same source-regime HEAD is the idempotency check: a `400`/`403` SSE-mismatch means the object already reads in the target regime and is skipped ([AD91](../../documentation/decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile)). <!-- @impl: src/lib/r2-migration.ts::migrateBucketEncryption --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (migrateBucketEncryption (lossless REPLACE re-encrypt)) -->
+3. An object over the 5 GB single-copy limit is recorded `oversized` and skipped. <!-- @impl: src/lib/r2-migration.ts::migrateBucketEncryption --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (migrateBucketEncryption (lossless REPLACE re-encrypt)) -->
+4. Each poll advances ready, migrating, and mixed-recovery bucket state: policy drift starts migration only when D1 confirms no workload-owning session, otherwise remaining pending. <!-- @impl: src/lib/r2-regime-state.ts::getRegimeState --> <!-- @impl: src/lib/r2-migration.ts::planRegimeReconcile --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (REQ-ENTERPRISE-020 AC3/7: ancillary polls checkpoint and finish %s through real reconciliation) -->
+5. The migrate→verify transition happens within one invocation: migrate re-encrypts, verify HEAD-scans every object, and the regime plus `generation` advance only after a clean full verify. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
 
 **Constraints:**
 
@@ -1558,6 +1655,62 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
+
+**Verification:** Automated: [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-302: Migration chunk admission checkpoint and failure isolation
+
+**Intent:** Resumable migration uses bounded slices, per-operation aborts, subsequent deadline admission and lease release while isolating failures.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Each poll's background work scans at most 1,000 keys per page and re-encrypts in slices of at most six. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+2. Per-object failures are isolated. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+3. Each R2 operation has an aborting timeout. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+4. After every chunk, the cursor checkpoints the last processed key so resume starts at the next key. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+5. The initial bounded slice runs unconditionally; subsequent slices and chunks require deadline admission, without a universal aggregate wall-clock bound. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+6. Each invocation releases its lease before exit. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+7. A failed chunk never throws — it records the last error and releases the lease for retry. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+
+**Constraints:**
+
+The migration integrity, safe retry, termination and session-creation constraints of [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine) apply unchanged.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine)
+
+**Verification:** Automated: [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-303: Migration counting and progress projection
+
+**Intent:** Migration counts once and accumulates both passes before projecting rounded progress with unknown and halted omissions.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. At drain, the bucket object `total` is counted once via a bounded listing. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+2. `processed` accumulates across both passes. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+3. `batch-status` returns the rounded `bucketMigrationPercent`, omitted until `total` is known and while `halted`. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
+
+**Constraints:**
+
+The migration integrity, safe retry, termination and session-creation constraints of [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine) apply unchanged.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine)
 
 **Verification:** Automated: [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts)
 
@@ -1577,7 +1730,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. While a bucket migrates, write attempts are blocked before user R2 I/O. <!-- @impl: src/routes/storage/upload.ts::app --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Governed Mode write gate (REQ-ENTERPRISE-021)) -->
 3. While a bucket migrates, sync fan-out performs no container work. <!-- @impl: src/lib/r2-regime-state.ts::isBucketMigrating --> <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @test: src/__tests__/routes/sessions-sync.test.ts (skips the entire fan-out while the bucket is migrating (no container is contacted)) -->
 4. Migration preflight defers while D1 records a workload owner, without destroying that workload. <!-- @impl: src/lib/r2-migration.ts::advanceMigration --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (advanceMigration (chunked, verified, self-healing)) -->
-5. The dashboard reuses the REQ-AGENT-049 "Upgrading" affordance: ancillary status returns `bucketMigrating` plus a 0–99 `bucketMigrationPercent` (omitted while `halted`), and the New Session button disables and labels "Migrating N%". Initial load and five-second migration polling mirror these flags. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: src/routes/session/lifecycle.ts::bucketMigrationPercent --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_TRANSITION_MS = 5_000 --> <!-- @manual -->
+5. Ancillary status returns `bucketMigrating` plus a 0–99 `bucketMigrationPercent` (omitted while `halted`). <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: src/routes/session/lifecycle.ts::bucketMigrationPercent -->
 6. Read paths (download, preview) try the committed regime first and fall back once to the opposite regime on a `400`/`403` SSE-mismatch, so a partially-migrated bucket stays readable. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @impl: src/lib/r2-regime-state.ts::resolveReadRegime --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) -->
 7. A fallback on a `ready` bucket starts one `mixed-recovery` scan only without a healthy container, otherwise keeps the bucket ready, and changes neither regime nor generation. <!-- @impl: src/lib/r2-migration.ts::markMixedRecovery --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (fetchObjectWithRegimeFallback (D2 reads stay up)) -->
 
@@ -1589,6 +1742,32 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-005](security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
+
+**Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [storage-upload.test.ts](../../src/__tests__/routes/storage-upload.test.ts), [sessions-sync.test.ts](../../src/__tests__/routes/sessions-sync.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-304: Dashboard migration affordance and refresh
+
+**Intent:** The dashboard reflects migration flags through disabled creation and initial and periodic refresh.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The dashboard reuses the REQ-AGENT-049 "Upgrading" affordance: during bucket migration the New Session button disables and labels "Migrating N%". <!-- @manual -->
+2. Initial load and five-second migration polling mirror `bucketMigrating` and `bucketMigrationPercent` flags. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_TRANSITION_MS = 5_000 -->
+
+**Constraints:**
+
+- The backend gate + container drain are the safety boundary; a container regime generation guard was deliberately not built ([AD91](../../documentation/decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile)) — the verify-rescan + read self-heal catch any stray write.
+- `mixed-recovery` respects D1 (no force-kill); key rotation is detect-only, with no old-key fallback.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-020](#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-005](security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-ENTERPRISE-021](#req-enterprise-021-governed-mode-migration-safety-and-access-boundary)
 
 **Verification:** Automated: [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [storage-upload.test.ts](../../src/__tests__/routes/storage-upload.test.ts), [sessions-sync.test.ts](../../src/__tests__/routes/sessions-sync.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts); Manual: [migration progress acceptance](../../documentation/lanes/storage-and-sync.md#req-enterprise-021-migration-progress-acceptance)
 
@@ -1628,9 +1807,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. The Setup wizard exposes an enterprise-gated view-only-storage toggle, default OFF, persisted to KV as active/inactive state through existing Setup configuration, not a new endpoint; non-enterprise configuration never writes it. <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-018 AC1 + REQ-ENTERPRISE-019 AC1: configure server storage flag persistence) -->
 2. Setup prefill round-trips download-disable policy: active stored policy prefills true, an absent key prefills false, and non-enterprise prefill omits it. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
-3. Active enterprise view-only policy runs before R2 access: attachments and non-viewable inline types return distinct `403 DOWNLOADS_DISABLED`; text, Markdown, HTML-as-text, images, and PDF remain inline. The resolver never reads policy outside enterprise. <!-- @impl: src/routes/storage/download.ts::isInlineViewable --> <!-- @impl: src/lib/error-types.ts::DownloadsDisabledError --> <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled --> <!-- @test: src/__tests__/routes/storage-download.test.ts (Storage Download Routes) -->
+3. Active enterprise view-only policy runs before R2 access: attachments and non-viewable inline types return distinct `403 DOWNLOADS_DISABLED`; text, Markdown, HTML-as-text, images, and PDF remain inline. <!-- @impl: src/routes/storage/download.ts::isInlineViewable --> <!-- @impl: src/lib/error-types.ts::DownloadsDisabledError --> <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled --> <!-- @test: src/__tests__/routes/storage-download.test.ts (Storage Download Routes) -->
 4. The user profile delivers download policy so Storage Panel controls remain blocked-looking, visible and tappable; any interaction opens an administrator-disabled notice instead of fetching. <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @impl: web-ui/src/lib/download.ts::downloadFile --> <!-- @impl: web-ui/src/stores/storage.ts::storageStore --> <!-- @impl: web-ui/src/stores/storage.ts::refreshDownloadsDisabled --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-sheet presentation, R2 as source of truth via Worker API)) -->
-5. Non-enterprise never reads policy KV; enterprise reads the stored toggle. With it off, download behavior is unchanged, as are the download path and configure request/response shape. Transient read failure defaults off, preserves downloads, and reports `downloadsDisabled: false`. <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled --> <!-- @test: src/__tests__/routes/storage-download.test.ts (REQ-ENTERPRISE-019 AC5: keeps downloads available when the enterprise policy KV read rejects) --> <!-- @test: src/__tests__/routes/user-profile.test.ts (REQ-ENTERPRISE-019 AC5: reports downloadsDisabled false when the policy KV read rejects) -->
+5. The resolver never reads policy KV outside enterprise; enterprise reads the stored toggle. <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled -->
 
 **Constraints:**
 
@@ -1641,6 +1820,33 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-013](security.md#req-sec-013-content-disposition-hardening-on-downloads)
+
+**Verification:** Automated: [storage-download.test.ts](../../src/__tests__/routes/storage-download.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [StorageBrowser.test.tsx](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx), [download.test.ts](../../web-ui/src/__tests__/lib/download.test.ts), [FilePreview.test.tsx](../../web-ui/src/__tests__/components/FilePreview.test.tsx), [DownloadsDisabledPopup.test.tsx](../../web-ui/src/__tests__/components/DownloadsDisabledPopup.test.tsx), [storage.test.ts](../../web-ui/src/__tests__/stores/storage.test.ts), [contract.test.ts](../../web-ui/src/__tests__/api/contract.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-305: View-only policy off-state and read-failure compatibility
+
+**Intent:** Download compatibility and the accepted default-off read-failure behavior preserve existing downloads and API shape.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. With the enterprise stored toggle off, download behavior is unchanged, as are the download path and configure request/response shape. <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled -->
+2. Transient read failure defaults off, preserves downloads, and reports `downloadsDisabled: false`. <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled --> <!-- @test: src/__tests__/routes/storage-download.test.ts (REQ-ENTERPRISE-019 AC5: keeps downloads available when the enterprise policy KV read rejects) --> <!-- @test: src/__tests__/routes/user-profile.test.ts (REQ-ENTERPRISE-019 AC5: reports downloadsDisabled false when the policy KV read rejects) -->
+
+**Constraints:**
+
+- Enforcement is **server-side** in `download.ts`; the frontend blocked-control + notice are convenience only, so a prompt-injected agent cannot bypass the policy by crafting the download URL.
+- The toggle persists explicit active or inactive state; absent or unreadable state defaults off, and non-enterprise deployments never read it.
+- Scope is **download (exfil) only**: upload and delete are intentionally unaffected (they are not exfiltration vectors).
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SEC-013](security.md#req-sec-013-content-disposition-hardening-on-downloads), [REQ-ENTERPRISE-019](#req-enterprise-019-view-only-storage-download-disable)
 
 **Verification:** Automated: [storage-download.test.ts](../../src/__tests__/routes/storage-download.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [StorageBrowser.test.tsx](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx), [download.test.ts](../../web-ui/src/__tests__/lib/download.test.ts), [FilePreview.test.tsx](../../web-ui/src/__tests__/components/FilePreview.test.tsx), [DownloadsDisabledPopup.test.tsx](../../web-ui/src/__tests__/components/DownloadsDisabledPopup.test.tsx), [storage.test.ts](../../web-ui/src/__tests__/stores/storage.test.ts), [contract.test.ts](../../web-ui/src/__tests__/api/contract.test.ts)
 

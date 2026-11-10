@@ -397,7 +397,7 @@ These methods are not acceptance evidence. Record exact source/image/seed/mode a
 
 ### Selected-agent image acceptance
 
-For [AGENT-001 AC4/7](../../sdd/spec/agents.md), compare existing same-candidate image records with and without selected Claude CLI. Record image digest and selection. Require dedicated Pi compile/Jiti preparation and skipped Codex/Copilot V8 baking. Selected Claude CLI startup succeeds; the omitted case does not require it. Both images independently verify official Claude IDE inventory. Missing selection, warm or smoke records are unavailable. Do not rebuild or substitute another revision; package pins, Goal caches and credentials remain unchanged.
+For [AGENT-001 AC4/7](../../sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) and [AGENT-233 AC1/2](../../sdd/spec/agents.md#req-agent-233-agent-image-bake-exclusions-and-ide-inventory), compare existing same-candidate image records with and without selected Claude CLI. Record image digest and selection. Require dedicated Pi compile/Jiti preparation and skipped Codex/Copilot V8 baking. Selected Claude CLI startup succeeds; the omitted case does not require it. Both images independently verify official Claude IDE inventory. Missing selection, warm or smoke records are unavailable. Do not rebuild or substitute another revision; package pins, Goal caches and credentials remain unchanged.
 
 ### Agent packaged-runtime acceptance
 

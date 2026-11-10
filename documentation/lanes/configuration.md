@@ -426,7 +426,7 @@ Governed Mode is an enterprise-only, **default-OFF** policy that disables R2 SSE
 
 Flipping the toggle triggers a lossless re-encrypt of each bucket in the background, driven by the owner's dashboard `batch-status` poll in verified resumable chunks (never on the container-start path); see the [Deployment lane](deployment.md#governed-mode-migration-batch-status-driven).
 
-The migration implementation uses `LIST_PAGE_SIZE = 1000` and `MIGRATION_CONCURRENCY = 6` in `src/lib/r2-migration.ts`. Work advances in slices, isolating object failures; its per-operation `AbortController` timeout aborts outstanding I/O rather than merely abandoning a promise ([REQ-ENTERPRISE-020](../../sdd/spec/storage.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine) AC4).
+The migration implementation uses `LIST_PAGE_SIZE = 1000` and `MIGRATION_CONCURRENCY = 6` in `src/lib/r2-migration.ts`. Work advances in slices, isolating object failures; its per-operation `AbortController` timeout aborts outstanding I/O rather than merely abandoning a promise ([REQ-ENTERPRISE-302](../../sdd/spec/storage.md#req-enterprise-302-migration-chunk-admission-checkpoint-and-failure-isolation) AC1–AC3).
 
 ## Reference
 

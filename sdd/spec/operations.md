@@ -323,9 +323,30 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The stress-test workflow runs on manual dispatch against the integration environment. <!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008 AC1: stress-test workflow triggers on workflow_dispatch targeting the integration environment) --> <!-- @manual -->
 2. Load tests cover API throughput, rate-limit validation, session lifecycle, and storage operations. <!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008 AC2: k6 stress tests cover API throughput, session lifecycle, storage operations, and rate-limit validation) --> <!-- @manual -->
 3. The concurrency override is configurable per run and disabled by default; latency thresholds remain fixed when enabled. <!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008: Stress testing validates rate limits and concurrency) --> <!-- @manual -->
-4. In stress-test deployment mode, all HTTP and WebSocket rate limits are bypassed to allow high virtual-user counts through a single service-token identity. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)) -->
-5. A one-time warning is logged per worker instance when the rate-limit bypass activates. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (REQ-OPS-008 AC5: one-time warning per isolate) -->
-6. Stress-test mode must not be active alongside SaaS mode; the combination returns 503 to all requests. <!-- @test: src/__tests__/index.test.ts (Edge-level setup redirect) --> <!-- @manual -->
+
+**Constraints:** Stress testing targets integration environments only.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-OPS-164](#req-ops-164-integration-stress-mode-runtime-boundary)
+
+**Verification:** Automated: [workflow-stress-test.test.js](../../host/__tests__/workflow-stress-test.test.js); Manual: [Stress acceptance record inspection](../../documentation/lanes/ci-cd.md#stress-acceptance-record-inspection)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-164: Integration stress-mode runtime boundary
+
+**Intent:** Integration stress mode permits bounded campaign traffic without admitting the bypass in SaaS.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In stress-test deployment mode, all HTTP and WebSocket rate limits are bypassed to allow high virtual-user counts through a single service-token identity. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)) -->
+2. A one-time warning is logged per worker instance when the rate-limit bypass activates. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter --> <!-- @test: src/__tests__/middleware/rate-limit.test.ts (REQ-OPS-008 AC5: one-time warning per isolate) -->
+3. Stress-test mode must not be active alongside SaaS mode; the combination returns 503 to all requests. <!-- @test: src/__tests__/index.test.ts (Edge-level setup redirect) --> <!-- @manual -->
 
 **Constraints:**
 
@@ -336,7 +357,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated: [rate-limit.test.ts](../../src/__tests__/middleware/rate-limit.test.ts), [workflow-stress-test.test.js](../../host/__tests__/workflow-stress-test.test.js), [index.test.ts](../../src/__tests__/index.test.ts); Manual: [Stress acceptance record inspection](../../documentation/lanes/ci-cd.md#stress-acceptance-record-inspection)
+**Verification:** Automated: [rate-limit.test.ts](../../src/__tests__/middleware/rate-limit.test.ts), [index.test.ts](../../src/__tests__/index.test.ts); Manual: [Stress acceptance record inspection](../../documentation/lanes/ci-cd.md#stress-acceptance-record-inspection)
 
 **Status:** Implemented
 
@@ -1338,16 +1359,37 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Every affected workload starts directly after classification. <!-- @impl: .github/workflows/test.yml::jobs --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC2: starts every affected workload directly after classification) -->
 3. Backend, frontend, and host matrices expose every configured leg concurrently. <!-- @impl: .github/workflows/test.yml::backend-tests --> <!-- @impl: .github/workflows/test.yml::frontend-tests --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently) -->
 4. Changes to shared landing runtime source trigger the landing verification lane as well as their owning source lane. <!-- @impl: .github/workflows/test.yml::landing --> <!-- @impl: .github/workflows/test.yml::backend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC4: runs landing verification when the shared design-ready gate changes) -->
-5. An unchanged, valid external tool archive is reused without a network download. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC5: downloads a missing archive once and reuses the valid archive) -->
-6. A corrupted or mismatched restored external tool archive is rejected before extraction or execution. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC6: rejects a corrupted restored archive before extraction or execution) -->
 
 **Constraints:** Path filtering may skip unaffected lanes; full-run coverage policy remains owned by [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence).
 
 **Priority:** P1
 
-**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence), [REQ-OPS-165](#req-ops-165-cached-external-tool-integrity-and-reuse)
 
 **Verification:** Automated: [suite-gates.test.ts](../../src/__tests__/ci/suite-gates.test.ts), [ci-workflow-hardening.test.js](../../host/__tests__/ci-workflow-hardening.test.js); Manual: [PR Checks timing acceptance](../../documentation/lanes/ci-cd.md#pr-checks-timing-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-165: Cached external tool integrity and reuse
+
+**Intent:** PR Checks reuse valid immutable external tool archives and reject untrusted restored archives before use.
+
+**Applies To:** Maintainer
+
+**Acceptance Criteria:**
+
+1. An unchanged, valid external tool archive is reused without a network download. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC5: downloads a missing archive once and reuses the valid archive) -->
+2. A corrupted or mismatched restored external tool archive is rejected before extraction or execution. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/test.yml::host-tests --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-045 AC6: rejects a corrupted restored archive before extraction or execution) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-OPS-022](#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)
+
+**Verification:** Automated: [ci-workflow-hardening.test.js](../../host/__tests__/ci-workflow-hardening.test.js)
 
 **Status:** Implemented
 
@@ -1525,7 +1567,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Every deployment environment owns exactly one deployment-named usage database with one binding; account-specific IDs are never committed. <!-- @impl: wrangler.toml::USAGE_DB --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 2. Deploy preflight requires the established deployment credential, proves D1 list permission, and stops before mutation on missing or insufficient credentials. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 3. Successful listing resolves one exact database, creates only when absent, rejects duplicate names, and fails closed on list errors. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
-4. The temporary Wrangler configuration contains exactly one resolved binding, generated Worker types validate, and committed additive migrations run before Worker deployment. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::usage_users --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+4. The temporary Wrangler configuration contains exactly one resolved binding. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::usage_users --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 5. Migration failure leaves the deployed Worker unchanged; later Worker failure leaves an additive database that the prior Worker safely ignores. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 6. Existing KV, R2, Durable Object state, users, sessions, and containers are never reset or migrated by D1 provisioning. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 7. After deployment, the established credential remains available to existing Worker runtime operations. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-056 AC7: preserves the established credential through deployment and Worker secret upload) -->
@@ -1539,9 +1581,35 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks)
+**Dependencies:** [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks), [REQ-OPS-166](#req-ops-166-d1-type-validation-and-migration-ordering)
 
 **Verification:** Automated: [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts), [ci-workflow-hardening.test.js](../../host/__tests__/ci-workflow-hardening.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-166: D1 type validation and migration ordering
+
+**Intent:** D1-aware deployment validates generated Worker types and applies committed additive migrations before Worker promotion.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Generated Worker types validate. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::usage_users --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+2. Committed additive migrations run before Worker deployment. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::usage_users --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+
+**Constraints:**
+
+- GitHub Actions cannot create or widen its own secret.
+- Missing D1 permission is an external blocker.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks)
+
+**Verification:** Automated: [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts)
 
 **Status:** Implemented
 
@@ -1558,10 +1626,36 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Stable visible session status polls every 60 seconds, transitions poll every five seconds, hidden pages stop polling, and recursive scheduling prevents overlap. <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
 2. Frequent batch status returns only the core D1 session projection; usage and storage use a separate slower or event-driven ancillary read. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/api/client.ts::getBatchSessionStatus --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns the owner D1 projection without ancillary KV I/O or session writes) --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (returns cached storage and entitlement state outside the D1 hot path) -->
 3. Analytics, Reports, and Activity read only on navigation, filters, explicit refresh, or run reconnect; none background-polls. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @manual -->
-4. Production and Enterprise use `head_sampling_rate = 0.05`; Integration targets retain `1`, successful pings emit no custom logs, and structured failures remain discoverable. <!-- @impl: scripts/ci/set-head-sampling.mjs::setHeadSampling --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (observability deployment boundary (REQ-OPS-057)) -->
+4. Production and Enterprise use `head_sampling_rate = 0.05`; Integration targets retain `1`. <!-- @impl: scripts/ci/set-head-sampling.mjs::setHeadSampling --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (observability deployment boundary (REQ-OPS-057)) -->
 5. Sampled D1 metrics record rows read, rows written, and SQL duration without user or secret material. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (logs bounded D1 metrics without user or secret material (REQ-OPS-057 AC5)) -->
 6. CI models 2,000 active users and three sessions, enforcing one sub-4-KB state write and zero KV reads per positive ping plus the approved D1 row ceilings. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
 7. Integration exception-visibility evidence is a required rollout gate before sampled Production promotion, and account operation and spend alerts must precede Production history enablement. <!-- @impl: documentation/lanes/deployment.md::Integration acceptance checklist --> <!-- @manual -->
+
+**Constraints:**
+
+- Cloudflare platform capacity remains contractually external.
+- No queue, cache, coordinator, or second database is introduced for cost control.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-025](subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](#req-ops-056-non-destructive-d1-deployment-boundary), [REQ-OPS-167](#req-ops-167-ping-log-omission-and-failure-discoverability)
+
+**Verification:** Automated: [Core session projection](../../src/__tests__/routes/session-batch-status.test.ts), [ancillary state](../../src/__tests__/routes/session-ancillary-status.test.ts), [deployment observability](../../src/__tests__/ci/usage-d1-deploy.test.ts), [D1 metrics](../../src/__tests__/lib/admin-usage.test.ts), [accounting load](../../src/__tests__/timekeeper/accounting-load.test.ts); Manual: [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-167: Ping log omission and failure discoverability
+
+**Intent:** Operation logging omits successful-ping noise while keeping structured failures discoverable.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Successful pings emit no custom logs. <!-- @impl: scripts/ci/set-head-sampling.mjs::setHeadSampling --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (observability deployment boundary (REQ-OPS-057)) -->
+2. Structured failures remain discoverable. <!-- @impl: scripts/ci/set-head-sampling.mjs::setHeadSampling --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (observability deployment boundary (REQ-OPS-057)) -->
 
 **Constraints:**
 

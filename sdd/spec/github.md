@@ -297,18 +297,40 @@ None.
      session-tier (advanced) entitlement. Originally enterprise-only, then advanced-in-any-mode
      (REQ-GITHUB-007 v1), now enabled-in-any-mode. -->
 
-**Intent:** Make the GitHub repository panel + Storage browser available in every mode whenever GitHub is enabled — GitHub leads as the default right-column face for every session, with **no session-tier gate** — while keeping the OAuth connect/disconnect capability decoupled so a user can also connect GitHub from Guided Setup and the Settings accordion. Connect stays the additive OAuth flow ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)) — never a login-scope escalation, never a manually-pasted PAT. Enterprise is unchanged.
+**Intent:** Make the GitHub repository panel + Storage browser available in every mode whenever GitHub is enabled — GitHub leads as the default right-column face for every session, with **no session-tier gate**. Enterprise is unchanged.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The panel backend is available in every mode; the frontend dashboard renders the GitHub panel face whenever GitHub is enabled with **no session-tier entitlement** — GitHub is the default right-column face on every session, connected or not. <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
-2. Onboarding, default, SaaS, and enterprise dashboards share panel labels and flip behavior; enabled GitHub leads regardless of session mode, while disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
-3. Connect, callback, and disconnect require authentication but not enabled GitHub, allowing Guided Setup and Settings access without the dashboard panel; only status, repos, and clone require enablement. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (is reachable for a non-advanced authed user in non-enterprise (connect is not panel-gated)) -->
-4. Dashboard, Guided Setup, and Settings use the same OAuth connect/disconnect interaction contract while retaining surface-specific visual chrome; the reusable card accepts surface styling without changing navigation or disconnect behavior. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
-5. GitHub uses additive OAuth and existing per-user token transport; enterprise retains egress injection ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
-6. The connect URL carries a scope `tier` (minimal/recommended/advanced); the server maps the tier to the OAuth-App `scope` parameter from a backend scope catalog (the GitHub App path's fixed permissions ignore it). <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (feeds the scope tier into the OAuth-App authorize scope param) -->
+1. The panel backend is available in every mode. <!-- @impl: src/routes/github.ts::githubFeatureEnabled -->
+2. The frontend dashboard renders the GitHub panel face whenever GitHub is enabled with **no session-tier entitlement** — GitHub is the default right-column face on every session, connected or not. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+3. Onboarding, default, SaaS, and enterprise dashboards share panel labels and flip behavior; enabled GitHub leads regardless of session mode, while disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport), [REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow), [REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)
+
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-317: Additive GitHub connection and scope contract
+
+**Intent:** Keep the OAuth connect/disconnect capability decoupled from the dashboard panel so a user can also connect GitHub from Guided Setup and the Settings accordion. Connect stays the additive OAuth flow ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)) — never a login-scope escalation, never a manually-pasted PAT. Enterprise is unchanged.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Connect, callback, and disconnect require authentication but not enabled GitHub, allowing Guided Setup and Settings access without the dashboard panel; only status, repos, and clone require enablement. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (is reachable for a non-advanced authed user in non-enterprise (connect is not panel-gated)) -->
+2. Dashboard, Guided Setup, and Settings use the same OAuth connect/disconnect interaction contract while retaining surface-specific visual chrome; the reusable card accepts surface styling without changing navigation or disconnect behavior. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+3. GitHub uses additive OAuth and existing per-user token transport; enterprise retains egress injection ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+4. The connect URL carries a scope `tier` (minimal/recommended/advanced); the server maps the tier to the OAuth-App `scope` parameter from a backend scope catalog (the GitHub App path's fixed permissions ignore it). <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (feeds the scope tier into the OAuth-App authorize scope param) -->
 
 **Constraints:**
 
@@ -338,21 +360,45 @@ None.
 
 1. The Setup wizard offers a GitHub App or OAuth App chooser, and selecting a provider reveals its Client ID and Client Secret inputs. <!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx::GitHubProviderChooser --> <!-- @test: web-ui/src/__tests__/components/GitHubProviderChooser.test.tsx (GitHubProviderChooser) -->
 2. Each provider's credentials use distinct KV keys, so switching providers preserves the inactive provider's values. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @manual: Configure both provider types, switch between them, and confirm each provider's saved values remain available. -->
-3. On save (admin, any mode) the provider type + client ids are stored plain and each client secret is encrypted at rest via the existing KV crypto; the active provider is resolved from these KV values, decrypting the secret, before any env-var fallback. <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)) -->
-4. Blank secrets preserve stored values. Saving a secret without a server encryption key is rejected. An unreadable secret makes its Setup provider unconfigured; environment fallback follows [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC5. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-5. Provider prefill returns the provider type, both client IDs and a stored-secret-presence Boolean per provider, never a client secret. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill returns provider type + client ids + secret-set flags, never the secrets) -->
-6. Provider config is **admin-gated in every mode** (the existing Setup admin gate), no longer behind the Enterprise-mode gate; the active provider resolves from KV first ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC5), and the prefill echoes the provider type + client ids + `…ClientSecretSet` in non-enterprise too. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)) -->
+3. On save (admin, any mode) the provider type + client ids are stored plain and each client secret is encrypted at rest via the existing KV crypto. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)) -->
+4. Blank secrets preserve stored values. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
+5. In every mode, including non-enterprise, provider prefill returns the provider type, both client IDs and a `…ClientSecretSet` stored-secret-presence Boolean per provider, never a client secret. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill returns provider type + client ids + secret-set flags, never the secrets) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)) -->
+6. Provider config is **admin-gated in every mode** (the existing Setup admin gate), no longer behind the Enterprise-mode gate. <!-- @impl: src/routes/setup/handlers.ts::handlers -->
+7. Saving a secret without a server encryption key is rejected. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @manual -->
 
 **Constraints:**
 
 - Removing a stored secret from the UI is not a v1 affordance (mirrors the browser-rendering token); re-registering with a new secret replaces it.
-- The OAuth-App `scope` is tier-derived per connect ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6); this REQ covers only the provider client credentials, not the per-connect scope.
+- The OAuth-App `scope` is tier-derived per connect ([REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC4); this REQ covers only the provider client credentials, not the per-connect scope.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser)
 
 **Verification:** Automated: [setup/handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts); Manual: [GitHub provider credential acceptance](../../documentation/lanes/configuration.md#github-provider-credential-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-318: Runtime selection of the Setup GitHub provider
+
+**Intent:** Resolve the active provider from admin-saved credentials before environment fallback in every deployment mode.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The active provider is resolved from the Setup KV values, decrypting the secret, before any env-var fallback; KV-first precedence follows [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC5. <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/lib/github-token.test.ts (enterprise KV config wins over deploy env vars) -->
+2. An unreadable secret makes its Setup provider unconfigured; environment fallback follows [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC5. <!-- @manual -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-008](#req-github-008-enterprise-github-provider-configuration-via-setup)
+
+**Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts); Manual: [GitHub provider credential acceptance](../../documentation/lanes/configuration.md#github-provider-credential-acceptance)
 
 **Status:** Implemented
 
