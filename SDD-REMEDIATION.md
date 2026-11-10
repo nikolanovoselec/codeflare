@@ -56,7 +56,7 @@ The checkpoint repairs 53 primary traceability scopes and records other task fac
 
 Tests and their matching specification anchors travel together. The already-approved terminal response-filter qualification and scoped quota-state design alignment change specifications only; backend enforcement, runtime behavior and error codes remain unchanged. Unrelated T05/T06/T07 working-tree changes are excluded from the publication snapshot.
 
-The host prerequisite could not run locally because its normal CI dependencies and compiled modules are absent. The existing CI lane supplies dependencies, compilation and module mocks; that is readiness, not an observed pass. Applicable exact-head CI must resolve this before T04 completion. Existing whole-file formatting warnings are retained honestly.
+The first full exact-head CI ran the host and frontend prerequisites successfully, but failed three setup-fixture assertions; T04 remains open. The followup restores the existing ownership-namespace fixture and distinguishes the exact required rate-limit counter from protected configuration. Admin rejection, independent ciphertext roundtrip and fail-closed no-write assertions remain intact. New exact-head CI is required before completion; prior successes are not a whole-run GREEN receipt. Existing whole-file formatting warnings are retained honestly.
 
 ## Verification and publication boundary
 

@@ -16,6 +16,36 @@ vi.mock('../../lib/access', async (importOriginal) => {
   };
 });
 
+// Same ownership fixture as middleware/auth.test.ts: authenticateRequest uses
+// its module-local resolver, which is not intercepted by the export mock above.
+function createBucketOwnerNamespace(): Env['CONTAINER'] {
+  const owners = new Map<string, string>();
+  return {
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+        const owner = owners.get(id);
+        if (owner === email) return 'owned';
+        if (owner) return 'conflict';
+        if (!allowInitialClaim) return 'ambiguous';
+        owners.set(id, email);
+        return 'owned';
+      },
+    }),
+  } as unknown as Env['CONTAINER'];
+}
+
+// Error-only diagnostics: bounded output, with synthetic credentials redacted.
+async function expectConfigureStatus(res: Response, expected: number) {
+  let diagnostic: string | undefined;
+  if (res.status !== expected) {
+    diagnostic = (await res.clone().text())
+      .replace(/replacement-secret|saved-secret|cf-secret|env-api-token|A{43}=/g, '[redacted]')
+      .slice(0, 512);
+  }
+  expect(res.status, diagnostic).toBe(expected);
+}
+
 // REQ-ENTERPRISE-022: per-route context windows persist, validate, and round-trip through setup.
 // URL-based mock fetch factory - routes requests by URL pattern (and optionally method)
 // instead of fragile positional mockResolvedValueOnce chaining.
@@ -168,6 +198,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
 
   function createTestApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env }>();
+    const containerNamespace = createBucketOwnerNamespace();
 
     // Error handler
     app.onError((err, c) => {
@@ -190,6 +221,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
+        CONTAINER: containerNamespace,
         CLOUDFLARE_API_TOKEN: TEST_TOKEN,
         CLOUDFLARE_WORKER_NAME: TEST_WORKER_NAME,
         ...envOverrides,
@@ -608,7 +640,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         // Like the existing auth middleware fixtures, auth domain/aud are unset;
         // identity uses the pre-auth-configuration email-header fallback.
         mockKV._store.set('setup:complete', 'true');
-        mockKV._set('user:user@example.com', { role: 'admin' });
+        mockKV._set('user:user@example.com', { addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' });
         mockFullSuccessFlow();
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
@@ -617,7 +649,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
           body: JSON.stringify({ ...standardBody, cloudflareOauthClientId: 'cf-cid', cloudflareOauthClientSecret: 'cf-secret' }),
         });
 
-        expect(res.status).toBe(200);
+        await expectConfigureStatus(res, 200);
         const lines = await readNdjson(res);
         expect(getNdjsonSummary(lines).success).toBe(true);
         expect(mockKV.put).toHaveBeenCalledWith('setup:cloudflare_oauth_client_id', 'cf-cid');
@@ -644,7 +676,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       it('REQ-AGENT-230: non-admin configure is rejected with the stored configuration unchanged', async () => {
         const app = createTestApp({ ENCRYPTION_KEY: ENC_KEY });
         mockKV._store.set('setup:complete', 'true');
-        mockKV._set('user:regular@example.com', { role: 'user' });
+        mockKV._set('user:regular@example.com', { addedBy: 'setup', addedAt: '2024-01-01', role: 'user' });
         mockKV._store.set('setup:cloudflare_oauth_client_id', 'saved-cid');
         const ciphertext = await encryptForKV(JSON.stringify({ secret: 'saved-secret' }), await importEncryptionKey(ENC_KEY), 'setup:cloudflare_oauth_client_secret');
         mockKV._store.set('setup:cloudflare_oauth_client_secret', ciphertext);
@@ -656,7 +688,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
           body: JSON.stringify({ ...standardBody, cloudflareOauthClientId: 'replacement-cid', cloudflareOauthClientSecret: 'replacement-secret' }),
         });
 
-        expect(res.status).toBe(403);
+        await expectConfigureStatus(res, 403);
         expect(await res.json()).toMatchObject({ code: 'FORBIDDEN', error: 'Access denied' });
         expect(Array.from(mockKV._store.entries())).toEqual(before);
       });
@@ -674,9 +706,18 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
           body: JSON.stringify({ ...standardBody, cloudflareOauthClientId: 'replacement-cid', cloudflareOauthClientSecret: 'cf-secret' }),
         });
 
-        expect(res.status).toBe(400);
+        await expectConfigureStatus(res, 400);
+        expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:cloudflare_oauth_client_secret', expect.anything());
-        expect(Array.from(mockKV._store.entries())).toEqual(before);
+        // setup/shared.ts installs setupRateLimiter before body/key validation.
+        // rate-limit.ts selects anonymous (no auth bucket or CF-Connecting-IP);
+        // rate-limit-core.ts persists this counter independently of configuration.
+        const limiterKey = 'setup-configure:anonymous';
+        expect(before.some(([key]) => key === limiterKey)).toBe(false);
+        expect(await mockKV.get(limiterKey, 'json')).toEqual({ count: 1, windowStart: expect.any(Number) });
+        // Exclude ONLY that exact bookkeeping key, not a setup:* allowlist:
+        // all prior values and any added/deleted protected configuration count.
+        expect(Array.from(mockKV._store.entries()).filter(([key]) => key !== limiterKey)).toEqual(before);
       });
 
       // ─── REQ-ENTERPRISE-013: per-group routing ──────────────────────────────
