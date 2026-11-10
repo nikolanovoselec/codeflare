@@ -255,14 +255,216 @@ describe('managed release user-bucket reconciliation', () => {
       (_, index) => document(`.claude/extensions/company-${String(index).padStart(4, '0')}/index.ts`),
     );
 
-    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
       cleanup: true,
       managedRelease: await selection('d'.repeat(64), release(4, documents)),
     });
 
-    expect(fetchR2).toHaveBeenCalledTimes(5_001);
+    expect(result.written).toEqual([...documents.map((item) => item.key), '.codeflare/managed-extensions.json']);
+    expect(result.deleted).toEqual([]);
+    expect(result.warnings).toEqual([]);
+    expect(inFlight).toBe(0);
     expect(peak).toBe(6);
+  });
+
+  it('REQ-STOR-024 AC3 + REQ-STOR-033 AC4: settles documents and metadata before separate 25-task HEAD/conditional-DELETE batches', async () => {
+    const documents = Array.from({ length: 7 }, (_, index) => document(`.claude/extensions/current-${index}.ts`));
+    const staleKeys = Array.from({ length: 26 }, (_, index) => `.claude/extensions/obsolete-${index}.ts`);
+    const remaining = new Set(staleKeys);
+    const written = new Map<string, string>();
+    const inspected = new Set<string>();
+    const deleting = new Set<string>();
+    let documentInFlight = 0;
+    let documentPeak = 0;
+    let cleanupInFlight = 0;
+    let cleanupPeak = 0;
+    let releaseDocuments!: () => void;
+    let releaseMetadata!: () => void;
+    let releaseHeads!: () => void;
+    let releaseFirstDelete!: () => void;
+    let releaseDeletes!: () => void;
+    const documentsHeld = new Promise<void>((resolve) => { releaseDocuments = resolve; });
+    const metadataHeld = new Promise<void>((resolve) => { releaseMetadata = resolve; });
+    const headsHeld = new Promise<void>((resolve) => { releaseHeads = resolve; });
+    const firstDeleteHeld = new Promise<void>((resolve) => { releaseFirstDelete = resolve; });
+    const deletesHeld = new Promise<void>((resolve) => { releaseDeletes = resolve; });
+    const managedRelease = await selection('2'.repeat(64), release(41, documents));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      const key = decodeURIComponent(new URL(url).pathname.replace('/bucket/', ''));
+      if (url.includes('list-type=2')) {
+        const contents = staleKeys.map((key) => `<Contents><Key>${key}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`).join('');
+        return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`);
+      }
+      if (init?.method === 'PUT') {
+        if (key === '.codeflare/managed-extensions.json') {
+          expect(documentInFlight).toBe(0);
+          expect(written.size).toBe(documents.length);
+          expect([...written.keys()]).toEqual(expect.arrayContaining(documents.map((item) => item.key)));
+          await metadataHeld;
+        } else {
+          documentInFlight += 1;
+          documentPeak = Math.max(documentPeak, documentInFlight);
+          await documentsHeld;
+          documentInFlight -= 1;
+        }
+        written.set(key, String(init.body));
+      }
+      if (staleKeys.includes(key) && init?.method === 'HEAD') {
+        if (!remaining.has(key)) return new Response('', { status: 404 });
+        expect(documentInFlight).toBe(0);
+        expect(written.size).toBe(documents.length + 1);
+        cleanupInFlight += 1;
+        cleanupPeak = Math.max(cleanupPeak, cleanupInFlight);
+        inspected.add(key);
+        if (key !== staleKeys[25]) await headsHeld;
+        cleanupInFlight -= 1;
+        return new Response('', { headers: { 'x-amz-meta-codeflare-preseed': '1'.repeat(64), etag: `"${key}"` } });
+      }
+      if (init?.method === 'DELETE') {
+        expect(inspected.has(key)).toBe(true);
+        expect(new Headers(init.headers).get('If-Match')).toBe(`"${key}"`);
+        cleanupInFlight += 1;
+        cleanupPeak = Math.max(cleanupPeak, cleanupInFlight);
+        deleting.add(key);
+        if (key === staleKeys[0]) await firstDeleteHeld;
+        else if (key !== staleKeys[25]) await deletesHeld;
+        cleanupInFlight -= 1;
+        remaining.delete(key);
+        return new Response(null, { status: 204 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const reconciliation = reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, automatic: { assumeEmpty: true },
+    });
+    try {
+      await vi.waitFor(() => expect(documentInFlight).toBe(6));
+      expect(written.size).toBe(0);
+      expect(inspected.size).toBe(0);
+      releaseDocuments();
+      await vi.waitFor(() => expect(written.size).toBe(documents.length));
+      expect(documentInFlight).toBe(0);
+      expect(inspected.size).toBe(0);
+      releaseMetadata();
+      await vi.waitFor(() => expect(inspected.size).toBe(25));
+      expect(cleanupInFlight).toBe(25);
+      expect(deleting.size).toBe(0);
+      releaseHeads();
+      await vi.waitFor(() => expect(deleting.size).toBe(25));
+      expect(cleanupInFlight).toBe(25);
+      expect(inspected.has(staleKeys[25])).toBe(false);
+      releaseFirstDelete();
+      await vi.waitFor(() => expect(remaining.has(staleKeys[0])).toBe(false));
+      expect(cleanupInFlight).toBe(24);
+      expect(inspected.has(staleKeys[25])).toBe(false);
+      releaseDeletes();
+      const result = await reconciliation;
+      expect(result.written).toEqual([...documents.map((item) => item.key), '.codeflare/managed-extensions.json']);
+      for (const item of documents) expect(written.get(item.key)).toBe(item.content);
+      expect(result.deleted).toEqual(staleKeys);
+      expect(result.warnings).toEqual([]);
+      expect(remaining.size).toBe(0);
+      expect(documentPeak).toBe(6);
+      expect(cleanupPeak).toBe(25);
+      expect(cleanupInFlight).toBe(0);
+    } finally {
+      releaseDocuments();
+      releaseMetadata();
+      releaseHeads();
+      releaseFirstDelete();
+      releaseDeletes();
+    }
+  });
+
+  it('REQ-STOR-024 AC3 + REQ-STOR-033 AC4: stale cleanup preserves unowned, current-baked and ETag-less objects while settling eligible siblings', async () => {
+    const prefix = '.claude/extensions/';
+    const staleKeys = ['owned.ts', 'user-edit.ts', 'baked.ts', 'no-etag.ts', 'missing.ts'].map((name) => `${prefix}${name}`);
+    const remaining = new Set(staleKeys.slice(0, -1));
+    const deleted = new Set<string>();
+    const current = document(`${prefix}current.ts`);
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      const key = decodeURIComponent(new URL(url).pathname.replace('/bucket/', ''));
+      if (url.includes('list-type=2')) {
+        const contents = staleKeys.map((key) => `<Contents><Key>${key}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`).join('');
+        return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`);
+      }
+      if (init?.method === 'HEAD') {
+        if (!remaining.has(key)) return new Response('', { status: 404 });
+        const headers = new Headers();
+        if (!key.endsWith('/user-edit.ts')) {
+          headers.set('x-amz-meta-codeflare-preseed', key.endsWith('/baked.ts') ? 'baked-digest' : '1'.repeat(64));
+        }
+        if (!key.endsWith('/no-etag.ts')) headers.set('etag', `"${key}"`);
+        return new Response('', { headers });
+      }
+      if (init?.method === 'DELETE') {
+        expect(key).toBe(staleKeys[0]);
+        expect(new Headers(init.headers).get('If-Match')).toBe(`"${key}"`);
+        remaining.delete(key);
+        deleted.add(key);
+        return new Response(null, { status: 204 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true,
+      managedRelease: await selection('2'.repeat(64), release(41, [current])),
+      automatic: { assumeEmpty: true },
+    });
+
+    expect(result.written).toEqual([current.key, '.codeflare/managed-extensions.json']);
+    expect(result.deleted).toEqual([staleKeys[0]]);
+    expect([...deleted]).toEqual([staleKeys[0]]);
+    expect([...remaining]).toEqual(staleKeys.slice(1, -1));
+    expect(result.warnings).toEqual([`HEAD ${prefix}no-etag.ts: missing ETag`]);
+  });
+
+  it.each([200, 201])('REQ-STOR-033 AC4: full-target fallback enforces the stale candidate cap at %i objects before mutations', async (count) => {
+    const current = document('.claude/extensions/current.ts');
+    const staleKeys = Array.from({ length: count }, (_, index) => `.claude/extensions/obsolete-${index}.ts`);
+    const remaining = new Set(staleKeys);
+    const inspected = new Set<string>();
+    const written = new Map<string, string>();
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      const key = decodeURIComponent(new URL(url).pathname.replace('/bucket/', ''));
+      if (url.includes('list-type=2')) {
+        const contents = staleKeys.map((key) => `<Contents><Key>${key}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`).join('');
+        return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`);
+      }
+      if (init?.method === 'HEAD' && remaining.has(key)) {
+        inspected.add(key);
+        return new Response('', { headers: { 'x-amz-meta-codeflare-preseed': '1'.repeat(64), etag: `"${key}"` } });
+      }
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'PUT') written.set(key, String(init.body));
+      if (init?.method === 'DELETE') {
+        expect(inspected.has(key)).toBe(true);
+        expect(new Headers(init.headers).get('If-Match')).toBe(`"${key}"`);
+        remaining.delete(key);
+      }
+      return new Response('', { status: 200 });
+    });
+    const reconciliation = reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true,
+      managedRelease: await selection('2'.repeat(64), release(41, [current])),
+      automatic: { assumeEmpty: true },
+    });
+
+    if (count === 201) {
+      await expect(reconciliation).rejects.toThrow('Managed cleanup preflight failed: stale-marker sweep skipped: more than 200 candidates under .claude/extensions/');
+      expect(written.size).toBe(0);
+      expect(inspected.size).toBe(0);
+      expect([...remaining]).toEqual(staleKeys);
+    } else {
+      const result = await reconciliation;
+      expect(result.deleted).toEqual(staleKeys);
+      expect(result.warnings).toEqual([]);
+      expect(written.get(current.key)).toBe(current.content);
+      expect(remaining.size).toBe(0);
+    }
   });
 
   it('REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents', async () => {

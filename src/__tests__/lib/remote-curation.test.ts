@@ -623,8 +623,8 @@ describe('managed release resolver', () => {
       }
       // A valid compatible history candidate is available: wrongly entering
       // history would activate sequence 8 rather than produce the required failure.
-      const fetcher = vi.fn(async (request: Request) => {
-        const url = new URL(request.url);
+      const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
         if (url.pathname.endsWith('/releases/latest')) {
           return new Response(JSON.stringify(metadata), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }

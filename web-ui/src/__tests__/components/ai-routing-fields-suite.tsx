@@ -938,12 +938,17 @@ describe('Structured AI routing', () => {
     await view.findByText('Connected · 3 routes readable');
     await fireEvent.click(within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' })).getByRole('button', { name: 'Connection' }));
     await fireEvent.input(view.getByLabelText('Replacement API token'), { target: { value: 'replacement-token' } });
+    const values = formValues(view.container);
     await fireEvent.click(view.getByRole('button', { name: 'Review changes' }));
-    expect(await view.findByRole('alert')).toHaveTextContent(message);
-    expect(view.getByRole('alert').textContent).toBe(message);
+    const feedback = within(view.getByRole('main'));
+    // Connection readiness also has an alert; Review feedback need not be unique.
+    await waitFor(() => expect(feedback.getAllByRole('alert').map(alert => alert.textContent)).toContain(message));
+    expect(view.queryByRole('heading', { name: 'Confirm Save' })).toBeNull();
     expect(view.queryByRole('button', { name: 'Confirm Save' })).toBeNull();
     expect(view.getByRole('button', { name: 'Review changes' })).toBeEnabled();
     expect(view.getByLabelText('Replacement API token')).toHaveValue('replacement-token');
+    expect(formValues(view.container)).toEqual(values);
+    expect(api.start).not.toHaveBeenCalled();
   });
 
   it('REQ-ENTERPRISE-069: enables Review for a verified Dynamic Route profile without an access policy', async () => {

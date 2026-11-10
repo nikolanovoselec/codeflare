@@ -607,14 +607,39 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
       if (stage === 'prepare') server.prepareWait = gate;
       else if (stage === 'start') server.startWait = gate;
       else { server.startError = true; server.inspectWait = gate; }
-      await review();
+      const width = window.innerWidth;
+      Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true, writable: true });
       try {
+        await review();
+        const trigger = screen.getByRole('button', { name: 'Operator activity' });
+        let rect = { top: 28, bottom: 64, left: 1140, right: 1184,
+          width: 44, height: 36, x: 1140, y: 28, toJSON: () => ({}) };
+        vi.spyOn(trigger, 'getBoundingClientRect').mockImplementation(() => rect);
         await fireEvent.click(screen.getByRole('button', { name: 'Start one run' }));
         if (stage === 'inspect') {
           await fireEvent.click(await screen.findByRole('button', { name: 'Inspect prepared activity' }));
         } else if (stage === 'start') {
           await waitFor(() => expect(server.prepared['prepared-1']?.phase).toBe('prepared'));
         }
+        // Exercise the real owner's width-change path while the request is still gated.
+        Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true, writable: true });
+        window.dispatchEvent(new Event('resize'));
+        const panel = screen.getByRole('dialog', { name: 'Operator activity' });
+        expect(panel).toBeVisible();
+        expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        expect(within(panel).getByRole('heading', { name: 'Start a manual run' })).toBeVisible();
+        expect(within(panel).getByRole('textbox', { name: 'Repository' })).toHaveValue('acme/updates');
+        expect(panel.style.top).toBe('72px');
+        expect(panel.style.right).toBe('96px');
+
+        rect = { top: 52, bottom: 88, left: 1276, right: 1320,
+          width: 44, height: 36, x: 1276, y: 52, toJSON: () => ({}) };
+        Object.defineProperty(window, 'innerWidth', { value: 1440, configurable: true, writable: true });
+        window.dispatchEvent(new Event('resize'));
+        expect(screen.getByRole('dialog', { name: 'Operator activity' })).toBeVisible();
+        expect(panel.style.top).toBe('96px');
+        expect(panel.style.right).toBe('120px');
+        expect(screen.getByRole('tab', { name: 'Installed' })).toHaveAttribute('aria-selected', 'true');
         expect(screen.getByRole('tab', { name: 'Runs' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Close operators' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
@@ -640,7 +665,10 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
         }
         expect(server.configuration.renovate.automaticRuns).toBe(false);
         expect(server.savedRevision).toBeNull();
-      } finally { release(); }
+      } finally {
+        release();
+        Object.defineProperty(window, 'innerWidth', { value: width, configurable: true, writable: true });
+      }
     },
   );
 

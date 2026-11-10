@@ -185,19 +185,27 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     listMock.mockResolvedValue({ items: [] });
     const width = window.innerWidth;
     const height = window.innerHeight;
+    Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true, writable: true });
     try {
       render(() => <OperatorActivityButton enabled />);
-      await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+      const trigger = screen.getByRole('button', { name: /operator activity/i });
+      await fireEvent.click(trigger);
       await waitFor(() => expect(screen.getByText('No activity')).toBeTruthy());
+      expect(screen.getByRole('dialog', { name: /operator activity/i })).toBeVisible();
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
 
       // Height-only resize: on-screen keyboard or URL bar, nothing measured changed.
       Object.defineProperty(window, 'innerHeight', { value: height - 260, configurable: true, writable: true });
       window.dispatchEvent(new Event('resize'));
       expect(screen.getByText('No activity')).toBeTruthy();
+      expect(screen.getByRole('dialog', { name: /operator activity/i })).toBeVisible();
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
 
       Object.defineProperty(window, 'innerWidth', { value: 480, configurable: true, writable: true });
       window.dispatchEvent(new Event('resize'));
       await waitFor(() => expect(screen.queryByText('No activity')).toBeNull());
+      expect(screen.queryByRole('dialog', { name: /operator activity/i })).toBeNull();
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
     } finally {
       Object.defineProperty(window, 'innerWidth', { value: width, configurable: true, writable: true });
       Object.defineProperty(window, 'innerHeight', { value: height, configurable: true, writable: true });

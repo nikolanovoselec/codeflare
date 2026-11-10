@@ -888,6 +888,22 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(await mockKV.get('setup:dynamic_routes', 'json')).toEqual(['development']);
       });
 
+      it('REQ-ENTERPRISE-012 AC2: Setup preserves a saved default when defaultRoute is omitted', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+        const savedDefault = { route: 'development', reasoning: 'medium' };
+        mockKV._set('setup:default_route', savedDefault);
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: ['code_review', 'development'] })),
+        });
+
+        expect(res.status).toBe(200);
+        expect(getNdjsonSummary(await readNdjson(res)).success).toBe(true);
+        expect(await mockKV.get('setup:default_route', 'json')).toEqual(savedDefault);
+      });
+
       it('returns 400 when a group name contains a comma', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
 

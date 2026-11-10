@@ -518,28 +518,130 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(deps.drainContainers).toHaveBeenCalledTimes(1); // drained once, before the first chunk
   });
 
-  it('aborts every in-flight multipart upload before the first migration chunk', async () => {
-    const aborted: string[] = [];
+  // IG0241 / C0326: preparation evidence only. RQ0065 every-upload,
+  // late-completion and read-repair safety is NOT established by these capped cases.
+  it('REQ-ENTERPRISE-086 AC1: prepares one capped multipart page without continuation', async () => {
+    const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+    const listed = Array.from({ length: 100 }, (_, i) => `upload-${i}`);
+    const uploads = new Set([...listed, 'unlisted-upload']);
+    const lists: URL[] = [];
     mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.includes('uploads')) {
-        return new Response('<ListMultipartUploadsResult><Upload><Key>draft.md</Key><UploadId>upload-1</UploadId></Upload></ListMultipartUploadsResult>', { status: 200 });
+      const u = new URL(url);
+      if (u.searchParams.has('uploads')) {
+        lists.push(u);
+        return new Response('<ListMultipartUploadsResult>' + listed.map(id =>
+          `<Upload><Key>draft.md</Key><UploadId>${id}</UploadId></Upload>`).join('') +
+          '<IsTruncated>true</IsTruncated><NextKeyMarker>draft.md</NextKeyMarker>' +
+          '<NextUploadIdMarker>upload-99</NextUploadIdMarker></ListMultipartUploadsResult>');
       }
-      if (method === 'DELETE' && url.includes('uploadId=upload-1')) {
-        aborted.push(url);
+      if (init?.method === 'DELETE') {
+        uploads.delete(u.searchParams.get('uploadId')!);
         return new Response(null, { status: 204 });
       }
-      if (method === 'GET' && url.includes('list-type=2')) {
-        return new Response(listXml([]), { status: 200 });
-      }
-      return new Response(null, { status: 500 });
+      return r2.fetch(url, init);
     });
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
 
-    await advanceMigration(driverEnv(kv), 'bkt', { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) });
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
 
-    expect(aborted).toHaveLength(1);
-    expect(aborted[0]).toContain('/bkt/draft.md?uploadId=upload-1');
+    // Public S3 request contract, including refusal to follow the returned markers.
+    expect(lists.map(u => ({ path: u.pathname, query: [...u.searchParams.entries()] }))).toEqual([
+      { path: '/bkt', query: [['uploads', ''], ['max-uploads', '100']] },
+    ]);
+    expect([...uploads]).toEqual(['unlisted-upload']);
+    expect(r2.store.get('a.md')?.regime).toBe('plain');
+    expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({ status: 'ready', regime: 'plain', generation: 1 });
+    // Ready here certifies only this fixture's existing object scan, NOT safe late completion.
+  });
+
+  it.each(['list HTTP failure', 'list rejection', 'abort HTTP failure', 'abort rejection'] as const)(
+    'REQ-ENTERPRISE-086 AC1: migration continues after best-effort %s', async failure => {
+      const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+      const uploads = new Set(['failed-upload', 'other-upload']);
+      const settled: string[] = [];
+      let settledAtFirstCopy: string[] | undefined;
+      mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        const u = new URL(url);
+        if (u.searchParams.has('uploads')) {
+          if (failure === 'list rejection') throw new Error('Multipart list unavailable');
+          if (failure === 'list HTTP failure') return new Response(null, { status: 503 });
+          return new Response('<ListMultipartUploadsResult>' + [...uploads].map(id =>
+            `<Upload><Key>draft.md</Key><UploadId>${id}</UploadId></Upload>`).join('') + '</ListMultipartUploadsResult>');
+        }
+        if (init?.method === 'DELETE') {
+          const id = u.searchParams.get('uploadId')!;
+          settled.push(id);
+          if (id === 'failed-upload') {
+            if (failure === 'abort rejection') throw new Error('Multipart abort unavailable');
+            return new Response(null, { status: 503 });
+          }
+          uploads.delete(id);
+          return new Response(null, { status: 204 });
+        }
+        if (init?.method === 'PUT' && settledAtFirstCopy === undefined) settledAtFirstCopy = [...settled];
+        return r2.fetch(url, init);
+      });
+      const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: false }) });
+
+      await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+
+      expect([...uploads]).toEqual(failure.startsWith('list') ? ['failed-upload', 'other-upload'] : ['failed-upload']);
+      expect(settledAtFirstCopy).toEqual(failure.startsWith('list') ? [] : ['failed-upload', 'other-upload']);
+      expect(r2.store.get('a.md')?.regime).toBe('plain');
+      const state = await getRegimeState(driverEnv(kv), 'bkt');
+      expect(state).toMatchObject({ status: 'ready', regime: 'plain', generation: 5 });
+      expect(state.leaseExpiresAt).toBeUndefined();
+    },
+  );
+
+  it('REQ-ENTERPRISE-086 AC1: bounded abort attempts settle before the first copy', async () => {
+    const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+    const uploads = new Set(Array.from({ length: 7 }, (_, i) => `upload-${i}`));
+    const started: string[] = [];
+    const settled: string[] = [];
+    let settledAtFirstCopy: string[] | undefined;
+    let releaseAborts!: () => void;
+    const abortGate = new Promise<void>(resolve => { releaseAborts = resolve; });
+    let signalBatch!: () => void;
+    const batchStarted = new Promise<void>(resolve => { signalBatch = resolve; });
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const u = new URL(url);
+      if (u.searchParams.has('uploads')) {
+        return new Response('<ListMultipartUploadsResult>' + [...uploads].map(id =>
+          `<Upload><Key>draft.md</Key><UploadId>${id}</UploadId></Upload>`).join('') + '</ListMultipartUploadsResult>');
+      }
+      if (init?.method === 'DELETE') {
+        const id = u.searchParams.get('uploadId')!;
+        started.push(id);
+        if (started.length === 6) signalBatch();
+        await abortGate;
+        uploads.delete(id);
+        settled.push(id);
+        return new Response(null, { status: 204 });
+      }
+      if (init?.method === 'PUT' && settledAtFirstCopy === undefined) settledAtFirstCopy = [...settled];
+      return r2.fetch(url, init);
+    });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+    const advance = advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+    try {
+      await batchStarted;
+      expect(started).toEqual(Array.from({ length: 6 }, (_, i) => `upload-${i}`));
+      expect(uploads.size).toBe(7);
+      expect(settled).toEqual([]);
+      expect(settledAtFirstCopy).toBeUndefined();
+      expect(r2.store.get('a.md')?.regime).toBe('sse-c');
+      expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 0 });
+    } finally {
+      releaseAborts();
+      await advance;
+    }
+    expect([...uploads]).toEqual([]);
+    expect(settledAtFirstCopy).toEqual(Array.from({ length: 7 }, (_, i) => `upload-${i}`));
+    expect(r2.store.get('a.md')?.regime).toBe('plain');
+    const state = await getRegimeState(driverEnv(kv), 'bkt');
+    expect(state).toMatchObject({ status: 'ready', regime: 'plain', generation: 1 });
+    expect(state.leaseExpiresAt).toBeUndefined();
   });
 
   it('fully migrates a small bucket within a SINGLE advanceMigration call (loops pages under budget)', async () => {
