@@ -105,8 +105,8 @@ interface RestartPrefsInput {
   syncPolicyMode?: SyncPolicyMode;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
-  openaiApiKey?: string;
-  geminiApiKey?: string;
+  openaiApiKey?: string | null;
+  geminiApiKey?: string | null;
   // null is an explicit clear that must propagate to revoke the value (REQ-AGENT-029 AC2).
   githubToken?: string | null;
   cloudflareApiToken?: string | null;
@@ -154,8 +154,8 @@ export interface SetBucketNameCreds {
   syncPolicyMode?: SyncPolicyMode;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
-  openaiApiKey?: string;
-  geminiApiKey?: string;
+  openaiApiKey?: string | null;
+  geminiApiKey?: string | null;
   // null is an explicit clear that must propagate to revoke the value (REQ-AGENT-029 AC2).
   githubToken?: string | null;
   cloudflareApiToken?: string | null;
@@ -600,8 +600,8 @@ export async function applyBucketName(
   }
 
   // Store LLM API keys in instance memory only (not persisted to DO storage; injected per container start)
-  if (r2Creds?.openaiApiKey) state._openaiApiKey = r2Creds.openaiApiKey;
-  if (r2Creds?.geminiApiKey) state._geminiApiKey = r2Creds.geminiApiKey;
+  if (r2Creds?.openaiApiKey !== undefined) state._openaiApiKey = r2Creds.openaiApiKey || null;
+  if (r2Creds?.geminiApiKey !== undefined) state._geminiApiKey = r2Creds.geminiApiKey || null;
 
   // Store deploy credentials in instance memory only (not persisted to DO storage; injected per container start)
   if (r2Creds?.githubToken) state._githubToken = r2Creds.githubToken;
@@ -757,14 +757,8 @@ export async function applyPrefsOnRestart(
     logger.info('Updated userTimezone on restart', { userTimezone: tzRestart });
   }
 
-  // Always update LLM keys, deploy keys, and session mode on restart
-  // (read fresh each start). The `|| null` collapses an empty string
-  // to null — this is defence-in-depth. The upstream caller
-  // (buildSetBucketNameBody in src/routes/container/lifecycle.ts) uses
-  // a truthy `&& { key: value }` spread that omits the field entirely
-  // when the source value is empty, so an empty string never reaches
-  // this branch in practice; the `undefined` guard skips the block and
-  // state is preserved.
+  // Fresh startup snapshots send explicit null for removed LLM/deploy keys.
+  // Omission still means not loaded in a partial update; never clear other keys.
   if (input.openaiApiKey !== undefined) {
     state._openaiApiKey = input.openaiApiKey || null;
     changed = true;

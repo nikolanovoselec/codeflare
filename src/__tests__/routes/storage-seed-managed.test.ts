@@ -719,6 +719,34 @@ describe('managed storage reconcile', () => {
     expect(reconcile).not.toHaveBeenCalled();
   });
 
+  it.each(['release', 'policy', 'mode', 'projection', 'owner', 'migration', 'encryption', 'pending'] as const)(
+    'REQ-STOR-035 AC7: manual Recreate refuses %s drift and retains its journal', async drift => {
+      const kv = createMockKV();
+      const envOverrides: Partial<Env> = { CODING_AGENTS: 'pi' };
+      kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+      reconcile.mockImplementationOnce(async (...args: any[]) => {
+        if (drift === 'projection') args[0].CODING_AGENTS = 'claude-code';
+        if (drift === 'release') state.active = { ...state.active!, digest: 'e'.repeat(64) };
+        if (drift === 'policy') state.resourcePolicy = 'exclusive';
+        if (drift === 'mode' || drift === 'pending') {
+          const latest = await kv.get('user-prefs:user-bucket', 'json') as any;
+          kv._set('user-prefs:user-bucket', { ...latest, ...(drift === 'mode' ? { sessionMode: 'default' } : {
+            managedEnvironmentReconciliation: { targets: [] },
+          }) });
+        }
+        if (drift === 'owner') kv._set('session:user-bucket:race-session', { id: 'race-session', status: 'running', userId: 'user@example.com', lifecycleGeneration: 1 });
+        if (drift === 'migration') vi.mocked((await import('../../lib/r2-migration')).isBucketMigrating).mockResolvedValueOnce(true);
+        if (drift === 'encryption') vi.mocked((await import('../../lib/r2-migration')).resolveBucketSseOnEnsure).mockResolvedValueOnce(true);
+        return { written: [], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+      });
+      const app = appFor(kv, undefined, envOverrides);
+      const response = await app.request('/seed/agent-configs', { method: 'POST' });
+      expect(response.status).not.toBe(200);
+      const stored = await kv.get('user-prefs:user-bucket', 'json') as any;
+      expect(stored.managedEnvironmentApplied).toBeUndefined();
+      if (drift !== 'pending') expect(stored.managedEnvironmentReconciliation.targets).toHaveLength(1);
+    });
+
   it('REQ-STOR-035 AC2: unavailable interrupted history fails before bucket mutation and retains state', async () => {
     const kv = createMockKV();
     const pending = {

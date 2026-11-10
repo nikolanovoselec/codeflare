@@ -582,7 +582,7 @@ async function pruneLegacyAccessApps(
   }
 
   const staleIds = new Set<string>();
-  await Promise.all(staleApps.map(async (app) => {
+  const deletions = staleApps.map(async (app) => {
     const deleted = await deleteAccessApp(token, accountId, app.id);
     if (deleted) {
       staleIds.add(app.id);
@@ -591,7 +591,15 @@ async function pruneLegacyAccessApps(
         domain: app.domain,
       });
     }
-  }));
+  });
+  try {
+    await Promise.all(deletions);
+  } catch (error) {
+    // Do not let setup release live admission while a sibling delete is still
+    // mutating provider state. Retain the first failure, including uncertainty.
+    await Promise.allSettled(deletions);
+    throw error;
+  }
 
   return existingApps.filter((app) => !staleIds.has(app.id));
 }

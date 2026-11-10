@@ -451,6 +451,15 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       })).rejects.toThrow();
     });
 
+    it.each(['unavailable', 'status500', 'success'])('REQ-GITHUB-014 AC2: tracked-only restoration %s controls startup', async outcome => {
+      mockGetStoredBucketName.mockResolvedValue('test-bucket');
+      if (outcome === 'unavailable') mockContainer.fetch.mockRejectedValue(new Error('offline'));
+      else mockContainer.fetch.mockResolvedValue(new Response('', { status: outcome === 'success' ? 200 : 500 }));
+      const operation = configureContainerDO({ ...baseParams, gitCloneTargets: 'octo/tracked#main' });
+      if (outcome === 'success') await expect(operation).resolves.toMatchObject({ needsBucketUpdate: false });
+      else await expect(operation).rejects.toThrow();
+    });
+
     it('REQ-GITHUB-015 AC4: forwards every tracked repository with the session repository first', async () => {
       mockGetStoredBucketName.mockResolvedValue('test-bucket');
 
@@ -483,15 +492,15 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       expect(body.geminiApiKey).toBe('AIzaSy-test456');
     });
 
-    it('omits LLM keys from body when not provided', async () => {
+    it('REQ-AGENT-031 AC1: fresh absent LLM keys are explicit clears', async () => {
       mockGetStoredBucketName.mockResolvedValue('old-bucket');
 
       await configureContainerDO(baseParams);
 
       const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
       const body = await fetchCall.json() as Record<string, unknown>;
-      expect(body).not.toHaveProperty('openaiApiKey');
-      expect(body).not.toHaveProperty('geminiApiKey');
+      expect(body.openaiApiKey).toBeNull();
+      expect(body.geminiApiKey).toBeNull();
     });
 
     it('DEEP-20-002: sends newly absent deploy credentials as explicit null on restart', async () => {

@@ -22,6 +22,7 @@ async function resolveZone(
     candidates.push(domainParts.slice(i).join('.'));
   }
 
+  let confirmedAbsent = true;
   for (const zoneName of candidates) {
     let zonesRes: Response;
     try {
@@ -37,6 +38,11 @@ async function resolveZone(
     }
 
     const zonesData = await parseCfResponse<Array<{ id: string }>>(zonesRes);
+    // Only successful, well-formed empty lookups prove this input cannot resolve.
+    // Provider rejection, malformed data and transport failure remain uncertain.
+    if (!zonesRes.ok || !zonesData.success || !Array.isArray(zonesData.result) || zonesData.result.length !== 0) {
+      confirmedAbsent = false;
+    }
 
     if (!zonesData.success) {
       const cfErrors = zonesData.errors || [];
@@ -68,6 +74,7 @@ async function resolveZone(
   // None of the candidates matched
   steps[stepIndex].status = 'error';
   steps[stepIndex].error = `Zone not found for domain: ${domain}`;
+  if (confirmedAbsent) throw new ValidationError(`Zone not found for domain: ${domain}`);
   throw new SetupError(`Zone not found for domain: ${domain}`, steps);
 }
 

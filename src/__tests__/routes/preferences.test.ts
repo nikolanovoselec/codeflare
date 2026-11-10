@@ -870,6 +870,38 @@ describe('Preferences Routes', () => {
       });
     });
 
+    it.each(['release', 'projection', 'mode', 'policy', 'encryption', 'migration', 'owner', 'pending'] as const)(
+      'REQ-STOR-035 AC7: mode-change %s drift refuses publication and preserves recovery', async drift => {
+        managedReleaseState.active = { digest: 'd'.repeat(64), compressed: new Uint8Array(), release: { sequence: 9 } };
+        mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default' });
+        mockReconcileAgentConfigs.mockImplementationOnce(async (...args: any[]) => {
+          if (drift === 'release') managedReleaseState.active = { ...managedReleaseState.active, digest: 'e'.repeat(64) };
+          if (drift === 'projection') args[0].CODING_AGENTS = 'pi';
+          if (drift === 'policy') vi.mocked((await import('../../lib/managed-release-active')).getActiveManagedRelease).mockResolvedValueOnce({
+            digest: 'd'.repeat(64), pointer: { sequence: 9 }, resourcePolicy: 'exclusive',
+          } as any);
+          if (drift === 'encryption' || drift === 'migration') mockKV._set('r2-regime:codeflare-test-user', {
+            status: drift === 'migration' ? 'migrating' : 'ready', regime: drift === 'encryption' ? 'plain' : 'sse-c', generation: 1,
+          });
+          if (drift === 'owner') mockKV._set('session:codeflare-test-user:race-session', { id: 'race-session', status: 'running', lifecycleGeneration: 1 });
+          if (drift === 'mode' || drift === 'pending') {
+            const current = await mockKV.get('user-prefs:codeflare-test-user', 'json') as any;
+            mockKV._set('user-prefs:codeflare-test-user', { ...current, ...(drift === 'mode' ? { sessionMode: 'default' } : {
+              managedEnvironmentReconciliation: { targets: [] },
+            }) });
+          }
+          return { written: [], skipped: [], deleted: [], warnings: [] };
+        });
+        const res = await createTestApp().request('/preferences', { method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionMode: 'advanced' }) });
+        expect(res.status).not.toBe(200);
+        const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as any;
+        expect(stored.managedEnvironmentApplied).toBeUndefined();
+        if (drift !== 'pending') expect(stored.managedEnvironmentReconciliation.targets).toEqual([
+          { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: 'v1:claude-code,codex,copilot,antigravity,opencode,pi' },
+        ]);
+      });
+
     it('REQ-STOR-033: baked mode reconciliation stamps selection identity beside the content hash', async () => {
       mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default' });
 

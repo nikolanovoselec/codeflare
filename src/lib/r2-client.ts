@@ -26,11 +26,19 @@ export function createR2Client(env: Pick<Env, 'R2_ACCESS_KEY_ID' | 'R2_SECRET_AC
  */
 export function getR2Url(endpoint: string, bucketName: string, key?: string): string {
   const base = endpoint.replace(/\/+$/, '');
-  if (!key) {
-    return `${base}/${bucketName}`;
+  // Inputs are object names, not URL syntax. Encode once at this owner so %2E,
+  // query/fragment characters and Unicode remain literal signed object bytes.
+  if (!bucketName || /[/\\]/.test(bucketName) || bucketName === '.' || bucketName === '..') {
+    throw new ValidationError('Invalid R2 bucket name');
   }
-  const cleanKey = key.replace(/^\/+/, '');
-  return `${base}/${bucketName}/${cleanKey}`;
+  const path = `/${encodeURIComponent(bucketName)}`
+    + (key ? `/${key.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/')}` : '');
+  const url = new URL(`${base}${path}`);
+  const basePath = new URL(base).pathname.replace(/\/+$/, '');
+  if (url.pathname !== `${basePath}${path}` || url.search || url.hash) {
+    throw new ValidationError('R2 URL changes object identity');
+  }
+  return `${base}${path}`;
 }
 
 /**

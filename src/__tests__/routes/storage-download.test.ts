@@ -204,7 +204,7 @@ describe('Storage Download Routes', () => {
       expect(res.status).toBe(200);
       expect(await res.text()).toBe('file-content');
       expect(mockFetchObjectWithRegimeFallback).toHaveBeenCalledWith(
-        expect.anything(), 'test-bucket', `https://test.r2.cloudflarestorage.com/test-bucket/${key}`, { method: 'GET' },
+        expect.anything(), 'test-bucket', `https://test.r2.cloudflarestorage.com/test-bucket/${key.split('/').map(encodeURIComponent).join('/')}`, { method: 'GET' },
       );
       const header = res.headers.get('Content-Disposition')!;
       expect(header.startsWith(`${disposition};`)).toBe(true);

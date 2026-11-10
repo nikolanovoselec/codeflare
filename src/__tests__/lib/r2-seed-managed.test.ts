@@ -493,6 +493,34 @@ describe('managed release user-bucket reconciliation', () => {
     expect(manifestBody).not.toContain('PK');
   });
 
+  it.each(['.claude/projects/repo/session.jsonl', '.pi/agent/sessions/session.jsonl'])(
+    'REQ-STOR-021 AC4: refuses private transcript %s before bucket access', async key => {
+      await expect(selection('d'.repeat(64), release(2, [document(key)]))).rejects.toThrow();
+      const legitimate = await selection('d'.repeat(64), release(2, [document('.claude/company.md')]));
+      // A forged typed index must also fail at the accepting reconcile boundary.
+      const forged = { ...legitimate, release: { ...legitimate.release, documents: [{ ...legitimate.release.documents[0], key }] } };
+      await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+        overwrite: true, cleanup: true, managedRelease: forged,
+      })).rejects.toThrow();
+      expect(acknowledgedWrites.size).toBe(0);
+    });
+
+  it('REQ-STOR-029 AC4: unconfirmed signed retirement withholds canonical policy and preserves object', async () => {
+    const value = release(2, [document('.claude/current.md')]);
+    value.retiredPaths = ['.pi/agent/extensions/retired.ts'];
+    let policyPublished = false;
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/retired.ts') && init?.method === 'HEAD') return new Response(null, { headers: { etag: '"retired"' } });
+      if (url.endsWith('/retired.ts') && init?.method === 'DELETE') return new Response(null, { status: 503 });
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyPublished = true;
+      return new Response('', { status: 200 });
+    });
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, resourcePolicy: 'immutable', managedRelease: await selection('d'.repeat(64), value),
+    })).rejects.toThrow();
+    expect(policyPublished).toBe(false);
+  });
+
   it('REQ-STOR-029 AC1: writes and read-verifies canonical protected policy after managed content', async () => {
     const digest = 'd'.repeat(64);
     const managedRelease = await selection(digest, release(2, [

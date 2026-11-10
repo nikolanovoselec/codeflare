@@ -737,3 +737,27 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     });
   });
 });
+
+// An omitted partial update is not a fresh authoritative absence.
+describe('REQ-AGENT-031 AC1: warm credential revocation', () => {
+  it('clears freshly absent consult keys without persisting them or changing other authority', async () => {
+    const state = baseState();
+    state._openaiApiKey = 'old-openai'; state._geminiApiKey = 'old-gemini';
+    state._githubToken = 'keep-github'; state._encryptionKey = 'immutable-key';
+    const writes: Record<string, unknown> = {};
+    const storage = { put: async (key: string, value: unknown) => { writes[key] = value; } };
+    await applyPrefsOnRestart(state, storage, {});
+    expect(buildEnvVars(state, baseEnv).CODEFLARE_OPENAI_API_KEY).toBe('old-openai');
+    await applyPrefsOnRestart(state, storage, { openaiApiKey: null, geminiApiKey: null });
+    const vars = buildEnvVars(state, baseEnv);
+    expect(vars.CODEFLARE_OPENAI_API_KEY).toBeUndefined();
+    expect(vars.CODEFLARE_GEMINI_API_KEY).toBeUndefined();
+    expect(vars.OPENAI_API_KEY).toBeUndefined(); expect(vars.GEMINI_API_KEY).toBeUndefined();
+    expect(state._githubToken).toBe('keep-github'); expect(state._encryptionKey).toBe('immutable-key');
+    expect(writes).not.toHaveProperty('openaiApiKey'); expect(writes).not.toHaveProperty('geminiApiKey');
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, { openaiApiKey: 'replacement' });
+    expect(buildEnvVars(state, baseEnv).CODEFLARE_OPENAI_API_KEY).toBe('replacement');
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, { openaiApiKey: null });
+    expect(buildEnvVars(state, baseEnv).CODEFLARE_OPENAI_API_KEY).toBeUndefined();
+  });
+});

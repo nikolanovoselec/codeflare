@@ -910,7 +910,7 @@ initial_sync_from_r2() {
 # the bit stripped for up to a whole daemon cycle, so this also runs after each
 # successful bisync. Idempotent; non-fatal when the directory is absent.
 repair_hook_exec_bits() {
-    find "$USER_CLAUDE_DIR/hooks" -maxdepth 2 \
+    find -P "$USER_CLAUDE_DIR/hooks" \
         \( -name '*.mjs' -o -name '*.sh' \) -type f -exec chmod 0755 {} + 2>/dev/null || true
     # R2 also drops the executable bit on the extensionless native skill launcher.
     find "$USER_CLAUDE_DIR/skills/impeccable/scripts/impeccable" \
@@ -2042,7 +2042,7 @@ _openvscode_supervise_loop() {
         current_pgid=""
     }
     trap '_openvscode_cleanup_current_generation' EXIT
-    trap '_openvscode_cleanup_current_generation; exit 0' TERM INT
+    trap '_openvscode_cleanup_current_generation || exit 1; exit 0' TERM INT
 
     while true; do
         if ! _openvscode_should_launch; then
@@ -2065,7 +2065,7 @@ _openvscode_supervise_loop() {
         (umask 077; printf '%s\n%s\n%s\n%s\n' "$current_pid" "$current_start" "$current_generation" "$current_pgid" > "${generation_pidfile}.tmp")
         mv -f "${generation_pidfile}.tmp" "$generation_pidfile"
         if wait "$current_pid"; then exit_code=0; else exit_code=$?; fi
-        _openvscode_cleanup_current_generation
+        _openvscode_cleanup_current_generation || return 1
         echo "[openvscode] $(date '+%Y-%m-%d %H:%M:%S') exited (code $exit_code), restarting in 5s..." >> $CODEFLARE_RUNTIME_ROOT/openvscode/openvscode.log
         sleep 5
     done
@@ -2179,17 +2179,20 @@ shutdown_handler() {
     # however long we waited, keeping the total at 120s and preserving AD57's
     # 15s clean-exit buffer against the DO's 135s hard kill.
     QUIESCE_DECIS=0
-    while [ "$QUIESCE_DECIS" -lt 50 ]; do
-        pgrep -f "rclone bisync" >/dev/null 2>&1 || break
+    while pgrep -f "rclone bisync" >/dev/null 2>&1; do
+        # Reserve the same 12s abort grace and 15s platform clean-exit buffer.
+        # Expiry is failure, never permission to start a competing sync.
+        if [ "$QUIESCE_DECIS" -ge 1080 ]; then
+            echo "[entrypoint] ERROR: daemon bisync did not settle; refusing competing final sync"
+            if [ -n "$TERMINAL_PID" ]; then
+                kill "$TERMINAL_PID" 2>/dev/null || true
+            fi
+            exit 1
+        fi
         sleep 0.1
         QUIESCE_DECIS=$((QUIESCE_DECIS + 1))
     done
     QUIESCE_SECS=$(( (QUIESCE_DECIS + 9) / 10 ))
-    if [ "$QUIESCE_DECIS" -ge 50 ]; then
-        # Falling through silently would land in exactly the stale-lock
-        # fast-fail this loop exists to avoid, with nothing to diagnose it from.
-        echo "[entrypoint] WARNING: rclone bisync still running after 5s; final bisync may hit a stale lock"
-    fi
 
     # Perform final bisync to R2 (only if baseline was established).
     # Wrap in a 120s watchdog so the DO's destroy() SIGKILL budget (135s,

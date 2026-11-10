@@ -588,3 +588,19 @@ describe('parseListObjectsXml - XML entity decoding', () => {
   });
 });
 
+
+describe('REQ-SEC-010: final signed URL identity', () => {
+  it.each(['tenant/%2E%2E/private', 'tenant/%252E%252E/Grüße 🌍?#.txt', 'literal%2Fslash'])('preserves literal escaped/Unicode object key %s', key => {
+    const url = new URL(getR2Url('https://r2.test', 'user-bucket', key));
+    expect(url.pathname.split('/').slice(2).map(decodeURIComponent).join('/')).toBe(key);
+    expect(url.pathname.split('/')[1]).toBe('user-bucket');
+    expect(url.search).toBe(''); expect(url.hash).toBe('');
+    expect(new Request(url).url).toBe(url.href);
+  });
+  it.each(['../other', 'tenant/../other', './other'])('refuses unrepresentable literal dot path %s before signing', key => {
+    expect(() => getR2Url('https://r2.test', 'user-bucket', key)).toThrow();
+  });
+  it('refuses a bucket that could change tenant identity', () => {
+    expect(() => getR2Url('https://r2.test', '../other', 'key')).toThrow();
+  });
+});

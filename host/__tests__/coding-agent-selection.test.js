@@ -26,6 +26,14 @@ const containerWorkflow = parseYaml(readFileSync(join(ROOT, '.github/workflows/c
 
 const ALL_AGENTS = 'claude-code,codex,copilot,antigravity,opencode,pi';
 
+it('REQ-STOR-021 AC4: private transcript trees have no managed owner', async () => {
+  const { managedPathOwner } = await import('../../scripts/ci/coding-agent-selection-core.mjs');
+  for (const path of ['.claude/projects/repo/session.jsonl', '.pi/agent/sessions/session.jsonl', '.claude/projects', '.pi/agent/sessions']) {
+    assert.equal(managedPathOwner(path), null);
+  }
+  assert.equal(managedPathOwner('.pi/agent/extensions/company.ts'), 'pi');
+});
+
 it('REQ-OPS-046 AC3: bundled brace runtimes must expand patterns correctly at every path', async () => {
   const smoke = await import('../../scripts/ci/smoke-openvscode-sidebar-image.mjs');
   const root = mkdtempSync(join(tmpdir(), 'bundled-brace-smoke-'));

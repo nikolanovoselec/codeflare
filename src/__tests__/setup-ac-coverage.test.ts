@@ -1,3 +1,4 @@
+import { createMockSetupNamespace } from './helpers/mock-factories';
 /**
  * AC-coverage tests for setup domain REQs.
  *
@@ -224,6 +225,7 @@ describe('Setup AC Coverage', () => {
         CLOUDFLARE_WORKER_NAME: TEST_WORKER_NAME,
         ...envOverrides,
       } as Env;
+      c.env.CONTAINER = createMockSetupNamespace(c.env);
       return next();
     });
 

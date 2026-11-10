@@ -1,3 +1,4 @@
+import { createMockSetupNamespace } from './helpers/mock-factories';
 /**
  * AC-coverage tests for REQ-SETUP-007: Custom domain with DNS validation.
  *
@@ -201,6 +202,7 @@ describe('REQ-SETUP-007: Custom domain with DNS validation', () => {
         CLOUDFLARE_WORKER_NAME: TEST_WORKER_NAME,
         ...envOverrides,
       } as Env;
+      c.env.CONTAINER = createMockSetupNamespace(c.env);
       return next();
     });
     app.route('/api/setup', setupRoutes);

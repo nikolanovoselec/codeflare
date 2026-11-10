@@ -106,6 +106,7 @@ function clearOperationalMemory(host: LifecycleHost): void {
   host._remoteCurationManifestDigest = null;
   host._sessionMode = 'default';
   host._sessionWorkspace = 'terminal';
+  host.envVars = {};
 }
 
 /** Complete an owner-authorized Stop without depending on operational DO keys. */
@@ -166,18 +167,24 @@ export async function killSession(host: LifecycleHost, input: SessionStopRequest
     await host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, host._shutdownStartedAt);
     if (!await stillOwned()) return;
     try { host.deleteSchedules('collectMetrics'); } catch { /* no schedule to retire */ }
-    await host.ctx.storage.transaction(async txn => {
+    let cleanupAuthorized = true;
+    try {
+      await host.ctx.storage.transaction(async txn => {
+        assertCurrent();
+        const storedGeneration = await txn.get<number>('lifecycleGeneration');
+        assertCurrent();
+        if (storedGeneration !== undefined && storedGeneration !== input.generation) {
+          cleanupAuthorized = false;
+          throw new Error('KILL operational generation changed');
+        }
+        await txn.delete([...OPERATIONAL_STORAGE_KEYS, TRANSPORT_RECOVERY_KEY]);
+        assertCurrent();
+      });
+    } finally {
       assertCurrent();
-      const storedGeneration = await txn.get<number>('lifecycleGeneration');
-      assertCurrent();
-      if (storedGeneration !== undefined && storedGeneration !== input.generation) {
-        throw new Error('KILL operational generation changed');
-      }
-      await txn.delete([...OPERATIONAL_STORAGE_KEYS, TRANSPORT_RECOVERY_KEY]);
-      assertCurrent();
-    });
+      if (cleanupAuthorized) clearOperationalMemory(host);
+    }
     if (!await stillOwned()) return;
-    clearOperationalMemory(host);
     // SDK 0.3.7 public destroy() awaits native SIGKILL; no running hint or
     // synthetic onStop callback is used as process-exit evidence.
     await host.superDestroy();
@@ -581,13 +588,19 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
   // Recovery residue must not survive teardown even when another operational
   // key deletion fails below.
   try { await withinDeadline(() => host.ctx.storage.delete(TRANSPORT_RECOVERY_KEY)); } catch { /* best-effort */ }
+  let operationalCleanupFailed = false;
   try {
     await withinDeadline(() => Promise.all(OPERATIONAL_STORAGE_KEYS.map(key => host.ctx.storage.delete(key))));
     assertCurrent();
-    clearOperationalMemory(host);
     host.logger.info('Operational storage cleared');
   } catch {
+    operationalCleanupFailed = true;
     host.logger.error('Failed to clear storage', undefined, { ...diagnostic, errorClass: 'operational_cleanup_failed' });
+  } finally {
+    // Revocation is independent of persistent cleanup. Keep the shutdown fence,
+    // lifecycle generation and D1 termination intent for an authorized retry.
+    assertCurrent();
+    clearOperationalMemory(host);
   }
 
   // REQ-SESSION-011 + #516: ALWAYS attempt the final drain on a deliberate
@@ -676,6 +689,7 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
     host.logger.warn('Forced destroy failed or exceeded teardown deadline', { ...diagnostic, errorClass: 'native_destroy_failed' });
     throw err;
   }
+  if (operationalCleanupFailed) throw new Error('Operational storage cleanup incomplete');
 }
 
 /**

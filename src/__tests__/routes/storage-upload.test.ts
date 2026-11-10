@@ -23,16 +23,19 @@ vi.mock('../../lib/remote-curation', async (importOriginal) => ({
   readManagedEnvironmentSnapshot: vi.fn(async () => managedState.snapshot),
 }));
 
-import uploadRoutes from '../../routes/storage/upload';
+import uploadRoutes, { performBucketMultipart } from '../../routes/storage/upload';
 import deleteRoutes from '../../routes/storage/delete';
 
 // REQ-STOR-007: Web File Browser
 
 describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
+  let multipartReceipts: Map<string, unknown>;
+  const seedManagedUpload = (key: string, id: string) => multipartReceipts.set(`multipart:upload:${id}`, { key, generation: 0, regime: 'sse-c' });
 
   beforeEach(() => {
     mockKV = createMockKV();
+    multipartReceipts = new Map();
     mockFetch.mockReset();
     managedState.snapshot = { configured: false, enabled: false };
   });
@@ -42,15 +45,16 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
   });
 
   function createApp(bucketName = 'test-bucket', envOverrides: Partial<Env> = {}) {
+    const env = { KV: mockKV, R2_ACCESS_KEY_ID: 'test-key', R2_SECRET_ACCESS_KEY: 'test-secret', ...envOverrides } as unknown as Env;
+    const storage = {
+      get: async (key: string) => multipartReceipts.get(key),
+      put: async (key: string, value: unknown) => { multipartReceipts.set(key, value); },
+      delete: async (key: string) => multipartReceipts.delete(key),
+    } as unknown as Pick<DurableObjectStorage, 'get' | 'put' | 'delete'>;
     return createTestApp({
       routes: [{ path: '/upload', handler: uploadRoutes }, { path: '/delete', handler: deleteRoutes }],
-      mockKV,
-      bucketName,
-      envOverrides: {
-        R2_ACCESS_KEY_ID: 'test-key',
-        R2_SECRET_ACCESS_KEY: 'test-secret',
-        ...envOverrides,
-      },
+      mockKV, bucketName,
+      envOverrides: { ...env, CONTAINER: { getByName: () => ({ runBucketMultipart: async (input: Parameters<typeof performBucketMultipart>[2] | Request) => performBucketMultipart(env, storage, input instanceof Request ? await input.json() as Parameters<typeof performBucketMultipart>[2] : input) }) } as unknown as Env['CONTAINER'] },
     });
   }
 
@@ -86,10 +90,11 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     ['/upload/complete', { uploadId: 'u', parts: [{ partNumber: 1, etag: 'abc' }] }, 'POST'],
     ['/upload/abort', { uploadId: 'u' }, 'DELETE'],
   ])('allows ordinary upload operation %s while managed reconciliation is pending', async (path, payload, method) => {
+    seedManagedUpload('Uploads/report.txt', 'u');
     mockKV._set('user-prefs:test-bucket', {
       managedEnvironmentReconciliation: { targets: [{ digest: 'd'.repeat(64), sequence: 1, mode: 'default' }] },
     });
-    mockFetch.mockResolvedValueOnce(new Response('', { status: 200, headers: { ETag: 'abc' } }));
+    mockFetch.mockResolvedValueOnce(new Response(path === '/upload/complete' ? '<CompleteMultipartUploadResult><ETag>"abc"</ETag></CompleteMultipartUploadResult>' : '', { status: 200, headers: { ETag: 'abc' } }));
     const response = await createApp().request(path, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...payload, key: 'Uploads/report.txt' }),
@@ -388,6 +393,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
 
   describe('POST /upload/part (multipart part)', () => {
     it('returns etag on success', async () => {
+      seedManagedUpload('workspace/large.zip', 'upload-id-123');
       const app = createApp();
       mockFetch.mockResolvedValueOnce(
         new Response('', {
@@ -413,6 +419,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     });
 
     it('allows previously protected key (.ssh/) (PROTECTED_PATHS is now empty)', async () => {
+      seedManagedUpload('.ssh/id_rsa', 'upload-id-123');
       const app = createApp();
       mockFetch.mockResolvedValueOnce(
         new Response('', { status: 200, headers: { etag: '"abc"' } })
@@ -433,6 +440,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     });
 
     it('returns 400 ValidationError for invalid base64 content in part upload (FIX-10)', async () => {
+      seedManagedUpload('workspace/large.zip', 'upload-id-123');
       const app = createApp();
 
       const res = await app.request('/upload/part', {
@@ -453,6 +461,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     });
 
     it('sends partNumber and uploadId in URL', async () => {
+      seedManagedUpload('file.bin', 'uid-42');
       const app = createApp();
       mockFetch.mockResolvedValueOnce(
         new Response('', { status: 200, headers: { etag: '"e1"' } })
@@ -479,9 +488,41 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
   // REQ-STOR-008 AC3: POST /api/storage/upload/complete finalizes the multipart upload
 
   describe('POST /upload/complete (multipart complete)', () => {
+    it.each(['unknown', 'old-generation'] as const)('REQ-ENTERPRISE-086: %s completion returns actionable restart without R2 writes', async state => {
+      if (state === 'old-generation') seedManagedUpload('held.bin', 'old-id');
+      mockKV._set('r2-regime:test-bucket', { status: 'ready', regime: 'plain', generation: 1 });
+      let remoteParts = 'preserved';
+      mockFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'POST' || init?.method === 'DELETE') remoteParts = 'consumed';
+        return new Response('<CompleteMultipartUploadResult><ETag>"abc"</ETag></CompleteMultipartUploadResult>');
+      });
+      const response = await createApp().request('/upload/complete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'held.bin', uploadId: state === 'unknown' ? 'unknown' : 'old-id', parts: [{ partNumber: 1, etag: 'abc' }] }),
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'MULTIPART_RESTART_REQUIRED', error: expect.stringMatching(/restart/i) });
+      expect(remoteParts).toBe('preserved');
+    });
+
+    it.each(['', '<Error><Code>InternalError</Code></Error>', '<CompleteMultipartUploadResult><ETag></ETag></CompleteMultipartUploadResult>'])(
+      'REQ-ENTERPRISE-086: unverifiable completion response %s retains recovery admission', async result => {
+        seedManagedUpload('held.bin', 'held-id');
+        mockFetch.mockResolvedValueOnce(new Response(result));
+        const app = createApp();
+        const response = await app.request('/upload/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'held.bin', uploadId: 'held-id', parts: [{ partNumber: 1, etag: 'abc' }] }),
+        });
+        expect(response.status).not.toBe(200);
+        const successor = await app.request('/upload/initiate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'next.bin' }) });
+        expect(successor.status).toBe(409);
+        expect(await successor.json()).toMatchObject({ code: 'MULTIPART_RESTART_REQUIRED' });
+      });
+
     it('succeeds with valid parts', async () => {
+      seedManagedUpload('workspace/large.zip', 'upload-id-123');
       const app = createApp();
-      mockFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+      mockFetch.mockResolvedValueOnce(new Response('<CompleteMultipartUploadResult><ETag>"abc"</ETag></CompleteMultipartUploadResult>', { status: 200 }));
 
       const res = await app.request('/upload/complete', {
         method: 'POST',
@@ -518,8 +559,9 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     });
 
     it('sends XML body with sorted parts', async () => {
+      seedManagedUpload('file.zip', 'uid');
       const app = createApp();
-      mockFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+      mockFetch.mockResolvedValueOnce(new Response('<CompleteMultipartUploadResult><ETag>"abc"</ETag></CompleteMultipartUploadResult>', { status: 200 }));
 
       await app.request('/upload/complete', {
         method: 'POST',
@@ -654,6 +696,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     });
 
     it('exhausting limit on /upload/part causes /upload/complete to 429', async () => {
+      seedManagedUpload('workspace/file.ts', 'upload-id-123');
       const app = createApp();
       // Fresh Response per call (same reasoning as the test above; /upload/part
       // reads response.headers and the body slot is implicitly tied to the
@@ -707,8 +750,9 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     });
 
     it('invalidates KV cache after successful multipart complete', async () => {
+      seedManagedUpload('workspace/large.zip', 'uid');
       const app = createApp();
-      mockFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+      mockFetch.mockResolvedValueOnce(new Response('<CompleteMultipartUploadResult><ETag>"abc"</ETag></CompleteMultipartUploadResult>', { status: 200 }));
 
       const res = await app.request('/upload/complete', {
         method: 'POST',

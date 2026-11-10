@@ -1,3 +1,4 @@
+import { createMockSetupNamespace } from '../helpers/mock-factories';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -226,6 +227,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         CLOUDFLARE_WORKER_NAME: TEST_WORKER_NAME,
         ...envOverrides,
       } as Env;
+      c.env.CONTAINER = createMockSetupNamespace(c.env);
       return next();
     });
 

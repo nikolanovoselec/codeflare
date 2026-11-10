@@ -129,7 +129,7 @@ function runBaselineTimeout() {
  * shutdown_once when the handler's `exit 0` runs, exercising the guard on
  * every invocation). Returns the effect log lines and the handler's stdout.
  */
-function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunning = false, initPid = '', terminalPid = '', operator = false, receiptRoot = null } = {}) {
+function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunning = false, rclonePolls = 0, initPid = '', terminalPid = '', operator = false, receiptRoot = null } = {}) {
   const fixture = mkdtempSync(join(tmpdir(), 'shutdown-'));
   const logFile = join(fixture, 'effects.log');
   const outFile = join(fixture, 'handler.out');
@@ -153,7 +153,8 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     // then finishes on its own (sleeps are shortened below) and the handler's
     // real `wait` reaps it before the script exits.
     'kill() { echo "kill:$*" >> "$LOG"; }',
-    'pgrep() { return "${PGREP_RC:-1}"; }',
+    `RCLONE_POLLS=${rclonePolls}`,
+    'pgrep() { if [ "$RCLONE_POLLS" -gt 0 ]; then RCLONE_POLLS=$((RCLONE_POLLS - 1)); return 0; fi; return "${PGREP_RC:-1}"; }',
     `sleep() { ${receiptRoot ? 'touch "$LOG.waiting";' : ''} command sleep 0.01; }`,
     `BISYNC_INIT_PID=${initPid ? `'${initPid}'` : "''"}`,
     `TERMINAL_PID=${terminalPid ? `'${terminalPid}'` : "''"}`,
@@ -281,20 +282,18 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     assert.ok(skipped.log.includes('kill:12345'), 'terminal server must still be killed when the final bisync is skipped');
   });
 
-  it('REQ-OPS-010 AC5: the final sync waits for the daemon rclone to exit before it starts', () => {
-    // Regression guard for a silent data-loss path: walk_kill only sends TERM,
-    // so without this wait bisync_with_r2 could start while the daemon's
-    // rclone was still alive, see a live `rclone bisync` in its stale-lock
-    // check, leave the .lck in place and fast-fail. With pgrep reporting a
-    // live rclone for the whole capped wait, the handler must surface the
-    // stale-lock warning BEFORE starting the final bisync — and still run it.
-    const { log, out } = runShutdown({ bisyncInitialized: true, rcloneStillRunning: true });
-    const warnIdx = out.indexOf('rclone bisync still running after 5s');
-    const syncIdx = out.indexOf('Final bisync to R2');
-    assert.notEqual(warnIdx, -1, `capped quiesce wait must warn when rclone never exits:\n${out}`);
-    assert.notEqual(syncIdx, -1, 'final bisync must still start after the capped wait');
-    assert.ok(warnIdx < syncIdx, 'the reap-wait (and its warning) must precede the final bisync');
-    assert.ok(log.includes('bisync_with_r2'), 'the final bisync still runs after the capped wait');
+  it('REQ-OPS-010 constraint3: final sync never races an unsettled daemon', () => {
+    const { log, result } = runShutdown({ bisyncInitialized: true, rcloneStillRunning: true, terminalPid: '12345' });
+    assert.equal(result.status, 1);
+    assert.ok(!log.includes('bisync_with_r2'));
+    assert.ok(log.includes('kill:12345'));
+  });
+
+  it('REQ-OPS-010 constraint3: daemon completion beyond five seconds permits final sync', () => {
+    const { log, result, out } = runShutdown({ bisyncInitialized: true, rclonePolls: 60 });
+    assert.equal(result.status, 0, out);
+    assert.ok(log.includes('bisync_with_r2'));
+    assert.ok(out.includes('Final bisync completed successfully'));
   });
 
   it('REQ-OPERATOR-022: restricted shutdown drains only accepted explicit upload and never starts bisync', () => {

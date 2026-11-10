@@ -12,8 +12,9 @@ const REDACTED = '[REDACTED]';
 const unavailable = (reason: string) => `[capture unavailable: ${reason}]`;
 const credentialKey = (key: string) => {
   const name = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  // SDK thinkingSignature/textSignature fields are transcript data, not credentials.
-  return /(?:authorization|cookie|passwords?|passwd|apikey|accesskeyid|accesskey|secretkey|privatekey|accesstoken|refreshtoken|idtoken|clientsecret|connectionsecret|securitytoken|cfaccessjwtassertion|jwt|token|secret|credentials?)$/.test(name)
+  // Private reasoning and its signatures are observation-only redactions.
+  return /^(?:thinking|thinkingsignature|thoughtsignature|textsignature)$/.test(name)
+    || /(?:authorization|cookie|passwords?|passwd|apikey|accesskeyid|accesskey|secretkey|privatekey|accesstoken|refreshtoken|idtoken|clientsecret|connectionsecret|securitytoken|cfaccessjwtassertion|jwt|token|secret|credentials?)$/.test(name)
     || /^(?:signature|sig|xamzcredential|xamzsignature|xgoogcredential|xgoogsignature)$/.test(name);
 };
 
@@ -148,7 +149,7 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
           completedText.set(streamKey(item, index), text);
       });
       for (const [key, child] of Object.entries(item)) {
-        if (credentialKey(key)) collectCredential(child);
+        if (credentialKey(key) || (key === 'data' && (item as Record<string, unknown>).type === 'redacted_thinking')) collectCredential(child);
         collect(child);
       }
     }
@@ -265,7 +266,7 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     if (Array.isArray(item)) return item.map((child, index) => nativeText(item, String(index)) ?? clean(child));
     const data = item as Record<string, unknown>;
     return Object.fromEntries(Object.entries(item).map(([key, child]) => {
-      if (credentialKey(key)) return [cleanText(key), REDACTED];
+      if (credentialKey(key) || (key === 'data' && data.type === 'redacted_thinking')) return [cleanText(key), REDACTED];
       const native = nativeText(item, key);
       if (native !== undefined) return [cleanText(key), native];
       if (key === 'delta' && typeof child === 'string' && assistant(data.partial) && Number.isSafeInteger(data.contentIndex)) {

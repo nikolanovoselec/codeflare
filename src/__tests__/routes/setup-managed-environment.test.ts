@@ -1,3 +1,4 @@
+import { createMockSetupNamespace } from '../helpers/mock-factories';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Buffer } from 'node:buffer';
 import { Hono } from 'hono';
@@ -90,6 +91,7 @@ describe('REQ-SETUP-013 managed environment Setup boundary', () => {
         ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
         ...overrides,
       } as Env;
+      c.env.CONTAINER = createMockSetupNamespace(c.env);
       return next();
     });
     instance.route('/api/setup', setupRoutes);

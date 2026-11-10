@@ -46,7 +46,7 @@ import {
   setRegimeState,
   migrateBucketEncryption,
   planRegimeReconcile,
-  advanceMigration,
+  advanceMigrationChunk as advanceMigration,
   markMixedRecovery,
   fetchObjectWithRegimeFallback,
   withTimeout,
@@ -240,6 +240,30 @@ describe('resolveBucketSseOnEnsure (lazy-create paths)', () => {
 
 // ── Copy engine ────────────────────────────────────────────────────────────────
 describe('migrateBucketEncryption (lossless REPLACE re-encrypt)', () => {
+  it('REQ-SEC-010: migration refuses literal dot normalization before object I/O', async () => {
+    const { puts, heads, store } = makeR2({ 'tenant/../other': { regime: 'sse-c' } });
+    await expect(migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain')).rejects.toThrow('failed to re-encrypt');
+    expect(heads).toEqual([]); expect(puts).toEqual([]);
+    expect(store.get('tenant/../other')?.regime).toBe('sse-c');
+  });
+
+  it('REQ-SEC-010: migration preserves leading slash and escaped object identity at fetch and copy', async () => {
+    const key = '/tenant/%2E%2E/Grüße #?.txt';
+    const seen: string[] = [];
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'GET') return new Response(listXml([{ key, size: 10 }]));
+      const actual = new URL(new Request(url).url);
+      expect(actual.pathname.split('/').slice(2).map(decodeURIComponent).join('/')).toBe(key);
+      expect(actual.search).toBe(''); expect(actual.hash).toBe('');
+      seen.push(init!.method!);
+      if (init?.method === 'HEAD') return new Response(null, { headers: { etag: '"source"', 'content-length': '10' } });
+      expect((init!.headers as Record<string, string>)['x-amz-copy-source']).toBe(`/bkt/${key.split('/').map(encodeURIComponent).join('/')}`);
+      return new Response('<CopyObjectResult><ETag>"result"</ETag></CopyObjectResult>');
+    });
+    await expect(migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain')).resolves.toMatchObject({ migrated: 1 });
+    expect(seen).toEqual(['HEAD', 'PUT']);
+  });
+
   it('sse-c → plain: REPLACE + copy-source decrypt + no dest SSE + if-match + preserved metadata', async () => {
     const { puts } = makeR2({ 'work/skill.md': { regime: 'sse-c' } });
     const res = await migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain');
@@ -313,6 +337,28 @@ describe('migrateBucketEncryption (lossless REPLACE re-encrypt)', () => {
     await expect(migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain'))
       .rejects.toThrow(/failed to re-encrypt/);
   });
+
+  it.each(['missing source', 'empty result', 'unclosed result', 'invalid result', 'changed source'])(
+    'REQ-ENTERPRISE-020 AC1: %s cannot qualify conditional copy', async failure => {
+      const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+      mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'HEAD' && failure === 'missing source') return new Response(null, { headers: { 'content-length': '10' } });
+        if (init?.method === 'PUT') {
+          if (failure === 'missing source') return r2.fetch(url, init);
+          if (failure === 'changed source') {
+            r2.store.get('a.md')!.etag = '"new-source"';
+            if (new Headers(init.headers).get('x-amz-copy-source-if-match') !== '"new-source"') return new Response(null, { status: 412 });
+            return r2.fetch(url, init);
+          }
+          await r2.fetch(url, init); // R2 may have written even when its response is unverifiable.
+          const result = failure === 'empty result' ? '<ETag></ETag>' : failure === 'unclosed result' ? '<ETag>' : '<ETag><broken/></ETag>';
+          return new Response(`<CopyObjectResult>${result}</CopyObjectResult>`);
+        }
+        return r2.fetch(url, init);
+      });
+      await expect(migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain')).rejects.toThrow(/failed to re-encrypt/);
+      if (failure === 'missing source' || failure === 'changed source') expect(r2.store.get('a.md')?.regime).toBe('sse-c');
+    });
 
   it('resumes across pages — migrates every object when the listing is paginated', async () => {
     const objs: Record<string, { regime: R2SseRegime }> = {};
@@ -457,7 +503,9 @@ describe('REQ-ENTERPRISE-020 AC3: ancillary poll drives the real migration engin
       routes: [{ path: '/sessions', handler: lifecycleRoutes }],
       mockKV: kv,
       bucketName: 'bkt',
-      envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct', SAAS_MODE: 'false' },
+      envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct', SAAS_MODE: 'false', CONTAINER: {
+        getByName: () => ({ advanceBucketMigration: () => advanceMigration(driverEnv(kv), 'bkt', { drainContainers: async () => {}, hasHealthyContainer: async () => false }) }),
+      } as unknown as Env['CONTAINER'] },
     });
     const poll = async () => {
       const work: Promise<unknown>[] = [];
@@ -596,7 +644,7 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
   });
 
   it.each(['list HTTP failure', 'list rejection', 'abort HTTP failure', 'abort rejection'] as const)(
-    'REQ-ENTERPRISE-086 AC1: migration continues after best-effort %s', async failure => {
+    'REQ-ENTERPRISE-086: %s prevents drained and ready publication', async failure => {
       const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
       const uploads = new Set(['failed-upload', 'other-upload']);
       const settled: string[] = [];
@@ -627,10 +675,11 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
       await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
 
       expect([...uploads]).toEqual(failure.startsWith('list') ? ['failed-upload', 'other-upload'] : ['failed-upload']);
-      expect(settledAtFirstCopy).toEqual(failure.startsWith('list') ? [] : ['failed-upload', 'other-upload']);
-      expect(r2.store.get('a.md')?.regime).toBe('plain');
+      expect(settledAtFirstCopy).toBeUndefined();
+      expect(r2.store.get('a.md')?.regime).toBe('sse-c');
       const state = await getRegimeState(driverEnv(kv), 'bkt');
-      expect(state).toMatchObject({ status: 'ready', regime: 'plain', generation: 5 });
+      expect(state).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 4, drained: false });
+      expect(state.lastError).toMatch(/multipart/i);
       expect(state.leaseExpiresAt).toBeUndefined();
     },
   );

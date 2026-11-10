@@ -219,7 +219,7 @@ export async function reconcileAgentConfigsForBootstrap(input: {
     const r2SseDisabled = await resolveBucketSseOnEnsure(env, bucketName, bucketResult.created === true);
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, env);
     const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
-    const validateAutomaticTarget = activeManagedRelease && automatic
+    const validateManagedTarget = activeManagedRelease || priorManagedRelease || priorManagedDigest || existingTargets.length > 0
       ? async (): Promise<void> => {
           const currentActive = await getActiveManagedRelease(env);
           const currentPreferences = await env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
@@ -228,10 +228,9 @@ export async function reconcileAgentConfigsForBootstrap(input: {
           await assertNoOwningSession(env, bucketName);
           if (await isBucketMigrating(env, bucketName)) throw new BucketMigratingError();
           if (
-            !currentActive
-            || currentActive.digest !== activeManagedRelease.digest
-            || currentActive.pointer.sequence !== activeManagedRelease.release.sequence
-            || currentActive.resourcePolicy !== resourcePolicy
+            currentActive?.digest !== activeManagedRelease?.digest
+            || currentActive?.pointer.sequence !== activeManagedRelease?.release.sequence
+            || (currentActive?.resourcePolicy ?? 'mutable') !== resourcePolicy
             || codingAgentProjectionIdentity(env.CODING_AGENTS) !== projectionIdentity
             || currentMode !== mode
             || currentSseDisabled !== r2SseDisabled
@@ -258,7 +257,7 @@ export async function reconcileAgentConfigsForBootstrap(input: {
                 || applied?.projectionIdentity !== projectionIdentity
                 || (applied?.resourcePolicy ?? 'mutable') !== resourcePolicy
                 || existingTargets.some(target => target.projectionIdentity !== projectionIdentity),
-              beforeCleanup: validateAutomaticTarget,
+              beforeCleanup: validateManagedTarget,
               onProgress: async ({ completed, total }: { completed: number; total: number }) => {
                 if (completed === 0 || completed === total || completed % 25 === 0) {
                   const phase = completed === total ? 'finalizing' : 'writing';
@@ -308,6 +307,7 @@ export async function reconcileAgentConfigsForBootstrap(input: {
       codingAgents: env.CODING_AGENTS,
       projectionIdentity,
       ...managedOptions,
+      ...(automatic ? {} : { beforeCleanup: validateManagedTarget }),
     });
     if ((activeManagedRelease || priorManagedRelease || priorManagedDigest) && result.warnings.length > 0) {
       throw new Error(`Managed reconciliation did not complete: ${result.warnings[0]}`);
@@ -334,7 +334,7 @@ export async function reconcileAgentConfigsForBootstrap(input: {
 
     await env.KV.delete(`storage-stats:${bucketName}`);
 
-    await validateAutomaticTarget?.();
+    await validateManagedTarget?.();
 
     // Re-read to preserve concurrent preference changes. The applied stamp is the
     // final side effect: no caller can observe current until all R2/context work and

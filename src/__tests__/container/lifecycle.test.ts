@@ -507,6 +507,71 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.idleTimeoutPref).toBe('2h');
     });
 
+    it('REQ-AGENT-031 AC1: warm HTTP restart replaces the emitted environment after explicit key revocation', async () => {
+      mockStorage.get.mockImplementation(async key => key === 'bucketName' ? 'existing-bucket' : null);
+      (mockCtx as any).waitUntil = vi.fn();
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      const post = (keys: Record<string, unknown>) => instance.fetch(new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bucketName: 'existing-bucket', ...keys }),
+      }));
+      expect((await post({ openaiApiKey: 'old-openai', geminiApiKey: 'old-gemini', encryptionKey: 'immutable' })).status).toBe(409);
+      expect(instance.envVars.CODEFLARE_OPENAI_API_KEY).toBe('old-openai');
+      const auth = instance.envVars.CONTAINER_AUTH_TOKEN;
+      expect((await post({ openaiApiKey: null, geminiApiKey: null })).status).toBe(409);
+      expect(instance.envVars.CODEFLARE_OPENAI_API_KEY).toBeUndefined();
+      expect(instance.envVars.CODEFLARE_GEMINI_API_KEY).toBeUndefined();
+      expect(instance.envVars.CONTAINER_AUTH_TOKEN).toBe(auth);
+      expect(instance.envVars.ENCRYPTION_KEY).toBe('immutable');
+    });
+
+    it.each(['delete', 'transaction'] as const)('REQ-SESSION-009: rejected KILL %s revokes warm credentials and keeps the termination claim retryable', async failure => {
+      mockStorage.get.mockImplementation(async key => key === 'bucketName' ? 'test-bucket' : null);
+      mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
+      (mockCtx as any).waitUntil = vi.fn();
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      const warm = instance as any;
+      warm._openaiApiKey = 'old-secret'; warm._containerAuthToken = 'old-auth';
+      warm.envVars = { CODEFLARE_OPENAI_API_KEY: 'old-secret' };
+      mockStorage[failure].mockRejectedValueOnce(new Error('persistent deletion unavailable'));
+      mockStorage.get.mockImplementation(async key => key === 'lifecycleGeneration' ? 0 : null);
+      await expect(instance.killSession({ bucket: 'test-bucket', sessionId: 'sess123', generation: 0 })).rejects.toThrow('persistent deletion unavailable');
+      expect(warm._openaiApiKey).toBeNull(); expect(warm._containerAuthToken).toBeNull();
+      expect(warm.envVars).toEqual({});
+      const retained = await sessionKV.get('session:test-bucket:sess123', 'json') as any;
+      expect(retained.status).toBe('stopping');
+      expect(retained.terminationIntentId).toEqual(expect.any(String));
+      expect(retained.terminationGeneration).toBe(0);
+    });
+
+    it('REQ-SESSION-009: deletion rejection clears warm secrets but retains durable retry authority and reports failure', async () => {
+      const durable = new Map<string, unknown>([['bucketName', 'test-bucket'], ['_sessionId', 'sess123'], ['containerAuthToken', 'old-auth'], ['lifecycleGeneration', 7]]);
+      mockStorage.get.mockImplementation(async key => durable.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key, value) => { durable.set(key, value); });
+      mockStorage.delete.mockImplementation(async key => {
+        if (key === 'bucketName') throw new Error('persistent deletion unavailable');
+        durable.delete(key);
+      });
+      mockContainerRuntime.running = false;
+      mockTcpPortFetch.mockResolvedValue(new Response('{}'));
+      (mockCtx as any).waitUntil = vi.fn();
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+      const warm = instance as any;
+      for (const key of ['_openaiApiKey', '_geminiApiKey', '_githubToken', '_cloudflareApiToken', '_encryptionKey', '_r2SecretAccessKey']) warm[key] = 'old-secret';
+      warm.envVars = { CODEFLARE_OPENAI_API_KEY: 'old-secret', ENCRYPTION_KEY: 'old-secret' };
+      await expect(instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
+      expect(warm.envVars).toEqual({});
+      for (const key of ['_openaiApiKey', '_geminiApiKey', '_githubToken', '_cloudflareApiToken', '_encryptionKey', '_r2SecretAccessKey', '_containerAuthToken', '_bucketName', '_sessionId']) expect(warm[key]).toBeNull();
+      expect(durable.get('lifecycleGeneration')).toBe(7);
+      expect(durable.get('shutdownRequested')).toBeDefined();
+      // A retry still reaches the owning persistent cleanup, rather than certifying it completed.
+      mockStorage.delete.mockImplementation(async key => { durable.delete(key); });
+      await instance.destroy();
+      expect(durable.has('bucketName')).toBe(false);
+    });
+
     it('REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';

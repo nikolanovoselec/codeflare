@@ -16,7 +16,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
+import { chmodSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, statSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -129,6 +129,31 @@ describe('entrypoint repair_hook_exec_bits', () => {
     assert.equal(modeOf(join(hooks, 'nested/deep.mjs')), '755');
     // A non-executable payload is not silently made executable.
     assert.equal(modeOf(join(hooks, 'notes.md')), '644');
+  });
+
+  it('REQ-STOR-002 AC4 / P41: restored deep registered hook executes without following symlink escapes', () => {
+    const home = mkdtempSync(join(tmpdir(), 'hook-exec-deep-'));
+    const outside = mkdtempSync(join(tmpdir(), 'hook-exec-outside-'));
+    try {
+      const hooks = join(home, '.claude/hooks');
+      const hook = join(hooks, 'registered/nested/deep/run.sh');
+      mkdirSync(dirname(hook), { recursive: true });
+      writeFileSync(hook, '#!/bin/sh\nprintf "deep hook executed"\n', { mode: 0o644 });
+      const escaped = join(outside, 'outside.sh');
+      writeFileSync(escaped, '#!/bin/sh\nexit 42\n', { mode: 0o644 });
+      symlinkSync(outside, join(hooks, 'directory-link'));
+      symlinkSync(escaped, join(hooks, 'file-link.sh'));
+      const result = runSuccessfulBisync(home);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(modeOf(hook), '755');
+      const executed = spawnSync(hook, { encoding: 'utf8' });
+      assert.equal(executed.status, 0, executed.stderr);
+      assert.equal(executed.stdout, 'deep hook executed');
+      assert.equal(modeOf(escaped), '644');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('REQ-AGENT-181: native Impeccable launchers remain executable after boot and bisync', () => {

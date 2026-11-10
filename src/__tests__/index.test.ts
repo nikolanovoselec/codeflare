@@ -630,6 +630,15 @@ describe('REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)', () => 
     expect(body.error).toMatch(/SaaS production|saas production|cannot be active/i);
   });
 
+  it.each(['ACTIVE', ' active ', '\tAcTiVe\n'])('REQ-SETUP-003: canonical SaaS variant %s cannot expose stress mode', async value => {
+    const { env } = createMockEnv();
+    env.SAAS_MODE = value;
+    env.STRESS_TEST_MODE = 'active';
+    const response = await worker.fetch(new Request('https://example.com/api/health'), env, createMockCtx());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: expect.stringMatching(/stress test mode/i) });
+  });
+
   it('allows the request through when SAAS_MODE is active but STRESS_TEST_MODE is unset (only SaaS)', async () => {
     const { env, mockKV } = createMockEnv();
     env.SAAS_MODE = 'active';

@@ -95,6 +95,18 @@ describe('Gemini compat thought-signature adapter', () => {
     expect((failure as Error).message).toBe('Gemini SSE line exceeds adapter limit');
   });
 
+  it('REQ-ENTERPRISE-059 AC6: replay merges Google metadata and extra_content siblings', () => {
+    const payload = { messages: [{ role: 'assistant', tool_calls: [{ id: 'call_1',
+      extra_content: { other: { keep: true }, google: { cache: 'retained', thought_signature: 'old' } },
+      function: { name: 'lookup', arguments: '{}' } }], reasoning_details: [{
+      type: 'reasoning.encrypted', id: 'call_1', format: 'codeflare.google.thought_signature.v1', data: 'restored',
+    }] }] };
+    const restored = restoreGeminiThoughtSignatures(payload);
+    expect(restored.messages[0].tool_calls[0]).toEqual({ id: 'call_1', function: { name: 'lookup', arguments: '{}' },
+      extra_content: { other: { keep: true }, google: { cache: 'retained', thought_signature: 'restored' } } });
+    expect(restored.messages[0]).not.toHaveProperty('reasoning_details');
+  });
+
   it('REQ-ENTERPRISE-059: thought-signature restoration preserves unrelated request data', () => {
     const payload = { messages: [{ role: 'assistant', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }], reasoning_details: [
       { type: 'reasoning.encrypted', id: 'call_1', format: 'codeflare.google.thought_signature.v1', data: 'opaque-signed-state' },

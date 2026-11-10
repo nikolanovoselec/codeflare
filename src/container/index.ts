@@ -34,8 +34,16 @@ import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalM
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import type { OperatorLoggingContext } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
+import { canonicalJson } from '../lib/reasoning-profiles';
+import { runSetupConfiguration, type SetupConfigurationInput } from '../routes/setup/index';
+import { getWorkerNameFromHostname } from '../routes/setup/shared';
+import { performBucketMultipart, MULTIPART_PENDING_COMPLETION, type BucketMultipartOperation } from '../routes/storage/upload';
+import { advanceMigrationChunk, getRegimeState } from '../lib/r2-migration';
+import { setRegimeState } from '../lib/r2-regime-state';
+import type { RegimeState } from '../lib/r2-regime-state';
+import { hasOwningSessionContainer } from '../lib/session-helpers';
 import { D1SessionRepository } from '../lib/session-repository';
-import { toErrorMessage } from '../lib/error-types';
+import { AppError, toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { getPersonalPiSession, wireContainerInterception, type InterceptionHost } from './container-interception';
@@ -439,6 +447,102 @@ export class container extends Container<Env> implements ContainerEnvState {
       this.logger.warn('Container monitor registration failed', { sessionId: session, lifecycleGeneration: generation,
         incidentId: null, errorClass: 'monitor_registration_failed' });
     }
+  }
+
+  private _configurationRunning = false;
+  private _bucketStorageTail: Promise<void> = Promise.resolve();
+
+  /** One deployment task authority; an interrupted task may only resume its identical input. */
+  async configureDeployment(input: SetupConfigurationInput): Promise<Response> {
+    const refused = (error: string) => new Response(JSON.stringify({ done: true, success: false, error }) + '\n', {
+      headers: { 'Content-Type': 'application/x-ndjson' },
+    });
+    if (this._configurationRunning) return refused('Setup configuration is already in progress. Please wait and try again.');
+    this._configurationRunning = true;
+    let handedOff = false;
+    try {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalJson({ body: input.body, workerName: getWorkerNameFromHostname(input.requestUrl, this.env.CLOUDFLARE_WORKER_NAME) })));
+      const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+      const key = 'setup:admission';
+      const prior = await this.ctx.storage.get<{ token: string; fingerprint: string }>(key);
+      if (prior && prior.fingerprint !== fingerprint) return refused('An interrupted setup task requires recovery. Retry the same configuration before starting a different configuration.');
+      const token = prior?.token ?? crypto.randomUUID();
+      await this.ctx.storage.put(key, { token, fingerprint });
+      const response = runSetupConfiguration({ ...input, env: this.env }, {
+        waitUntil: task => this.ctx.waitUntil(task),
+        settled: async (successful, terminalFailure = false) => {
+          try {
+            // A fresh definite failure permits correction. A retained uncertain
+            // task still needs successful same-input convergence, not a later validation failure.
+            if (successful || (terminalFailure && !prior)) await this.ctx.storage.transaction(async txn => {
+              if ((await txn.get<{ token: string }>(key))?.token === token) await txn.delete(key);
+            });
+          } finally { this._configurationRunning = false; }
+        },
+      });
+      handedOff = true;
+      return response;
+    } finally {
+      if (!handedOff) this._configurationRunning = false;
+    }
+  }
+
+  /** DO-local async exclusion; the operation and provider response settle before its successor. */
+  private async serializeBucketStorage<T>(operation: () => Promise<T>): Promise<T> {
+    const before = this._bucketStorageTail;
+    let release!: () => void;
+    this._bucketStorageTail = new Promise<void>(resolve => { release = resolve; });
+    await before;
+    try { return await operation(); }
+    finally { release(); }
+  }
+
+  private async bindBucketStorageOwner(bucketName: string): Promise<void> {
+    const owner = await this.ctx.storage.get<string>('storage:owner');
+    if (owner && owner !== bucketName) throw new Error('Bucket storage owner mismatch');
+    if (!owner) await this.ctx.storage.put('storage:owner', bucketName);
+  }
+
+  async runBucketMultipart(operation: BucketMultipartOperation | Request): Promise<Response> {
+    // Request bodies use the existing streaming RPC transport, preserving the HTTP part-size envelope.
+    const input = operation instanceof Request ? await operation.json() as BucketMultipartOperation : operation;
+    const error = validateBucketNameInput({ bucketName: input.bucketName });
+    if (error) throw new Error(error);
+    return this.serializeBucketStorage(async () => {
+      await this.bindBucketStorageOwner(input.bucketName);
+      try { return await performBucketMultipart(this.env, this.ctx.storage, input); }
+      catch (cause) {
+        if (cause instanceof AppError) return Response.json(cause.toJSON(), { status: cause.statusCode });
+        throw cause;
+      }
+    });
+  }
+
+  async advanceBucketMigration(bucketName: string): Promise<void> {
+    const error = validateBucketNameInput({ bucketName });
+    if (error) throw new Error(error);
+    await this.serializeBucketStorage(async () => {
+      await this.bindBucketStorageOwner(bucketName);
+      const verified = await this.ctx.storage.get<RegimeState>('multipart:regime');
+      const observed = await getRegimeState(this.env, bucketName);
+      if (verified && observed.generation < verified.generation) {
+        // Repair an interrupted KV publication from durable verified state, never re-run an older generation.
+        await setRegimeState(this.env, bucketName, verified);
+        return;
+      }
+      if (await this.ctx.storage.get(MULTIPART_PENDING_COMPLETION)) {
+        this.logger.warn('Multipart completion is uncertain; explicit upload recovery is required before migration');
+        return;
+      }
+      const noOwner = async () => {
+        if (await hasOwningSessionContainer(this.env, bucketName)) throw new Error('Session workload owns the bucket');
+      };
+      await advanceMigrationChunk(this.env, bucketName, {
+        drainContainers: noOwner,
+        hasHealthyContainer: () => hasOwningSessionContainer(this.env, bucketName),
+        beforeReady: ready => this.ctx.storage.put('multipart:regime', ready),
+      });
+    });
   }
 
   constructor(ctx: DurableObjectState<Env>, env: Env) {

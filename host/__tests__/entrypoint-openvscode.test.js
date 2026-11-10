@@ -561,6 +561,25 @@ describe('OpenVSCode launch generations / REQ-IDE-008 AC4', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+  it('REQ-IDE-008 AC4: refuses replacement and reports failure when generation cleanup cannot converge', () => {
+    const events = join(dir, 'nonconvergent.log');
+    const stub = writeExecutable(dir, 'failed-generation', `#!/usr/bin/env bash
+printf 'launch\\n' >> "$EVENTS"
+exit 17
+`);
+    const result = runBash(`${acceleratedSupervisorScript()}
+_wait_then_kill_generation() { return 1; }
+export -f _wait_then_kill_generation
+timeout 2 bash +e -c '_openvscode_supervise_loop'`, {
+      OPENVSCODE_BIN: stub, OPENVSCODE_WORKSPACE: dir,
+      OPENVSCODE_REQUEST_TRIGGER: trigger, CODEFLARE_INIT_FLAG_FILE: flag,
+      SESSION_ID: 'abcd1234', EVENTS: events, OPENVSCODE_TEST_SLEEP: '0.001',
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.deepEqual(readFileSync(events, 'utf8').trim().split('\n'), ['launch']);
+    assert.match(result.stderr, /managed descendants remain/);
+  });
+
   it('REQ-IDE-016 AC1: captures UI state only after the code-server generation exits', () => {
     const events = join(dir, 'state-events.log');
     const stub = writeExecutable(dir, 'openvscode-server', `#!/usr/bin/env bash

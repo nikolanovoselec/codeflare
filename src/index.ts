@@ -85,6 +85,7 @@ export function withSecurityHeaders(
 ): Response {
   if (response.status === 101) return response;
   const secured = new Response(response.body, response);
+  secured.headers.delete('X-Powered-By');
   const frameMode = opts?.frame ?? 'deny';
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     // The vault path proxies SilverBullet, which serves its own HTML with
@@ -128,7 +129,7 @@ const logger = createLogger('index');
 // ============================================================================
 app.use('*', async (c, next) => {
   // CF-001: Hard enforcement - STRESS_TEST_MODE must never bypass rate limits in SaaS production.
-  if (c.env.SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active') {
+  if (isSaasModeActive(c.env.SAAS_MODE) && c.env.STRESS_TEST_MODE === 'active') {
     logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', undefined, { path: c.req.path });
     return withSecurityHeaders(c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503));
   }
@@ -147,6 +148,7 @@ app.use('*', async (c, next) => {
   await next();
   const duration = Date.now() - start;
 
+  if (c.res.status !== 101) c.header('X-Powered-By', undefined);
   const mcpOAuthReturn = c.req.path === '/auth/mcp/callback';
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     c.header(key, key === 'Referrer-Policy' && mcpOAuthReturn ? 'no-referrer' : value);
@@ -515,6 +517,7 @@ export default {
     // With not_found_handling = "single-page-application", missing routes get index.html
     const assetResponse = await env.ASSETS.fetch(assetRequest);
     const secureResponse = new Response(assetResponse.body, assetResponse);
+    secureResponse.headers.delete('X-Powered-By');
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       secureResponse.headers.set(key, value);
     }

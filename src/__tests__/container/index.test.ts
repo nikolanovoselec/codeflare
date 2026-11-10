@@ -208,6 +208,141 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     };
   }
 
+  describe('REQ-SETUP-004 + REQ-ENTERPRISE-086: durable operation owners', () => {
+    function ownerFixture() {
+      const values = new Map<string, unknown>();
+      mockStorage.get.mockImplementation(async (key: string) => values.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { values.set(key, structuredClone(value)); });
+      mockStorage.delete.mockImplementation(async (key: string) => values.delete(key));
+      const kv = createMockKV();
+      mockEnv.KV = kv;
+      mockEnv.USAGE_DB = createMockSessionD1(kv);
+      return { kv, instance: new ContainerClass(mockCtx as any, mockEnv),
+        restart: () => new ContainerClass(mockCtx as any, mockEnv) };
+    }
+
+    it('REQ-SETUP-004: concurrent configure cannot both publish; interrupted same-task retry recovers without takeover', async () => {
+      const f = ownerFixture();
+      const setup = await import('../../routes/setup/index');
+      let finish!: (success: boolean) => Promise<void>;
+      const writes: string[] = [];
+      const run = vi.spyOn(setup, 'runSetupConfiguration').mockImplementation((input, lifetime) => {
+        writes.push(input.body.customDomain);
+        finish = lifetime.settled;
+        return new Response('running');
+      });
+      const input = { requestUrl: 'https://worker.example.test/api/setup/configure', body: {
+        customDomain: 'one.example.test', allowedUsers: ['admin@example.test'], adminUsers: ['admin@example.test'],
+      } };
+      try {
+        expect((await f.instance.configureDeployment(input)).status).toBe(200);
+        const rejected = await f.instance.configureDeployment(input);
+        expect(await rejected.text()).toMatch(/already in progress/);
+        expect(writes).toEqual(['one.example.test']);
+        await finish(false); // task failed: not authority to apply a different payload
+        const different = await f.instance.configureDeployment({ ...input, body: { ...input.body, customDomain: 'two.example.test' } });
+        expect(await different.text()).toMatch(/same configuration/);
+        const restarted = f.restart();
+        expect((await restarted.configureDeployment(input)).status).toBe(200);
+        expect(writes).toEqual(['one.example.test', 'one.example.test']);
+        // A new DO incarnation may resume the same durable authority even if no terminal callback ran.
+        const afterCrash = f.restart();
+        const foreign = await afterCrash.configureDeployment({ ...input, body: { ...input.body, customDomain: 'two.example.test' } });
+        expect(await foreign.text()).toMatch(/same configuration/);
+        expect((await afterCrash.configureDeployment(input)).status).toBe(200);
+        await finish(true);
+        expect((await afterCrash.configureDeployment({ ...input, body: { ...input.body, customDomain: 'two.example.test' } })).status).toBe(200);
+        expect(writes.at(-1)).toBe('two.example.test');
+        await finish(true);
+      } finally { run.mockRestore(); }
+    });
+
+    it('REQ-ENTERPRISE-086: lost completion response gates migration until explicit abort confirms recovery', async () => {
+      const f = ownerFixture();
+      const client = await import('../../lib/r2-client');
+      const canonicalBytes = 'keep this object';
+      let object = canonicalBytes;
+      let generation = 0;
+      const fetcher = vi.spyOn(client, 'createR2Client').mockReturnValue({ fetch: async (url: string, init?: RequestInit) => {
+        if (url.endsWith('?uploads')) return new Response('<InitiateMultipartUploadResult><UploadId>uncertain</UploadId></InitiateMultipartUploadResult>');
+        if (init?.method === 'POST') throw new Error('completion response lost');
+        if (init?.method === 'DELETE' && new URL(url).searchParams.has('uploadId')) return new Response(null, { status: 404 });
+        if (init?.method === 'DELETE') object = '';
+        return new Response(null, { status: 503 });
+      } } as any);
+      const migration = await import('../../lib/r2-migration');
+      const drive = vi.spyOn(migration, 'advanceMigrationChunk').mockImplementation(async (_env, _bucket, deps) => {
+        generation += 1;
+        await deps.beforeReady?.({ status: 'ready', regime: 'plain', generation });
+        f.kv._set('r2-regime:bucket', { status: 'ready', regime: 'plain', generation });
+      });
+      try {
+        expect((await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'initiate' })).status).toBe(200);
+        await expect(f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'complete', uploadId: 'uncertain', parts: [{ partNumber: 1, etag: 'abc' }] })).rejects.toThrow();
+        f.kv._set('r2-regime:bucket', { status: 'migrating', regime: 'sse-c', generation: 0, drained: false });
+        await f.instance.advanceBucketMigration('bucket');
+        expect(generation).toBe(0);
+        expect(await f.kv.get('r2-regime:bucket', 'json')).toMatchObject({ status: 'migrating', drained: false });
+        const aborted = await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'abort', uploadId: 'uncertain' });
+        expect(aborted.status).toBe(200);
+        await f.instance.advanceBucketMigration('bucket');
+        expect(generation).toBe(1);
+        expect(object).toBe(canonicalBytes);
+      } finally { fetcher.mockRestore(); drive.mockRestore(); }
+    });
+
+    it('REQ-ENTERPRISE-086: in-flight completion settles before migration; stale/unknown IDs preserve parts and request restart', async () => {
+      const f = ownerFixture();
+      const client = await import('../../lib/r2-client');
+      let complete!: () => void;
+      let completing!: () => void;
+      const entered = new Promise<void>(resolve => { completing = resolve; });
+      const gate = new Promise<void>(resolve => { complete = resolve; });
+      const objects = new Map<string, string>();
+      let generation = 0;
+      let initiations = 0;
+      const parts = new Set(['managed-stale', 'untracked']);
+      const fetcher = vi.spyOn(client, 'createR2Client').mockReturnValue({ fetch: async (url: string, init?: RequestInit) => {
+        if (url.endsWith('?uploads')) return new Response(`<InitiateMultipartUploadResult><UploadId>${++initiations === 1 ? 'managed-1' : 'managed-stale'}</UploadId></InitiateMultipartUploadResult>`);
+        if (init?.method === 'DELETE') { parts.delete(new URL(url).searchParams.get('uploadId')!); return new Response(null, { status: 204 }); }
+        if (url.includes('uploadId=managed-1') && init?.method === 'POST') {
+          completing(); await gate; objects.set('draft.md', 'retained bytes');
+          return new Response('<CompleteMultipartUploadResult><ETag>"abc"</ETag></CompleteMultipartUploadResult>');
+        }
+        return new Response(null, { status: 503 });
+      } } as any);
+      const migration = await import('../../lib/r2-migration');
+      const drive = vi.spyOn(migration, 'advanceMigrationChunk').mockImplementation(async (_env, _bucket, deps) => {
+        expect(objects.get('draft.md')).toBe('retained bytes');
+        generation += 1;
+        await deps.beforeReady?.({ status: 'ready', regime: 'plain', generation });
+        f.kv._set('r2-regime:bucket', { status: 'ready', regime: 'plain', generation });
+      });
+      try {
+        const initiated = await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'initiate' });
+        expect(await initiated.json()).toMatchObject({ uploadId: 'managed-1' });
+        expect((await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'held.md', action: 'initiate' })).status).toBe(200);
+        const completion = f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'complete', uploadId: 'managed-1', parts: [{ partNumber: 1, etag: 'abc' }] });
+        await entered;
+        const advancing = f.instance.advanceBucketMigration('bucket');
+        await Promise.resolve();
+        expect(generation).toBe(0);
+        complete();
+        expect((await completion).status).toBe(200);
+        await advancing;
+        // Eventual KV consistency cannot resurrect a pre-flip upload generation.
+        f.kv._set('r2-regime:bucket', { status: 'ready', regime: 'sse-c', generation: 0 });
+        for (const uploadId of ['managed-stale', 'untracked']) {
+          const refused = await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'held.md', action: 'complete', uploadId, parts: [{ partNumber: 1, etag: 'abc' }] });
+          expect(refused.status).toBe(409);
+          expect(await refused.json()).toMatchObject({ code: 'MULTIPART_RESTART_REQUIRED' });
+          expect(objects.get('draft.md')).toBe('retained bytes');
+          expect([...parts]).toEqual(['managed-stale', 'untracked']);
+        }
+      } finally { fetcher.mockRestore(); drive.mockRestore(); }
+    });
+  });
+
   describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     function scheduler(interval = 900) {
       const stored = new Map<string, unknown>();
