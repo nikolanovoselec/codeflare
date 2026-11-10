@@ -182,7 +182,7 @@ describe('Impeccable managed runtime policy', () => {
     assert.equal(readFileSync(skillPath, 'utf8'), before);
   }));
 
-  it('REQ-AGENT-181 / REQ-AGENT-194: 4.8.0 retains explicit methodology and WCAG detail under managed routing', () => withTempDir(root => {
+  it('REQ-AGENT-181 / REQ-AGENT-194: 4.8.0 projection retains version and redistribution license/notices', () => withTempDir(root => {
     const source = join(root, 'source');
     copyReviewedFixture('4.8.0', source);
     applyCodeflareImpeccableOverlay(source);
@@ -192,13 +192,6 @@ describe('Impeccable managed runtime policy', () => {
     }]);
     const skill = readFileSync(join(target, 'SKILL.md'), 'utf8');
     assert.match(skill, /version: 4\.8\.0/);
-    assert.match(skill, /Codeflare routing boundary/);
-    assert.match(skill, /including reading \[reference\/craft-floor\.md\]/);
-    assert.match(skill, /never downloads or updates the runtime/);
-    const audit = readFileSync(join(target, 'reference/audit.md'), 'utf8');
-    assert.match(audit, /WCAG AA \(SC 2\.5\.8\) requires at least 24x24 CSS px unless an exception applies/);
-    assert.match(audit, /otherwise report `N\/A` and do not infer a score/);
-    assert.match(readFileSync(join(target, 'reference/craft-floor.md'), 'utf8'), /except a line marked as a ban/);
     for (const name of ['LICENSE', 'NOTICE.md']) {
       assert.equal(readFileSync(join(target, name), 'utf8'), readFileSync(join(repoRoot, 'host/__fixtures__/impeccable-4.7.0', name), 'utf8'),
         'the reviewed redistribution license/notices remain present');

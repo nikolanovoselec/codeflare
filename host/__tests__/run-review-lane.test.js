@@ -441,6 +441,28 @@ describe('run-review-lane.sh — triage no-op short-circuit', () => {
     assert.match(r.stderr, /required shape/);
   });
 
+  for (const [label, invalid] of [
+    ['wrong lane', { lane: 'doc-updater' }],
+    ['unknown decision', { decision: 'trust-me' }],
+    ['wrong layout', { sdd: { bootstrapped: true, layout: 'unknown' } }],
+  ]) {
+    it(`discards triage with ${label} and performs normal review`, () => {
+      const { cwd, base, head } = makeRepo('src/thing.ts');
+      const { home, hookScripts } = makeClaudeHome(cwd);
+      const witness = join(cwd, 'claude-was-called');
+      const binDir = fakeClaude(cwd, witness);
+      stubTriage(hookScripts, {
+        decision: 'exit-no-op', reason: 'an SDD transition is active',
+        transition: { active: true, corrupt: false }, ...invalid,
+      });
+      const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(existsSync(witness), true, 'invalid triage must not suppress review');
+      assert.equal(readFileSync(`${witness}.prompt`, 'utf-8').split('\n').includes('<triage>'), false);
+      assert.match(r.stderr, /required shape/);
+    });
+  }
+
   // The decision is a field, not a substring of the document. A reason that
   // quotes the serialised no-op fragment is the case that separates reading the
   // field from grepping the blob: here the lane must still be reviewed.
@@ -681,6 +703,18 @@ describe('run-review-lane.sh — guard re-injection', () => {
     assert.notEqual(r.status, 0, 'a missing guard must fail closed, not run unguarded');
     assert.equal(existsSync(witness), false,
       'no lane may run with bypassPermissions and an empty hook list');
+  });
+
+  it('refuses to launch when guard-settings generation produces an empty file', () => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    writeFileSync(join(binDir, 'jq'), '#!/bin/bash\nexit 0\n', { mode: 0o755 });
+    const r = runLane({ repo: cwd, home, hookScripts, binDir, lane: 'code-reviewer', range: `${base}..${head}` });
+    assert.equal(r.status, 3);
+    assert.equal(existsSync(witness), false, 'empty settings must not launch an unguarded reviewer');
+    assert.match(r.stderr, /guard settings file is empty/);
   });
 
   it('passes each guard as a shell invocation, not a bare path', () => {

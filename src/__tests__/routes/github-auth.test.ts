@@ -357,6 +357,18 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
       vi.mocked(authenticateRequest).mockResolvedValue({ bucketName: 'bucket-victim' } as Awaited<ReturnType<typeof authenticateRequest>>);
     });
 
+    it('REQ-GITHUB-007: refuses an expired session without consuming state or changing a saved connection', async () => {
+      mockKV._set('deploy-keys:bucket-victim', { githubToken: 'saved-owner-token', githubTokenSource: 'app' });
+      const before = [...mockKV._store];
+      const boundState = await signOauthState(TEST_SECRET, 'bucket-victim');
+      vi.mocked(authenticateRequest).mockRejectedValueOnce(new Error('Session expired'));
+      const response = await createApp().request(`/connect/callback?code=unusable-code&state=${encodeURIComponent(boundState)}`);
+      expect(response.status).toBe(302);
+      expect(response.headers.get('Location')).toContain('error=session-expired');
+      expect([...mockKV._store]).toEqual(before);
+      expect(connectGithub).not.toHaveBeenCalled();
+    });
+
     it('rejects a state bound to a DIFFERENT bucket and does not store a token (CSRF)', async () => {
       const app = createApp();
       // Attacker mints a state bound to their own bucket, then lures the victim
@@ -388,6 +400,15 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
       expect(res.status).toBe(302);
       expect(res.headers.get('Location')).toContain('github=connected');
       expect(connectGithub).toHaveBeenCalledWith(expect.anything(), 'bucket-victim', 'valid-code', expect.any(String));
+      // A replay must stop at the actual persisted nonce guard rather than
+      // reaching the existing provider/token-store boundary a second time.
+      vi.mocked(connectGithub).mockClear();
+      const claimedState = [...mockKV._store];
+      const replay = await app.request(`/connect/callback?code=valid-code&state=${boundState}`);
+      expect(replay.status).toBe(302);
+      expect(replay.headers.get('Location')).toContain('github=expired');
+      expect([...mockKV._store]).toEqual(claimedState);
+      expect(connectGithub).not.toHaveBeenCalled();
     });
   });
 

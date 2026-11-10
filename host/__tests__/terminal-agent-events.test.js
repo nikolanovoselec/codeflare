@@ -71,6 +71,38 @@ function connect(wss, sessionId) {
 }
 
 describe('REQ-TERM-023 AC2/AC3: terminal WS event coordination protocol', () => {
+  it('REQ-TERM-019 AC2: unknown typed JSON is dropped while terminal input reaches the bound Session', t => {
+    const session = fakeSession('session-a-1');
+    const writes = [];
+    session.write = value => writes.push(value);
+    const { wss } = harness({ 'session-a-1': session });
+    const ws = connect(wss, 'session-a-1');
+    t.after(() => ws.emit('close', 1000, Buffer.alloc(0)));
+    for (const type of ['unknown-control', 'ping', 'heartbeat']) {
+      ws.emit('message', Buffer.from(JSON.stringify({ type, data: 'must not reach PTY' })));
+    }
+    assert.deepEqual(writes, []);
+    ws.emit('message', Buffer.from(JSON.stringify({ type: 'data', data: 'typed command\r' })));
+    ws.emit('message', Buffer.from('raw command\r'));
+    assert.deepEqual(writes, ['typed command\r', 'raw command\r']);
+  });
+
+  it('REQ-TERM-019 AC3: keepalive emits protocol pings without application JSON heartbeat', t => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: 1000 });
+    const session = fakeSession('session-a-1');
+    const { wss } = harness({ 'session-a-1': session });
+    const ws = connect(wss, 'session-a-1');
+    t.after(() => ws.emit('close', 1000, Buffer.alloc(0)));
+    const pings = [];
+    ws.ping = () => pings.push(Date.now());
+    t.mock.timers.tick(60_000);
+    ws.emit('pong');
+    t.mock.timers.tick(60_000);
+    assert.deepEqual(pings, [61_000, 121_000]);
+    assert.deepEqual(ws.sent, []);
+    assert.deepEqual(ws.closes, []);
+  });
+
   it('routes a validated suppress disposition through the connection-bound Session', (t) => {
     const session = fakeSession('session-a-1', new Set(['event-a']));
     const { wss } = harness({ 'session-a-1': session });

@@ -1994,10 +1994,18 @@ describe('Session Store', () => {
     it('REQ-SESSION-027 AC3: should set error on API failure', async () => {
       const mockUpdateSession = vi.mocked(api.updateSession);
       mockUpdateSession.mockRejectedValue(new Error('Rename failed'));
+      sessionStore.initializeTerminalsForSession('session-1');
+      sessionStore.setActiveSession('session-1');
+      const sessionsBefore = JSON.parse(JSON.stringify(sessionStore.sessions));
+      const terminalsBefore = JSON.parse(JSON.stringify(sessionStore.getTerminalsForSession('session-1')));
+      const activeBefore = sessionStore.activeSessionId;
 
       await sessionStore.renameSession('session-1', 'New Name');
 
       expect(sessionStore.error).toBe('Rename failed');
+      expect(sessionStore.sessions).toEqual(sessionsBefore);
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(terminalsBefore);
+      expect(sessionStore.activeSessionId).toBe(activeBefore);
     });
 
     it('should not update state if session not found locally', async () => {

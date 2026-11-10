@@ -31,6 +31,8 @@ vi.mock('../../lib/r2-client', async (importActual) => {
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import lifecycleRoutes from '../../routes/session/lifecycle';
+import downloadRoutes from '../../routes/storage/download';
+import previewRoutes from '../../routes/storage/preview';
 
 import {
   getR2SsePolicyDisabled,
@@ -361,6 +363,45 @@ describe('fetchObjectWithRegimeFallback (D2 reads stay up)', () => {
 });
 
 // ── Reconcile decision ──────────────────────────────────────────────────────────
+describe('REQ-ENTERPRISE-021 AC6: real storage routes retain readable bytes across a regime mismatch', () => {
+  it.each(['download', 'preview'] as const)('%s reads committed bytes, then falls back once to the opposite regime', async route => {
+    const kv = createMockKV();
+    kv._set('r2-regime:bkt', { status: 'ready', regime: 'sse-c', generation: 1 });
+    let objectRegime: R2SseRegime = 'sse-c';
+    const reads: Array<{ method: string; regime: R2SseRegime }> = [];
+    const bytes = 'exact report';
+    mockFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const regime = regimeFromHeaders((init?.headers ?? {}) as Record<string, string>);
+      reads.push({ method, regime });
+      if (regime !== objectRegime) return new Response(null, { status: 400 });
+      return new Response(method === 'HEAD' ? null : bytes, { headers: {
+        'Content-Type': 'text/plain', 'Content-Length': String(bytes.length),
+      } });
+    });
+    const app = createTestApp({
+      routes: [{ path: '/download', handler: downloadRoutes }, { path: '/preview', handler: previewRoutes }],
+      mockKV: kv, bucketName: 'bkt', envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct' },
+    });
+    const read = async () => {
+      const response = await app.request(`/${route}?key=report.txt`);
+      expect(response.status).toBe(200);
+      if (route === 'download') expect(await response.text()).toBe(bytes);
+      else expect(await response.json()).toMatchObject({ type: 'text', content: bytes, size: bytes.length });
+    };
+    await read();
+    expect(reads).toEqual(route === 'download'
+      ? [{ method: 'GET', regime: 'sse-c' }]
+      : [{ method: 'HEAD', regime: 'sse-c' }, { method: 'GET', regime: 'sse-c' }]);
+    reads.length = 0;
+    objectRegime = 'plain';
+    await read();
+    expect(reads).toEqual(route === 'download'
+      ? [{ method: 'GET', regime: 'sse-c' }, { method: 'GET', regime: 'plain' }]
+      : [{ method: 'HEAD', regime: 'sse-c' }, { method: 'HEAD', regime: 'plain' }, { method: 'GET', regime: 'plain' }]);
+  });
+});
+
 describe('planRegimeReconcile (synchronous decision)', () => {
   it('no-op when the committed regime already matches the policy', async () => {
     const { kv } = makeKV(); // ready/sse-c, policy absent ⇒ sse-c
@@ -757,6 +798,45 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(state.status).toBe('migrating'); // not advanced
     expect(state.lastError).toBeTruthy();
     expect(state.leaseExpiresAt).toBeUndefined(); // released so the next poll retries
+  });
+
+  it('REQ-ENTERPRISE-020 AC4/AC5: a timed-out copy is aborted, leaves source intact, releases the lease, and resumes', async () => {
+    vi.useFakeTimers();
+    const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: true }) });
+    let copySignal: AbortSignal | undefined;
+    let signalCopy!: () => void;
+    const copyStarted = new Promise<void>(resolve => { signalCopy = resolve; });
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        copySignal = init.signal as AbortSignal;
+        signalCopy();
+        return new Promise<Response>((_resolve, reject) => {
+          copySignal!.addEventListener('abort', () => reject(new Error('copy aborted')), { once: true });
+        });
+      }
+      return r2.fetch(url, init);
+    });
+    try {
+      const advance = advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+      await copyStarted;
+      expect(r2.store.get('a.md')?.regime).toBe('sse-c');
+      await vi.advanceTimersByTimeAsync(4_001);
+      await advance;
+      expect(copySignal?.aborted).toBe(true);
+      const interrupted = await getRegimeState(driverEnv(kv), 'bkt');
+      expect(interrupted).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 4 });
+      expect(interrupted.lastError).toMatch(/verify failed at a\.md/);
+      expect(interrupted.leaseExpiresAt).toBeUndefined();
+      expect(r2.store.get('a.md')?.regime).toBe('sse-c');
+      mockFetch.mockImplementation(r2.fetch);
+      const final = await runToReady(kv);
+      expect(final).toMatchObject({ status: 'ready', regime: 'plain', generation: 5 });
+      expect(final.leaseExpiresAt).toBeUndefined();
+      expect(r2.store.get('a.md')?.regime).toBe('plain');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a premature flip is impossible: a verify failure re-enters the migrate phase instead of going ready', async () => {

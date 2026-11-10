@@ -6,6 +6,7 @@ import {
   verifyWebhookSignature,
   createCheckoutSession,
   createPortalSession,
+  createSwitchPortalSession,
   endTrialNow,
   parseStripeEvent,
   fetchSubscription,
@@ -168,6 +169,7 @@ describe('createCheckoutSession', () => {
       successUrl: 'https://example.com/success',
       cancelUrl: 'https://example.com/cancel',
       secretKey: 'sk_test_key',
+      metadata: { tier: 'advanced', mode: 'default' },
     });
 
     expect(result).toEqual({ id: 'cs_test_123', url: 'https://checkout.stripe.com/test' });
@@ -176,6 +178,12 @@ describe('createCheckoutSession', () => {
     expect(fetchCall[0]).toBe('https://api.stripe.com/v1/checkout/sessions');
     expect(fetchCall[1].method).toBe('POST');
     expect(fetchCall[1].headers['Authorization']).toBe('Bearer sk_test_key');
+    const form = new URLSearchParams(fetchCall[1].body);
+    expect(form.get('customer_email')).toBe('user@example.com');
+    expect(form.get('metadata[tier]')).toBe('advanced');
+    expect(form.get('metadata[mode]')).toBe('default');
+    expect(form.get('mode')).toBe('subscription');
+    expect(form.get('line_items[0][price]')).toBe('price_test_123');
   });
 
   it('throws on Stripe API error', async () => {
@@ -242,6 +250,22 @@ describe('createPortalSession', () => {
     const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(fetchCall[0]).toBe('https://api.stripe.com/v1/billing_portal/sessions');
     expect(fetchCall[1].headers['Authorization']).toBe('Bearer sk_test_key');
+  });
+
+  it('REQ-SUB-016: sends the selected subscription item and price to the confirmation flow', async () => {
+    globalThis.fetch = vi.fn(async () => Response.json({ id: 'bps_switch', url: 'https://billing.stripe.com/confirm' }));
+    expect(await createSwitchPortalSession({ customerId: 'cus_owner', subscriptionId: 'sub_owner',
+      subscriptionItemId: 'si_resolved', newPriceId: 'price_selected', returnUrl: 'https://example.com/subscribe',
+      secretKey: 'sk_test_key' })).toEqual({ id: 'bps_switch', url: 'https://billing.stripe.com/confirm' });
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    expect(url).toBe('https://api.stripe.com/v1/billing_portal/sessions');
+    const form = new URLSearchParams(init!.body as string);
+    expect(form.get('customer')).toBe('cus_owner');
+    expect(form.get('flow_data[type]')).toBe('subscription_update_confirm');
+    expect(form.get('flow_data[subscription_update_confirm][subscription]')).toBe('sub_owner');
+    expect(form.get('flow_data[subscription_update_confirm][items][0][id]')).toBe('si_resolved');
+    expect(form.get('flow_data[subscription_update_confirm][items][0][price]')).toBe('price_selected');
+    expect(form.get('flow_data[after_completion][redirect][return_url]')).toBe('https://example.com/subscribe');
   });
 
   it('throws on Stripe API error', async () => {

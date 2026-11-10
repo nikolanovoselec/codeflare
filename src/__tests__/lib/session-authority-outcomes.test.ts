@@ -94,6 +94,35 @@ describe('D1 production authority outcomes', () => {
     expect(await repository().getSession('authority-owner', 'session01')).toMatchObject({ responseRevision: 3, observationSequence: 4, cpu: '4%' });
   });
 
+  it('REQ-SESSION-018 AC5: accepted boundary, Stop and exit transitions advance durable response revisions', async () => {
+    const repo = repository();
+    await repo.create(input());
+    await repo.start('authority-owner', 'session01', time);
+    await repo.project('authority-owner', 'session01', 1, 0, { lifecycleState: 'running', observedAt: time });
+    let previous = (await repo.getSession('authority-owner', 'session01'))!;
+    const advanced = async (outcome: Record<string, unknown>) => {
+      const current = (await repository().getSession('authority-owner', 'session01'))!;
+      expect(current).toMatchObject({ ...outcome, responseRevision: previous.responseRevision + 1 });
+      previous = current;
+    };
+    expect(await repo.recordBoundaryActionStart('authority-owner', 'session01', 1, 'review-one')).toBe(true);
+    await advanced({ boundaryActivityId: 'review-one', lifecycleState: 'running' });
+    expect(await repo.releaseCompletedBoundaryAction('authority-owner', 'session01', 1, 'review-one')).toBe(true);
+    await advanced({ boundaryActivityId: undefined });
+    expect(await repo.recordBoundaryActionStart('authority-owner', 'session01', 1, 'review-two')).toBe(true);
+    await advanced({ boundaryActivityId: 'review-two' });
+    expect(await repo.claimStop('authority-owner', 'session01', 'stop-one', time, 1)).not.toBeNull();
+    await advanced({ lifecycleState: 'stopping', terminationIntentId: 'stop-one' });
+    expect(await repo.confirmStopped('authority-owner', 'session01', 1, 'stop-one', time)).toBe(false);
+    expect(await repository().getSession('authority-owner', 'session01')).toEqual(previous);
+    expect(await repo.acknowledgeBoundaryCancellation('authority-owner', 'session01', 1, 'review-two')).toBe(true);
+    await advanced({ boundaryActivityId: undefined });
+    expect(await repo.recordTerminationSignal('authority-owner', 'session01', 1, 'stop-one', time)).toBe(true);
+    await advanced({ lifecycleState: 'stopping' });
+    expect(await repo.confirmStopped('authority-owner', 'session01', 1, 'stop-one', time)).toBe(true);
+    await advanced({ lifecycleState: 'stopped', terminationIntentId: undefined });
+  });
+
   it('REQ-SESSION-018 AC4 / REQ-SESSION-028 AC4: retained stopped row restarts and Delete fences late writers', async () => {
     const repo = repository();
     await repo.create(input());

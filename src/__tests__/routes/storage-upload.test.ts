@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
+import type { Env } from '../../types';
 import { createMockR2Config } from '../helpers/mock-factories';
 import { createTestApp } from '../helpers/test-app';
 
@@ -23,6 +24,7 @@ vi.mock('../../lib/remote-curation', async (importOriginal) => ({
 }));
 
 import uploadRoutes from '../../routes/storage/upload';
+import deleteRoutes from '../../routes/storage/delete';
 
 // REQ-STOR-007: Web File Browser
 
@@ -39,14 +41,15 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     vi.clearAllMocks();
   });
 
-  function createApp(bucketName = 'test-bucket') {
+  function createApp(bucketName = 'test-bucket', envOverrides: Partial<Env> = {}) {
     return createTestApp({
-      routes: [{ path: '/upload', handler: uploadRoutes }],
+      routes: [{ path: '/upload', handler: uploadRoutes }, { path: '/delete', handler: deleteRoutes }],
       mockKV,
       bucketName,
       envOverrides: {
         R2_ACCESS_KEY_ID: 'test-key',
         R2_SECRET_ACCESS_KEY: 'test-secret',
+        ...envOverrides,
       },
     });
   }
@@ -94,6 +97,47 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     expect(response.status).toBe(200);
     expect(mockFetch).toHaveBeenCalledOnce();
     expect(mockFetch.mock.calls[0][1].method).toBe(method);
+  });
+
+  it.each([
+    ['/upload', { key: '.codeflare/managed-paths.json', content: btoa('replacement') }],
+    ['/delete', { keys: ['.codeflare/managed-paths.json'] }],
+    ['/delete', { keys: ['.codeflare/managed-paths.json', 'Uploads/user.txt'] }],
+    ['/delete', { prefixes: ['.codeflare/'] }],
+  ])('REQ-ENTERPRISE-030 AC1: migration refusal precedes conflicting managed policy for %s (%j)', async (path, payload) => {
+    await configureProtectedPolicy();
+    mockKV._set('r2-regime:test-bucket', {
+      status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 1,
+    });
+    const response = await createApp().request(path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'BUCKET_MIGRATING' });
+    // Neither policy retrieval nor protected object read/write/delete may occur.
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['/upload', { content: btoa('bytes') }],
+    ['/upload/initiate', {}],
+    ['/upload/part', { uploadId: 'u', partNumber: 1, content: btoa('part') }],
+  ])('REQ-SEC-005: %s emits SSE-C only for the committed encrypted regime', async (path, payload) => {
+    const ENCRYPTION_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+    const app = createApp('test-bucket', { ENCRYPTION_KEY });
+    for (const regime of ['sse-c', 'plain']) {
+      mockKV._set('r2-regime:test-bucket', { status: 'ready', regime, generation: 1 });
+      mockFetch.mockClear().mockImplementation(async () => new Response('', { headers: { ETag: 'part-etag' } }));
+      const response = await app.request(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'Uploads/file.txt', ...payload }),
+      });
+      expect(response.status).toBe(200);
+      const headers = new Headers(mockFetch.mock.calls[0][1].headers);
+      expect(headers.get('x-amz-server-side-encryption-customer-key')).toBe(regime === 'sse-c' ? ENCRYPTION_KEY : null);
+      expect(headers.get('x-amz-server-side-encryption-customer-algorithm')).toBe(regime === 'sse-c' ? 'AES256' : null);
+      expect(headers.has('x-amz-server-side-encryption-customer-key-MD5')).toBe(regime === 'sse-c');
+    }
   });
 
   // ── Simple upload ──────────────────────────────────────────────────

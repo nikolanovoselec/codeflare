@@ -494,6 +494,16 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       const log = await waitFor(h.logFile, (s) => /RESYNC_CALLED/.test(s) && /STATUS status=success err=null/.test(s), 8000);
       assert.match(log, /RESYNC_CALLED/,
         'three consecutive failures must invoke establish_bisync_baseline (the --resync fallback)');
+      const beforeFallback = log.slice(0, log.indexOf('RESYNC_CALLED'));
+      assert.deepEqual(beforeFallback.split('\n').filter(line => line.startsWith('STATUS ')), [
+        'STATUS status=syncing err=null',
+        'STATUS status=failed err=Bisync exit code 7',
+        'STATUS status=syncing err=null',
+        'STATUS status=failed err=Bisync exit code 7',
+        'STATUS status=syncing err=null',
+        'STATUS status=failed err=Bisync exit code 7',
+        'STATUS status=failed err=Resync fallback triggered',
+      ], 'fallback must follow three published failure cycles, never the first or second');
       assert.match(log, /STATUS status=failed/,
         'failure path must call update_sync_status with "failed" before the resync fallback');
       assert.match(log, /STATUS status=success err=null/,

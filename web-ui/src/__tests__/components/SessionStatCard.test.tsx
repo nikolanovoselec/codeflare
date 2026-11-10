@@ -4,6 +4,7 @@ import SessionStatCard from '../../components/SessionStatCard';
 import { sessionStore } from '../../stores/session';
 import type { SessionWithStatus } from '../../types';
 import { terminalStore } from '../../stores/terminal';
+import { mdiPi, mdiRobotOutline } from '@mdi/js';
 
 // Mock stores
 vi.mock('../../stores/session', () => {
@@ -66,10 +67,14 @@ describe('SessionStatCard', () => {
       expect(screen.getByText('My Dev Session')).toBeInTheDocument();
     });
 
-    it('renders agent icon', () => {
-      render(() => <SessionStatCard {...defaultProps} />);
-      const card = screen.getByTestId('session-stat-card-test-1');
-      expect(card.querySelector('.stat-card__icon')).toBeInTheDocument();
+    it('REQ-TERM-009 AC3: session cards expose their distinct configured agent glyphs', () => {
+      render(() => <>
+        <SessionStatCard {...defaultProps} session={createSession({ id: 'pi-card', agentType: 'pi' })} />
+        <SessionStatCard {...defaultProps} session={createSession({ id: 'claude-card', agentType: 'claude-code' })} />
+      </>);
+      // Intentional rendered glyph identity contract, not generic SVG presence.
+      expect(screen.getByTestId('session-stat-card-pi-card').querySelector('.stat-card__icon path')).toHaveAttribute('d', mdiPi);
+      expect(screen.getByTestId('session-stat-card-claude-card').querySelector('.stat-card__icon path')).toHaveAttribute('d', mdiRobotOutline);
     });
 
     it('renders with correct data-testid', () => {

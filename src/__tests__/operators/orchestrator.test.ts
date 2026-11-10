@@ -141,8 +141,14 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     expect(activity.fenceRuntimeFailure).not.toHaveBeenCalled();
   });
 
-  it('aborts and fences a stalled child drive within the request-attached deadline', async () => {
+  it.each(['child-stall', 'artifact-delay', 'short-human'] as const)(
+    'aborts and fences a stalled drive within the original shared deadline after %s', async boundary => {
     vi.useFakeTimers();
+    const requestedAt = Date.now();
+    const expiresAt = Math.floor((requestedAt + (boundary === 'short-human' ? 10_000 : 300_000)) / 1000);
+    const deadline = Math.min(requestedAt + 60_000, expiresAt * 1000);
+    const expectedDeadline = Math.min(requestedAt + 25_000, deadline);
+    const outcome = { status: 'running', result: null as unknown };
     const bundle = { schemaVersion: 1, interfaceVersion: 1, compatibilityDate: '2026-02-05',
       compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js', modules: { 'index.js': { js: 'export default {}' } } };
     const bytes = new TextEncoder().encode(JSON.stringify(bundle));
@@ -152,19 +158,24 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
       description: '', coreVersion: '1', intentVersion: '1', inputSchema: {}, requiredCapabilities: [],
       artifact: { path: '/bundle.json', sha256: artifactDigest, url: 'https://publisher.example.test/bundle.json' } });
     const context = await createOperatorExecutionContext({ activityId: 'activity-1', operatorId: 'reviewer',
-      artifactDigest, policyDigest: 'b'.repeat(64), human: claims, accessJwt: 'private.jwt' }, encryption);
+      artifactDigest, policyDigest: 'b'.repeat(64), human: { ...claims, expiresAt }, accessJwt: 'private.jwt' }, encryption);
     const ciphertext = await sealOperatorSecret('connection-secret', encryption,
       { purpose: 'connection', recordId: 'reviewer' });
-    const commitDrive = vi.fn();
-    const interruptDrive = vi.fn(async () => ({ ok: true,
-      state: { generation: 2, status: 'unknown', checkpoint: null, result: null } }));
+    const commitDrive = vi.fn(async (_generation: number, update: { status: string; result: unknown }) => {
+      outcome.status = update.status; outcome.result = update.result;
+      return { ok: true, state: update };
+    });
+    const interruptDrive = vi.fn(async () => {
+      outcome.status = 'unknown';
+      return { ok: true, state: { generation: 2, status: 'unknown', checkpoint: null, result: null } };
+    });
     const fenceRuntimeFailure = vi.fn();
     let aborted = false;
     const activity = {
-      getRuntimePlan: vi.fn(async () => ({ activityId: 'activity-1', deadline: Date.now() + 60_000,
+      getRuntimePlan: vi.fn(async () => ({ activityId: 'activity-1', deadline,
         invocationJson: 'null', executionContext: context,
         receipt: { activityId: 'activity-1', operatorId: 'reviewer', intentDigest: 'c'.repeat(64), expectedRevision: 7,
-          deadline: Date.now() + 60_000, artifactDigest, admittedAt: Date.now(), manifestJson, policyJson: '{}' } })),
+          deadline, artifactDigest, admittedAt: requestedAt, manifestJson, policyJson: '{}' } })),
       beginDrive: vi.fn(async () => ({ ok: true,
         state: { generation: 1, status: 'running', checkpoint: null, result: null } })),
       commitDrive,
@@ -177,18 +188,27 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
         reject(new Error('aborted'));
       }, { once: true })) }) })) };
     const registry = { getPinnedDistribution: vi.fn(async () => ({ endpoint, connectionSecretCiphertext: ciphertext })) };
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(bytes, { status: 200,
-      headers: { 'content-type': 'application/json', 'content-length': String(bytes.byteLength) } })));
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (boundary === 'artifact-delay') await new Promise(resolve => setTimeout(resolve, 10_000));
+      return new Response(bytes, { status: 200,
+        headers: { 'content-type': 'application/json', 'content-length': String(bytes.byteLength) } });
+    }));
     const env = { ...encryption, LOADER: loader,
       OPERATOR_ACTIVITY: { getByName: () => activity }, OPERATOR_REGISTRY: { getByName: () => registry },
     } as unknown as Env;
 
+    let boundDeadline: number | null = null;
     const attempt = runOperatorActivity('activity-1', env,
-      () => ({ fetch: vi.fn() }) as unknown as Fetcher);
-    await vi.advanceTimersByTimeAsync(25_001);
+      (_id, _generation, driveDeadline) => {
+        boundDeadline = driveDeadline;
+        return { fetch: vi.fn() } as unknown as Fetcher;
+      });
+    await vi.advanceTimersByTimeAsync(expectedDeadline - requestedAt + 1);
     await attempt;
 
+    expect(boundDeadline).toBe(expectedDeadline);
     expect(aborted).toBe(true);
+    expect(outcome).toEqual({ status: 'unknown', result: null });
     expect(interruptDrive).toHaveBeenCalledOnce();
     expect(commitDrive).not.toHaveBeenCalled();
     expect(fenceRuntimeFailure).not.toHaveBeenCalled();

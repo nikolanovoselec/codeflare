@@ -509,6 +509,13 @@ describe('Setup AC Coverage', () => {
       expect(stepNames).toContain('configure_custom_domain');
       expect(stepNames).toContain('create_access_app');
       expect(stepNames).toContain('finalize');
+      expect(lines.filter(line => line.status === 'running').map(line => line.step)).toEqual([
+        'get_account', 'derive_r2_credentials', 'set_secrets', 'configure_custom_domain', 'create_access_app', 'finalize',
+      ]);
+      expect(getNdjsonSummary(lines)).toMatchObject({ done: true, success: true,
+        workersDevUrl: 'https://codeflare.test.workers.dev', customDomainUrl: 'https://claude.example.com' });
+      expect(await mockKV.get('setup:turnstile_site_key')).toBeNull();
+      expect(await mockKV.get('setup:complete')).toBe('true');
     });
 
     it('REQ-SETUP-002 AC4: all KV keys written by setup use the setup: prefix', async () => {
@@ -1050,6 +1057,48 @@ describe('Setup AC Coverage', () => {
         expect.objectContaining({ step: 'set_secrets', status: 'success' })
       );
     });
+  });
+
+  it('configure provisions conditional Turnstile state and emits its ordered slot before finalization', async () => {
+    globalThis.fetch = createUrlMockFetch({
+      ...baseFlowMocks(), ...customDomainFlowMocks(), ...accessAppFlowMocks(),
+      '~/challenges/widgets': (_url, init) => Response.json({ success: true,
+        result: init?.method === 'POST' ? { sitekey: 'synthetic-site-key', secret: 'synthetic-turnstile-secret' } : [] }),
+    });
+    const response = await createTestApp({ ONBOARDING_LANDING_PAGE: 'active' }).request(
+      'https://codeflare.test.workers.dev/api/setup/configure', {
+        method: 'POST', headers: jsonHeaders, body: JSON.stringify(standardBody),
+      });
+    expect(response.status).toBe(200);
+    const lines = await readNdjson(response);
+    expect(getNdjsonSummary(lines)).toMatchObject({ done: true, success: true });
+    expect(lines.filter(line => line.status === 'running').map(line => line.step)).toEqual([
+      'get_account', 'derive_r2_credentials', 'set_secrets', 'configure_custom_domain', 'create_access_app', 'configure_turnstile', 'finalize',
+    ]);
+    expect(await mockKV.get('setup:turnstile_site_key')).toBe('synthetic-site-key');
+    expect(await mockKV.get('setup:turnstile_secret_key')).toBe('synthetic-turnstile-secret');
+    expect(await mockKV.get('setup:complete')).toBe('true');
+  });
+
+  it('configure failure emits one terminal failure and leaves dependent resources and completion untouched', async () => {
+    const requests: string[] = [];
+    globalThis.fetch = vi.fn(async input => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push(new URL(url).pathname);
+      return Response.json({ success: false, errors: [{ message: 'Synthetic account refusal' }] });
+    });
+    const response = await createTestApp().request('https://codeflare.test.workers.dev/api/setup/configure', {
+      method: 'POST', headers: jsonHeaders, body: JSON.stringify(standardBody),
+    });
+    expect(response.status).toBe(200);
+    const lines = await readNdjson(response);
+    expect(lines.filter(line => line.done)).toHaveLength(1);
+    expect(getNdjsonSummary(lines)).toMatchObject({ done: true, success: false, error: expect.any(String) });
+    expect(lines.some(line => line.step === 'derive_r2_credentials' || line.step === 'finalize')).toBe(false);
+    expect(requests.every(path => path === '/client/v4/accounts')).toBe(true);
+    expect(await mockKV.get('setup:account_id')).toBeNull();
+    expect(await mockKV.get('setup:complete')).toBeNull();
+    expect(await mockKV.get('setup:configuring')).toBeNull();
   });
 
   // REQ-SETUP-018 AC5: historical test title below uses pre-split AC7.

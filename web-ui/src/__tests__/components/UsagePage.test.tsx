@@ -54,6 +54,7 @@ describe('UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota re
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   it('renders the progress ring/bar with a fill width equal to the computed usage percent', async () => {
@@ -66,6 +67,20 @@ describe('UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota re
     expect(fill.style.width).toBe('25%');
     // The percent readout reflects the same derived value.
     expect(document.querySelector('.usage-panel-percent')?.textContent).toBe('25%');
+  });
+
+  it('REQ-SUB-018 AC2: polling refreshes the displayed usage at the next interval', async () => {
+    vi.useFakeTimers();
+    render(() => <UsagePage />);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.querySelector('.usage-panel-percent')).toHaveTextContent('25%');
+    mockUsage = { ...mockUsage, monthlySeconds: 72_000 };
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(document.querySelector('.usage-panel-percent')).toHaveTextContent('25%');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(document.querySelector('.usage-panel-percent')).toHaveTextContent('50%');
+    expect(document.querySelector('.usage-bar-fill')).toHaveStyle({ width: '50%' });
+    expect(document.body).toHaveTextContent('20h');
   });
 
   it('renders the three stat cards with their formatted numeric values', async () => {

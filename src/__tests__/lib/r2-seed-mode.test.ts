@@ -688,6 +688,41 @@ describe('reconcileAgentConfigs / REQ-MEM-011 AC4', () => {
     testState.retiredKeys = [];
   });
 
+  it('REQ-STOR-010 AC2/AC3/AC4: real mode reconciliation overwrites variants, removes out-of-mode configs, and retains user bytes', async () => {
+    const objects = new Map<string, string>([
+      ['Uploads/user.txt', 'user-owned bytes'],
+      ['.claude/extensions/personal.md', 'personal extension'],
+      ['.codex/AGENTS.md', 'old instructions'],
+    ]);
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const parsed = new URL(url);
+      const key = decodeURIComponent(parsed.pathname.slice(`/${bucket}/`.length));
+      if (parsed.searchParams.has('list-type')) {
+        const prefix = parsed.searchParams.get('prefix') ?? '';
+        const contents = [...objects.keys()].filter(path => path.startsWith(prefix))
+          .map(path => `<Contents><Key>${path}</Key><Size>20</Size></Contents>`).join('');
+        return new Response(`<ListBucketResult>${contents}<IsTruncated>false</IsTruncated></ListBucketResult>`);
+      }
+      if (init?.method === 'PUT') { objects.set(key, await new Response(init.body).text()); return new Response(''); }
+      if (init?.method === 'DELETE') { objects.delete(key); return new Response(null, { status: 204 }); }
+      if (init?.method === 'HEAD') return new Response(null, { status: objects.has(key) ? 200 : 404, headers: { etag: '"current"' } });
+      throw new Error(`Unexpected seed request: ${init?.method} ${key}`);
+    });
+    const advanced = await reconcileAgentConfigs(env, bucket, endpoint, 'advanced', { overwrite: true, cleanup: true });
+    expect(advanced.warnings).toEqual([]);
+    expect(objects.get('.codex/AGENTS.md')).toBe('// advanced extension instructions with more rules');
+    expect(objects.get('.claude/extensions/consult-llm/index.ts')).toBe('# Consult');
+    const standard = await reconcileAgentConfigs(env, bucket, endpoint, 'default', { overwrite: true, cleanup: true });
+    expect(standard.warnings).toEqual([]);
+    expect(objects.get('.codex/AGENTS.md')).toBe('# Default instructions');
+    expect(objects.get('.claude/extensions/common.md')).toBe('# Common');
+    expect(objects.get('.codex/config/ship/index.ts')).toBe('# Ship');
+    expect(objects.has('.claude/extensions/consult-llm/index.ts')).toBe(false);
+    expect(objects.has('.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json')).toBe(false);
+    expect(objects.get('Uploads/user.txt')).toBe('user-owned bytes');
+    expect(objects.get('.claude/extensions/personal.md')).toBe('personal extension');
+  });
+
   it('seeds and cleans up for "default" mode with cleanup=true', async () => {
     // A fresh Response per call, not one shared instance: the sweep reads the
     // body of every listing, and this mode derives two prefixes, so a shared

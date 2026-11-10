@@ -687,6 +687,26 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultReady).toBe(true);
     });
 
+    it('REQ-VAULT-019 AC2: completed prewarm cannot arm or open a Vault without a recoverable key', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(false);
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+        await (window as any).__headerProps.onVaultOpen();
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect(vaultLocalReadinessMock.keyRecoverable).toHaveBeenCalled());
+        expect((window as any).__headerProps.vaultStatus).toBe('preparing');
+        expect((window as any).__headerProps.vaultReady).toBe(false);
+        await (window as any).__headerProps.onVaultOpen();
+        expect(open).not.toHaveBeenCalled();
+      } finally { open.mockRestore(); }
+    });
+
     it('ignores legacy persistent readiness markers until the user starts a fresh prepare', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
@@ -1653,6 +1673,15 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(screen.getByTestId('usage-warning-80')).toBeInTheDocument();
       expect(screen.queryByTestId('usage-warning-95')).not.toBeInTheDocument();
       expect(screen.queryByTestId('usage-warning-100')).not.toBeInTheDocument();
+    });
+
+    it('REQ-SUB-018 AC5: a dismissed 95% warning also hides the lower 80% warning', () => {
+      mockSaasMode = true;
+      vi.mocked(getUsageWarningLevel).mockReturnValue('80');
+      vi.mocked(getDismissedQuotaLevel).mockReturnValue('95');
+      render(() => <Layout />);
+      expect(screen.queryByTestId('usage-warning-80')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('usage-warning-95')).not.toBeInTheDocument();
     });
 
     it('AC3: surfaces the 95% banner when usage warning level is 95 (SaaS)', () => {

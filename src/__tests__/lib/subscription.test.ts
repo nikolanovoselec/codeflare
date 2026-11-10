@@ -166,6 +166,7 @@ describe('getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical or
     const tiers = getDefaultTiers();
     const free = tiers.find((t) => t.id === 'free')!;
     expect(free.trialQuotaHours).toBe(0);
+    expect(free.priceMonthly).toBe(0);
   });
 
   it('standard tier has trialQuotaHours=40', () => {

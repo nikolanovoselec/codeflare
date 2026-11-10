@@ -295,9 +295,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Once a successful persistent-storage fetch contains a nonempty auth domain and at least one configured audience, the isolate latches that configured state for its lifetime. A successful empty fetch leaves pre-setup header fallback available until populated configuration has been fetched. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 AC2: header trust disabled permanently once auth config fetched from KV) -->
-2. Once that flag is set, the pre-setup header-trust fallback is permanently disabled for the isolate. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 AC2: header trust disabled permanently once auth config fetched from KV) -->
-3. Subsequent transient storage failures do not revert the flag. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest() / REQ-AUTH-010 AC1/AC2/AC3/AC4 (authConfigFetched sentinel disables pre-setup header trust after first KV success) / REQ-AUTH-011 AC1/AC2 (resolution order: service token, cookie, JWT, pre-setup header)) -->
+1. Once a successful persistent-storage fetch contains a nonempty auth domain and at least one configured audience, the isolate latches that configured state for its lifetime. A successful empty fetch leaves pre-setup header fallback available until populated configuration has been fetched. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 AC2/AC3: rejects header trust after populated-cache expiry and %s refetch) -->
+2. Once that flag is set, the pre-setup header-trust fallback is permanently disabled for the isolate. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 AC2/AC3: rejects header trust after populated-cache expiry and %s refetch) -->
+3. Subsequent transient storage failures do not revert the flag. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest() / REQ-AUTH-010 AC1/AC2/AC3/AC4 (authConfigFetched sentinel disables pre-setup header trust after first KV success) / REQ-AUTH-011 AC1/AC2 (resolution order: service token, cookie, JWT, pre-setup header)) --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 AC2/AC3: rejects header trust after populated-cache expiry and %s refetch) -->
 4. The cached state can be explicitly invalidated for test purposes. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010: Auth bypass prevention sentinel) -->
 
 **Constraints:**
@@ -487,7 +487,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. User avatar from Gravatar displayed in header and dashboard. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
+1. User avatar from Gravatar displayed in header and dashboard. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-AUTH-017 AC1: renders the Gravatar belonging to the displayed user) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AUTH-017 AC1: renders the Gravatar belonging to the dashboard user) -->
 2. Falls back to the account-shield icon when no Gravatar exists. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @manual: Use an address with no Gravatar and confirm both Header and Dashboard render the account-shield fallback. -->
 3. The hashed normalized email is used for the Gravatar lookup. <!-- @impl: web-ui/src/lib/gravatar.ts::getGravatarUrl --> <!-- @test: web-ui/src/__tests__/lib/gravatar.test.ts (getGravatarUrl / REQ-AUTH-017 AC3 (MD5 of email used for Gravatar lookup)) -->
 
@@ -499,7 +499,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [gravatar.test.ts](../../web-ui/src/__tests__/lib/gravatar.test.ts); Manual: [Gravatar fallback acceptance](../../documentation/lanes/authentication.md#gravatar-fallback-acceptance)
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [gravatar.test.ts](../../web-ui/src/__tests__/lib/gravatar.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Gravatar fallback acceptance](../../documentation/lanes/authentication.md#gravatar-fallback-acceptance)
 
 **Status:** Implemented
 
@@ -772,7 +772,7 @@ None.
 
 1. Concurrent cold-start requests share a single in-flight auth-config fetch; no redundant storage reads are issued. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
 2. Two concurrent cold-start requests reuse the in-flight fetch instead of issuing parallel storage reads. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
-3. The cached auth config expires on TTL and can be explicitly invalidated, forcing a fresh storage read. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
+3. The cached auth config expires on TTL and can be explicitly invalidated, forcing a fresh storage read. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC3: $state cache expires and freshly saved configuration rejects header trust) -->
 
 **Constraints:**
 

@@ -10,6 +10,7 @@ import { OperatorActivity } from '../../operators/activity';
 import { captureError } from '../../operators/dispatcher-diagnostics-wire';
 import { setLogLevel } from '../../lib/logger';
 import type { Env } from '../../types';
+import type { OperatorBrowserSummary } from '../../operators/browser-activity';
 import type { CurrentProspectiveRegistration } from '../../operators/registry';
 import { within } from '../helpers/pending-recipient';
 import { OperatorOwnerInferenceAuthority, discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference } from '../../operators/dispatcher-owner-inference';
@@ -4281,6 +4282,47 @@ describe('protected raw parent execution evidence', () => {
     }
   }, options));
 
+  it.each(['revoked', 'deadline', 'declared-over', 'chunked-over'] as const)(
+    'REQ-OPERATOR-007: profile discovery refuses %s without fallback or changes to admitted work', async fault => {
+      let inspect = false;
+      let entered!: () => void, release!: () => void;
+      const pending = new Promise<void>(resolve => { entered = resolve; });
+      const held = new Promise<void>(resolve => { release = resolve; });
+      await fixture(async f => {
+        expect(await start(f)).toMatchObject({ ok: true });
+        const input = await inputFor(f);
+        const before = await f.activity.getBrowserDetail();
+        const receipt = structuredClone(input.plan.receipt);
+        const admissions = structuredClone([...f.normalTransport!.admissions]);
+        const ownerRequests = structuredClone(f.ownerPortRequests);
+        inspect = true;
+        const work = discoverDispatcherOwnerProfile({ ...input,
+          ...(fault === 'deadline' ? { plan: { ...input.plan, deadline: Date.now() + 50 } } : {}) });
+        const rejected = expect(work).rejects.toBeDefined();
+        await pending;
+        if (fault === 'revoked') { f.revokeSession(); release(); }
+        await rejected;
+        expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: before!.executionStatus,
+          result: before!.result });
+        expect((await f.activity.getRuntimePlan())!.receipt).toEqual(receipt);
+        expect([...f.normalTransport!.admissions]).toEqual(admissions);
+        expect(f.ownerPortRequests).toEqual(ownerRequests);
+      }, { ...options, normalProfileTransport: async request => {
+        if (!inspect || new URL(request.url).pathname !== '/control/profile') return undefined;
+        entered();
+        if (fault === 'revoked') { await held; return undefined; }
+        if (fault === 'declared-over') return new Response('PRIVATE_PROFILE_OVERFLOW', {
+          headers: { 'content-length': String(1024 * 1024 + 1) } });
+        return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+          if (fault === 'chunked-over') {
+            controller.enqueue(new Uint8Array(512 * 1024));
+            controller.enqueue(new Uint8Array(512 * 1024 + 1));
+            controller.close();
+          }
+        } }));
+      } });
+    });
+
   it.each([true, false])('REQ-OPERATOR-090: AC1/4 full upstream non-OK body and status are captured before the same generic refusal with logging=%s', loggingEnabled => {
     const body = 'ORIGINAL_UPSTREAM_BODY_é🦊'.repeat(503) + 'LAST_UPSTREAM_BYTE';
     return fixture(async f => {
@@ -4681,4 +4723,161 @@ describe('configured-owner pre-lease failure evidence', () => {
       return undefined;
     } });
   });
+});
+
+// IG0162 uses the established Activity fixture mock environment, not route-only service mocks.
+describe('REQ-OPERATOR-041/069/078: IG0162 actual-owner ordinary cold HTTP entry', () => {
+  async function ownerIndex(f: DispatcherFixture) {
+    // The reusable fixture's default registry calls the owner BEFORE checking its
+    // index. Replace only that dependency with an exact-owner retained index seam;
+    // otherwise even a foreign 404 could consume the cold recovery opportunity.
+    let retained = (await f.activity.getBrowserSummary(f.proof.ownerKey))!;
+    expect(retained.activityId).toBe(f.activityId);
+    const registry = f.environment.OPERATOR_REGISTRY!.getByName('registry') as unknown as {
+      getOwnedActivity(owner: string, id: string): Promise<OperatorBrowserSummary | null>;
+      upsertOwnedActivity(owner: string, projection: OperatorBrowserSummary): Promise<void>;
+    };
+    vi.spyOn(registry, 'getOwnedActivity').mockImplementation(async (owner, id) =>
+      owner === f.proof.ownerKey && id === f.activityId ? structuredClone(retained) : null);
+    vi.spyOn(registry, 'upsertOwnedActivity').mockImplementation(async (owner, projection) => {
+      if (owner === f.proof.ownerKey && projection.activityId === f.activityId) retained = structuredClone(projection);
+    });
+    return () => retained;
+  }
+
+  async function protectedState(f: DispatcherFixture) {
+    let saved: unknown;
+    await f.mutateEvidence(async storage => {
+      saved = { journal: await storage.get('dispatcher:journal'),
+        legacy: await storage.get('dispatcher:operations'),
+        operations: [...await storage.list({ prefix: 'dispatcher:operation:' })],
+        responses: [...await storage.list({ prefix: 'dispatcher:response:' })] };
+    });
+    return saved;
+  }
+
+  it.each(['', '/result'])('REQ-OPERATOR-041/069/078: cold GET %s adopts only the already-admitted normal job after a lost acknowledgement', suffix => fixture(async f => {
+    f.normalTransport!.loseAcknowledgement();
+    await start(f);
+    await f.drainBackground();
+    const index = await ownerIndex(f);
+    const get = diagnosticsBrowser(f);
+    const dispatch = () => f.normalTransport!.requests.filter(request => request.path === '/control/dispatch');
+    const original = structuredClone(dispatch()[0]);
+    expect(original.body).toMatchObject({ activityId: f.activityId, generation: 1 });
+    const accepted = structuredClone([...f.normalTransport!.admissions.values()]);
+    expect(accepted).toHaveLength(1);
+    let expiresAt: unknown;
+    await f.mutateEvidence(async storage => {
+      const lease = await storage.get<{ status: string; expiresAt: number }>('dispatcher:lease');
+      expect(lease?.status).toBe('admitting'); expiresAt = lease?.expiresAt;
+    });
+    const protectedBefore = await protectedState(f);
+    const sourceBefore = [...f.sent];
+    const modelBefore = structuredClone(f.ownerPortRequests);
+    f.restart(); await f.drainBackground();
+    const controlsBefore = structuredClone(f.normalTransport!.requests);
+    const denied = await get(suffix, 'foreign@example.test');
+    expect(denied.status).toBe(404);
+    await f.drainBackground();
+    expect(f.normalTransport!.requests).toEqual(controlsBefore);
+    expect(await protectedState(f)).toEqual(protectedBefore);
+
+    expect((await get(suffix)).status).toBe(200);
+    await f.drainBackground();
+    const response = await get(suffix);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ activityId: f.activityId,
+      executionStatus: 'running', collectionStatus: 'unavailable', result: null });
+    expect(dispatch().length).toBeGreaterThan(1);
+    for (const request of dispatch()) expect(request).toEqual(original);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(accepted);
+    expect(f.normalTransport!.requests.slice(controlsBefore.length).every(request =>
+      request.path === '/control/dispatch' || request.path === '/control/read')).toBe(true);
+    await f.mutateEvidence(async storage => {
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1,
+        status: 'running', expiresAt, submissionId: accepted[0].receipt.submissionId });
+    });
+    // REQ069 metadata/index repair and REQ078 inspection are not extra execution authority.
+    expect(index()).toMatchObject({ activityId: f.activityId, executionStatus: 'running' });
+    expect(await protectedState(f)).toEqual(protectedBefore);
+    expect(f.sent).toEqual(sourceBefore);
+    expect(f.ownerPortRequests).toEqual(modelBefore);
+    expect(f.childSubmissions).toEqual([]);
+  }, { repositoryOnly: true, recovery: true, normalHosting: true }));
+
+  it('REQ-OPERATOR-041/069/078: a stale admitting generation cannot recover a successor or admit another job', () => fixture(async f => {
+    f.normalTransport!.loseAcknowledgement(); await start(f); await f.drainBackground();
+    await ownerIndex(f);
+    await f.mutateEvidence(async storage => {
+      const state = (await storage.get<{ drive: { generation: number; status: string } }>('admission'))!;
+      await storage.put('admission', { ...state, drive: { ...state.drive, generation: 2, status: 'unknown' } });
+    });
+    const controls = structuredClone(f.normalTransport!.requests);
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const protectedBefore = await protectedState(f);
+    f.restart(); await f.drainBackground();
+    const get = diagnosticsBrowser(f);
+    expect((await get('')).status).toBe(200); await f.drainBackground();
+    expect(await (await get('/result')).json()).toMatchObject({ executionStatus: 'unknown',
+      collectionStatus: 'unavailable', result: null });
+    expect(f.normalTransport!.requests).toEqual(controls);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(await protectedState(f)).toEqual(protectedBefore);
+    expect(f.sent).toEqual([]); expect(f.ownerPortRequests).toEqual([]);
+  }, { repositoryOnly: true, recovery: true, normalHosting: true }));
+
+  it('REQ-OPERATOR-041/069/078: cold result GET releases eligible retired SDK bookkeeping without resolving an uncertain protected write', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const index = await ownerIndex(f);
+    const uncertainWrite = { operationId: 'retained-uncertain-write',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', method: 'POST',
+      body: '{"body":"PRIVATE_UNCERTAIN_WRITE"}' };
+    f.loseResponse();
+    const uncertain = await f.capability.fetch(genericWire('source', uncertainWrite));
+    expect(uncertain.status).toBe(409);
+    expect(await uncertain.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    f.restoreTransport();
+    const comments = await f.readRemoteComments();
+    expect(comments).toEqual([expect.objectContaining({ body: 'PRIVATE_UNCERTAIN_WRITE' })]);
+    const sdk = Agent.prototype as unknown as { _cf_cleanupFacetPrefix: (...args: unknown[]) => Promise<void> };
+    const fault = vi.spyOn(sdk, '_cf_cleanupFacetPrefix').mockRejectedValue(new Error('Controlled SDK cleanup unavailable'));
+    try { await expect(f.activity.cancelDrive()).rejects.toThrow('Controlled SDK cleanup unavailable'); }
+    finally { fault.mockRestore(); }
+    await f.drainBackground();
+    const protectedBefore = await protectedState(f);
+    const sent = [...f.sent]; const submissions = [...f.childSubmissions];
+    let drive: unknown;
+    await f.mutateEvidence(async storage => {
+      drive = (await storage.get<{ drive: unknown }>('admission'))!.drive;
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1, status: 'unknown' });
+    });
+    f.restart(); await f.drainBackground();
+    const get = diagnosticsBrowser(f);
+    expect((await get('/result', 'foreign@example.test')).status).toBe(404);
+    await f.drainBackground();
+    await f.mutateEvidence(async storage => {
+      expect((await storage.get<{ sdkReleased?: boolean }>('dispatcher:lease'))?.sdkReleased).not.toBe(true);
+    });
+    expect((await get('/result')).status).toBe(200); await f.drainBackground();
+    const response = await get('/result');
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({ executionStatus: 'cancel-requested', collectionStatus: 'unavailable',
+      sdkCleanupReleased: true, result: null });
+    expect(JSON.stringify(body)).not.toContain('PRIVATE_UNCERTAIN_WRITE');
+    expect(index()).toMatchObject({ executionStatus: 'cancel-requested' });
+    await f.mutateEvidence(async storage => {
+      expect((await storage.get<{ drive: unknown }>('admission'))!.drive).toEqual(drive);
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1, status: 'unknown', sdkReleased: true });
+    });
+    expect(await protectedState(f)).toEqual(protectedBefore);
+    expect((await f.capability.fetch(genericWire('source', uncertainWrite))).status).toBe(403);
+    expect((await f.capability.fetch(genericWire('source', { operationId: 'new-write-after-cold-get',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', method: 'POST', body: '{"body":"forbidden"}' }))).status).toBe(403);
+    expect(f.sent).toEqual(sent); expect(f.childSubmissions).toEqual(submissions);
+    expect(f.ownerPortRequests).toEqual([]);
+    expect(await protectedState(f)).toEqual(protectedBefore);
+    expect(await f.readRemoteComments()).toEqual(comments);
+  }, { repositoryOnly: true, recovery: true }));
 });

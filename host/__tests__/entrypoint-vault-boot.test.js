@@ -313,6 +313,10 @@ relay_managed_pi_extensions() { :; }
     // 'PRESEED DASHBOARD' here and this fails — that revert vs the client save is
     // exactly the "changed on both ends" conflict that hangs the 2nd start.
     writeFileSync(join(vault, 'Index.md'), 'CLIENT-NORMALIZED DASHBOARD\n');
+    for (const page of ['CONFIG.md', 'README.md', 'STYLES.md']) {
+      writeFileSync(join(vault, page), `STALE ${page}\n`);
+      writeFileSync(join(preseedDir, page), `UPDATED ${page}\n`);
+    }
     res = runBash(buildInitVaultHarness({ userHome, preseedDir, runs: 1 }));
     assert.equal(res.status, 0, `run 2 must run cleanly; stderr: ${res.stderr}`);
     assert.equal(
@@ -320,6 +324,9 @@ relay_managed_pi_extensions() { :; }
       'CLIENT-NORMALIZED DASHBOARD\n',
       'init_user_vault must NOT clobber an existing Index.md that differs from preseed',
     );
+    for (const page of ['CONFIG.md', 'README.md', 'STYLES.md']) {
+      assert.equal(readFileSync(join(vault, page), 'utf8'), `UPDATED ${page}\n`);
+    }
   });
 
   it('seeds Notes.md / References.md landing pages create-if-missing and never clobbers a user edit', () => {

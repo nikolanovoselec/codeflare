@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -52,11 +52,13 @@ describe('user-scoped review completion state', () => {
 
     const path = completionPath(identity(), stateRoot);
     const initial = JSON.parse(readFileSync(path, 'utf8')) as { reviewedAt: string };
+    expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readCompletion(identity(), first)).toMatchObject({ status: 'complete' });
 
     const later = options(stateRoot, new Date(NOW.getTime() + DAY));
     expect(writeCompletion(identity(), later)).toEqual({ written: false });
     expect(JSON.parse(readFileSync(path, 'utf8')).reviewedAt).toBe(initial.reviewedAt);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
   it('isolates host, repository, PR, branch, base, and head identities', () => {

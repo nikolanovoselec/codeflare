@@ -165,6 +165,57 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     expect(await response.text()).toBe('proxied');
   });
 
+  it('REQ-VAULT-009: forwards a no-Origin upload with intact bytes and synthesized CSRF headers', async () => {
+    const payload = '# Note\n\né and binary-safe body bytes';
+    const request = new Request(tokenRequest('/Notes/upload.md').url, {
+      method: 'PUT', headers: { Cookie: `cf_vault_sid=${SID}; codeflare_vault_csrf=upload-token`, 'content-type': 'text/markdown' },
+      body: payload,
+    });
+    let arrived: { body: string; csrf: string | null; requestedWith: string | null } | undefined;
+    mockContainerFetch.mockImplementationOnce(async (forwarded: Request) => {
+      arrived = { body: await forwarded.text(), csrf: forwarded.headers.get('X-Vault-Csrf'),
+        requestedWith: forwarded.headers.get('X-Requested-With') };
+      return new Response('saved', { status: 201 });
+    });
+    const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(201);
+    expect(await response.text()).toBe('saved');
+    expect(arrived).toEqual({ body: payload, csrf: 'upload-token', requestedWith: 'XMLHttpRequest' });
+    expect(mockAutoStartingFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['application/javascript', 'application/manifest+json', 'application/octet-stream'])(
+    'REQ-VAULT-013: dispatch preserves %s response bytes and upstream headers', async contentType => {
+      const bytes = new Uint8Array([0, 255, 60, 98, 97, 115, 101, 62, 195, 169]);
+      mockContainerFetch.mockResolvedValueOnce(new Response(bytes, { status: 206,
+        headers: { 'content-type': contentType, etag: '"asset-version"', 'x-upstream': 'retained' } }));
+      const request = tokenRequest('/.client/asset');
+      const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+      expect(response.status).toBe(206);
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+      expect(response.headers.get('content-type')).toBe(contentType);
+      expect(response.headers.get('etag')).toBe('"asset-version"');
+      expect(response.headers.get('x-upstream')).toBe('retained');
+    },
+  );
+
+  it('REQ-VAULT-015: rejects hidden mutations before upstream access but permits an adjacent human note', async () => {
+    for (const suffix of ['/Raw/Sessions/capture.md', '/graphify-out/graph.json']) {
+      const request = new Request(tokenRequest(suffix).url, { method: 'DELETE' });
+      const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ code: 'FILTERED_PATH' });
+    }
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+    expect(mockAutoStartingFetch).not.toHaveBeenCalled();
+    const note = new Request(tokenRequest('/Notes/human.md').url, {
+      method: 'PUT', headers: { Cookie: `cf_vault_sid=${SID}` }, body: '# Human note',
+    });
+    const response = await handleVaultRequest(note, mockEnv, mockCtx, route(note));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('proxied');
+  });
+
   it('forwards to the container on the bucket-stable path when the full auth chain passes', async () => {
     const request = tokenRequest();
     const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
@@ -465,6 +516,8 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
       // REQ-VAULT-021: the key is now bucket-derived (HKDF over ENCRYPTION_KEY + bucket),
       // not the old per-session DO key. It must match the deterministic derivation.
       expect(body.vaultEncryptionKey).toBe(await getVaultEncryptionKey(mockEnv, 'test-bucket'));
+      expect(mockEnsureVaultKey).not.toHaveBeenCalled();
+      expect(mockAutoStartingFetch).not.toHaveBeenCalled();
     });
   });
 });

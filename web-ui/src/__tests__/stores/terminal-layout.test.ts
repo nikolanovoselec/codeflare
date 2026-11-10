@@ -79,6 +79,24 @@ describe('terminal-layout', () => {
       unregisterFitAddon('sess-mob010', 'term-1');
     });
 
+    it('REQ-MOB-010 AC4: refitting a scrolled terminal preserves its visible history', () => {
+      const active = { viewportY: 40, baseY: 100 };
+      const terminal = { cols: 80, rows: 24, buffer: { active },
+        scrollToBottom: () => { active.viewportY = active.baseY; },
+      } as unknown as Terminal;
+      const frames: string[] = [];
+      registerLayoutDeps(() => new Map([[KEY, terminal]]),
+        () => new Map([[KEY, { readyState: WebSocket.OPEN, send: (frame: string) => frames.push(frame) } as WebSocket]]));
+      registerFitAddon('sess-mob010', 'term-1', { fit: () => {
+        (terminal as { cols: number }).cols = 100;
+        (terminal as { rows: number }).rows = 30;
+      } } as FitAddon);
+      refitAllTerminalsExported();
+      expect(frames.map(frame => JSON.parse(frame))).toEqual([{ type: 'resize', cols: 100, rows: 30 }]);
+      expect(active.viewportY).toBe(40);
+      expect(active.baseY).toBe(100);
+    });
+
     it('does NOT send a resize message when fit() leaves cols/rows unchanged', () => {
       const { terminal } = makeTerminal(80, 24);
       // fit() runs but dimensions stay identical.

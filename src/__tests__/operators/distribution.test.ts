@@ -86,6 +86,22 @@ async function digest(bytes: Uint8Array): Promise<string> {
     }), ENDPOINT)).toThrow(ValidationError);
   });
 
+  it('refuses malformed discovery without returning supplied credential or metadata values', () => {
+    const credential = 'PRIVATE_DISCOVERY_CREDENTIAL_SENTINEL';
+    const metadata = 'PRIVATE_DISCOVERY_METADATA_SENTINEL';
+    try {
+      parseOperatorManifest(JSON.stringify({ ...manifest(), description: metadata }),
+        `https://user:${credential}@operator.example.test/discovery`);
+      expect.fail('Unsafe endpoint accepted');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(String(error)).not.toContain(credential);
+      expect(String(error)).not.toContain(metadata);
+      expect(JSON.stringify(error)).not.toContain(credential);
+      expect(JSON.stringify(error)).not.toContain(metadata);
+    }
+  });
+
   it('rejects malformed JSON, invalid digest and metadata over the UTF-8 byte bound', () => {
     expect(() => parseOperatorManifest('<html>Login</html>', ENDPOINT)).toThrow(ValidationError);
     expect(() => parseOperatorManifest(JSON.stringify({
@@ -190,6 +206,23 @@ describe('REQ-OPERATOR-030: approved bundle boundary', () => {
     const modules = Object.fromEntries(Array.from({ length: 129 }, (_, i) => [`module-${i}.js`, { js: '' }]));
     const bytes = encode({ ...bundle(), mainModule: 'module-0.js', modules });
     await expect(parseOperatorBundle(bytes, await digest(bytes))).rejects.toThrow(ValidationError);
+  });
+
+  it('refuses invalid approved bundle shapes without returning source or credential sentinels', async () => {
+    const source = 'PRIVATE_BUNDLE_SOURCE_SENTINEL';
+    const credential = 'PRIVATE_BUNDLE_CREDENTIAL_SENTINEL';
+    const bytes = encode({ ...bundle(), mainModule: '../escape.js',
+      modules: { 'index.js': { js: `throw new Error("${source} ${credential}")` } } });
+    try {
+      await parseOperatorBundle(bytes, await digest(bytes));
+      expect.fail('Invalid bundle accepted');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      for (const sentinel of [source, credential]) {
+        expect(String(error)).not.toContain(sentinel);
+        expect(JSON.stringify(error)).not.toContain(sentinel);
+      }
+    }
   });
 
   it('rejects oversized artifacts and malformed digest without disclosing source', async () => {

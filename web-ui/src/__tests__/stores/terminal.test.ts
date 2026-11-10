@@ -204,18 +204,35 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
 
     it('should dispose existing input handler before creating new one', async () => {
       const terminal = createMockTerminal();
+      const listeners = new Set<(data: string) => void>();
       const disposeFn = vi.fn();
-      (terminal.onData as ReturnType<typeof vi.fn>).mockReturnValue({ dispose: disposeFn });
+      (terminal.onData as ReturnType<typeof vi.fn>).mockImplementation((listener: (data: string) => void) => {
+        listeners.add(listener);
+        return { dispose: () => { disposeFn(); listeners.delete(listener); } };
+      });
+      const OriginalWebSocket = globalThis.WebSocket;
+      const sent: string[][] = [];
+      vi.stubGlobal('WebSocket', class extends OriginalWebSocket {
+        private readonly output: string[];
+        constructor(url: string) { super(url); this.output = []; sent.push(this.output); }
+        send(data: string) { this.output.push(data); }
+      });
 
       // First connection
+      terminalStore.setTerminal(sessionId, terminalId, terminal);
       terminalStore.connect(sessionId, terminalId, terminal);
       await vi.advanceTimersByTimeAsync(0);
 
-      // Second connection should dispose existing handler
-      terminalStore.connect(sessionId, terminalId, terminal);
+      // Reconnect the retained terminal through the actual owner.
+      terminalStore.reconnect(sessionId, terminalId);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(disposeFn).toHaveBeenCalled();
+      const before = sent.map(messages => [...messages]);
+      // One xterm input event is delivered to all still-subscribed listeners.
+      for (const listener of listeners) listener('x');
+      expect(sent[0]).toEqual(before[0]);
+      expect(sent[1]).toEqual([...before[1], 'x']);
     });
   });
 
@@ -1566,9 +1583,10 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       const rawData = '\x1b[32mHello World\x1b[0m\r\n';
       wsInstance._simulateMessage(rawData);
 
-      // Flush write batch (30fps throttle = 33ms setTimeout)
-      await vi.advanceTimersByTimeAsync(50);
-
+      // The fixed 33ms batching contract must not flush early.
+      await vi.advanceTimersByTimeAsync(32);
+      expect(terminal.write).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
       expect(terminal.write).toHaveBeenCalledWith(rawData);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);

@@ -4,6 +4,9 @@
  * real RP/backend acceptance remain integration evidence.
  */
 import { describe, expect, it } from 'vitest';
+import { buildConfigurationPreview } from '../../lib/admin-configuration';
+import { createMockKV } from '../helpers/mock-kv';
+import type { Env } from '../../types';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 import { parseJwtStampingPolicy, prepareJwtStampedRequest, shouldStampAccessJwt } from '../../operators/jwt-stamping';
 
@@ -23,6 +26,18 @@ describe('REQ-OPERATOR-019: automatic human Access JWT stamping', () => {
       { mode: 'list', destinations: ['127.0.0.1'] }, { mode: 'list', destinations: ['example.test/path'] }]) {
       expect(() => parseJwtStampingPolicy(invalid)).toThrow('JWT stamping');
     }
+  });
+
+  it('reads missing security configuration as effective Off without persisting an implicit policy', async () => {
+    const kv = createMockKV();
+    const before = [...kv._store];
+    const preview = await buildConfigurationPreview({ KV: kv } as unknown as Env,
+      'securityEgress', 'enterprise', 0, 0, {
+        strictGatewayEgress: false, jwtStamping: { mode: 'all', destinations: [] },
+      });
+    expect(preview.changes).toContainEqual({ field: 'jwtStamping',
+      before: { mode: 'off', destinations: [] }, after: { mode: 'all', destinations: [] } });
+    expect([...kv._store]).toEqual(before);
   });
 
   it('matches HTTPS exact/wildcard destinations with wildcard excluding its apex', () => {

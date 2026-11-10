@@ -780,6 +780,26 @@ describe('managed storage reconcile', () => {
     });
   });
 
+  it('REQ-STOR-034 AC2: public progress moves from planning through writing to finalizing', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
+      const progress = () => kv.get('managed-reconcile-progress:user-bucket', 'json');
+      expect(await progress()).toMatchObject({ phase: 'planning', completed: 0, total: 0 });
+      await args[4].automatic.onProgress({ completed: 0, total: 2 });
+      expect(await progress()).toMatchObject({ phase: 'writing', completed: 0, total: 2 });
+      await args[4].automatic.onProgress({ completed: 2, total: 2 });
+      expect(await progress()).toMatchObject({ phase: 'finalizing', completed: 2, total: 2 });
+      return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      managedReleaseProgress: { phase: 'finalizing', completed: 2, total: 2 },
+    });
+    // Progress reporting is not physical finalization or concurrency safety proof.
+  });
+
   it('REQ-STOR-034 AC2: finalizing progress is persisted before cleanup begins', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });

@@ -267,6 +267,27 @@ describe('getGithubProvider', () => {
     expect(await mockKV.get(secretKey)).toBe(unreadable);
   });
 
+  it('REQ-GITHUB-008 AC4: encrypted Setup secret without a configured key propagates the KV JSON rejection without mutation', async () => {
+    const key = await importEncryptionKey(btoa(String.fromCharCode(...new Uint8Array(32).fill(11))));
+    const secretKey = SETUP_KEYS.GITHUB_APP_CLIENT_SECRET;
+    const encrypted = await encryptForKV(JSON.stringify({ secret: 'synthetic-saved-secret' }), key, secretKey);
+    await mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'app');
+    await mockKV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'synthetic-setup-id');
+    await mockKV.put(secretKey, encrypted);
+    const read = mockKV.get.getMockImplementation()!;
+    mockKV.get.mockImplementation(async (name, type) => {
+      // Real KV's JSON read rejects non-JSON ciphertext; the shared fake
+      // otherwise returns a raw string on JSON parse failure.
+      if (name === secretKey && type === 'json') return JSON.parse(encrypted);
+      return read(name, type);
+    });
+    await expect(getGithubProvider(env({ ENTERPRISE_MODE: 'active', ...OAUTH_ENV }))).rejects.toBeInstanceOf(SyntaxError);
+    expect(await mockKV.get(secretKey)).toBe(encrypted);
+    expect(await mockKV.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID)).toBe('synthetic-setup-id');
+    expect(mockFetch).not.toHaveBeenCalled();
+    // Current rejection is NOT evidence of successful environment fallback.
+  });
+
   it('enterprise returns null when neither KV nor env is configured', async () => {
     expect(await getGithubProvider(env({ ENTERPRISE_MODE: 'active' }))).toBeNull();
   });

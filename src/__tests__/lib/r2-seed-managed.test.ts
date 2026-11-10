@@ -748,6 +748,20 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2).not.toHaveBeenCalled();
   });
 
+  it('REQ-STOR-032 AC3: an unknown retired category rejects reconciliation before bucket access', async () => {
+    const value = release(3, [document('.pi/agent/skills/company/SKILL.md')]);
+    value.retiredPaths = ['.config/opencode/toolboxes/retired.md'];
+    const unknown = await selection('e'.repeat(64), value);
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: unknown,
+      resourcePolicy: 'exclusive',
+    })).rejects.toThrow(/recognized managed resource category/);
+    expect(fetchR2).not.toHaveBeenCalled();
+    expect([...acknowledgedWrites]).toEqual([]);
+  });
+
   it('REQ-STOR-029 AC6: mutable transition removes stale canonical policy', async () => {
     await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
@@ -896,7 +910,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(objects.get('.claude/unchanged.md')?.marker).toBe(priorDigest);
   });
 
-  it('REQ-STOR-039 AC1: automatic reconciliation rejects an acknowledged PUT whose R2 bytes differ', async () => {
+  it.each(['bytes', 'content type', 'provenance'] as const)('REQ-STOR-039 AC1: automatic reconciliation rejects an acknowledged PUT with wrong %s', async mismatch => {
     const priorDigest = '5'.repeat(64);
     const targetDigest = '6'.repeat(64);
     const key = '.claude/same-size.md';
@@ -909,9 +923,9 @@ describe('managed release user-bucket reconciliation', () => {
       if (init?.method === 'PUT') {
         const headers = new Headers(init.headers);
         stored = {
-          body: 'WRNG',
-          contentType: headers.get('Content-Type') ?? '',
-          marker: headers.get('x-amz-meta-codeflare-preseed') ?? '',
+          body: mismatch === 'bytes' ? 'WRNG' : 'BBBB',
+          contentType: mismatch === 'content type' ? 'application/octet-stream' : headers.get('Content-Type') ?? '',
+          marker: mismatch === 'provenance' ? priorDigest : headers.get('x-amz-meta-codeflare-preseed') ?? '',
         };
         return new Response('', { status: 200 });
       }
@@ -1003,7 +1017,7 @@ describe('managed release user-bucket reconciliation', () => {
     ))).toBe(false);
   });
 
-  it('REQ-STOR-039 AC2 + REQ-STOR-033 AC3: target provenance is not accepted when read-back bytes differ', async () => {
+  it.each(['bytes', 'content type', 'provenance'] as const)('REQ-STOR-039 AC2 + REQ-STOR-033 AC3: target-marked resume refuses wrong read-back %s', async mismatch => {
     const priorDigest = '9'.repeat(64);
     const targetDigest = 'a'.repeat(64);
     const key = '.claude/target-marked.md';
@@ -1012,9 +1026,9 @@ describe('managed release user-bucket reconciliation', () => {
         return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': targetDigest } });
       }
       if (url.endsWith(`/${key}`) && init?.method === 'GET') {
-        return new Response('WRNG', { status: 200, headers: {
-          'Content-Type': 'text/markdown; charset=utf-8',
-          'x-amz-meta-codeflare-preseed': targetDigest,
+        return new Response(mismatch === 'bytes' ? 'WRNG' : 'BBBB', { status: 200, headers: {
+          'Content-Type': mismatch === 'content type' ? 'application/octet-stream' : 'text/markdown; charset=utf-8',
+          'x-amz-meta-codeflare-preseed': mismatch === 'provenance' ? priorDigest : targetDigest,
         } });
       }
       return new Response('', { status: 200 });

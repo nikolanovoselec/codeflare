@@ -99,10 +99,20 @@ describe('Pi first-prompt memory injection (REQ-MEM-013)', () => {
     expect(renderInjection(selectNodes(NODES, ['zzzznomatch']))).toBeNull();
   });
 
-  it('AC4: a prompt below the character floor is skipped before the graph is read', () => {
+  it('AC4: a matching short prompt preserves the sentinel for a later eligible prompt', () => {
     const deps = workspace();
+    const { pi, fire } = fakePi();
+    registerMemoryInject(pi, deps);
 
-    expect(buildInjection(deps, 'too short')).toBeNull();
+    expect(buildInjection(deps, 'vault')).toBeNull();
+    expect(fire('vault')).toBeUndefined();
+    expect(existsSync(join(deps.sentinelDir, 'sess-1.inject-lock'))).toBe(false);
+    // The same keyword and graph now produce context: absence above cannot be
+    // explained by an unrelated/nonmatching graph fixture.
+    const result = fire('vault '.repeat(4));
+    expect(result?.message?.content).toContain('handleVaultRequest');
+    expect(result?.message?.details).toEqual({ graph: deps.globalGraph });
+    expect(existsSync(join(deps.sentinelDir, 'sess-1.inject-lock'))).toBe(true);
   });
 
   it('AC5: reads the unified graph only, and only within the ceiling', () => {

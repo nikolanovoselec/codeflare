@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createMockKV } from '../helpers/mock-kv';
 
 /**
  * REQ-SEC-018 AC2: warnIfNoEncryptionKey emits a CRITICAL log to the
@@ -63,32 +64,24 @@ describe('warnIfNoEncryptionKey / REQ-SEC-018 AC2 (CRITICAL log fires once per i
   });
 });
 
-/**
- * REQ-SEC-018 AC3: The plaintext allowlist is explicit and limited to
- * the documented prefixes. New KV namespaces are encrypted by default.
- *
- * The allowlist is the set of KV key prefixes that legitimately store
- * plaintext (non-secret) data. We verify the prefixes used at runtime
- * match the spec's documented set.
- */
-describe('plaintext KV allowlist / REQ-SEC-018 AC3 (non-secret KV entries remain plaintext; secrets encrypted by default)', () => {
-  it('the documented plaintext prefixes are the only callers using KV without encryption', async () => {
-    // The spec lists these prefixes as the plaintext allowlist:
-    //   user-prefs:, session:, user:, setup:, storage-stats:
-    // The corresponding secret-bearing prefixes (encrypted by default) are:
-    //   llm-keys:, deploy-keys:, r2token:
-    // We assert the kv-crypto module exposes only the encryption surface
-    // for the secret prefixes (no plaintext-path helper for those).
-    const mod = await import('../../lib/kv-crypto');
-    // The module exports the encryption primitives but no per-namespace
-    // plaintext bypass; secret routes pull `encryptAndStore` /
-    // `getAndDecrypt`, non-secret routes use raw `kv.get/put`. This is
-    // an architectural invariant captured by checking the exported names.
-    const exports = Object.keys(mod);
-    expect(exports).toContain('encryptAndStore');
-    expect(exports).toContain('getAndDecrypt');
-    expect(exports).not.toContain('encryptUserPrefs');
-    expect(exports).not.toContain('encryptSession');
-    expect(exports).not.toContain('encryptSetup');
+// REQ-SEC-018 AC3 supplemental representation evidence, not a proof that every
+// credential-route caller selects encryption or that all plaintext callers are allowlisted.
+describe('REQ-SEC-018 AC3: KV secret representation and storage-name binding', () => {
+  it('stores configured secret ciphertext bound to its KV name while unrelated preferences stay plaintext', async () => {
+    const { encryptAndStore, getAndDecrypt, importEncryptionKey } = await import('../../lib/kv-crypto');
+    const kv = createMockKV();
+    const namespace = kv as unknown as KVNamespace;
+    const key = await importEncryptionKey('A'.repeat(43) + '=');
+    const prefs = JSON.stringify({ userTimezone: 'UTC' });
+    await kv.put('user-prefs:owner', prefs);
+    const secret = { token: 'synthetic-secret-not-for-output' };
+    await encryptAndStore(namespace, 'llm-keys:owner', secret, key);
+    const stored = await kv.get('llm-keys:owner') as string;
+    expect(stored).toMatch(/^v1:/);
+    expect(stored).not.toContain(secret.token);
+    expect(await getAndDecrypt(namespace, 'llm-keys:owner', key)).toEqual(secret);
+    await kv.put('llm-keys:other-owner', stored);
+    expect(await getAndDecrypt(namespace, 'llm-keys:other-owner', key)).toBeNull();
+    expect(await kv.get('user-prefs:owner')).toBe(prefs);
   });
 });

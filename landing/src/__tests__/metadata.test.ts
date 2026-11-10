@@ -89,7 +89,18 @@ describe('REQ-LANDING-003: external metadata (SEO, social, structured data)', ()
   it('REQ-LANDING-003 AC4: emits a meta description with non-empty content', () => {
     const desc = doc.querySelector('meta[name="description"]');
     expect(desc, 'meta description exists').not.toBeNull();
-    expect((desc!.getAttribute('content') ?? '').trim().length).toBeGreaterThan(0);
+    const summary = 'Not a coding assistant. Codeflare runs governed engineering agents that build, test, review, and operate inside your own estate.';
+    for (const selector of ['meta[name="description"]', 'meta[property="og:description"]', 'meta[name="twitter:description"]']) {
+      expect(doc.querySelector(selector)?.getAttribute('content')).toBe(summary);
+    }
+    const data = JSON.parse(doc.querySelector('script[type="application/ld+json"]')!.textContent!);
+    const graph = data['@graph'] as Array<Record<string, unknown>>;
+    expect(graph.find(node => node['@type'] === 'Organization')?.description).toBe(
+      'The agentic engineering engine: governed engineering agents that build, test, review, and operate inside your own estate.',
+    );
+    expect(graph.find(node => node['@type'] === 'SoftwareApplication')?.description).toBe(
+      'The agentic engineering engine: governed engineering agents that build, test, review, and operate inside your own estate, under spec-driven and test-driven enforcement, attributed, and encrypted.',
+    );
   });
 
   it('REQ-LANDING-003 AC5: emits a JSON-LD block that parses to a schema.org @graph', () => {

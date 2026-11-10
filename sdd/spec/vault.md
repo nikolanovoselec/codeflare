@@ -333,9 +333,9 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. A state-changing request to a vault path with no Origin header is treated as same-origin and proceeds through CSRF synthesis. The synthesis adds the XHR-marker header so the downstream auth CSRF guard does not reject the write. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @impl: src/lib/vault-view.ts::maybeIssueCsrfCookie --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
+1. A state-changing request to a vault path with no Origin header is treated as same-origin and proceeds through CSRF synthesis. The synthesis adds the XHR-marker header so the downstream auth CSRF guard does not reject the write. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @impl: src/lib/vault-view.ts::maybeIssueCsrfCookie --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-009: forwards a no-Origin upload with intact bytes and synthesized CSRF headers) -->
 2. A state-changing request with an Origin header that fails the allowlist still returns a 403; the missing-Origin fallback does not widen the allowlist. <!-- @impl: src/lib/vault-view.ts::inferOriginValidated --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
-3. The forward chain preserves the request body bytes end-to-end (no double-read, no disturbed stream) on both the with-Origin and the no-Origin paths. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
+3. The forward chain preserves the request body bytes end-to-end (no double-read, no disturbed stream) on both the with-Origin and the no-Origin paths. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-009: forwards a no-Origin upload with intact bytes and synthesized CSRF headers) -->
 4. Existing read-only and preflight requests behave unchanged; only state-changing methods enter the fallback path. <!-- @impl: src/lib/vault-view.ts::inferOriginValidated --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 
 **Constraints:**
@@ -346,7 +346,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated: [vault.test.ts](../../src/__tests__/routes/vault.test.ts)
+**Verification:** Automated: [vault.test.ts](../../src/__tests__/routes/vault.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts)
 
 **Status:** Implemented
 
@@ -476,7 +476,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. Every Vault HTML response rewrites its base href to the session proxy path so relative assets survive deep-page reloads. <!-- @impl: src/lib/vault-view.ts::rewriteVaultBaseHref --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
-2. Except for the required Vault configuration and filesystem-listing transformations, non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; HTML rewriting applies only to HTML responses. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
+2. Except for the required Vault configuration and filesystem-listing transformations, non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; HTML rewriting applies only to HTML responses. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-013: dispatch preserves %s response bytes and upstream headers) -->
 3. When the body is rewritten, both the content-length and content-encoding headers are dropped because the rewrite path auto-decompresses upstream compression, and the original headers would otherwise trigger a browser decoding failure. <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 4. A successful HTML response lacking the expected base href logs a warning on root and deep routes. <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (warns when a successful deep SPA HTML response has no rewritable base href (REQ-VAULT-013 AC4)) -->
 
@@ -488,7 +488,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated: [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts)
+**Verification:** Automated: [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts)
 
 **Status:** Implemented
 
@@ -534,7 +534,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Acceptance Criteria:**
 
-1. The editor's filesystem listing hides the derived graph-output directory, generated graph HTML visualizations and machine-owned session-capture memory from browser listing and SilverBullet client sync/index; client mutations to those hidden namespaces are rejected. <!-- @impl: src/lib/vault-view.ts::filterVaultFsListing --> <!-- @impl: src/lib/vault-view.ts::isFilteredVaultMutation --> <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (CF-045: vault-html direct unit tests) -->
+1. The editor's filesystem listing hides the derived graph-output directory, generated graph HTML visualizations and machine-owned session-capture memory from browser listing and SilverBullet client sync/index; client mutations to those hidden namespaces are rejected. <!-- @impl: src/lib/vault-view.ts::filterVaultFsListing --> <!-- @impl: src/lib/vault-view.ts::isFilteredVaultMutation --> <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (CF-045: vault-html direct unit tests) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-015: rejects hidden mutations before upstream access but permits an adjacent human note) -->
 2. The preseed configuration page declares a treeview-exclusions block hiding the plug library, the library-manager mirror, the derived graph-output directory, and the four codeflare-authoritative root pages from the navigation tree. <!-- @test: host/__tests__/preseed-config-treeview.test.js (treeview rules hide every entry that should be hidden (REQ-VAULT-015 AC2)) --> <!-- @manual -->
 
 **Constraints:**
@@ -546,7 +546,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated: [preseed-config-treeview.test.js](../../host/__tests__/preseed-config-treeview.test.js), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts); Manual: [REQ-VAULT-015 procedure](../../documentation/lanes/vault.md#req-vault-015-manual-qualification)
+**Verification:** Automated: [preseed-config-treeview.test.js](../../host/__tests__/preseed-config-treeview.test.js), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts); Manual: [REQ-VAULT-015 procedure](../../documentation/lanes/vault.md#req-vault-015-manual-qualification)
 
 **Status:** Implemented
 
@@ -746,7 +746,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. Auth-gated encryption-key recoverability is verified at the cold-path arming poll before the control greens, so a green control opens without re-verifying the key on click. <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
-2. If the key is not recoverable, the control enters a non-openable preparing state. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
+2. If the key is not recoverable, the control enters a non-openable preparing state. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC2: completed prewarm cannot arm or open a Vault without a recoverable key) -->
 3. When the prewarm proof and key recoverability both hold, the cold-path arming poll marks the control armed (green) and the next click opens it synchronously inside the click gesture. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
 4. Open intent clears when the tab opens or authoritative session status is no longer running. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/Layout.tsx::pruneNonRunningSessionState --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC4 (vault open-intent clearing)) -->
 5. Temporary mobile visibility-return deactivation does not clear preparation intent while authoritative session status remains running. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC5: temporary mobile deactivation preserves intent and remounts preparation) -->
@@ -954,7 +954,7 @@ File ownership, synchronization artifacts and editor bootstrap mechanisms are do
 **Acceptance Criteria:**
 
 1. Change detection reports a vault file changed exactly when its sha256 differs from, or is absent in, the persisted manifest; a file's mtime is never consulted, so rewriting every file with identical bytes (what an R2 restore does) yields zero changes. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_changed --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (THE ORACLE: an R2-style restore (rewrite every file, fresh mtime, identical bytes) yields ZERO changes) -->
-2. The extraction manifest is allow-listed through the derived-output sync exclusion, round-trips to R2 and survives container restart, preserving changed-since-last-extraction state across boots. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
+2. The extraction manifest is allow-listed through the derived-output sync exclusion, round-trips to R2 and survives container restart, preserving changed-since-last-extraction state across boots. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-VAULT-026 AC2: durable extraction manifest bytes survive local baseline and ordinary bisync restore) -->
 3. For a vault that did not exist at boot, the manifest is baselined before the R2-persisted durable initialization record is written. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (baselines only the first durable Vault initialization and leaves a later missing manifest full-delta eligible (REQ-VAULT-026 AC3/AC4/AC7)) -->
 4. On every later boot the manifest is restored from R2 and never re-baselined; a missing or corrupt restored manifest therefore behaves as an empty high-water mark so every user file remains extraction-eligible. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (treats a later missing or corrupt restored manifest as a full delta instead of rebaselining current Vault bytes) -->
 5. Claude and Pi commit equivalent manifest content and the same exclusion set for the same Vault contents. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildVaultManifest --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content) -->

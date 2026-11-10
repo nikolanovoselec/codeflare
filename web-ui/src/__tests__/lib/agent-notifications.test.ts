@@ -210,6 +210,83 @@ describe('REQ-TERM-025 AC1-AC6: one per-device enrollment switch', () => {
     expect(env.unsubscribe).not.toHaveBeenCalled();
   });
 
+  it('REQ-TERM-025 AC2: enrollment stays pending until existing capability registration succeeds', async () => {
+    let finish!: () => void;
+    const registration = new Promise<void>(resolve => { finish = resolve; });
+    const current = subscription('https://fcm.googleapis.com/fcm/send/existing-device', decodePublicKey(VAPID_PUBLIC_KEY));
+    let stored: unknown;
+    let registering = false;
+    const env = browser({ currentSubscription: async () => current,
+      saveSubscription: async value => { registering = true; await registration; stored = value; } });
+    let state = 'pending';
+    const work = setAgentNotificationsEnabled(true, env).then(value => { state = value; });
+    await vi.waitFor(() => expect(registering).toBe(true));
+    expect(state).toBe('pending');
+    expect(stored).toBeUndefined();
+    finish();
+    await work;
+    expect(stored).toEqual(current.toJSON());
+    expect(state).toBe('on');
+
+    const failed = browser({ currentSubscription: async () => current,
+      saveSubscription: async () => { throw new Error('registration denied'); } });
+    await expect(setAgentNotificationsEnabled(true, failed)).resolves.toBe('unavailable');
+  });
+
+  it('REQ-TERM-025 AC3: worker readiness precedes subscription and registration precedes on', async () => {
+    let ready!: (worker: { showNotification: () => Promise<void> }) => void;
+    const worker = new Promise<{ showNotification: () => Promise<void> }>(resolve => { ready = resolve; });
+    let save!: () => void;
+    const registration = new Promise<void>(resolve => { save = resolve; });
+    let local: ReturnType<typeof subscription> | undefined;
+    let stored: unknown;
+    const created = subscription();
+    let preparingWorker = false;
+    const env = browser({ currentSubscription: async () => undefined, registerWorker: () => { preparingWorker = true; return worker; },
+      subscribe: async () => { local = created; return created; },
+      saveSubscription: async value => { await registration; stored = value; } });
+    let state = 'pending';
+    const work = setAgentNotificationsEnabled(true, env).then(value => { state = value; });
+    await vi.waitFor(() => expect(preparingWorker).toBe(true));
+    expect(local).toBeUndefined();
+    expect(state).toBe('pending');
+    ready({ showNotification: async () => {} });
+    await vi.waitFor(() => expect(local).toBe(created));
+    expect(stored).toBeUndefined();
+    expect(state).toBe('pending');
+    save();
+    await work;
+    expect(stored).toEqual(created.toJSON());
+    expect(state).toBe('on');
+  });
+
+  it('REQ-TERM-025 AC4: pending or failed server deletion retains the local subscription', async () => {
+    let finish!: () => void;
+    const deletion = new Promise<void>(resolve => { finish = resolve; });
+    const current = subscription();
+    let local: ReturnType<typeof subscription> | undefined = current;
+    let serverPresent = true;
+    const env = browser({ currentSubscription: async () => local,
+      deleteSubscription: async () => { await deletion; serverPresent = false; },
+      unsubscribe: async () => { local = undefined; return true; } });
+    let state = 'pending';
+    const work = setAgentNotificationsEnabled(false, env).then(value => { state = value; });
+    await Promise.resolve();
+    expect(local).toBe(current);
+    expect(serverPresent).toBe(true);
+    expect(state).toBe('pending');
+    finish();
+    await work;
+    expect(serverPresent).toBe(false);
+    expect(local).toBeUndefined();
+    expect(state).toBe('off');
+
+    local = current;
+    env.deleteSubscription = async () => { throw new Error('denied'); };
+    await expect(setAgentNotificationsEnabled(false, env)).resolves.toBe('unavailable');
+    expect(local).toBe(current);
+  });
+
   it('replaces an existing subscription whose application server key cannot match current config', async () => {
     const current = subscription(
       'https://fcm.googleapis.com/fcm/send/old-device',

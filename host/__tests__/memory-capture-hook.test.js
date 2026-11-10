@@ -367,13 +367,17 @@ describe('memory-capture.sh - tilde expansion', () => {
     const fx = makeFixture();
     writeFileSync(join(fx.counterDir, 'sess-tilde'), '0\n0\n');
     const realPath = join(fx.home, 'transcript.jsonl');
-    writeFileSync(realPath, realUserLine('hi') + '\n');
+    writeFileSync(realPath, Array.from({ length: 20 }, (_, i) => realUserLine(`eligible prompt ${i}`)).join('\n') + '\n');
     const r = runHook(fx, {
       transcriptPath: '~/transcript.jsonl',
       sessionId: 'sess-tilde',
     });
     assert.equal(r.status, 0,
       'tilde-prefixed path must resolve to a real file (no error)');
+    const carrier = JSON.parse(readFileSync(join(fx.counterDir, 'sess-tilde.vars'), 'utf-8'));
+    assert.equal(carrier.transcript, realPath);
+    assert.equal(carrier.current_count, '20');
+    assert.equal(carrier.attempts, 1);
   });
 });
 

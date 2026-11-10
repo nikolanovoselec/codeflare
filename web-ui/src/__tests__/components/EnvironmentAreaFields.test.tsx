@@ -47,6 +47,9 @@ describe('Environment report fields', () => {
     expect(getByText(/New nested files in approved agent folders still persist/)).toBeTruthy();
     expect(getByText(/Workspace sync stays off when disabled; Vault persistence still requires advanced mode/)).toBeTruthy();
     expect(getByText(/Applies to all users' new or restarted sessions; sessions already running are unchanged/)).toBeTruthy();
+    expect(getByText(/Managed-resource protections are unchanged/)).toBeVisible();
+    expect(getByText(/This change does not delete existing stored data/)).toBeVisible();
+    expect(getByText(/it does not automatically restart sessions/)).toBeVisible();
     const form = document.createElement('form');
     form.append(container.firstElementChild!);
     for (const enabled of [true, false]) {

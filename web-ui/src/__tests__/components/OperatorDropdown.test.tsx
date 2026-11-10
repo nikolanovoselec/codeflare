@@ -9,6 +9,7 @@ const server = vi.hoisted(() => ({
   runPages: {} as Record<string, { items: Array<Record<string, unknown>>; nextCursor: string | null }>,
   installationPages: {} as Record<string, { items: Array<Record<string, unknown>>; cursor: string | null }>,
   detail: {} as Record<string, unknown>,
+  diagnosticError: new Error('Diagnostics unavailable'),
   management: {} as Record<string, unknown>, preview: {} as Record<string, unknown>,
   prepared: {} as Record<string, { installationId: string; invocation: unknown; phase: string }>,
   nextCursor: null as string | null, installCursor: null as string | null,
@@ -26,7 +27,7 @@ vi.mock('../../api/operator-activities', () => ({
   acknowledgeOperatorActivities: async () => ({ unreadCount: 0 }),
   getOperatorActivity: async () => server.detail,
   cancelOperatorActivity: async () => server.detail,
-  getOperatorActivityDiagnostics: async () => { throw new Error('Diagnostics unavailable'); },
+  getOperatorActivityDiagnostics: async () => { throw server.diagnosticError; },
   getOperatorActivityDiagnosticHistory: async () => { throw new Error('Diagnostics unavailable'); },
   getOperatorActivityDiagnosticRecord: async () => { throw new Error('Diagnostics unavailable'); },
   exportOperatorActivityDiagnostics: async () => { throw new Error('Diagnostics unavailable'); },
@@ -112,6 +113,7 @@ beforeEach(() => {
   server.saveError = false; server.reconcileError = false; server.startWait = null;
   server.prepareWait = null; server.inspectWait = null;
   server.savedPolicy = null; server.savedRevision = null;
+  server.diagnosticError = new Error('Diagnostics unavailable');
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -315,6 +317,9 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect(screen.queryByRole('button', { name: 'View diagnostics' })).toBeNull();
     const failure = 'Diagnostic metadata is invalid or unavailable. It cannot be used as evidence.';
     expect(screen.getByText(failure)).toBeTruthy();
+    // A forbidden background read would replace this retained error with a
+    // different public outcome. Only the next explicit open may consume it.
+    server.diagnosticError = new ApiError('Forbidden', 403, 'Forbidden');
     await vi.advanceTimersByTimeAsync(60_000);
     window.dispatchEvent(new Event('focus'));
     window.dispatchEvent(new Event('online'));
@@ -326,7 +331,8 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect(screen.queryByText(failure)).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'View diagnostics' }));
     await vi.advanceTimersByTimeAsync(0);
-    expect(screen.getByText(failure)).toBeTruthy();
+    expect(screen.queryByText(failure)).toBeNull();
+    expect(screen.getByText('Diagnostics are not available: access or permission could not be confirmed.')).toBeVisible();
     expect(server.prepared).toEqual({});
   });
 

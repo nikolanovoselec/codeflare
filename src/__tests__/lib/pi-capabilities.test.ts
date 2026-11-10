@@ -504,8 +504,12 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(identities(resultMatches(await capability.execute('search', {
       query: 'background specialist',
     })))).toEqual(['tool:get_subagent_result', 'tool:steer_subagent', 'tool:subagent']);
+    const beforeUnknown = pi.getActiveTools();
+    // Public error contract: activation distinguishes tools from skills and
+    // tells the caller exactly which read action can load a skill.
     await expect(capability.execute('activate-skill', { name: 'codeflare-capabilities' }))
-      .rejects.toBeInstanceOf(Error);
+      .rejects.toThrow('Unknown tool: codeflare-capabilities. capability activates registered Pi tools only; read ~/.pi/agent/skills/<name>/SKILL.md to load a skill.');
+    expect(pi.getActiveTools()).toEqual(beforeUnknown);
     expect(await capability.execute('activate', { name: 'subagent' })).toMatchObject({
       details: {
         name: 'subagent',

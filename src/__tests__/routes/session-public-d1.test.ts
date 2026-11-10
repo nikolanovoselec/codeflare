@@ -100,6 +100,21 @@ describe('REQ-SESSION-001 subsets: public CRUD with supplied owner context and r
     expect(await new D1SessionRepository(db).listSessions(owner)).toEqual([]);
   });
 
+  it('REQ-SUB-002 AC2: unlimited storage admits creation despite high cached usage', async () => {
+    const previousTier = user.subscriptionTier;
+    user.subscriptionTier = 'unlimited';
+    try {
+      await bindings.KV.put(`storage-stats:${owner}`, JSON.stringify({ totalSizeBytes: 9_000_000_000_000 }));
+      const response = await request(app({ SAAS_MODE: 'active' }), '/sessions', 'POST', { name: 'Unlimited storage workspace' });
+      expect(response.status).toBe(201);
+      const body = await response.json() as { session: { id: string } };
+      expect(await new D1SessionRepository(db).getSession(owner, body.session.id))
+        .toMatchObject({ name: 'Unlimited storage workspace', lifecycleState: 'stopped', lifecycleGeneration: 0 });
+    } finally {
+      user.subscriptionTier = previousTier;
+    }
+  });
+
   it('AC6 subset: route limiter rejects request eleven without creating any invalid session', async () => {
     const application = app();
     for (let index = 0; index < 10; index++) expect((await request(application, '/sessions', 'POST', { name: 42 })).status).toBe(400);

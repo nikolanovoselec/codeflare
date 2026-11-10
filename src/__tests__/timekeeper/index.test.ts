@@ -128,6 +128,25 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
       expect(body.totalMonthlySeconds).toBe(60);
     });
 
+    it('REQ-ENTERPRISE-001 AC3: enterprise pings retain accounting beyond SaaS quota without enforcement', async () => {
+      mockKV.get.mockImplementation(async (key: string, type?: string) => {
+        if (key.startsWith('user:')) return JSON.stringify({ subscriptionTier: 'free', billingStatus: 'active' });
+        if (key.startsWith('timekeeper:')) {
+          const record = { today: { date: TODAY, seconds: 999999 }, thisWeek: { weekStart: THIS_WEEK_START, seconds: 999999 },
+            thisMonth: { month: THIS_MONTH, seconds: 999999 }, thisYear: { year: THIS_YEAR, seconds: 999999 },
+            allTime: { seconds: 999999 }, lastUpdatedAt: NOW.toISOString() };
+          return type === 'json' ? record : JSON.stringify(record);
+        }
+        return null;
+      });
+      const tk = createTimekeeper({ ENTERPRISE_MODE: 'active' });
+      const response = await tk.fetch(pingRequest({ bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 60, email: 'alice@example.com' }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ quotaExceeded: false, totalMonthlySeconds: 1000059 });
+      const persisted = mockStorage.put.mock.calls.filter(call => call[0] === 'accountingState:v2').at(-1)![1];
+      expect(persisted).toMatchObject({ pendingSeconds: 60 });
+    });
+
     it('stores bucketName on first ping', async () => {
       const tk = createTimekeeper();
       await tk.fetch(pingRequest({
@@ -525,8 +544,19 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
 
       await tk.alarm();
 
-      // Should re-arm alarm for retry (30s)
-      expect(mockStorage.setAlarm).toHaveBeenCalledWith(expect.any(Number));
+      // Fixed retry interval, including repeated failure; not exponential backoff.
+      vi.useFakeTimers();
+      try {
+        mockKV.put.mockRejectedValue(new Error('KV still unavailable'));
+        for (const at of [1_800_000_000_000, 1_800_000_030_000]) {
+          vi.setSystemTime(at);
+          await tk.alarm();
+          expect(mockStorage.setAlarm.mock.calls.at(-1)).toEqual([at + 30_000]);
+        }
+      } finally {
+        vi.useRealTimers();
+        mockKV.put.mockResolvedValue(undefined);
+      }
       // Unified state remains at 60; failed KV work never checkpoints it to 0.
       const lastStateWrite = mockStorage.put.mock.calls
         .filter((c: unknown[]) => c[0] === 'accountingState:v2')

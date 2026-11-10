@@ -32,6 +32,28 @@ describe('Gemini compat thought-signature adapter', () => {
     expect(text).toContain('data: [DONE]');
   });
 
+  it('REQ-ENTERPRISE-059: exposes exactly 32768 signature bytes but suppresses oversized multibyte replay metadata only', async () => {
+    for (const [signature, exposed] of [['x'.repeat(32768), true], ['é'.repeat(16385), false]] as const) {
+      const input = structuredClone(event);
+      input.choices[0].delta.tool_calls[0].extra_content.google.thought_signature = signature;
+      const response = exposeGeminiThoughtSignatures(new Response(`data: ${JSON.stringify(input)}\n\ndata: [DONE]\n\n`, {
+        status: 201, headers: { 'content-type': 'text/event-stream', 'x-provider': 'retained' },
+      }));
+      expect(response.status).toBe(201);
+      expect(response.headers.get('x-provider')).toBe('retained');
+      const text = await response.text();
+      const output = JSON.parse(text.split('\n')[0].slice('data: '.length));
+      const delta = output.choices[0].delta;
+      expect(delta.content).toBe('preserve me');
+      expect(delta.tool_calls).toEqual(input.choices[0].delta.tool_calls);
+      expect(output.usage).toEqual(event.usage);
+      if (exposed) expect(delta.reasoning_details).toEqual([{ type: 'reasoning.encrypted', id: 'call_1',
+        format: 'codeflare.google.thought_signature.v1', data: signature }]);
+      else expect(delta.reasoning_details).toBeUndefined();
+      expect(text).toContain('data: [DONE]');
+    }
+  });
+
   it('REQ-ENTERPRISE-059: accepts one large transport chunk containing bounded SSE lines', async () => {
     const line = 'data: {}\n';
     const text = line.repeat(Math.ceil(1_048_576 / line.length) + 1);

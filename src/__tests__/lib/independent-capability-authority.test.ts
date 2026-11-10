@@ -49,6 +49,31 @@ describe('REQ-ENTERPRISE-035/043: independent evidence remains exact server-owne
     expect(verificationMatches(verification({ ...evidence, mappings: [{ ...mapping, replay: false }] }), defaultProfile, connection)).toBe(false);
   });
 
+  it('REQ-ENTERPRISE-095: grants only complete canonical semantic groups and refuses missing, extra, duplicate or misgrouped evidence', () => {
+    const profile = normalizeCustomProfile({ id: 'discovered-synthetic-aliases', name: 'Synthetic alias groups', revision: 1, schemaVersion: 1,
+      enabled: true, supportedLevels: ['low', 'medium', 'high'],
+      levels: { low: [{ path: 'reasoning_effort', value: 'low' }], high: [{ path: 'reasoning_effort', value: 'high' }] },
+      aliases: { medium: 'low' }, compatibility: { response: 'stream', toolNames: 'strict', transport: 'compat' } });
+    const low = { ...mapping, levels: ['low', 'medium'], reasoning: 'observed-enabled' };
+    const high = { ...mapping, levels: ['high'], reasoning: 'observed-enabled' };
+    const matches = (mappings: unknown[]) => verificationMatches(verification({ schemaVersion: 2, mappings }, profile), profile, connection);
+    expect(matches([low, high])).toBe(true);
+    for (const rows of [
+      [low],
+      [low, high, { ...high, levels: ['max'] }],
+      [{ ...low, levels: ['low'] }, high],
+      [{ ...low, levels: ['low', 'high'] }, { ...high, levels: ['medium'] }],
+      [low, { ...high, tools: false }],
+      [low, { ...high, replay: false }],
+      [low, { ...high, transport: 'bedrock-invoke' }],
+    ]) expect(matches(rows)).toBe(false);
+    // Duplicate levels are invalid wire evidence, so the public decoder refuses
+    // them before any verification object can grant authority.
+    for (const rows of [[low, low, high], [{ ...low, levels: ['low', 'medium', 'medium'] }, high]]) {
+      expect(() => verification({ schemaVersion: 2, mappings: rows }, profile)).toThrow('Duplicate capability level');
+    }
+  });
+
   it('binds evidence levels and transport to the actual immutable profile rather than trusting capability booleans', () => {
     const enabled = normalizeCustomProfile({ id: 'discovered-synthetic-enabled', name: 'Synthetic enabled contract', revision: 1, schemaVersion: 1,
       enabled: true, supportedLevels: ['medium'], levels: { medium: [{ path: 'reasoning_effort', value: 'medium' }] }, aliases: {},

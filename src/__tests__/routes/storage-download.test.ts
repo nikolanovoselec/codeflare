@@ -267,6 +267,8 @@ describe('Storage Download Routes', () => {
       // Distinct code (not a generic FORBIDDEN) so the client can show the friendly
       // view-only notice instead of a raw failure — REQ-ENTERPRISE-019.
       expect(body.code).toBe('DOWNLOADS_DISABLED');
+      expect(mockFetchObjectWithRegimeFallback).not.toHaveBeenCalled();
+      expect(mockMarkMixedRecovery).not.toHaveBeenCalled();
     });
 
     it('permits an inline view of a viewable type (200, inline disposition)', async () => {
@@ -283,6 +285,8 @@ describe('Storage Download Routes', () => {
       expect(res.status).toBe(403);
       const body = await res.json() as { code: string };
       expect(body.code).toBe('DOWNLOADS_DISABLED');
+      expect(mockFetchObjectWithRegimeFallback).not.toHaveBeenCalled();
+      expect(mockMarkMixedRecovery).not.toHaveBeenCalled();
     });
 
     it('leaves attachment downloads unchanged (200) when the KV toggle is absent in enterprise mode', async () => {

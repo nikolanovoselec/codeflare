@@ -204,17 +204,22 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     const homeDir = mkdtempSync(join(baseTmp, 'ac4-home-'));
     const graphDir = join(homeDir, '.graphify');
     makeGraph(graphDir, [
-      { id: '1', label: 'Anything', source: 'a.ts', description: 'should not match' },
+      { id: '1', label: 'TestNode', source: 'a.ts', description: 'matching implementation details' },
     ]);
 
     const { stdout, status } = runHook({
       counterDir,
       home: homeDir,
-      prompt: 'hi there',
+      prompt: 'TestNode',
     });
     assert.equal(status, 0);
     assert.equal(stdout, '', 'short prompt must produce no output');
     assert.ok(!existsSync(join(counterDir, 'test-sess.inject-lock')), 'sentinel must not be created for skipped prompts');
+    const eligible = runHook({ counterDir, home: homeDir, prompt: 'check the TestNode implementation details please' });
+    assert.equal(eligible.status, 0);
+    assert.ok(eligible.json, 'the same graph must inject for an eligible matching prompt');
+    assert.match(eligible.stdout, /TestNode/);
+    assert.ok(existsSync(join(counterDir, 'test-sess.inject-lock')));
   });
 
   it('no graph: exits silently without error', () => {

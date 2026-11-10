@@ -348,6 +348,37 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     expect(await registry.resolveManagementConfiguration(active.id)).toEqual({ ok: false, reason: 'artifact-unapproved' });
   }));
 
+  it('enumerates populated operator catalog pages without skipping, duplicating or exposing hidden records', () => withManagementApi(async (request, ctx) => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    await configureControls(request);
+    const visible: string[] = [], hidden: string[] = [];
+    for (let index = 0; index < 7; index++) {
+      const allowed = index % 2 === 0;
+      const response = await request('/operators', 'POST', { ...registration,
+        managers: { users: ['manager@example.test', ...(allowed ? ['reader@example.test'] : [])], groups: [] } });
+      expect(response.status).toBe(201);
+      const operator = await response.json() as { id: string };
+      (allowed ? visible : hidden).push(operator.id);
+    }
+    const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
+    let cursor: string | null = null;
+    const seen: string[] = [], sizes: number[] = [];
+    for (let page = 0; page < 4; page++) {
+      const value = await registry.listManagementOperators({ email: 'reader@example.test',
+        issuer: 'https://access.example.test', groups: [], platformAdmin: false, limit: 2, cursor });
+      sizes.push(value.items.length);
+      seen.push(...value.items.map(item => item.id));
+      cursor = value.cursor;
+      if (!cursor) break;
+      expect(cursor).toBe(value.items.at(-1)!.id);
+    }
+    expect(sizes).toEqual([2, 2]);
+    expect(cursor).toBeNull();
+    expect(seen).toEqual(visible.sort());
+    expect(new Set(seen).size).toBe(visible.length);
+    for (const id of hidden) expect(seen).not.toContain(id);
+  }));
+
   it('returns only authorized catalog records in bounded cursor pages', async () => withManagementApi(async request => {
     await configureControls(request);
     expect((await request('/operators?limit=101')).status).toBe(400);

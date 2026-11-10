@@ -29,7 +29,17 @@ describe('Settings MCP connections', () => {
     expect(screen.getByText('Connect MCP portals to use their tools in your sessions.')).toBeVisible();
     expect(screen.getByTestId('mcp-alpha-identity')).toHaveTextContent('alpha');
     expect(screen.getByTestId('mcp-alpha-connected-badge')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Connect Model Context Protocol portal beta' })).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
+    const connect = screen.getByRole('button', { name: 'Connect Model Context Protocol portal beta' });
+    expect(connect).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
+    const originalLocation = window.location;
+    const destination = { href: '' };
+    try {
+      Object.defineProperty(window, 'location', { value: destination, writable: true });
+      fireEvent.click(connect);
+      expect(destination.href).toBe('/auth/mcp/connect/beta');
+    } finally {
+      Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
+    }
     expect(screen.getByRole('button', { name: 'Disconnect Model Context Protocol portal alpha' })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('mcp-alpha-disconnect-btn'));
     await screen.findByTestId('mcp-alpha-connect-btn');

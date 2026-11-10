@@ -58,6 +58,37 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     expect(changed.digest).not.toBe(built.digest);
   });
 
+  it('REQ-STOR-028 AC2: duplicate and independently permuted inventories produce identical canonical bytes and identity', async () => {
+    const original = release({ retiredPaths: ['.codex/extensions/z.ts', '.pi/agent/rules/a.md'] });
+    const duplicate = release({
+      documents: [...original.documents].reverse().concat(original.documents[0]!),
+      retiredPaths: ['.pi/agent/rules/a.md', '.codex/extensions/z.ts', '.pi/agent/rules/a.md'],
+    });
+    const first = await buildManagedR2Policy(digest, original, 'exclusive');
+    const second = await buildManagedR2Policy(digest, duplicate, 'exclusive');
+    expect(first.value.paths).toEqual([
+      '.claude/extensions/company/index.ts', '.codeflare/managed-extensions.json',
+      '.codeflare/managed-paths.json', '.codex/extensions/z.ts',
+      '.pi/agent/extensions/company.ts', '.pi/agent/rules/a.md',
+    ]);
+    expect(second.value).toEqual(first.value);
+    expect(second.bytes).toEqual(first.bytes);
+    expect(second.digest).toBe(first.digest);
+  });
+
+  it('REQ-STOR-032 AC1: derives category roots across all six managed homes, including retirements', async () => {
+    const homes = ['.claude/', '.codex/', '.copilot/', '.gemini/', '.config/opencode/', '.pi/agent/'];
+    const built = await buildManagedR2Policy(digest, release({
+      documents: homes.map(home => ({ key: `${home}skills/company/SKILL.md`, modes: ['default'] })),
+      retiredPaths: homes.map(home => `${home}rules/retired.md`),
+    }), 'exclusive');
+    expect(built.value.resourceRoots).toEqual(homes.flatMap(home => [`${home}skills/`, `${home}rules/`]).sort());
+    for (const home of homes) {
+      expect(isManagedMutationProtected(built.value, `${home}skills/personal/SKILL.md`)).toBe(true);
+      expect(isManagedMutationProtected(built.value, `${home}sessions/current.jsonl`)).toBe(false);
+    }
+  });
+
   it('REQ-STOR-032 AC1/AC2: exclusive roots derive segment-aware while sessions and root files remain outside', async () => {
     const built = await buildManagedR2Policy(digest, release(), 'exclusive');
 
@@ -141,6 +172,22 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     expect(invalidIdentityFetch).not.toHaveBeenCalled();
   });
 
+  it('REQ-STOR-030 AC1: oversized streamed policy is refused and its body cancelled', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) { controller.enqueue(new Uint8Array(1024 * 1024)); },
+      cancel() { cancelled = true; },
+    });
+    await expect(readVerifiedManagedR2Policy({
+      fetchPolicyObject: async () => new Response(body),
+      releaseDigest: digest,
+      pathsDigest: 'f'.repeat(64),
+      expectedPolicy: 'immutable',
+      bypassMemoryCache: true,
+    })).rejects.toThrow(/exceeds/);
+    expect(cancelled).toBe(true);
+  });
+
   it('AC5: cache hits still revalidate expected release and mode', async () => {
     const built = await buildManagedR2Policy(digest, release(), 'immutable');
     const fetchPolicyObject = vi.fn(async () => new Response(built.bytes, { status: 200 }));
@@ -159,6 +206,13 @@ describe('REQ-STOR-028 managed R2 policy', () => {
       bypassMemoryCache: false,
     });
     expect(fetchPolicyObject).toHaveBeenCalledTimes(1);
+    await expect(readVerifiedManagedR2Policy({
+      fetchPolicyObject,
+      releaseDigest: 'e'.repeat(64),
+      pathsDigest: built.digest,
+      expectedPolicy: 'immutable',
+      bypassMemoryCache: false,
+    })).rejects.toThrow(/release does not match/);
     await expect(readVerifiedManagedR2Policy({
       fetchPolicyObject,
       releaseDigest: digest,

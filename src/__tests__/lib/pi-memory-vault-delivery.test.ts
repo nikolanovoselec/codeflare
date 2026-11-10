@@ -1761,6 +1761,19 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       const replacement = readJson(vaultPointerPath(harness));
       expect(replacement.requestId).not.toBe(original.requestId);
       expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+      const followUp = latestLaunchMessage(harness.pi, 'vault-extract');
+      const delivered = modelVisibleLaunchItems(followUp).find(item => item.jobType === 'vault-extract')!;
+      expect(delivered.requestId).toBe(replacement.requestId);
+      expect(followUp.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+      expect(delivered.request).toMatchObject({ subagent_type: 'vault-extract', run_in_background: true });
+      // The old successful completion stays in the transcript while the new
+      // correlated public request is consumed and commits the full delta.
+      appendEntry(harness.sessionFile, toolCall('recovered-stage', 'vault-extract', delivered.request));
+      writePostCommitChunk(harness, replacement.requestId);
+      appendEntry(harness.sessionFile, notification('recovered-stage', 'Done'));
+      await harness.emit('agent_settled');
+      expect(readVaultManifest(harness.paths.vaultManifestFile).files['Notes/changed.md']).toBeTypeOf('string');
+      expect(existsSync(vaultPointerPath(harness))).toBe(false);
     }
   });
 

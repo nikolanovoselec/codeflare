@@ -425,6 +425,23 @@ describe('SessionDropdown', () => {
       expect(onLaunchMultiView).toHaveBeenCalledWith(['s1', 's3']);
     });
 
+    it('REQ-TERM-013 AC3: exits selection below two members without launching or navigating', () => {
+      const launched: string[][] = [];
+      render(() => <SessionDropdown {...defaultProps} multiView={{ capacity: 4, existing: null,
+        onLaunch: ids => { launched.push(ids); }, onOpen: vi.fn(), onClose: vi.fn() }} />);
+      fireEvent.click(screen.getByTestId('session-dropdown-multiview-action'));
+      fireEvent.click(screen.getByTestId('session-card-s3'));
+      fireEvent.click(screen.getByTestId('session-card-s1'));
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'true');
+      expect(screen.getByTestId('session-card-s1')).toHaveAttribute('data-selected', 'false');
+      fireEvent.click(screen.getByTestId('session-dropdown-multiview-action'));
+      expect(screen.getByTestId('session-dropdown-multiview-action')).not.toHaveAttribute('data-mode', 'selecting');
+      expect(screen.getByTestId('session-dropdown')).toBeInTheDocument();
+      expect(launched).toEqual([]);
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+      expect(defaultProps.onSelectSession).not.toHaveBeenCalled();
+    });
+
     it('REQ-TERM-013: deactivates existing MultiView and closes the dropdown from the row close button', () => {
       const onCloseMultiView = vi.fn();
       const onCloseDropdown = vi.fn();

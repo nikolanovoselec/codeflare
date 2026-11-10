@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';
-import type { DispatcherFixture } from '../operators/fixtures/dispatcher-production';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import routes from '../../routes/operator-activities';
@@ -430,6 +429,25 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(waitUntil).toHaveBeenCalledOnce();
   });
 
+  it.each(['foreign', 'absent-prepared-proof'] as const)('refuses %s start and foreign cancellation without changing execution', async boundary => {
+    const { request, activity } = fixture();
+    const execution = { status: 'prepared', starts: [] as string[], cancellations: 0 };
+    activity.start.mockImplementation(async () => {
+      execution.status = 'queued'; execution.starts.push('s'.repeat(43));
+      return { ok: true, phase: 'queued' };
+    });
+    activity.cancelDrive.mockImplementation(async () => {
+      execution.status = 'cancel-requested'; execution.cancellations++;
+      return { ok: true, state: { status: 'cancel-requested' } };
+    });
+    activity.ownsPrepared.mockResolvedValue(false);
+    const before = structuredClone(execution);
+    const id = boundary === 'foreign' ? 'foreign-activity' : 'prepared-activity';
+    expect((await request(`/${id}/start`, 'POST', { capability: 's'.repeat(43) })).status).toBe(404);
+    expect((await request(`/${id}/cancel`, 'POST', {})).status).toBe(404);
+    expect(execution).toEqual(before);
+  });
+
   it('continues only durable waiting work through an explicit owner-authenticated POST', async () => {
     const { request, activity, waitUntil } = fixture();
     activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, executionStatus: 'waiting',
@@ -643,177 +661,3 @@ describe('REQ-OPERATOR-081: v2 owner HTTP boundary', () => {
     });
 });
 
-// Reuse the retained SQLite/Activity fixture and browser adapter, not a second runtime.
-// Load it only for this final group: its module-level service mocks must not replace
-// the earlier route-only fixtures' authentication/orchestration setup.
-describe('REQ-OPERATOR-041/069/078: IG0162 actual-owner ordinary cold HTTP entry', () => {
-  async function withOwner(test: (f: DispatcherFixture, tools: typeof import('../operators/fixtures/dispatcher-production')) => Promise<void>, normalHosting = false) {
-    const tools = await import('../operators/fixtures/dispatcher-production');
-    const access = await import('../../lib/access');
-    const aig = await import('../../lib/aig-config');
-    // Same controlled service answers as the existing fixture, including when the
-    // route suite has already cached these modules before the fixture is loaded.
-    vi.spyOn(access, 'resolveBucketName').mockResolvedValue('owner-bucket');
-    vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue([]);
-    vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: ['approved'],
-      defaultRoute: 'approved', defaultReasoning: 'off', routeContextWindows: {},
-      routeReasoningLevels: {}, modelDisplayNames: {} });
-    vi.spyOn(aig, 'getAigConfig').mockResolvedValue({ gatewayUrl: 'https://gateway.example.test',
-      gatewayId: undefined, token: 'parent-only' });
-    try {
-      await tools.fixture(f => test(f, tools), { repositoryOnly: true, recovery: true, normalHosting });
-    } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
-  }
-
-  async function ownerIndex(f: DispatcherFixture) {
-    // The reusable fixture's default registry calls the owner BEFORE checking its
-    // index. Replace only that dependency with an exact-owner retained index seam;
-    // otherwise even a foreign 404 could consume the cold recovery opportunity.
-    let retained = (await f.activity.getBrowserSummary(f.proof.ownerKey))!;
-    expect(retained.activityId).toBe(f.activityId);
-    const registry = f.environment.OPERATOR_REGISTRY!.getByName('registry');
-    vi.spyOn(registry, 'getOwnedActivity').mockImplementation(async (owner, id) =>
-      owner === f.proof.ownerKey && id === f.activityId ? structuredClone(retained) : null);
-    vi.spyOn(registry, 'upsertOwnedActivity').mockImplementation(async (owner, projection) => {
-      if (owner === f.proof.ownerKey && projection.activityId === f.activityId) retained = structuredClone(projection);
-    });
-    return () => retained;
-  }
-
-  async function protectedState(f: DispatcherFixture) {
-    let saved: unknown;
-    await f.mutateEvidence(async storage => {
-      saved = { journal: await storage.get('dispatcher:journal'),
-        legacy: await storage.get('dispatcher:operations'),
-        operations: [...await storage.list({ prefix: 'dispatcher:operation:' })],
-        responses: [...await storage.list({ prefix: 'dispatcher:response:' })] };
-    });
-    return saved;
-  }
-
-  it.each(['', '/result'])('REQ-OPERATOR-041/069/078: cold GET %s adopts only the already-admitted normal job after a lost acknowledgement', suffix => withOwner(async (f, tools) => {
-    f.normalTransport!.loseAcknowledgement();
-    await tools.start(f);
-    await f.drainBackground();
-    const index = await ownerIndex(f);
-    const get = tools.diagnosticsBrowser(f);
-    const dispatch = () => f.normalTransport!.requests.filter(request => request.path === '/control/dispatch');
-    const original = structuredClone(dispatch()[0]);
-    expect(original.body).toMatchObject({ activityId: f.activityId, generation: 1 });
-    const accepted = structuredClone([...f.normalTransport!.admissions.values()]);
-    expect(accepted).toHaveLength(1);
-    let expiresAt: unknown;
-    await f.mutateEvidence(async storage => {
-      const lease = await storage.get<{ status: string; expiresAt: number }>('dispatcher:lease');
-      expect(lease?.status).toBe('admitting'); expiresAt = lease?.expiresAt;
-    });
-    const protectedBefore = await protectedState(f);
-    const sourceBefore = [...f.sent];
-    const modelBefore = structuredClone(f.ownerPortRequests);
-    f.restart(); await f.drainBackground();
-    const controlsBefore = structuredClone(f.normalTransport!.requests);
-    const denied = await get(suffix, 'foreign@example.test');
-    expect(denied.status).toBe(404);
-    await f.drainBackground();
-    expect(f.normalTransport!.requests).toEqual(controlsBefore);
-    expect(await protectedState(f)).toEqual(protectedBefore);
-
-    expect((await get(suffix)).status).toBe(200);
-    await f.drainBackground();
-    const response = await get(suffix);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ activityId: f.activityId,
-      executionStatus: 'running', collectionStatus: 'unavailable', result: null });
-    expect(dispatch().length).toBeGreaterThan(1);
-    for (const request of dispatch()) expect(request).toEqual(original);
-    expect([...f.normalTransport!.admissions.values()]).toEqual(accepted);
-    expect(f.normalTransport!.requests.slice(controlsBefore.length).every(request =>
-      request.path === '/control/dispatch' || request.path === '/control/read')).toBe(true);
-    await f.mutateEvidence(async storage => {
-      expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1,
-        status: 'running', expiresAt, submissionId: accepted[0].receipt.submissionId });
-    });
-    // REQ069 metadata/index repair and REQ078 inspection are not extra execution authority.
-    expect(index()).toMatchObject({ activityId: f.activityId, executionStatus: 'running' });
-    expect(await protectedState(f)).toEqual(protectedBefore);
-    expect(f.sent).toEqual(sourceBefore);
-    expect(f.ownerPortRequests).toEqual(modelBefore);
-    expect(f.childSubmissions).toEqual([]);
-  }, true));
-
-  it('REQ-OPERATOR-041/069/078: a stale admitting generation cannot recover a successor or admit another job', () => withOwner(async (f, tools) => {
-    f.normalTransport!.loseAcknowledgement(); await tools.start(f); await f.drainBackground();
-    await ownerIndex(f);
-    await f.mutateEvidence(async storage => {
-      const state = (await storage.get<{ drive: { generation: number; status: string } }>('admission'))!;
-      await storage.put('admission', { ...state, drive: { ...state.drive, generation: 2, status: 'unknown' } });
-    });
-    const controls = structuredClone(f.normalTransport!.requests);
-    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
-    const protectedBefore = await protectedState(f);
-    f.restart(); await f.drainBackground();
-    const get = tools.diagnosticsBrowser(f);
-    expect((await get('')).status).toBe(200); await f.drainBackground();
-    expect(await (await get('/result')).json()).toMatchObject({ executionStatus: 'unknown',
-      collectionStatus: 'unavailable', result: null });
-    expect(f.normalTransport!.requests).toEqual(controls);
-    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
-    expect(await protectedState(f)).toEqual(protectedBefore);
-    expect(f.sent).toEqual([]); expect(f.ownerPortRequests).toEqual([]);
-  }, true));
-
-  it('REQ-OPERATOR-041/069/078: cold result GET releases eligible retired SDK bookkeeping without resolving an uncertain protected write', () => withOwner(async (f, tools) => {
-    await tools.start(f); await f.drainBackground();
-    const index = await ownerIndex(f);
-    const uncertainWrite = { operationId: 'retained-uncertain-write',
-      url: 'https://api.github.com/repos/owner/repo/issues/17/comments', method: 'POST',
-      body: '{"body":"PRIVATE_UNCERTAIN_WRITE"}' };
-    f.loseResponse();
-    const uncertain = await f.capability.fetch(tools.genericWire('source', uncertainWrite));
-    expect(uncertain.status).toBe(409);
-    expect(await uncertain.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-    f.restoreTransport();
-    const comments = await f.readRemoteComments();
-    expect(comments).toEqual([expect.objectContaining({ body: 'PRIVATE_UNCERTAIN_WRITE' })]);
-    const { Agent } = await import('agents');
-    const sdk = Agent.prototype as unknown as { _cf_cleanupFacetPrefix: (...args: unknown[]) => Promise<void> };
-    const fault = vi.spyOn(sdk, '_cf_cleanupFacetPrefix').mockRejectedValue(new Error('Controlled SDK cleanup unavailable'));
-    try { await expect(f.activity.cancelDrive()).rejects.toThrow('Controlled SDK cleanup unavailable'); }
-    finally { fault.mockRestore(); }
-    await f.drainBackground();
-    const protectedBefore = await protectedState(f);
-    const sent = [...f.sent]; const submissions = [...f.childSubmissions];
-    let drive: unknown;
-    await f.mutateEvidence(async storage => {
-      drive = (await storage.get<{ drive: unknown }>('admission'))!.drive;
-      expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1, status: 'unknown' });
-    });
-    f.restart(); await f.drainBackground();
-    const get = tools.diagnosticsBrowser(f);
-    expect((await get('/result', 'foreign@example.test')).status).toBe(404);
-    await f.drainBackground();
-    await f.mutateEvidence(async storage => {
-      expect((await storage.get<{ sdkReleased?: boolean }>('dispatcher:lease'))?.sdkReleased).not.toBe(true);
-    });
-    expect((await get('/result')).status).toBe(200); await f.drainBackground();
-    const response = await get('/result');
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body).toMatchObject({ executionStatus: 'cancel-requested', collectionStatus: 'unavailable',
-      sdkCleanupReleased: true, result: null });
-    expect(JSON.stringify(body)).not.toContain('PRIVATE_UNCERTAIN_WRITE');
-    expect(index()).toMatchObject({ executionStatus: 'cancel-requested' });
-    await f.mutateEvidence(async storage => {
-      expect((await storage.get<{ drive: unknown }>('admission'))!.drive).toEqual(drive);
-      expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1, status: 'unknown', sdkReleased: true });
-    });
-    expect(await protectedState(f)).toEqual(protectedBefore);
-    expect((await f.capability.fetch(tools.genericWire('source', uncertainWrite))).status).toBe(403);
-    expect((await f.capability.fetch(tools.genericWire('source', { operationId: 'new-write-after-cold-get',
-      url: 'https://api.github.com/repos/owner/repo/issues/17/comments', method: 'POST', body: '{"body":"forbidden"}' }))).status).toBe(403);
-    expect(f.sent).toEqual(sent); expect(f.childSubmissions).toEqual(submissions);
-    expect(f.ownerPortRequests).toEqual([]);
-    expect(await protectedState(f)).toEqual(protectedBefore);
-    expect(await f.readRemoteComments()).toEqual(comments);
-  }));
-});

@@ -550,8 +550,11 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       fireEvent.click(screen.getByTestId('lifeline-stop-free'));
       await waitFor(() => {
         const panel = screen.getByTestId('tier-detail-panel');
-        expect(panel.textContent?.length).toBeGreaterThan(0);
         expect(panel.querySelector('.subscribe-detail-name')?.textContent).toBe('Free');
+        expect(panel).toHaveTextContent('Persistent cloud storage');
+        expect(panel).toHaveTextContent('4h / month');
+        expect(panel).toHaveTextContent('1 parallel session');
+        expect(screen.getByRole('button', { name: 'Get Started' })).toBeEnabled();
       });
     });
 
@@ -662,14 +665,16 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       });
     });
 
-    it('REQ-SETUP-009 AC6: paid tiers show "Start Trial" CTA indicating Stripe checkout path', async () => {
+    it('REQ-SETUP-009 AC6: paid tiers hand off to the returned hosted checkout URL', async () => {
+      const { createCheckoutSession } = await import('../../api/client');
+      const checkoutUrl = 'https://checkout.stripe.com/c/pay/synthetic-checkout';
+      vi.mocked(createCheckoutSession).mockResolvedValueOnce({ checkoutUrl });
       await openTierView();
 
-      await waitFor(() => {
-        expect(screen.getByText('Start Trial')).toBeInTheDocument();
-      });
-
-      expect(screen.queryByText('Get Started')).not.toBeInTheDocument();
+      fireEvent.click(await screen.findByText('Start Trial'));
+      await waitFor(() => expect(mockLocation.href).toBe(checkoutUrl));
+      expect(createCheckoutSession).toHaveBeenCalledWith('advanced', 'default', '');
+      expect(mockedSubscribe).not.toHaveBeenCalled();
     });
   });
 

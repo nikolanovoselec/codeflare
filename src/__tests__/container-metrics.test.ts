@@ -817,18 +817,21 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.agentDrainRequests[1]?.body).toEqual({ ackEventIds: ['event-a'] });
     });
 
-    it('REQ-SEC-024 AC1 / D3: rejects invalid version, kind, age, count, and display-shaped fields', async () => {
+    it.each([
+      { schemaVersion: 2, eventId: 'bad-version', kind: 'input-required', createdAt: 1_700_000_000_000 },
+      { schemaVersion: 1, eventId: 'bad-kind', kind: 'arbitrary', createdAt: 1_700_000_000_000 },
+      { schemaVersion: 1, eventId: 'too-old', kind: 'input-required', createdAt: 1_699_999_000_000 },
+      { schemaVersion: 1, eventId: 'injected', kind: 'input-required', createdAt: 1_700_000_000_000, sessionName: 'attacker' },
+    ])('REQ-SEC-024 AC1 / D3: rejects $eventId independently without delivery, ACK or payload logging', async badEvent => {
       setNotificationSession();
-      testState.agentDrainEvents = [
-        { schemaVersion: 2, eventId: 'bad-version', kind: 'input-required', createdAt: 1_700_000_000_000 },
-        { schemaVersion: 1, eventId: 'bad-kind', kind: 'arbitrary', createdAt: 1_700_000_000_000 },
-        { schemaVersion: 1, eventId: 'too-old', kind: 'input-required', createdAt: 1_699_999_000_000 },
-        { schemaVersion: 1, eventId: 'injected', kind: 'input-required', createdAt: 1_700_000_000_000, sessionName: 'attacker' },
-      ];
-
-      await containerInstance.collectMetrics();
-
-      expect(sendAgentEventPushesMock).not.toHaveBeenCalled();
+      testState.agentDrainEvents = [badEvent];
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        expect(sendAgentEventPushesMock).not.toHaveBeenCalled();
+        expect(testState.agentDrainRequests.map(request => request.body)).toEqual([{ ackEventIds: [] }]);
+        expect(JSON.stringify(entries)).not.toContain(badEvent.eventId);
+        expect(JSON.stringify(entries)).not.toContain('attacker');
+      });
       expect(testState.agentDrainCalls).toBe(1);
     });
 

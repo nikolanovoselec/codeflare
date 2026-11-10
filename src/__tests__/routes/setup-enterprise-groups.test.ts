@@ -479,6 +479,19 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         // catches an accidental plaintext-storage regression of the token.
         expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
         expect(mockKV.put).toHaveBeenCalledWith('setup:aig_token', expect.not.stringContaining('aig-secret'));
+        const stored = await mockKV.get('setup:aig_token') as string;
+        expect(stored).toMatch(/^v1:/);
+        const key = await crypto.subtle.importKey(
+          'raw', Uint8Array.from(atob(ENC_KEY), char => char.charCodeAt(0)),
+          { name: 'AES-GCM' }, false, ['decrypt'],
+        );
+        const payload = Uint8Array.from(atob(stored.slice(3)), char => char.charCodeAt(0));
+        const plaintext = await crypto.subtle.decrypt({
+          name: 'AES-GCM', iv: payload.subarray(0, 12),
+          additionalData: new TextEncoder().encode('setup:aig_token'),
+        }, key, payload.subarray(12));
+        expect(JSON.parse(new TextDecoder().decode(plaintext))).toEqual({ token: 'aig-secret' });
+        expect(await mockKV.get('setup:aig_gateway_url')).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
         // WS6: the step surfaces on the progress stream so the configuring screen shows it.
         expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_ai_gateway', status: 'success' }));
       });
@@ -632,6 +645,17 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_provider_type', 'oauth');
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_oauth_client_id', 'oauth-cid');
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_oauth_client_secret', expect.any(String));
+        const stored = await mockKV.get('setup:github_oauth_client_secret') as string;
+        expect(stored).toMatch(/^v1:/);
+        expect(stored).not.toContain('oauth-secret');
+        const key = await crypto.subtle.importKey(
+          'raw', Uint8Array.from(atob(ENC_KEY), char => char.charCodeAt(0)),
+          { name: 'AES-GCM' }, false, ['decrypt'],
+        );
+        const payload = Uint8Array.from(atob(stored.slice(3)), char => char.charCodeAt(0));
+        const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: payload.subarray(0, 12),
+          additionalData: new TextEncoder().encode('setup:github_oauth_client_secret') }, key, payload.subarray(12));
+        expect(JSON.parse(new TextDecoder().decode(plaintext))).toEqual({ secret: 'oauth-secret' });
       });
 
       it('REQ-AGENT-230: admin configure persists Cloudflare OAuth ciphertext that independently decrypts with the immutable key', async () => {
@@ -771,6 +795,24 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
 
         expect(res.status).toBe(400);
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:group_routing', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-013: rejects an unknown Access group without changing the saved routing map', async () => {
+        const saved = { developers: { routes: ['code_review'], defaultRoute: 'code_review', reasoning: 'high' } };
+        mockKV._set('setup:group_routing', saved);
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        const response = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            enterpriseAccessGroup: ['developers'], dynamicRoutes: ['code_review'],
+            groupRouting: { unconfigured: { routes: ['code_review'], defaultRoute: 'code_review', reasoning: 'high' } },
+          })),
+        });
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+        expect(await mockKV.get('setup:group_routing', 'json')).toEqual(saved);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:group_routing', expect.anything());
+        expect(mockKV.delete).not.toHaveBeenCalledWith('setup:group_routing');
       });
 
       it('REQ-ENTERPRISE-013: rejects a group route not in the global catalog', async () => {

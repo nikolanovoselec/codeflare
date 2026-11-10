@@ -14,6 +14,7 @@
  * outcome is controlled independently.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { getContainer } from '@cloudflare/containers';
 import type { Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
@@ -157,6 +158,7 @@ describe('CF-040 / REQ-STOR-015: POST /api/sessions/sync fan-out', () => {
     seedRunning('aabbccdd11223344');
     containerBehavior.map.set('test-bucket-aabbccdd11223344', { status: 202 });
     mockKV._set('r2-regime:test-bucket', { status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0 });
+    vi.mocked(getContainer).mockClear();
 
     const app = createApp();
     const res = await app.request('/sessions/sync', { method: 'POST' });
@@ -165,5 +167,6 @@ describe('CF-040 / REQ-STOR-015: POST /api/sessions/sync fan-out', () => {
     const body = await res.json() as { count: number; sessions: unknown[] };
     expect(body.count).toBe(0);
     expect(body.sessions).toEqual([]);
+    expect(getContainer).not.toHaveBeenCalled();
   });
 });

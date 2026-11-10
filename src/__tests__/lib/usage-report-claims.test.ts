@@ -1,7 +1,9 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { reactivateUsageUser, tombstoneUsageUser, userKeyForEmail, writeUsageHistory } from '../../lib/admin-usage';
-import { claimReportDelivery, completeReportDelivery, runUsageRetention } from '../../lib/usage-report-scheduler';
+import { queryAdminUsageRows, queryAdminUsageSeries, reactivateUsageUser, tombstoneUsageUser, userKeyForEmail, writeUsageHistory } from '../../lib/admin-usage';
+import { createMockKV } from '../helpers/mock-kv';
+import type { Env } from '../../types';
+import { claimReportDelivery, completeReportDelivery, createDueScheduledDispatch, runUsageRetention } from '../../lib/usage-report-scheduler';
 import { applyPositiveDelta, createAccountingState, hashSessionId, type HistoryOutboxEntry } from '../../timekeeper/accounting';
 
 const db = (env as unknown as { USAGE_DB: D1Database }).USAGE_DB;
@@ -138,6 +140,57 @@ describe('historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)', () => {
       { period_kind: 'year', period_start: '2027', runtime_seconds: 105, session_count: 1, updated_at: laterAt.toISOString() },
     ]);
   });
+});
+
+describe('real historical usage query and due scheduling outcomes', () => {
+  it('filters the requested period and paginates equal totals without losing tied owners', async () => {
+    const emails = ['alice@example.com', 'bob@example.com', 'carol@example.com'];
+    for (const email of emails) {
+      await writeUsageHistory(db, email, [
+        { kind: 'month', start: '2027-07', runtimeSeconds: 120, sessionCount: 2, sourceSequence: 1, snapshotAt: now.toISOString() },
+        { kind: 'month', start: '2027-06', runtimeSeconds: 999, sessionCount: 9, sourceSequence: 1, snapshotAt: now.toISOString() },
+      ]);
+    }
+    const expected = (await Promise.all(emails.map(async email => ({ email, key: await userKeyForEmail(email) }))))
+      .sort((a, b) => a.key.localeCompare(b.key));
+    const options = { period: 'month' as const, start: '2027-07', sort: 'runtimeSeconds' as const, direction: 'desc' as const, limit: 2 };
+    const first = await queryAdminUsageRows(db, options);
+    expect(first.map(row => row.email)).toEqual(expected.slice(0, 2).map(row => row.email));
+    expect(first.map(row => row.runtimeSeconds)).toEqual([120, 120]);
+    const second = await queryAdminUsageRows(db, { ...options, continuation: { lastValue: 120, userKey: first[1].userKey } });
+    expect(second.map(row => row.email)).toEqual([expected[2].email]);
+    expect(await queryAdminUsageRows(db, { ...options, start: '2027-05' })).toEqual([]);
+  });
+
+  it('returns only the configured latest aggregates in chronological order for every period', async () => {
+    for (const [kind, limit] of [['day', 14], ['week', 12], ['month', 12], ['year', 5]] as const) {
+      const starts = Array.from({ length: limit + 2 }, (_, index) => {
+        if (kind === 'year') return String(2000 + index);
+        if (kind === 'month') return new Date(Date.UTC(2020, index, 1)).toISOString().slice(0, 7);
+        return new Date(Date.UTC(2027, 0, 1 + index * (kind === 'week' ? 7 : 1))).toISOString().slice(0, 10);
+      });
+      await writeUsageHistory(db, 'series@example.com', starts.map((start, index) => ({
+        kind, start, runtimeSeconds: index + 1, sessionCount: 1, sourceSequence: 1, snapshotAt: now.toISOString(),
+      })));
+      const series = await queryAdminUsageSeries(db, kind, starts.at(-1)!, limit);
+      expect(series.map(point => point.start)).toEqual(starts.slice(2));
+      expect(series.map(point => point.runtimeSeconds)).toEqual(starts.slice(2).map((_, index) => index + 3));
+    }
+  });
+
+  it.each([['2027-01-15T09:00:00.000Z', '2026-12'], ['2027-08-15T09:00:00.000Z', '2027-07']])(
+    'persists the previous UTC month when a dispatch is due at %s', async (at, month) => {
+      const kv = createMockKV();
+      kv._set('admin:usage-reports:settings', { enabled: true, recipients: ['ops@example.com'],
+        day: 15, hour: 9, timezone: 'UTC', settingsRevision: 7 });
+      kv._set('admin:usage-reports:next:7', { settingsRevision: 7, nextDeliveryAt: at });
+      await createDueScheduledDispatch({ KV: kv, USAGE_DB: db } as unknown as Env, new Date(at));
+      expect((await db.prepare('SELECT report_month, recipient, state, attempt FROM report_deliveries').all()).results)
+        .toEqual([{ report_month: month, recipient: 'ops@example.com', state: 'pending', attempt: 0 }]);
+      const cursor = await kv.get('admin:usage-reports:next:7', 'json') as { nextDeliveryAt: string };
+      expect(cursor.nextDeliveryAt > at).toBe(true);
+    },
+  );
 });
 
 describe('REQ-SUB-028 AC1: daily retention claim', () => {

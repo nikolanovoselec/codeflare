@@ -7,6 +7,7 @@ import { storageStore } from '../../stores/storage';
 import { githubStore } from '../../stores/github';
 import * as storageApi from '../../api/storage';
 import * as vaultCache from '../../lib/vault-cache';
+import * as gravatar from '../../lib/gravatar';
 import type { SessionWithStatus } from '../../types';
 
 const availabilityMock = vi.hoisted(() => ({
@@ -557,6 +558,31 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     render(() => <Dashboard {...defaultProps} />);
 
     expect(screen.getByText('nikola@novoselec.ch')).toBeInTheDocument();
+  });
+
+  it('REQ-AUTH-017 AC1: renders the Gravatar belonging to the dashboard user', async () => {
+    const probe = vi.spyOn(gravatar, 'gravatarExists').mockResolvedValue(true);
+    try {
+      render(() => <Dashboard {...defaultProps} userName="user@example.com" />);
+      expect(await screen.findByRole('img', { name: 'Avatar' })).toHaveAttribute(
+        'src', 'https://www.gravatar.com/avatar/b58996c504c5638798eb6b511e6f49af?s=48&d=404',
+      );
+      expect(screen.getByText('user@example.com')).toBeVisible();
+    } finally { probe.mockRestore(); }
+  });
+
+  it('REQ-SUB-019 AC2: the real limit popup shows counts and progress and dismisses without per-session actions', async () => {
+    const { default: SessionLimitPopup } = await vi.importActual<typeof import('../../components/SessionLimitPopup')>('../../components/SessionLimitPopup');
+    const { createSignal } = await import('solid-js');
+    const [open, setOpen] = createSignal(true);
+    render(() => <SessionLimitPopup isOpen={open()} onClose={() => setOpen(false)} sessionsRunning={2} sessionsLimit={3} />);
+    const dialog = screen.getByRole('dialog', { name: 'Session limit reached' });
+    expect(dialog).toHaveTextContent('You are running 2 of 3 allowed sessions.');
+    expect(dialog.querySelector('.slp-progress-fill')).toHaveStyle({ width: '67%' });
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /stop|delete/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('renders settings button in panel header', () => {

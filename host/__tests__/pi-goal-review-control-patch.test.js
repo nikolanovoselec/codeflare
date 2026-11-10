@@ -989,7 +989,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       goalIntegrity: 'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==',
       planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.58.3.tgz'),
       planIntegrity: 'sha512-mC2dOLXrsLedLH4VrX0t3wwdXrr9AccoI8SgvYYn0KewaR6hZ0a6fIyLnReVlnJ4zNcjhdwBKWujrM49EW4zsg==' },
-    { goal: '0.54.13', plan: '0.59.2',
+    { goal: '0.54.13', plan: '0.59.4',
       goalArchive: join(FIXTURES_DIRECTORY, 'pi-goal-0.54.13-source.json'),
       goalIntegrity: 'sha512-g770YeTpnO6MPNpldrBA+MQXNE1hXEeSPmdgBS1wqTZKAMhd3emrPFSmivg7wa3ABcfmfE24plrSvzVgfnez5w==',
       planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
@@ -1057,6 +1057,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const planRoot = mkdtempSync(join(tmpdir(), 'pi-plan-integration-'));
     extractPackage(versions.goalArchive, versions.goalIntegrity, goalRoot);
     extractPackage(versions.planArchive, versions.planIntegrity, planRoot);
+    if (versions.plan === '0.59.4') restoreCandidateSources(planRoot);
     patchPiGoalDirectory(versions.goal, goalRoot);
     patchPiPlanModeDirectory(versions.plan, planRoot);
     const patchedPlan = readFileSync(join(planRoot, 'dist/index.ts'), 'utf8');
@@ -1114,6 +1115,11 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.ok(planState?.data?.workflowToolPolicy?.resolved);
     assert.deepEqual(planState.data.workflowToolPolicy.allowedNames, ['bash', 'read']);
     assert.deepEqual(harness.activeTools(), ['read']);
+    await harness.commands.get('goal').handler('must not replace active Plan', harness.ctx);
+    assert.match(harness.notifications.at(-1).message, /Another workflow is active/);
+    assert.notEqual(harness.entries.filter(entry => entry.customType === 'goal-state').at(-1)?.data?.goal?.status, 'active');
+    assert.equal(harness.entries.filter(entry => entry.customType === 'plan-mode-state').at(-1)?.data?.enabled, true);
+    assert.ok(!harness.activeTools().includes('goal_complete'));
     await harness.commands.get('plan').handler('exit', harness.ctx);
     await harness.commands.get('goal').handler('second integration objective', harness.ctx);
     assert.equal(harness.entries.at(-1)?.data?.goal?.status, 'active');

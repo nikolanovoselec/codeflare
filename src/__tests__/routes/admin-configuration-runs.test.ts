@@ -325,19 +325,26 @@ describe('configuration runs (REQ-SETUP-018)', () => {
 
   it('reconnects to the same run shape and lists Activity newest-first with a stable cursor', async () => {
     const { app } = createApp();
-    const first = snapshots(await (await post(app, { section: 'github', baseRevision: 0, values: githubValues })).text()).at(-1).run;
-    const second = snapshots(await (await post(app, { section: 'github', baseRevision: 1, values: githubValues })).text()).at(-1).run;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    let first: any;
+    let second: any;
+    try {
+      first = snapshots(await (await post(app, { section: 'github', baseRevision: 0, values: githubValues })).text()).at(-1).run;
+      clock.mockReturnValue(1_800_000_010_000);
+      second = snapshots(await (await post(app, { section: 'github', baseRevision: 1, values: githubValues })).text()).at(-1).run;
+    } finally {
+      clock.mockRestore();
+    }
 
     const reconnect = await app.request(`/admin/configuration-runs/${encodeURIComponent(first.runId)}`);
     expect(reconnect.status).toBe(200);
     expect(await reconnect.json()).toEqual(first);
 
-    const lexical = [first, second].sort((left, right) => left.runId.localeCompare(right.runId));
     const pageOne = await (await app.request('/admin/configuration-runs?limit=1')).json() as any;
-    expect(pageOne.items).toEqual([lexical[0]]);
-    expect(pageOne.nextCursor).toBe(lexical[0].runId);
+    expect(pageOne.items).toEqual([second]);
+    expect(pageOne.nextCursor).toBe(second.runId);
     const pageTwo = await (await app.request(`/admin/configuration-runs?limit=1&cursor=${encodeURIComponent(pageOne.nextCursor)}`)).json() as any;
-    expect(pageTwo.items).toEqual([lexical[1]]);
+    expect(pageTwo.items).toEqual([first]);
   });
 
   it('executes only bounded Access operations', async () => {

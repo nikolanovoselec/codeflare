@@ -527,6 +527,7 @@ describe('REQ-STOR-012: child transcripts stay outside R2 sync', () => {
     const exclusions = [
       '- .claude/projects/**/subagents/**',
       '- .pi/agent/sessions/**/tasks/**',
+      '- .codex/sessions/**',
     ];
     const syncCalls = calls.filter((call) => call[0] === 'sync' || call[0] === 'bisync');
     for (const call of syncCalls) {
