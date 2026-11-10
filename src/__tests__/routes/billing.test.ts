@@ -571,8 +571,21 @@ describe('POST /public/stripe/webhook', () => {
     const { app, mockKV } = createApp({ RESEND_API_KEY: 'test-email-key' });
     mockKV._set('user:admin@example.com', { role: 'admin' });
 
-    // A handler failure must not leave a success marker that prevents retry.
-    mockKV.put.mockRejectedValueOnce(new Error('KV temporarily unavailable'));
+    // Fail the handler's customer write, not the earlier fail-closed limiter.
+    const put = mockKV.put.getMockImplementation()!;
+    let failHandlerWrite = true;
+    let forbidProtectedWrites = false;
+    mockKV.put.mockImplementation(async (...args) => {
+      const [key] = args;
+      if (key === 'stripe-customer:cus_dup' && failHandlerWrite) {
+        failHandlerWrite = false;
+        throw new Error('KV temporarily unavailable');
+      }
+      if (forbidProtectedWrites && key !== 'stripe-webhook:anonymous') {
+        throw new Error('duplicate state mutation');
+      }
+      return put(...args);
+    });
     const failed = await app.request('/public/stripe/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
@@ -591,14 +604,17 @@ describe('POST /public/stripe/webhook', () => {
     expect(await mockKV.get('user:dup@example.com', 'json')).toMatchObject({
       subscriptionTier: 'standard', stripeCustomerId: 'cus_buyer', billingStatus: 'active',
     });
-    expect(emails).toEqual([
+    await vi.waitFor(() => expect(emails).toEqual([
       expect.objectContaining({ to: ['dup@example.com'] }),
       expect.objectContaining({ to: ['admin@example.com'] }),
-    ]);
-    const savedState = [...mockKV._store];
+    ]));
+    const savedState = new Map(mockKV._store);
+    const rateLimit = JSON.parse(savedState.get('stripe-webhook:anonymous')!);
+    expect(rateLimit).toEqual({ count: 2, windowStart: expect.any(Number) });
+    savedState.set('stripe-webhook:anonymous', JSON.stringify({ ...rateLimit, count: 3 }));
     const sentEmails = [...emails];
-    // A visible marker must bypass state writes as well as email delivery.
-    mockKV.put.mockImplementation(async () => { throw new Error('duplicate state mutation'); });
+    // Replay may advance only its exact admission counter, not protected state.
+    forbidProtectedWrites = true;
 
     // Second request with same event ID (regenerate sig for fresh timestamp)
     const sig2 = await generateSignature(body, secret);
@@ -609,7 +625,7 @@ describe('POST /public/stripe/webhook', () => {
     });
     expect(res2.status).toBe(200);
 
-    expect([...mockKV._store]).toEqual(savedState);
+    expect([...mockKV._store]).toEqual([...savedState]);
     expect(emails).toEqual(sentEmails);
     // Success-marker retention is a wire contract, not global exactly-once.
     expect(mockKV.put).toHaveBeenCalledWith(

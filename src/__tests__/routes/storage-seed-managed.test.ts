@@ -381,6 +381,48 @@ describe('managed storage reconcile', () => {
     expect(applied.managedEnvironmentApplied.mode).toBe('default');
   });
 
+  it('REQ-STOR-010 AC5: cleanup warnings fail the endpoint without replacing a protected applied identity', async () => {
+    state.resourcePolicy = 'exclusive';
+    const priorApplied = {
+      digest: 'a'.repeat(64), sequence: 8, mode: 'advanced', projectionIdentity: PROJECTION_ALL,
+      managedExtensionsDigest: 'b'.repeat(64), resourcePolicy: 'exclusive',
+      managedPathsDigest: '9'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+    };
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced', workspaceSyncEnabled: true, managedEnvironmentApplied: priorApplied,
+    });
+    reconcile.mockResolvedValueOnce({
+      written: ['.claude/company.md'], skipped: [], deleted: [],
+      warnings: ['DELETE .claude/retired.md: HTTP 503'], managedPathsDigest: 'f'.repeat(64),
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ code: 'CONTAINER_ERROR' });
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied).toEqual(priorApplied);
+    expect(preferences.workspaceSyncEnabled).toBe(true);
+    expect(preferences.sessionMode).toBe('advanced');
+    expect(preferences.managedEnvironmentReconciliation.targets).toEqual([
+      { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_ALL },
+    ]);
+
+    // The same target can publish once cleanup completes without warnings.
+    reconcile.mockResolvedValueOnce({
+      written: ['.claude/company.md'], skipped: [], deleted: [],
+      warnings: [], managedPathsDigest: 'f'.repeat(64),
+    });
+    const retry = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+    expect(retry.status).toBe(200);
+    const published = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(published.managedEnvironmentApplied).toMatchObject({
+      digest: 'd'.repeat(64), sequence: 9, resourcePolicy: 'exclusive', managedPathsDigest: 'f'.repeat(64),
+    });
+    expect(published.managedEnvironmentReconciliation).toBeUndefined();
+  });
+
   it('REQ-STOR-024 AC4: does not stamp applied state when context-mode reconciliation fails', async () => {
     reseedContext.mockRejectedValueOnce(new Error('context failed'));
     const kv = createMockKV();

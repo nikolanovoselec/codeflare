@@ -552,7 +552,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 1. The subscribe endpoint rejects blocked users at handler entry. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (POST /auth/subscribe) -->
 2. Effective session mode is clamped against billing tier before managed-release status, reconciliation, container start, and preference persistence. <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (reports upgrading when a downgraded SaaS user has advanced managed content applied) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (reconciles and stamps the entitlement-clamped mode for a downgraded SaaS user) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks a downgraded SaaS user whose applied managed release still uses advanced mode) -->
 3. A canceled user with a stale advanced-mode preference is downgraded to default mode because their effective tier no longer permits advanced. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @test: src/__tests__/lib/session-mode.test.ts (clampSessionModeToTier / REQ-SEC-015 (AC2 clamp at container start + AC3 canceled-user stale advanced => default)) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (reconciles and stamps the entitlement-clamped mode for a downgraded SaaS user) -->
-4. Both container start and preferences save resolve the effective tier from billing state, not from a stored or token-side tier value. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (POST /auth/subscribe) -->
+4. Both container start and preferences save resolve the effective tier from billing state, not from a stored or token-side tier value. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (POST /auth/subscribe) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-SEC-015 AC4: saves advanced mode only for current active billing despite a legacy paid mode) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks a downgraded SaaS user whose applied managed release still uses advanced mode) -->
 
 **Constraints:**
 
@@ -563,7 +563,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SUB-012](subscription.md#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated: [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts)
+**Verification:** Automated: [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts)
 
 **Status:** Implemented
 

@@ -21,6 +21,27 @@ import { SETUP_KEYS } from '../../lib/kv-keys';
 // Acquire the original binding in the Runner, never by loader I/O in a DO callback.
 const actualAig = await vi.importActual<typeof import('../../lib/aig-config')>('../../lib/aig-config');
 
+describe('REQ-OPERATOR-052: admitted package-resource persistence', () => {
+  it('retains exact admitted resource bytes across Activity reconstruction and refuses another artifact', () => fixture(async f => {
+    const content = 'admitted package resource\n';
+    const projection = { schemaVersion: 1 as const, artifactDigest: f.artifactDigest,
+      files: [{ destination: 'review/config.md', content, size: new TextEncoder().encode(content).byteLength,
+        sha256: await digest(content) }] };
+    expect(await f.activity.getPackageResources()).toBeNull();
+    await f.activity.savePackageResources(projection);
+    const restored = f.restart();
+    expect(await restored.getPackageResources()).toEqual(projection);
+    await expect(restored.savePackageResources({ ...projection, artifactDigest: 'e'.repeat(64) }))
+      .rejects.toThrow('Package resource digest mismatch');
+    expect(await restored.getPackageResources()).toEqual(projection);
+    const returned = (await restored.getPackageResources())!;
+    returned.files[0].content = 'caller mutation';
+    expect(await restored.getPackageResources()).toEqual(projection);
+    expect(f.childSubmissions).toEqual([]);
+    expect((await restored.getRuntimePlan())!.executionContext.artifactDigest).toBe(f.artifactDigest);
+  }, { repositoryOnly: true }));
+});
+
 describe('REQ-OPERATOR-063: comprehensive pipeline diagnostic contract', () => {
   const marker = 'PRIVATE_PIPELINE_CONTENT';
   const input = { messages: [{ role: 'user', content: marker }] };
@@ -1427,6 +1448,61 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         ] } } });
     expect(JSON.stringify(boundDiagnostic)).not.toContain(privateMetadata);
     expect(JSON.stringify(boundDiagnostic)).not.toContain('fixture-incarnation');
+
+    // The same legacy SQL owner must expose truncation/chunking as uncertainty,
+    // never reconstruct private batches or claim a complete inline history.
+    await f.mutateEvidence(async storage => {
+      storage.sql.exec('UPDATE flue_conversation_streams SET next_offset = 34');
+      for (let sequence = 1; sequence <= 33; sequence++) {
+        const data = sequence === 33 ? { chunks: [privateMetadata] }
+          : sequence === 32 ? Array.from({ length: 65 }, (_, index) => ({
+            type: 'tool_outcome', id: `${privateMetadata}-${index}`, timestamp,
+            submissionId: stamp.submissionId, attemptId, data: { content: privateMetadata },
+          })) : [];
+        storage.sql.exec('INSERT INTO flue_conversation_stream_batches VALUES (?, ?, ?, ?, ?)',
+          'fixture-stream', sequence, JSON.stringify(data), stamp.submissionId, attemptId);
+      }
+    });
+    const detailBeforeInspection = await cold.activity.getBrowserDetail();
+    const submissionsBeforeInspection = [...f.childSubmissions];
+    const bounded = await cold.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    expect(bounded).toMatchObject({ consistency: 'stable-binding', sdk: { status: 'available', canonical: {
+      olderBatchesOmitted: true, recordLimitReached: true, inlineMetadataComplete: false,
+      contentRecordsExcluded: true,
+    } } });
+    expect(bounded!.sdk.canonical!.batches).toHaveLength(32);
+    expect(bounded!.sdk.canonical!.records).toHaveLength(64);
+    expect(bounded!.sdk.canonical!.batches.at(-1)).toMatchObject({ sequence: 33, inline: false });
+    expect(JSON.stringify(bounded)).not.toContain(privateMetadata);
+    expect(JSON.stringify(bounded)).not.toContain(stamp.submissionId);
+
+    let entered!: () => void;
+    let release!: () => void;
+    const reading = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    f.afterBundleRead(async () => { entered(); await held; });
+    const pending = cold.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    let originalLease: unknown;
+    try {
+      await within(reading, 'legacy snapshot bundle read');
+      await f.mutateEvidence(async storage => {
+        originalLease = await storage.get('dispatcher:lease');
+        await storage.put('dispatcher:lease', { ...(originalLease as Record<string, unknown>), inputDigest: 'e'.repeat(64) });
+      });
+      release();
+      const changed = await within(pending, 'legacy changed-binding snapshot');
+      expect(changed).toMatchObject({ consistency: 'changed-binding',
+        sdk: { status: 'unavailable', reason: 'changed-binding' },
+        parent: { operations: { status: 'unavailable', reason: 'changed-binding', records: [] } } });
+      expect(changed!.sdk).not.toHaveProperty('canonical');
+      expect(JSON.stringify(changed)).not.toContain(privateMetadata);
+    } finally {
+      release();
+      await pending;
+      if (originalLease) await f.mutateEvidence(async storage => { await storage.put('dispatcher:lease', originalLease); });
+    }
+    expect(await cold.activity.getBrowserDetail()).toEqual(detailBeforeInspection);
+    expect(f.childSubmissions).toEqual(submissionsBeforeInspection);
     expect(stamp.previous).toBeUndefined();
     expect(await context(cold)).toEqual(stamp);
     expect(await latestDelivery(cold)).toEqual(delivered);

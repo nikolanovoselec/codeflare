@@ -2,10 +2,22 @@
 // ever ran `graphify global add`, so the global manifest accumulated every repo
 // a session touched and a graph-less checkout kept publishing the repo before
 // it. These assert the reconcile plan Pi now computes before taking the lock.
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Redirect only Pi's hardcoded manifest read into the temporary fixture.
+// Other filesystem operations remain real; never inspect the user's graph.
+const fixture = vi.hoisted(() => ({ manifest: '' }));
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>();
+  return { ...fs, readFileSync: (path: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) =>
+    Reflect.apply(fs.readFileSync, fs, [
+      path === '/home/user/.graphify/global-manifest.json' ? fixture.manifest : path, ...args,
+    ]) };
+});
 
 import { planGlobalGraphReconcile, reconcileGlobalGraph } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 
@@ -124,12 +136,15 @@ describe('reconcileGlobalGraph failure semantics / REQ-VAULT-014 AC6', () => {
     bin = join(root, 'bin');
     mkdirSync(join(repo, 'graphify-out'), { recursive: true });
     mkdirSync(bin, { recursive: true });
+    fixture.manifest = join(root, 'global-manifest.json');
+    writeFileSync(fixture.manifest, manifest());
     writeFileSync(join(repo, 'graphify-out', 'graph.json'), '{"nodes":[],"links":[]}');
   });
 
   afterEach(() => {
     process.env.PATH = realPath;
     rmSync(root, { recursive: true, force: true });
+    fixture.manifest = '';
   });
 
   function stub(name: string, body: string) {
@@ -138,15 +153,22 @@ describe('reconcileGlobalGraph failure semantics / REQ-VAULT-014 AC6', () => {
     chmodSync(path, 0o755);
   }
 
+  // Translate the protected path only; preserve real flock exclusion/timeout.
+  function realFixtureLock() {
+    stub('flock', `[ "$3" = /run/codeflare/locks/graphify-global.lock ] || exit 2
+wait_flag="$1"; seconds="$2"; shift 3
+exec /usr/bin/flock "$wait_flag" "$seconds" "${join(root, 'global.lock')}" "$@"`);
+  }
+
   it('reports success when the reconcile transaction exits cleanly', () => {
-    stub('flock', 'shift 3\nexec "$@"');
+    realFixtureLock();
     stub('graphify', 'exit 0');
     process.env.PATH = `${bin}:${realPath}`;
     expect(reconcileGlobalGraph(repo)).toBe(true);
   });
 
   it('reports failure when graphify exits non-zero, which is what session_start warns on', () => {
-    stub('flock', 'shift 3\nexec "$@"');
+    realFixtureLock();
     stub('graphify', 'exit 1');
     process.env.PATH = `${bin}:${realPath}`;
     expect(reconcileGlobalGraph(repo)).toBe(false);
@@ -165,7 +187,7 @@ describe('reconcileGlobalGraph failure semantics / REQ-VAULT-014 AC6', () => {
     // absence can never surface as ENOENT the way flock's does; the script
     // reports it as 127 instead. Treating that as a failure would warn on every
     // session start about something the user cannot act on from the session.
-    stub('flock', 'shift 3\nexec "$@"');
+    realFixtureLock();
     symlinkSync('/bin/bash', join(bin, 'bash'));
     process.env.PATH = bin;
     expect(reconcileGlobalGraph(repo)).toBe(true);
@@ -173,9 +195,36 @@ describe('reconcileGlobalGraph failure semantics / REQ-VAULT-014 AC6', () => {
 
   it('still reports failure when graphify is present and the transaction fails', () => {
     // Guards the test above: 127 must not become a blanket "any error is fine".
-    stub('flock', 'shift 3\nexec "$@"');
+    realFixtureLock();
     stub('graphify', 'exit 3');
     process.env.PATH = `${bin}:${realPath}`;
     expect(reconcileGlobalGraph(repo)).toBe(false);
   });
+
+  it('IG0318: real lock contention reports failure without running graphify, then permits retry', async () => {
+    realFixtureLock();
+    const reached = join(root, 'graphify-reached');
+    stub('graphify', `printf reached > "${reached}"`);
+    process.env.PATH = `${bin}:${realPath}`;
+    const holder = spawn('/usr/bin/flock', [join(root, 'global.lock'), '/bin/bash', '-c',
+      'printf ready; read -r release'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const exited = new Promise(resolve => holder.once('close', resolve));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('fixture lock acquisition timed out')), 2000);
+        holder.once('error', error => { clearTimeout(timer); reject(error); });
+        holder.stdout.once('data', () => { clearTimeout(timer); resolve(); });
+        holder.once('exit', () => { clearTimeout(timer); reject(new Error('fixture lock holder exited before release')); });
+      });
+      expect(reconcileGlobalGraph(repo)).toBe(false);
+      expect(existsSync(reached)).toBe(false);
+    } finally {
+      holder.stdin.end();
+      await exited;
+    }
+    expect(reconcileGlobalGraph(repo)).toBe(true);
+    expect(existsSync(reached)).toBe(true);
+    // CLI exclusion/return semantics only, not persisted graph convergence.
+    // Neither this nor sequential retry resolves RQ0081.
+  }, 10000);
 });

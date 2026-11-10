@@ -88,6 +88,7 @@ function buildHarness({
   blockReleaseFile, // for bisyncBehavior='block-until-released'
   listingPresent = false,
   recordSleepDurations = false,
+  realRecovery = false,
 }) {
   const runtimeRoot = join(dirname(logFile), 'runtime');
   const listingDir = join(runtimeRoot, 'sync/rclone');
@@ -163,7 +164,9 @@ function buildHarness({
              bisync_with_r2() {
               BISYNC_CALL_COUNT=$((BISYNC_CALL_COUNT + 1))
               echo "BISYNC_CALLED n=$BISYNC_CALL_COUNT args=$*" >> "${logFile}"
-              if [ $BISYNC_CALL_COUNT -eq 1 ]; then return 7; else return 0; fi
+              if [ $BISYNC_CALL_COUNT -eq 1 ]; then return 7; fi
+              ${realRecovery ? 'compose_rclone_filters || return 7' : ''}
+              return 0
             }`;
 
   const resyncStub =
@@ -182,10 +185,10 @@ function buildHarness({
 set +e
 ${recordSleepDurations ? `sleep() { echo "SLEEP seconds=$1" >> "${logFile}"; command sleep 0.02; }` : ''}
 ${bisyncStub}
-recover_vanished_files() {
+${realRecovery ? extractTopLevelFunction('recover_vanished_files') : `recover_vanished_files() {
   echo "RECOVER_CALLED" >> "${logFile}"
   return ${recoveryReturns}
-}
+}`}
 ${resyncStub}
 cleanup_old_transcripts() { : ; }
 run_vault_session_compaction_after_sync() { : ; }
@@ -199,6 +202,21 @@ SYNC_RUNTIME_DIR='${runtimeRoot}/sync'
 HOME='${runtimeRoot}/home'
 mkdir -p "$HOME" "$SYNC_RUNTIME_DIR/rclone"
 touch "$SYNC_RUNTIME_DIR/last-bisync-output.txt"
+${realRecovery ? `${extractTopLevelFunction('prepare_managed_resource_filter')}
+${extractTopLevelFunction('compose_rclone_filters')}
+USER_HOME="$HOME"
+MANAGED_RESOURCE_POLICY=mutable
+MANAGED_RESOURCE_FILTER_FILE="$SYNC_RUNTIME_DIR/managed.filter"
+RCLONE_FILTERS=(--filter '+ .claude/**' --filter '+ /workspace/**')
+RECOVERY_FILTER_FILE="$SYNC_RUNTIME_DIR/recovery-filters.txt"
+: > "$RECOVERY_FILTER_FILE"
+touch "$SYNC_RUNTIME_DIR/rclone/stale.lck"
+cat > "$SYNC_RUNTIME_DIR/last-bisync-output.txt" <<'OUTPUT'
+ERROR : failed to open source object: lstat /home/user/.claude/settings.json: no such file or directory
+ERROR : failed to open source object: lstat /home/user/.claude/settings.json: no such file or directory
+ERROR : failed to open source object: lstat /home/user/workspace/user-code.ts: no such file or directory
+ERROR : permission denied: lstat /home/user/do-not-exclude: no such file or directory
+OUTPUT` : ''}
 
 ${patched}
 
@@ -458,20 +476,25 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
-  it('failure + vanishing-file recovery retries bisync and clears CONSECUTIVE_FAILURES (REQ-STOR-003 AC5)', async () => {
+  it('REQ-STOR-003 AC5: real vanished-file parsing excludes once, preserves workspace retry, and clears stale locks', async () => {
     const h = spawnHarness({
       daemonBody,
       bisyncBehavior: 'recover-then-success',
-      recoveryReturns: 0, // recover_vanished_files returns success -> retry
+      realRecovery: true,
     });
     const pid = await readDaemonPid(h.child);
     try {
-      // Wait for the second BISYNC_CALLED (n=2), proving the recovery
-      // retry path executed.
-      const log = await waitFor(h.logFile, (s) => /BISYNC_CALLED n=2/.test(s), 5000);
-      assert.match(log, /BISYNC_CALLED n=1/, 'first bisync attempt must run and fail');
-      assert.match(log, /RECOVER_CALLED/, 'recover_vanished_files must be invoked after a failure');
-      assert.match(log, /BISYNC_CALLED n=2/, 'second bisync must run after recovery returns success');
+      const log = await waitFor(h.logFile, (s) => /STATUS status=success/.test(s), 5000);
+      assert.match(log, /STATUS status=success err=null/, 'recovered cycle must publish successful completion');
+      assert.doesNotMatch(log, /STATUS status=failed|RESYNC_CALLED/,
+        'recoverable failure must not consume the failure budget or force a baseline');
+      assert.equal(readFileSync(join(h.dir, 'runtime/sync/recovery-filters.txt'), 'utf8'), '- .claude/settings.json\n',
+        'duplicate transient config errors exclude once; workspace and unrelated errors must not become exclusions');
+      assert.equal(readFileSync(join(h.dir, 'runtime/sync/effective-normal.filter'), 'utf8'),
+        '- .claude/settings.json\n+ .claude/**\n+ /workspace/**\n',
+        'rclone first-match filter contract: recovered exclusions must precede positive persistence rules');
+      assert.equal(existsSync(join(h.dir, 'runtime/sync/rclone/stale.lck')), false,
+        'retry must not retain the failed cycle lock');
     } finally {
       killHarness(h.child, pid);
     }

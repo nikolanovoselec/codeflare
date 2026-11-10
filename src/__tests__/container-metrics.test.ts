@@ -306,7 +306,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storedUserEmail = 'quota@example.com';
     containerInstance = createContainerInstance();
     const timekeeperStub = {
-      fetch: vi.fn(async () => new Response(JSON.stringify({ quotaExceeded }), { status: 200 })),
+      fetch: vi.fn(async (_request: Request) => new Response(JSON.stringify({ quotaExceeded }), { status: 200 })),
     };
     const instanceEnv = (containerInstance as unknown as { env: Record<string, unknown> }).env;
     if (saasMode) instanceEnv.SAAS_MODE = 'active';
@@ -903,16 +903,47 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       )).toHaveLength(2);
     });
 
-    it('D3/D4: notification polling never mutates activity or usage inputs', async () => {
+    it('D3/D4: delivered notifications preserve parsed activity and cannot extend the idle deadline', async () => {
+      let now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      const timekeeper = await enableTimekeeper({ saasMode: false });
       setNotificationSession();
-      testState.agentDrainEvents = [];
-      const activityBefore = structuredClone(testState.activityResult);
+      const key = 'session:test-bucket:testsession123456';
+      const original = await mockKV.get(key, 'json') as Session;
+      const inputAt = now - 59 * 60_000;
+      const startedAt = now - 2 * 3_600_000;
+      testState.storedSleepAfter = '1h';
+      testState.activityResult.lastInputAt = inputAt;
+      await storage().put('containerStartedAt', startedAt);
+      mockKV._set(key, { ...original, lastInputAt: new Date(inputAt).toISOString() });
+      testState.agentDrainEvents = [{ schemaVersion: 1, eventId: 'idle-notification',
+        kind: 'input-required', createdAt: now - 1000 }];
 
       await containerInstance.collectMetrics();
 
-      expect(testState.activityResult).toEqual(activityBefore);
-      expect(testState.stopCalls).toBe(0);
-      expect(testState.agentDrainCalls).toBe(1);
+      // These are outputs of processing Response.json(), not the untouched host fixture.
+      const projected = await mockKV.get(key, 'json') as Session & { lastInputAt: string };
+      expect(projected.lastInputAt).toBe(new Date(inputAt).toISOString());
+      expect(projected.lastAccessedAt).toBe(original.lastAccessedAt);
+      expect(projected.lastActiveAt).toBe(original.lastActiveAt);
+      expect(await storage().get('containerStartedAt')).toBe(startedAt);
+      expect(await storage().get('usageSeconds')).toBe(60);
+      const usagePings = await Promise.all(timekeeper.fetch.mock.calls.map(async ([request]) => request.clone().json()));
+      expect(usagePings).toEqual([{ bucketName: 'test-bucket', sessionId: 'testsession123456',
+        totalSeconds: 60, email: 'quota@example.com' }]);
+      expect(testState.agentDrainRequests.map(request => request.body)).toContainEqual({ ackEventIds: ['idle-notification'] });
+      expect(testState.platformStopSignals).toEqual([]);
+
+      now += 2 * 60_000;
+      await containerInstance.collectMetrics();
+
+      expect(testState.platformStopSignals).toEqual(['SIGTERM']);
+      expect(await storage().get('containerStartedAt')).toBe(startedAt);
+      expect(await storage().get('usageSeconds')).toBe(60);
+      expect(await Promise.all(timekeeper.fetch.mock.calls.map(async ([request]) => request.clone().json())))
+        .toEqual(usagePings);
+      expect((await mockKV.get(key, 'json') as Session & { lastInputAt: string }).lastInputAt)
+        .toBe(new Date(inputAt).toISOString());
     });
 
     it('warns when /health reports an unhealthy R2 sync (failed/timeout) so an in-container bisync death is visible in Workers logs', async () => {

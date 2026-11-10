@@ -1,7 +1,7 @@
 /**
  * Automatic JWT stamping decision tests. Network authorization is deliberately
- * absent: stamping runs only after another policy allows transport. Redirect and
- * real RP/backend acceptance remain integration evidence.
+ * absent from helper cases: stamping runs only after another policy allows transport.
+ * The egress case exercises explicit redirect hops; real RP/backend acceptance remains separate.
  */
 import { describe, expect, it } from 'vitest';
 import { buildConfigurationPreview } from '../../lib/admin-configuration';
@@ -9,6 +9,8 @@ import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 import { parseJwtStampingPolicy, prepareJwtStampedRequest, shouldStampAccessJwt } from '../../operators/jwt-stamping';
+import { EgressController } from '../../egress-controller';
+import type { OperatorPolicy } from '../../operators/policy';
 
 const human = (expiresAt = Math.floor(Date.now() / 1000) + 300): VerifiedHumanAccessClaims => ({
   subject: 'human', email: 'human@example.test', issuer: 'https://access.example.test', audiences: ['audience'],
@@ -66,6 +68,44 @@ describe('REQ-OPERATOR-019: automatic human Access JWT stamping', () => {
       { human: human(), accessJwt: 'verified.jwt' });
     expect(off.headers.get('cf-access-jwt-assertion')).toBeNull();
     expect(off.headers.get('authorization')).toBe('Bearer specialized');
+  });
+
+  it('reauthorizes an explicit redirect next hop before stamping or refusing transport', async () => {
+    const first = 'https://first.example.test/start';
+    const next = 'https://next.example.test/finish';
+    const denied = 'https://denied.example.test/private';
+    const sent: Array<{ url: string; assertion: string | null; redirect: RequestRedirect }> = [];
+    const policy: OperatorPolicy = { schemaVersion: 1,
+      networkHosts: ['first.example.test', 'next.example.test'],
+      github: { repositories: [], methods: [] },
+      storage: { readPrefixes: [], writePrefixes: [] },
+      inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [],
+        defaultReasoningLevel: null, inheritUserDefaults: false } };
+    const env = { ENTERPRISE_MODE: 'active', EGRESS: { fetch: async (request: Request) => {
+      sent.push({ url: request.url, assertion: request.headers.get('cf-access-jwt-assertion'), redirect: request.redirect });
+      return new Response(null, { status: 302, headers: { location: request.url === first ? next : denied } });
+    } } } as unknown as Env;
+    const controller = new EgressController({ props: { strict: true, operatorPolicy: policy,
+      jwtStamping: { mode: 'all', destinations: [] },
+      jwtAuthority: { human: human(), accessJwt: 'verified.jwt' },
+    } } as unknown as ExecutionContext, env);
+    const response = await controller.fetch(new Request(first));
+    expect(response.status).toBe(302);
+    expect(sent).toEqual([{ url: first, assertion: 'verified.jwt', redirect: 'manual' }]);
+    const redirected = await controller.fetch(new Request(response.headers.get('location')!, {
+      headers: { 'cf-access-jwt-assertion': 'forwarded-spoof' },
+    }));
+    expect(redirected.status).toBe(302);
+    expect(sent).toEqual([
+      { url: first, assertion: 'verified.jwt', redirect: 'manual' },
+      { url: next, assertion: 'verified.jwt', redirect: 'manual' },
+    ]);
+    const refused = await controller.fetch(new Request(redirected.headers.get('location')!, {
+      headers: { 'cf-access-jwt-assertion': 'verified.jwt' },
+    }));
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ code: 'OPERATOR_EGRESS_DENIED' });
+    expect(sent.map(request => request.url)).toEqual([first, next]);
   });
 
   it('rejects expired authority when an eligible destination would be stamped', () => {

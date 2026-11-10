@@ -16,7 +16,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -127,7 +129,7 @@ function runBaselineTimeout() {
  * shutdown_once when the handler's `exit 0` runs, exercising the guard on
  * every invocation). Returns the effect log lines and the handler's stdout.
  */
-function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunning = false, initPid = '', terminalPid = '', operator = false } = {}) {
+function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunning = false, initPid = '', terminalPid = '', operator = false, receiptRoot = null } = {}) {
   const fixture = mkdtempSync(join(tmpdir(), 'shutdown-'));
   const logFile = join(fixture, 'effects.log');
   const outFile = join(fixture, 'handler.out');
@@ -144,13 +146,15 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     'walk_kill() { echo "walk_kill:$1:$2" >> "$LOG"; }',
     'kill_pidfile_subtree() { echo "kill_pidfile_subtree:$1" >> "$LOG"; }',
     'bisync_with_r2() { echo "bisync_with_r2" >> "$LOG"; return "${BISYNC_RC_STUB:-0}"; }',
-    'drain_operator_sync_shutdown() { echo "drain_operator_sync_shutdown" >> "$LOG"; return 0; }',
+    receiptRoot
+      ? extractFunction('drain_operator_sync_shutdown').replace('local receipt_root="/home/user/.codeflare/operators"', `local receipt_root=${JSON.stringify(receiptRoot)}`)
+      : 'drain_operator_sync_shutdown() { echo "drain_operator_sync_shutdown" >> "$LOG"; return 0; }',
     // Stub kill so no real process is ever signalled; the watchdog subshell
     // then finishes on its own (sleeps are shortened below) and the handler's
     // real `wait` reaps it before the script exits.
     'kill() { echo "kill:$*" >> "$LOG"; }',
     'pgrep() { return "${PGREP_RC:-1}"; }',
-    'sleep() { command sleep 0.01; }',
+    `sleep() { ${receiptRoot ? 'touch "$LOG.waiting";' : ''} command sleep 0.01; }`,
     `BISYNC_INIT_PID=${initPid ? `'${initPid}'` : "''"}`,
     `TERMINAL_PID=${terminalPid ? `'${terminalPid}'` : "''"}`,
     `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
@@ -161,6 +165,14 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     'trap shutdown_once EXIT',
     'shutdown_once',
   ].join('\n');
+
+  if (receiptRoot) {
+    const child = spawn('bash', ['-c', script], {
+      env: { ...process.env, OUT_FILE: outFile, LOG_FILE: logFile },
+      stdio: 'ignore',
+    });
+    return { child, logFile, fixture };
+  }
 
   const result = spawnSync('bash', ['-c', script], {
     encoding: 'utf8',
@@ -291,6 +303,83 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     assert.ok(!log.includes('bisync_with_r2'));
     assert.ok(log.includes('kill:12345'));
     assert.ok(out.includes('Restricted operator shutdown'));
+  });
+
+  it('REQ-OPERATOR-022: real shutdown waits for accepted upload settlement or authority expiry', { timeout: 30_000 }, async (t) => {
+    const { OperatorSyncService } = await import('../dist/operator-sync.js');
+    let now = 0;
+    t.mock.method(Date, 'now', () => now);
+    for (const expiry of ['none', 'before-drain', 'during-drain']) {
+      const expires = expiry !== 'none';
+      now = 0;
+      const root = mkdtempSync(join(tmpdir(), 'shutdown-upload-'));
+      t.after(() => rmSync(root, { recursive: true, force: true }));
+      const receipts = join(root, 'activity-1/.codeflare/sync-receipts');
+      mkdirSync(receipts, { recursive: true });
+      const receiptFile = join(receipts, 'sync-1.json');
+      const objects = new Map();
+      const bytes = Buffer.from('accepted output');
+      let release, uploading;
+      const blocked = new Promise(resolve => { release = resolve; });
+      const started = new Promise(resolve => { uploading = resolve; });
+      const service = new OperatorSyncService({
+        activityId: 'activity-1', sessionId: 'session-1', policyDigest: 'b'.repeat(64),
+        root, filePrefix: 'Operators/', manifestPrefix: '.codeflare/operators/activity-1/', deadline: 1000,
+        store: {
+          async load() { return existsSync(receiptFile) ? JSON.parse(readFileSync(receiptFile, 'utf8')) : null; },
+          async save(receipt) { writeFileSync(receiptFile, JSON.stringify(receipt)); },
+        },
+        files: { async read() { return bytes; } },
+        uploader: { async put(_id, key, value) {
+          if (key === 'Operators/output.txt') { uploading(); await blocked; }
+          objects.set(key, Buffer.from(value));
+        } },
+      });
+      const request = { operationId: 'sync-1', requestDigest: 'a'.repeat(64), files: [
+        { path: 'output.txt', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') },
+      ] };
+      const upload = service.upload(request).then(value => ({ value }), error => ({ error }));
+      await started;
+      assert.equal(JSON.parse(readFileSync(receiptFile, 'utf8')).status, 'uploading');
+      if (expiry === 'before-drain') now = 1000;
+      const run = runShutdown({ operator: true, terminalPid: '12345', receiptRoot: root });
+      const exited = once(run.child, 'exit');
+      t.after(() => { if (run.child.exitCode === null) run.child.kill(); rmSync(run.fixture, { recursive: true, force: true }); });
+      try {
+        for (let attempt = 0; attempt < 200 && !existsSync(`${run.logFile}.waiting`); attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        assert.equal(existsSync(`${run.logFile}.waiting`), true, 'real drain must reach its pending-receipt wait');
+        assert.equal(run.child.exitCode, null);
+        assert.doesNotMatch(readFileSync(run.logFile, 'utf8'), /kill:12345|bisync_with_r2/,
+          'host must stay alive while the accepted upload is unresolved');
+        if (expiry === 'during-drain') now = 1000;
+        release();
+        const outcome = await upload;
+        const [code] = await Promise.race([exited, new Promise((_, reject) => {
+          const timer = setTimeout(() => reject(new Error('shutdown did not drain')), 5000);
+          timer.unref();
+        })]);
+        assert.equal(code, 0);
+        const receipt = JSON.parse(readFileSync(receiptFile, 'utf8'));
+        assert.equal(receipt.status, expires ? 'unknown' : 'uploaded');
+        const manifest = objects.get('.codeflare/operators/activity-1/sync-1/manifest.json');
+        if (expires) {
+          assert.match(outcome.error.message, /outcome is unknown/);
+          assert.equal(manifest, undefined, 'expired authority cannot publish the completion manifest');
+        } else {
+          assert.equal(outcome.value.status, 'uploaded');
+          assert.deepEqual(JSON.parse(manifest).files, request.files);
+          assert.deepEqual(objects.get('Operators/output.txt'), bytes);
+        }
+        const effects = readFileSync(run.logFile, 'utf8');
+        assert.match(effects, /kill:12345/);
+        assert.doesNotMatch(effects, /bisync_with_r2/);
+      } finally {
+        release();
+        if (run.child.exitCode === null) run.child.kill();
+      }
+    }
   });
 
   it('REQ-OPS-010 AC6: terminal server is killed after the final sync completes', () => {

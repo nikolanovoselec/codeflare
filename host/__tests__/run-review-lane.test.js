@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -703,6 +703,29 @@ describe('run-review-lane.sh — guard re-injection', () => {
     assert.notEqual(r.status, 0, 'a missing guard must fail closed, not run unguarded');
     assert.equal(existsSync(witness), false,
       'no lane may run with bypassPermissions and an empty hook list');
+  });
+
+  it('refuses to launch independently when jq is unavailable', (t) => {
+    const { cwd, base, head } = makeRepo('src/thing.ts');
+    t.after(() => rmSync(cwd, { recursive: true, force: true }));
+    const { home, hookScripts } = makeClaudeHome(cwd);
+    const witness = join(cwd, 'claude-was-called');
+    const binDir = fakeClaude(cwd, witness);
+    // Supply the real prerequisites, but no jq and no inherited PATH fallback.
+    for (const tool of ['timeout', 'awk', 'mktemp', 'rm']) {
+      const located = spawnSync('/bin/bash', ['-c', 'command -v "$1"', '_', tool], { encoding: 'utf8' });
+      assert.equal(located.status, 0, `${tool}: ${located.stderr}`);
+      symlinkSync(located.stdout.trim(), join(binDir, tool));
+    }
+    const seededRunner = join(hookScripts, 'run-review-lane.sh');
+    writeFileSync(seededRunner, readFileSync(RUNNER, 'utf8'));
+    const r = spawnSync('/bin/bash', [seededRunner, '--lane', 'code-reviewer', '--range', `${base}..${head}`], {
+      cwd, encoding: 'utf8',
+      env: { ...process.env, PATH: binDir, CLAUDE_CONFIG_DIR: home },
+    });
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /jq is required.*refusing to run unguarded/);
+    assert.equal(existsSync(witness), false, 'missing jq must not start the reviewer');
   });
 
   it('refuses to launch when guard-settings generation produces an empty file', () => {

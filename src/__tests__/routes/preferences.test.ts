@@ -644,6 +644,40 @@ describe('Preferences Routes', () => {
   // ---------------------------------------------------------------------------
   // REQ-MEM-011 AC3-AC4 (mode change triggers reconcileAgentConfigs to seed/delete mode-appropriate preseed files)
   describe('preseed reconciliation on sessionMode change / REQ-AGENT-016 (advanced-mode preseed reconciliation)', () => {
+    it('REQ-SEC-015 AC4: saves advanced mode only for current active billing despite a legacy paid mode', async () => {
+      const app = createTestApp({ SAAS_MODE: 'active' });
+      const prefsKey = 'user-prefs:codeflare-test-user';
+      mockKV._set(prefsKey, { sessionMode: 'default', workspaceSyncEnabled: true });
+      const { authMiddleware } = await import('../../middleware/auth');
+      vi.mocked(authMiddleware).mockImplementationOnce(async (c: any, next: any) => {
+        c.set('user', { email: 'test@example.com', authenticated: true, role: 'user',
+          subscriptionTier: 'advanced', subscribedMode: 'advanced', billingStatus: 'canceled' });
+        c.set('bucketName', 'codeflare-test-user');
+        return next();
+      });
+      const canceled = await app.request('/preferences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      expect(canceled.status).toBe(400);
+      expect(await canceled.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+      expect(await mockKV.get(prefsKey, 'json')).toEqual({ sessionMode: 'default', workspaceSyncEnabled: true });
+
+      vi.mocked(authMiddleware).mockImplementationOnce(async (c: any, next: any) => {
+        c.set('user', { email: 'test@example.com', authenticated: true, role: 'user',
+          subscriptionTier: 'advanced', subscribedMode: 'advanced', billingStatus: 'active' });
+        c.set('bucketName', 'codeflare-test-user');
+        return next();
+      });
+      const active = await app.request('/preferences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      expect(active.status).toBe(200);
+      expect(await active.json()).toMatchObject({ sessionMode: 'advanced', workspaceSyncEnabled: true });
+      expect(await mockKV.get(prefsKey, 'json')).toMatchObject({ sessionMode: 'advanced', workspaceSyncEnabled: true });
+    });
+
     it('calls reconcileAgentConfigs when sessionMode changes from default to advanced', async () => {
       const app = createTestApp();
       const prefsKey = 'user-prefs:codeflare-test-user';

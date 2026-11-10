@@ -827,7 +827,7 @@ None.
 1. The serving port binds within Cloudflare's container port-wait window even while initialization (R2 sync, MCP config merges) is still in progress. <!-- @impl: entrypoint.sh::TERMINAL_PID --> <!-- @manual: On a deployed cold start with delayed R2 initialization, confirm the serving port accepts health probes within the platform wait window. -->
 2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up call from entrypoint.sh still reaches the init-flag write when it fails) --> <!-- @manual -->
 3. Terminal pre-warm waits up to 130 seconds for initialization, then starts the stamped Classic or Herdr surface; timeout proceeds in degraded state. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm pre-warm remains gated until the 130-second bound, then starts with `/health.initFlagObserved` still false. -->
-4. The host rejects terminal WebSocket upgrades with retriable close code 1013 and a warming reason until pre-warm registers. <!-- @impl: host/src/server.ts::terminalServiceReady --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler -->
+4. The host rejects terminal WebSocket upgrades with retriable close code 1013 and a warming reason until pre-warm registers. <!-- @impl: host/src/server.ts::terminalServiceReady --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: host/__tests__/terminal-agent-events.test.js (REQ-SESSION-015 AC4: rejects an unregistered prewarm with 1013 then accepts after registration) -->
 5. Pre-warm registration normally follows initialization; after the 130-second bound, degraded startup may register without requiring `initFlagObserved`. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm degraded startup registers after the 130-second bound with `/health.initFlagObserved` still false. -->
 
 **Constraints:**
@@ -840,7 +840,7 @@ None.
 
 **Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated: [entrypoint-pi-warmup-guard.test.js](../../host/__tests__/entrypoint-pi-warmup-guard.test.js), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts); Manual: [Startup and packaged image record acceptance](../../documentation/lanes/container.md#startup-and-packaged-image-record-acceptance)
+**Verification:** Automated: [entrypoint-pi-warmup-guard.test.js](../../host/__tests__/entrypoint-pi-warmup-guard.test.js), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts), [terminal-agent-events.test.js](../../host/__tests__/terminal-agent-events.test.js); Manual: [Startup and packaged image record acceptance](../../documentation/lanes/container.md#startup-and-packaged-image-record-acceptance)
 
 **Status:** Implemented
 
@@ -1138,7 +1138,7 @@ None.
 3. Every awaited host or peer operation is bounded and a failed peer cannot prevent the next eligible schedule from being armed. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers) -->
 4. Host transport reachability, snapshot validity, readiness and confirmed process exit remain distinct evidence. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (does not flip a live session to stopped on a single transient not-running tick) -->
 5. D1 projection failure cannot authorize reconstruction, termination, `unreachable`, or `stopped`. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (continues without transport recovery when the lifecycle projection fails) -->
-6. Trusted identity, agent events, Timekeeper accounting and Durable Object storage remain separately owned and are excluded from the one-observation/one-update budget. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (D3/D4: notification polling never mutates activity or usage inputs) -->
+6. Trusted identity, agent events, Timekeeper accounting and Durable Object storage remain separately owned and are excluded from the one-observation/one-update budget. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (D3/D4: delivered notifications preserve parsed activity and cannot extend the idle deadline) -->
 
 **Constraints:** Existing idle-input policy, usage authority and final-sync deadlines remain unchanged.
 
