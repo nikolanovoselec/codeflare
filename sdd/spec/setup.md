@@ -166,9 +166,14 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Constraints:**
 
 - The existing `setup:configuration` Container DO owns configure-versus-configure admission and task lifetime. A durable token and canonical input/target-worker fingerprint precede effects; submitted secrets are not stored in admission. Live overlap refuses immediately without step progress. <!-- @impl: src/container/index.ts::configureDeployment --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SETUP-004: concurrent configure cannot both publish; interrupted same-task retry recovers without takeover) --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: confirmed zone absence releases admission for corrected input) --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: live provider operation denies overlapping corrected input) --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: uncertain Access failure drains started deletions and retains changed-input fence) -->
-- Success releases the matching token. Fresh admission also releases after definite terminal `ValidationError` or known pre-provisioning active-Environment refusal, once started siblings settle. Wait for Environment completion before resubmitting.
+- Success releases the matching token.
+- Fresh admission also releases after definite terminal `ValidationError` or known pre-provisioning active-Environment refusal, once started siblings settle.
+- Wait for Environment completion before resubmitting.
 - Confirmed zone absence requires successful, well-formed empty lookups for every candidate; `SetupError` may wrap transport uncertainty and does not qualify.
-- Transport/provider uncertainty or crash retains authority until authorized identical-input success; resubmit the original validated configuration. Later validation/refusal cannot clear that fence. No TTL takeover, reset API or automatic replay exists. `setup:configuring` KV is status only; external provider/control-plane actors remain unfenced.
+- Transport/provider uncertainty or crash retains authority until authorized identical-input success; resubmit the original validated configuration.
+- Later validation/refusal cannot clear that fence.
+- No TTL takeover, reset API or automatic replay exists.
+- `setup:configuring` KV is status only; external provider/control-plane actors remain unfenced.
 
 **Priority:** P1
 
