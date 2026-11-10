@@ -449,6 +449,19 @@ describe('disconnectGithub', () => {
     expect(await mockKV.get(KEY)).toBeNull();
   });
 
+  it.each(['unconfigured', 'HTTP503', 'transport'] as const)(
+    'REQ-AUTH-018 AC3: strict offboarding retains credentials after %s and retry converges', async failure => {
+      const original = { githubToken: 'gho_retry', githubTokenSource: 'oauth', cloudflareApiToken: 'unrelated' } satisfies DeployKeys;
+      mockKV._set(KEY, original);
+      if (failure === 'HTTP503') mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+      if (failure === 'transport') mockFetch.mockRejectedValueOnce(new Error('uncertain revoke'));
+      await expect(disconnectGithub(env(failure === 'unconfigured' ? {} : OAUTH_ENV), BUCKET, { strictOffboarding: true })).rejects.toThrow();
+      expect(await mockKV.get(KEY, 'json')).toEqual(original);
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 204 });
+      await disconnectGithub(env(OAUTH_ENV), BUCKET, { strictOffboarding: true });
+      expect(await mockKV.get(KEY, 'json')).toEqual({ cloudflareApiToken: 'unrelated' });
+    });
+
   it('does NOT call GitHub revoke for a manually-pasted PAT but still clears it', async () => {
     mockKV._set(KEY, { githubToken: 'ghp_pat', githubTokenSource: 'pat' } satisfies DeployKeys);
 

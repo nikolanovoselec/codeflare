@@ -280,7 +280,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       expect(res.status).toBe(200);
     });
 
-    it('should continue deletion even if token deletion fails (graceful)', async () => {
+    it('REQ-AUTH-018 AC3: remote token failure refuses success and retains recovery authority', async () => {
       const app = createTestApp('admin@example.com');
 
       mockKV._store.set('setup:account_id', 'test-account-id');
@@ -298,10 +298,9 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
 
       const res = await app.request('/users/target%40example.com', { method: 'DELETE' });
 
-      // User deletion should still succeed despite token deletion failure
-      expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean };
-      expect(body.success).toBe(true);
+      expect(res.status).toBe(503);
+      expect(await mockKV.get('r2token:target@example.com', 'json')).toMatchObject({ tokenId: 'token-id-789' });
+      expect(await mockKV.get('user:target@example.com')).not.toBeNull();
     });
 
     it('should delete r2token:{email} KV entry after token deletion', async () => {

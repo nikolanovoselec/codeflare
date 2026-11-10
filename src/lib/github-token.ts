@@ -383,8 +383,8 @@ export async function connectGithub(
   return conn;
 }
 
-/** Disconnect: attempt GitHub revocation, then clear the local fields regardless. */
-export async function disconnectGithub(env: Env, bucketName: string): Promise<void> {
+/** Ordinary disconnect clears locally on provider failure; strict offboarding retains retry authority. */
+export async function disconnectGithub(env: Env, bucketName: string, options: { strictOffboarding?: boolean } = {}): Promise<void> {
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (conn && conn.source !== 'pat') {
     try {
@@ -392,6 +392,7 @@ export async function disconnectGithub(env: Env, bucketName: string): Promise<vo
       if (!provider) throw new Error('GitHub provider unavailable');
       await provider.revoke(conn.accessToken);
     } catch (err) {
+      if (options.strictOffboarding) throw err;
       logger.warn('GitHub token revocation failed; clearing local credentials', { err: String(err) });
     }
   }

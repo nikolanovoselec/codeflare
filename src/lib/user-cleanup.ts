@@ -48,8 +48,8 @@ async function deleteSessionsAndContainers(bucketName: string, env: Env): Promis
   for (const session of sessions) {
     try {
       await getContainer(env.CONTAINER, getContainerId(bucketName, session.sessionId)).destroy();
-    } catch (err) {
-      logger.warn('Failed to destroy container during user deletion', { sessionId: session.sessionId, error: String(err) });
+    } catch {
+      throw new AppError('user_cleanup_incomplete', 503, 'Container cleanup could not be confirmed');
     }
   }
   return repository.deleteOwnerSessions(bucketName);
@@ -57,9 +57,6 @@ async function deleteSessionsAndContainers(bucketName: string, env: Env): Promis
 
 /** Blocks B + B2: delete the user record and all bucket-keyed KV entries. */
 async function deleteUserKvEntries(normalizedEmail: string, bucketName: string, env: Env): Promise<void> {
-  // --- Block B: User KV deletion ---
-  await env.KV.delete(`user:${normalizedEmail}`);
-
   // --- Block B2: Bucket-keyed KV cleanup ---
   const pushSubscriptionKeys = await listAllKvKeys(env.KV, getPushSubPrefix(bucketName));
   await Promise.all([
@@ -74,34 +71,34 @@ async function deleteUserKvEntries(normalizedEmail: string, bucketName: string, 
     env.KV.delete(getRegimeStateKey(bucketName)),
     ...pushSubscriptionKeys.map(({ name }) => env.KV.delete(name)),
   ]);
+  await env.KV.delete(`user:${normalizedEmail}`);
 }
 
 /**
- * Block C: revoke the scoped R2 token via CF API and delete its KV entry.
+ * Block C: confirm scoped R2 token revocation; retain its KV identity until cleanup completes.
  * Returns true when a scoped token was revoked.
  */
 async function deleteR2Token(
-  normalizedEmail: string,
   accountId: string | null,
   r2TokenData: { tokenId?: string; accessKeyId?: string; secretAccessKey?: string } | null,
-  email: string,
   env: Env,
 ): Promise<boolean> {
-  let tokenDeleted = false;
-  try {
-    if (r2TokenData?.tokenId && accountId && env.CLOUDFLARE_API_TOKEN) {
-      await deleteScopedR2Token(accountId, env.CLOUDFLARE_API_TOKEN, r2TokenData.tokenId);
-      tokenDeleted = true;
+  if (r2TokenData && !r2TokenData.tokenId) {
+    throw new AppError('user_cleanup_incomplete', 503, 'Scoped token identity is unavailable for revocation');
+  }
+  if (r2TokenData?.tokenId) {
+    if (!accountId || !env.CLOUDFLARE_API_TOKEN) {
+      throw new AppError('user_cleanup_incomplete', 503, 'Scoped token revocation authority is unavailable');
     }
-  } catch (err) {
-    logger.warn('Failed to delete scoped R2 token during user deletion', { email, error: String(err) });
+    try {
+      await deleteScopedR2Token(accountId, env.CLOUDFLARE_API_TOKEN, r2TokenData.tokenId);
+    } catch {
+      throw new AppError('user_cleanup_incomplete', 503, 'Scoped token revocation could not be confirmed');
+    }
   }
-  try {
-    await env.KV.delete(`r2token:${normalizedEmail}`);
-  } catch (err) {
-    logger.warn('Failed to delete r2token KV entry', { email, error: String(err) });
-  }
-  return tokenDeleted;
+  // Keep the cached identity until bucket cleanup also succeeds: it is retry evidence,
+  // even after revocation. Remote token DELETE is idempotent (404 confirms absence).
+  return Boolean(r2TokenData?.tokenId);
 }
 
 /**
@@ -145,7 +142,7 @@ async function deleteR2Bucket(
           headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
         });
 
-        if (res.ok) {
+        if (res.ok || res.status === 404) {
           bucketDeleted = true;
           logger.info('Deleted R2 bucket', { bucketName, attempt });
           break;
@@ -193,30 +190,27 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
     );
   }
 
-  // --- Block A: Session + Container cleanup ---
-  const deletedSessions = await deleteSessionsAndContainers(bucketName, env);
-
-  // --- Block A2: provider revocation before local credential deletion ---
-  // GitHub revocation is best-effort and clears local credentials on failure;
-  // Cloudflare keeps its provider-owned failure contract.
-  await disconnectGithub(env, bucketName);
-  await disconnectCloudflare(env, bucketName);
-
-  // --- Blocks B + B2: User + bucket-keyed KV deletion ---
-  await deleteUserKvEntries(normalizedEmail, bucketName, env);
-
-  // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---
-  // Must use getAndDecrypt — r2token values are encrypted when ENCRYPTION_KEY is set.
-  // Raw KV.get('json') throws SyntaxError on the "v1:..." ciphertext prefix.
+  // Resolve cleanup authority before erasing any live ownership/retry records.
   const accountId = await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
+  if (!accountId || !env.CLOUDFLARE_API_TOKEN) {
+    throw new AppError('user_cleanup_incomplete', 503, 'Bucket deletion authority is unavailable');
+  }
   const cryptoKey = await getOrImportKey(env);
   const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${normalizedEmail}`, cryptoKey);
 
-  // --- Block C: R2 scoped token cleanup ---
-  const tokenDeleted = await deleteR2Token(normalizedEmail, accountId, r2TokenData, email, env);
-
-  // --- Block D: R2 bucket empty + delete ---
+  const deletedSessions = await deleteSessionsAndContainers(bucketName, env);
+  // Confirm provider revocation before destroying storage or its scoped access.
+  // A provider failure must retain credentials and data for an authorized retry.
+  await disconnectGithub(env, bucketName, { strictOffboarding: true });
+  await disconnectCloudflare(env, bucketName);
+  const tokenDeleted = await deleteR2Token(accountId, r2TokenData, env);
   const bucketDeleted = await deleteR2Bucket(bucketName, accountId, email, env);
+  if (!bucketDeleted) {
+    throw new AppError('user_cleanup_incomplete', 503, 'Bucket deletion could not be confirmed');
+  }
+
+  await env.KV.delete(`r2token:${normalizedEmail}`);
+  await deleteUserKvEntries(normalizedEmail, bucketName, env);
 
   return { deletedSessions, bucketDeleted, tokenDeleted };
 }
