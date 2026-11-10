@@ -544,7 +544,7 @@ export async function fixture(test: (f: {
           if (upstreamConflict) return Response.json({ error: 'upstream-conflict' }, { status: 409 });
           if (request.url.includes('/releases/tags/')) {
             if (moveAfterRelease) headSha = 'c'.repeat(40);
-            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 9000);
+            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 9000);
             return Response.json(releaseBody, { status: releaseStatus });
           }
           if (request.url.includes('/git/ref/tags/')) return Response.json(tagRef);
@@ -775,7 +775,12 @@ export async function fixture(test: (f: {
         moveBaseAfterContents: () => { moveAfterContents = true; },
         exceedComposeDeadline: () => { composeElapsed = true; },
         moveBaseAfterGuide: () => { moveBaseAfterGuide = true; },
-        exceedReleaseDeadline: () => { exceedDeadline = true; },
+        exceedReleaseDeadline: () => {
+          // Measure the nine-second upstream delay from this read, not fixture
+          // creation: admission/setup time must not shorten the simulated delay.
+          vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+          exceedDeadline = true;
+        },
         exceedGuideDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         advanceClock: milliseconds => { vi.spyOn(Date, 'now').mockReturnValue(now + milliseconds); },

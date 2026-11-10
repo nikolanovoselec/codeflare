@@ -574,6 +574,8 @@ describe('POST /public/stripe/webhook', () => {
     }) as typeof fetch;
     const { app, mockKV } = createApp({ RESEND_API_KEY: 'test-email-key' });
     mockKV._set('user:admin@example.com', { role: 'admin' });
+    // Email links need a configured raw-text origin; the webhook has no request-origin fallback.
+    mockKV._store.set('setup:custom_domain', 'codeflare.example.test');
 
     // Fail the handler's customer write, not the earlier fail-closed limiter.
     const put = mockKV.put.getMockImplementation()!;

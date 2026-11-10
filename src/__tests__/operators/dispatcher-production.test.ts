@@ -2066,7 +2066,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   }));
   it('does not return late upstream notes even when a transport ignores abort', () => fixture(async f => {
     await start(f); f.files(dozzleFiles()); f.exceedReleaseDeadline();
-    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+    const response = await f.capability.fetch(releaseRead());
+    expect(response.status).toBe(409);
+    expect(await response.text()).not.toContain('No configuration changes');
   }, { capacityPolicy: { releaseReadTimeoutMs: 8000 } }));
   it.each([
     { files: [], name: 'no matching diff' },

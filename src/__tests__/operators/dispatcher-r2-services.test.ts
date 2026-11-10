@@ -706,25 +706,37 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   it('concurrent renewal reads again under metadata serialization and shares one rotation', () => lane(async (f, store) => {
     await admitted(f);
     store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
-    // Notify the Runner when real OAuth HTTP starts; do not impose waitFor's
-    // shorter polling budget on the preceding public HTTP/authority work.
-    // Only the Runner awaits this notification. Metadata I/O still waits on
-    // plain release state using its own timer, never a Runner-owned promise.
-    let notifyStarted!: () => void;
-    const started = new Promise<void>(resolve => { notifyStarted = resolve; });
-    let released = false;
+    // Share state only across Activity/metadata contexts. Each waiter owns its
+    // timer I/O, as in the post-claim authorization race fixture; a bare
+    // notification promise can strand runInDurableObject's request context.
+    let started = false; let released = false; let secondRead = false;
     const exchanges = oauthBoundary(async () => {
-      notifyStarted();
+      started = true;
       while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1));
       return tokenReply();
     });
     const requests: Promise<Response>[] = [];
     try {
       requests.push(read(f));
-      await Promise.race([started, requests[0].then(response => {
+      await Promise.race([(async () => {
+        while (!started && !released) await new Promise<void>(resolve => setTimeout(resolve, 1));
+      })(), requests[0].then(response => {
         throw new Error(`Credential HTTP completed before OAuth release: ${response.status}`);
       })]);
-      requests.push(read(f)); released = true;
+      // Hold rotation until the overlapping request has actually read the stale
+      // file. Returning the renewed key then requires the SDK's locked reread.
+      const observeSecondRead = (path: string) => {
+        if (path === `/owner-bucket/${authKey}`) secondRead = true;
+        else store.afterRead(observeSecondRead);
+      };
+      store.afterRead(observeSecondRead);
+      requests.push(read(f));
+      await Promise.race([(async () => {
+        while (!secondRead && !released) await new Promise<void>(resolve => setTimeout(resolve, 1));
+      })(), requests[1].then(response => {
+        throw new Error(`Overlapping credential HTTP completed before OAuth release: ${response.status}`);
+      })]);
+      released = true;
       for (const result of await Promise.all(requests)) expect(await json(result)).toEqual({ apiKey: renewedAccess });
       expect(exchanges).toHaveLength(1);
       expect(store.value(authKey).other).toEqual(other);
