@@ -38,8 +38,10 @@ app.get('/onboarding-config', requireIdentity, async (c) => {
 // GET /api/auth/tiers - subscribable tier config for the subscribe page.
 app.get('/tiers', requireIdentity, async (c) => {
   const allTiers = await getTierConfig(c.env.KV);
+  const paymentConfigured = isStripeConfigured(c.env);
   const subscribable = allTiers.filter((t) => {
     if (!SUBSCRIBABLE_TIER_IDS.has(t.id as string)) return false;
+    if (!paymentConfigured) return true;
     // Free (priceMonthly === 0) and Custom/unlimited always show.
     // Paid tiers only show when stripePriceId is configured in admin.
     if (t.priceMonthly === 0 || t.id === 'unlimited') return true;
@@ -70,7 +72,13 @@ app.get('/tiers', requireIdentity, async (c) => {
     }
   }
 
-  return c.json({ tiers: subscribable });
+  // Without a payment provider, these choices activate directly. Project the
+  // actual payment-free offer, leaving the admin's stored prices intact.
+  return c.json({ tiers: paymentConfigured ? subscribable : subscribable.map((tier) => ({
+    ...tier,
+    priceMonthly: tier.id === 'unlimited' ? tier.priceMonthly : 0,
+    advancedPriceMonthly: tier.id === 'unlimited' ? tier.advancedPriceMonthly : 0,
+  })) });
 });
 
 // Requires identity (pending, active, and blocked users can access)

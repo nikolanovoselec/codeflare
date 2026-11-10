@@ -17,6 +17,7 @@ const reasoningLabel = (level: string | null) => level === null ? 'Provider defa
 
 /** REQ-OPERATOR-086: four nested views inside the existing anchored, owner-scoped dropdown. */
 const OperatorActivityButton: Component<Props> = props => {
+  let active = true;
   const [open, setOpen] = createSignal(false);
   const [segment, setSegment] = createSignal<'Runs' | 'Installed'>('Runs');
   const [installedVisited, setInstalledVisited] = createSignal(false);
@@ -31,8 +32,12 @@ const OperatorActivityButton: Component<Props> = props => {
   const [operator, setOperator] = createSignal('');
   const [activities, { refetch }] = createResource(() => [props.enabled, cursor()] as const, async ([enabled, after]) => {
     if (!enabled) return { items: [], nextCursor: null, workingCount: 0, unreadCount: 0, latestSequence: 0 };
-    try { const value = await listOperatorActivities(after); setLoadError(false); setLoadedAt(Date.now()); return value; }
-    catch { setLoadError(true); return null; }
+    try {
+      const value = await listOperatorActivities(after);
+      if (!active) return null;
+      setLoadError(false); setLoadedAt(Date.now()); return value;
+    }
+    catch { if (active) setLoadError(true); return null; }
   });
   const [selected, setSelected] = createSignal<string | null>(null);
   const [diagnostics, setDiagnostics] = createSignal(false);
@@ -80,8 +85,8 @@ const OperatorActivityButton: Component<Props> = props => {
     queueMicrotask(() => panel?.focus());
     void (async () => {
       const page = await refetch();
-      if (!page?.unreadCount) return;
-      try { await acknowledgeOperatorActivities(page.latestSequence); await refetch(); }
+      if (!active || !page?.unreadCount) return;
+      try { await acknowledgeOperatorActivities(page.latestSequence); if (active) await refetch(); }
       catch { /* Failed acknowledgment must leave unread visible. */ }
     })();
   };
@@ -99,6 +104,7 @@ const OperatorActivityButton: Component<Props> = props => {
     window.addEventListener('resize', closeOnResize);
   });
   onCleanup(() => {
+    active = false;
     document.removeEventListener('keydown', keydown); document.removeEventListener('mousedown', clickOutside);
     window.removeEventListener('resize', closeOnResize);
   });
@@ -106,9 +112,9 @@ const OperatorActivityButton: Component<Props> = props => {
   const stale = (value: string | number) => Date.now() - updatedDate(value).getTime() > 2 * 60_000;
   const cancel = async (id: string) => {
     setCancelling(id); setActionMessage('');
-    try { await cancelOperatorActivity(id); await refetch(); }
-    catch { setActionMessage('Cancellation not confirmed. Refresh before acting.'); }
-    finally { setCancelling(undefined); }
+    try { await cancelOperatorActivity(id); if (active) await refetch(); }
+    catch { if (active) setActionMessage('Cancellation not confirmed. Refresh before acting.'); }
+    finally { if (active) setCancelling(undefined); }
   };
   const changeSegment = (value: 'Runs' | 'Installed') => {
     if (locked()) return;

@@ -7,6 +7,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import type { Env } from '../../types';
 import { forwardMcpPortal } from '../../mcp-portal-interceptor';
 import { SETUP_KEYS } from '../../lib/kv-keys';
+import { decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
 
 let actor = 'owner';
 async function fixture(mode = '') {
@@ -46,6 +47,16 @@ describe('Settings MCP owner OAuth and non-secret status API', () => {
     const artifacts = JSON.stringify({ retained: f.retained, status, headers: [...response.headers], body: await response.text() });
     for (const secret of [access, refresh, 'synthetic-code', state]) expect(artifacts).not.toContain(secret);
     actor = 'other'; expect(await (await f.request('/api/mcp-portals')).json()).toEqual({ portals: [{ ...portal, connected: false }] });
+  });
+
+  it('REQ-AGENT-226 AC4: plaintext saved grants remain disconnected in the owner status API', async () => {
+    const f = await fixture(); await f.begin(); await f.finish();
+    const key = 'mcp-portal:owner:owner:portal:fixture';
+    const stored = await f.kv.get(key) as string;
+    await f.kv.put(key, await decryptFromKV(stored.slice(3), (await getOrImportKey(f.env))!, key));
+    const response = await f.request('/api/mcp-portals');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ portals: [{ ...portal, connected: false }] });
   });
 
   it('REQ-AGENT-226 AC3: authorization servers can read only fixed non-secret public client metadata', async () => {

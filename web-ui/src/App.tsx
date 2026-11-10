@@ -1,5 +1,5 @@
-import { Component, onMount, onCleanup, createSignal, Show, ErrorBoundary, lazy, type JSX } from 'solid-js';
-import type { AccessTier, SubscriptionTier } from './types';
+import { Component, onMount, onCleanup, createSignal, batch, Show, ErrorBoundary, lazy, type JSX } from 'solid-js';
+import type { AccessTier, SubscriptionTier, UserInfo } from './types';
 import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
 import SetupWizard from './components/setup/SetupWizard';
@@ -83,6 +83,24 @@ const AppContent: Component = () => {
     void portalRecovery.check();
   };
 
+  // Publish identity and its existing policy projections together. The keyed
+  // shell below retires all old-owner activity resources and diagnostic snapshots.
+  const applyUser = (user: UserInfo) => batch(() => {
+    setUserName(user.email);
+    setUserRole(user.role);
+    setUserAccessTier(user.accessTier);
+    setUserSubscriptionTier(user.subscriptionTier);
+    setOnboardingActive(user.onboardingActive);
+    setEnterpriseMode(user.enterpriseMode);
+    setOperatorManagementEligible(user.operatorManagementEligible === true || user.role === 'admin');
+    sessionStore.setEnterpriseMode(user.enterpriseMode === true);
+    sessionStore.setSaasMode(user.saasMode === true);
+    sessionStore.setAllowedAgents(user.allowedAgents
+      ?? (user.enterpriseMode ? ENTERPRISE_AGENT_TYPES : AGENT_OPTIONS.map((agent) => agent.type)));
+    if (user.workerName) storageStore.setWorkerName(user.workerName);
+    storageStore.setDownloadsDisabled(user.downloadsDisabled === true);
+  });
+
   const revalidateAuthAfterResume = async () => {
     if (!initialAuthSettled || resumeCheckInFlight || redirecting() || disposed) return;
     resumeCheckInFlight = true;
@@ -90,6 +108,8 @@ const AppContent: Component = () => {
     portalRecovery = undefined;
     try {
       const user = await getUser();
+      if (disposed) return;
+      if (user.email !== userName()) applyUser(user);
       recoverPortals(user.email);
     } catch (err) {
       markAuthRedirect(err);
@@ -120,19 +140,8 @@ const AppContent: Component = () => {
 
     try {
       const user = await getUser();
-      setUserName(user.email);
-      setUserRole(user.role);
-      setUserAccessTier(user.accessTier);
-      setUserSubscriptionTier(user.subscriptionTier);
-      setOnboardingActive(user.onboardingActive);
-      setEnterpriseMode(user.enterpriseMode);
-      setOperatorManagementEligible(user.operatorManagementEligible === true || user.role === 'admin');
-      sessionStore.setEnterpriseMode(user.enterpriseMode === true);
-      sessionStore.setSaasMode(user.saasMode === true);
-      sessionStore.setAllowedAgents(user.allowedAgents
-        ?? (user.enterpriseMode ? ENTERPRISE_AGENT_TYPES : AGENT_OPTIONS.map((agent) => agent.type)));
-      if (user.workerName) storageStore.setWorkerName(user.workerName);
-      storageStore.setDownloadsDisabled(user.downloadsDisabled === true);
+      if (disposed) return;
+      applyUser(user);
 
       // SaaS mode redirect priority:
       // 1. Pending tier → subscribe page (choose a plan)
@@ -222,7 +231,9 @@ const AppContent: Component = () => {
             </div>
           }
         >
-          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} />
+          <Show when={userName()} keyed>
+            {owner => <Layout userName={owner} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} />}
+          </Show>
         </Show>
       </Show>
     </Show>

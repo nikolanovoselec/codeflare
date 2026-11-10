@@ -238,9 +238,13 @@ function connect(
 
   // Attempt connection with retries
   const ownsConnection = () => connectionOwners.get(key) === owner;
+  let attemptGeneration = 0;
 
   function attemptConnection(attemptNumber: number): void {
     if (signal.aborted || !ownsConnection()) return;
+
+    const generation = ++attemptGeneration;
+    const ownsAttempt = () => ownsConnection() && generation === attemptGeneration;
 
     // REQ-TERM-020 AC3: once this socket opens successfully, its later close
     // must reconnect from attempt 1 (fast), not continue the pre-open backoff.
@@ -276,20 +280,20 @@ function connect(
     // backoff retry (REQ-TERM-020 AC2).
     clearConnectTimer(key);
     connectTimers.set(key, setTimeout(() => {
-      if (signal.aborted || !ownsConnection()) return;
+      if (signal.aborted || !ownsAttempt()) return;
       if (ws.readyState === WebSocket.CONNECTING) {
         logger.warn(`[Terminal ${key}] connect timeout (${WS_CONNECT_TIMEOUT_MS}ms), forcing retry`);
-        try { ws.close(); } catch { /* noop */ }
         scheduleReconnect(attemptNumber);
+        try { ws.close(); } catch { /* noop */ }
       }
     }, WS_CONNECT_TIMEOUT_MS));
 
     ws.onopen = () => {
-      clearConnectTimer(key);
-      if (signal.aborted || !ownsConnection()) {
+      if (signal.aborted || !ownsAttempt()) {
         ws.close();
         return;
       }
+      clearConnectTimer(key);
       logger.debug(`[Terminal ${key}] WebSocket opened`);
       currentAttempt = 0; // REQ-TERM-020 AC3: reset backoff on successful open
       setConnectionState(sessionId, terminalId, 'connected');
@@ -332,7 +336,7 @@ function connect(
     };
 
     function handleWebSocketMessage(event: MessageEvent): void {
-      if (signal.aborted || !ownsConnection()) return;
+      if (signal.aborted || !ownsAttempt()) return;
 
       // Server sends RAW terminal data - write directly to xterm
       let messageData: string;
@@ -396,7 +400,7 @@ function connect(
     }
 
     function handleWebSocketClose(event: CloseEvent): void {
-      if (signal.aborted || !ownsConnection()) return;
+      if (signal.aborted || !ownsAttempt()) return;
       clearConnectTimer(key);
 
       const expectedStartupClose = event.code === WS_CONTAINER_STOPPED_CODE || event.code === 1013;
@@ -466,7 +470,7 @@ function connect(
       // already aborted the signal and released ownership, so this is expected
       // churn, not a real failure — stay silent (mirrors the onclose guard) so it
       // does not spam the console with "[Terminal …] WS ERROR" (REQ-TERM-020 AC1).
-      if (signal.aborted || !ownsConnection()) return;
+      if (signal.aborted || !ownsAttempt()) return;
       logger.error(`[Terminal ${key}] WS ERROR`, event);
     };
 
@@ -480,6 +484,8 @@ function connect(
   // attempt 1 on foreground, so background tabs burn no battery/connect budget.
   function scheduleReconnect(attemptNumber: number): void {
     if (signal.aborted || !ownsConnection()) return;
+    // Retire this attempt before closing or waiting: late events cannot own the next retry.
+    attemptGeneration += 1;
     clearConnectTimer(key);
     const existing = retryTimeouts.get(key);
     if (existing) {

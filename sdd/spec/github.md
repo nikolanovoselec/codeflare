@@ -416,17 +416,17 @@ None.
 1. A connected account with zero repositories shows the repository-panel empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: shows the no-repositories empty state only when the account has no repos) -->
 2. Search with no matching repositories shows the search-empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: keeps search-empty results distinct from the no-repositories empty state) -->
 3. The repo list renders every fetched repository inside a scroll container. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: renders every repo inside the scroll container (the row cap is a CSS viewport, not truncation)) -->
-4. The repo list flexes to the height its panel is allotted by the adaptive GitHub/Storage split and scrolls the overflow, rather than capping at a fixed per-breakpoint row count. <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+4. The repo list flexes to the height its panel is allotted by the adaptive GitHub/Storage split and scrolls the overflow, rather than capping at a fixed per-breakpoint row count. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe rendered allocation and scrolling. --> <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
 
 **Constraints:**
 
-- The list never truncates fetched repos; its height is an adaptive viewport set by the split allocation, not a data limit; The pixel allocation is flex/CSS, not unit-asserted in jsdom.
+- The list never truncates fetched repos; its height is an adaptive viewport set by the split allocation, not a data limit; The pixel allocation is flex/CSS, not unit-asserted in jsdom; rendered layout is checked manually.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing)
 
-**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx); Manual: [GitHub workspace acceptance](../../documentation/lanes/terminal-and-ide.md#github-workspace-manual-acceptance)
 
 **Status:** Implemented
 
@@ -441,7 +441,7 @@ None.
 **Acceptance Criteria:**
 
 1. On mobile, GitHub is the default right-column face and the header flip control swaps to the R2 storage browser (and back) in place whenever GitHub is enabled. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
-2. The single-panel flip control is hidden while the column is in split mode and appears only when the column collapses to one panel. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+2. The single-panel flip control is hidden while the column is in split mode and appears only when the column collapses to one panel. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe control visibility across split and single-face layouts. --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
 3. If GitHub is disabled, R2 storage is the sole right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2) -->
 4. When GitHub is enabled, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
 
@@ -453,7 +453,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx); Manual: [GitHub workspace acceptance](../../documentation/lanes/terminal-and-ide.md#github-workspace-manual-acceptance)
 
 **Status:** Implemented
 
@@ -502,7 +502,7 @@ None.
 2. Tapping the magnify toggle reveals the search input and moves focus to it (opening the on-screen keyboard); the toggle reflects the open state. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/github/RepoSearch.tsx::RepoSearch --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-011 AC2: tapping the toggle reveals the search input, focuses it, and reflects the open state) -->
 3. Tapping the toggle again hides the search input and clears the active search filter, so a hidden search box never silently narrows the list. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-011 AC3: tapping the toggle again hides the search and clears the active filter) -->
 4. Desktop discloses the search the same way as touch — the magnify toggle renders and the search input stays hidden until the toggle is clicked (there is no always-on desktop search bar). <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-011 AC4: on desktop the search is ALSO disclosed behind the magnify toggle (consistent with touch)) -->
-5. On a touch device, revealing the search scrolls the input above the on-screen keyboard once it opens, so the field stays visible while typing. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/lib/mobile.ts::scrollFieldAboveKeyboard --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (scrollFieldAboveKeyboard / REQ-GITHUB-011 (reveal the touch search field above the on-screen keyboard)) -->
+5. On a touch device, revealing the search scrolls the input above the on-screen keyboard once it opens, so the field stays visible while typing. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe actual OS keyboard and field visibility on a touch device. --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/lib/mobile.ts::scrollFieldAboveKeyboard --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (scrollFieldAboveKeyboard / REQ-GITHUB-011 (reveal the touch search field above the on-screen keyboard)) -->
 
 **Constraints:**
 
@@ -515,7 +515,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states)
 
-**Verification:** Automated: [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts)
+**Verification:** Automated: [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts); Manual: [GitHub workspace acceptance](../../documentation/lanes/terminal-and-ide.md#github-workspace-manual-acceptance)
 
 **Status:** Implemented
 

@@ -18,6 +18,7 @@ vi.mock('../../stores/session', () => {
         mem: '1.2/3.0G',
         hdd: '2.1G/10G',
       })),
+      getTerminalsForSession: vi.fn(() => null),
       getInitProgressForSession: vi.fn(() => ({ progress: 50 })),
       preferences: { sleepAfter: '30m' },
       get preseedUpgrading() { return _preseedUpgrading; },
@@ -58,7 +59,10 @@ describe('SessionStatCard', () => {
     onDelete: vi.fn(),
   };
 
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue(null);
+  });
   afterEach(() => cleanup());
 
   describe('Rendering', () => {
@@ -124,6 +128,24 @@ describe('SessionStatCard', () => {
       render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);
       const dot = screen.getByTestId('session-stat-card-test-1').querySelector('.session-stat-card__dot--idle');
       expect(dot).toBeInTheDocument();
+    });
+
+    it.each(['2', '3'])('REQ-TERM-045 AC1/AC2: uses active classic tab %s rather than hidden terminal 1', (activeTabId) => {
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId } as ReturnType<typeof sessionStore.getTerminalsForSession>);
+      vi.mocked(terminalStore.getConnectionState).mockImplementation((_sessionId, tabId) => tabId === activeTabId ? 'connected' : 'disconnected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running', terminalMode: 'classic' })} />);
+      expect(screen.getByRole('status', { name: 'ACTIVE' })).toHaveClass('session-stat-card__dot--success');
+      cleanup();
+      vi.mocked(terminalStore.getConnectionState).mockImplementation((_sessionId, tabId) => tabId === '1' ? 'connected' : 'disconnected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running', terminalMode: 'classic' })} />);
+      expect(screen.getByRole('status', { name: 'IDLE' })).toHaveClass('session-stat-card__dot--idle');
+    });
+
+    it('REQ-TERM-045 AC1: Herdr presence still uses its single terminal', () => {
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '2' } as ReturnType<typeof sessionStore.getTerminalsForSession>);
+      vi.mocked(terminalStore.getConnectionState).mockImplementation((_sessionId, tabId) => tabId === '1' ? 'connected' : 'disconnected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running', terminalMode: 'herdr' })} />);
+      expect(screen.getByRole('status', { name: 'ACTIVE' })).toHaveClass('session-stat-card__dot--success');
     });
 
     it('shows green dot when running and WS connected', () => {

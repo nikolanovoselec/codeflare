@@ -992,13 +992,13 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 **Constraints:**
 
 - Only tiers whose allowed-session-modes list includes Pro can use Pro mode (see [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)).
-- When a user is promoted to a Pro-eligible tier, Pro mode becomes their persisted default if they had not already selected a mode.
+- When a user is promoted to a Pro-eligible tier, Pro mode becomes their persisted default if they had not already selected a mode; an existing explicit Standard preference is preserved while Pro entitlement advances. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-AGENT-004: promotion preserves explicit %s preference while granting Pro) -->
 
 **Priority:** P1
 
 **Dependencies:** None.
 
-**Verification:** Automated: [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
+**Verification:** Automated: [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 

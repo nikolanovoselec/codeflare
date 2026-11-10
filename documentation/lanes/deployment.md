@@ -16,7 +16,7 @@ Default deployment execution, verification, rollback, and development references
 - [Production Rollback](#production-rollback)
 - [Development Reference](#development-reference)
 - [Source and Runtime Composition Aliases](#source-and-runtime-composition-aliases)
-- [Historical Cost Alias](#cost-analysis)
+- [Cost estimates](#cost-analysis)
 - [Governed Mode migration (ancillary-status driven)](#governed-mode-migration-ancillary-status-driven)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
@@ -75,7 +75,7 @@ For [OPS-007/012/014](../../sdd/spec/operations.md), apply [pipeline prerequisit
 
 For OPS-006 inspect existing authorized instance analytics, last-input/idle records and confirmed sleep. CPU, provisioned-memory and local-disk totals stop increasing after reporting lag. Missing granularity is unavailable; stopped status alone is not billing evidence. Compare retained R2 restoration and local-only ephemeral absence through [replacement acceptance](storage-and-sync.md#session-replacement-storage-acceptance). Separate other Worker/DO/R2/log/storage/network charges: no Container usage does not mean no account charge.
 
-Recompute OPS-006's historic `$11.14` using the [original dated inputs](#cost-analysis), then make a separately dated current-pricing comparison. Missing inputs or rates block that comparison; never present the old example as a current quote.
+For OPS-006 cost estimates, record the intended active-session workload, instance resources, active duration and applicable current Cloudflare rates. Calculate Container cost separately from shared platform costs using the [pricing reference](#cost-analysis); do not use a fixed historical per-user quote or perform a billing experiment.
 
 For OPS-061 use the private [persistent SSH runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/container-ssh.md) and existing add/rotate/remove records. Compare effective authorized public-key identities and access outcomes. Later authorized access to the same running instance works without another configuration deployment. Private-key custody and account permissions remain separate. Missing private records are unavailable; this method authorizes no key creation, extraction, rotation, connection or deployment.
 
@@ -220,9 +220,9 @@ The current repository/package map and intentional backend/frontend schema bundl
 
 <a id="cost-analysis"></a>
 <a id="per-container-pricing"></a>
-## Historical Cost Alias
+## Cost estimates
 
-The dated account arithmetic remains only in [the immutable original cost example](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/deployment.md#cost-analysis). It is not current pricing, a per-user quote, or a complete platform-cost estimate. [Cloudflare Containers pricing](https://developers.cloudflare.com/containers/pricing/) is authoritative. [Billing](billing.md) owns metering distinctions; [Container](container.md) owns ephemeral runtime and recovery. The complete REQ-OPS-006 record, including its dated-estimate AC, remains unchanged in Operations.
+[Cloudflare Containers pricing](https://developers.cloudflare.com/containers/pricing/) is authoritative for current rates. Estimates depend on provisioned resources, active usage and workload duration; they are not a fixed per-user quote or a complete platform-cost estimate. [Billing](billing.md) owns metering distinctions; [Container](container.md) owns ephemeral runtime and recovery. Follow [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources) for cost-model scope.
 
 ---
 

@@ -261,7 +261,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. After Codeflare stops a Container and it sleeps, its vCPU, provisioned-memory, and local-disk metering stops. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual: Record the Container's vCPU, provisioned-memory, and local-disk usage in Cloudflare analytics; let Codeflare idle-stop it; confirm it is sleeping and all three usage totals stop increasing while it remains stopped. -->
 3. Local disk is ephemeral and restart restores durable files from R2. <!-- @manual -->
 4. Workers, Durable Objects, R2, requests, logs, storage, and network may still incur charges. <!-- @manual -->
-5. Under the documented dated workload assumptions, the estimate is `$11.14` and excludes shared account-level platform cost. <!-- @manual: Recalculate against the dated assumptions and current Cloudflare pricing before using the example operationally. -->
+5. Operator cost estimates state workload assumptions and applicable current Cloudflare rates, separating Container costs from shared account-level platform costs; no fixed per-user price is promised. <!-- @manual: Use current Cloudflare pricing and the intended active-session workload to calculate Container cost separately from other platform charges before approving spend. -->
 
 **Constraints:**
 

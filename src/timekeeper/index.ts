@@ -87,6 +87,7 @@ const WelcomeBodySchema = z.object({
 
 const BillingSyncStartBodySchema = z.object({
   userEmail: z.string().email(),
+  checkoutSessionId: z.string().min(1).optional(),
 }).strict();
 
 const BillingSyncPatchSchema = z.union([
@@ -105,6 +106,7 @@ const BillingSyncPatchSchema = z.union([
   }).strict(),
   z.object({
     cleanupBillingState: z.literal(true),
+    subscriptionId: z.string().min(1).optional(),
     billingStatus: z.literal(BILLING_STATUS.CANCELED),
     subscriptionTier: z.literal('free'),
     accessTier: z.literal('free'),
@@ -116,6 +118,10 @@ const BillingSyncApplyBodySchema = z.object({
   userEmail: z.string().email(),
   token: z.number().int().positive().safe(),
   patch: BillingSyncPatchSchema,
+  checkout: z.object({
+    sessionId: z.string().min(1),
+    subscribedAt: z.string().datetime(),
+  }).strict().optional(),
 }).strict();
 
 async function getWelcomeIdempotencyKey(userEmail: string): Promise<string> {
@@ -374,6 +380,11 @@ export class Timekeeper {
         this.email = userEmail;
         await this.ctx.storage.put('email', userEmail);
       }
+      if (parsed.data.checkoutSessionId
+          && await this.ctx.storage.get<boolean>(`billingCheckout:${parsed.data.checkoutSessionId}`)) {
+        response = Response.json({ checkoutCompleted: true });
+        return;
+      }
       const current = await this.ctx.storage.get<number>('billingSyncVersion') ?? 0;
       const token = current + 1;
       await this.ctx.storage.put('billingSyncVersion', token);
@@ -386,7 +397,7 @@ export class Timekeeper {
     const parsed = BillingSyncApplyBodySchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return new Response('Invalid billing sync apply body', { status: 400 });
 
-    const { token, patch } = parsed.data;
+    const { token, patch, checkout } = parsed.data;
     const userEmail = parsed.data.userEmail.trim().toLowerCase();
     let response = new Response(null, { status: 503 });
     await this.ctx.blockConcurrencyWhile(async () => {
@@ -400,7 +411,25 @@ export class Timekeeper {
         return;
       }
 
+      // Checkout receipts have no edge-marker TTL. Claim best-effort notices
+      // before returning to the webhook; replay cannot send them again.
+      const receiptKey = checkout ? `billingCheckout:${checkout.sessionId}` : null;
+      if (receiptKey && await this.ctx.storage.get<boolean>(receiptKey)) {
+        response = Response.json({ applied: false, checkoutHandled: true });
+        return;
+      }
       const existing = parseUserRecord(await this.env.KV.get(`user:${userEmail}`, 'json'));
+      const incomingSubscriptionId = 'cleanupBillingState' in patch ? patch.subscriptionId : patch.stripeSubscriptionId;
+      if (existing?.stripeSubscriptionId && incomingSubscriptionId
+          && existing.stripeSubscriptionId !== incomingSubscriptionId
+          && (!checkout || (existing.subscribedAt && checkout.subscribedAt <= existing.subscribedAt))) {
+        response = Response.json({ applied: false, ...(checkout && { checkoutHandled: true }) });
+        return;
+      }
+      const subscribedAt = checkout
+        ? (existing?.stripeSubscriptionId === incomingSubscriptionId && existing.subscribedAt
+          ? existing.subscribedAt : checkout.subscribedAt)
+        : undefined;
       const updated = 'cleanupBillingState' in patch
         ? {
             ...withoutBillingState(existing ?? {}),
@@ -409,10 +438,12 @@ export class Timekeeper {
             accessTier: patch.accessTier,
             subscribedMode: patch.subscribedMode,
           }
-        : { ...existing, ...patch };
+        : { ...existing, ...patch, ...(checkout && { subscribedAt, checkoutSessionId: checkout.sessionId }) };
       await this.env.KV.put(`user:${userEmail}`, JSON.stringify(updated));
+      if (receiptKey) await this.ctx.storage.put(receiptKey, true);
       response = Response.json({
         applied: true,
+        ...(checkout && { notifyCheckout: true, subscribedAt }),
         previous: {
           ...(existing?.subscribedMode ? { subscribedMode: existing.subscribedMode } : {}),
           ...(existing?.subscriptionTier ? { subscriptionTier: existing.subscriptionTier } : {}),
@@ -460,28 +491,41 @@ export class Timekeeper {
     if (delta > 0) {
       const now = new Date();
       const candidateMarkers = markerKeysFor(now, sessionHash);
+      let committedState = this.accountingState;
+      let committedMarkers = new Set(this.markerCache);
       const persist = async (storage: DurableObjectStorage | DurableObjectTransaction) => {
-        const unknownMarkers = candidateMarkers.filter((key) => !this.markerCache.has(key));
+        // Transaction callbacks can retry; never publish speculative memory.
+        const markers = new Set(this.markerCache);
+        const unknownMarkers = candidateMarkers.filter((key) => !markers.has(key));
         if (unknownMarkers.length > 0) {
           const stored = await storage.get<boolean>(unknownMarkers);
           for (const key of unknownMarkers) {
-            if (stored instanceof Map && stored.has(key)) this.markerCache.add(key);
+            if (stored instanceof Map && stored.has(key)) markers.add(key);
           }
         }
-        const applied = applyPositiveDelta(this.accountingState, sessionHash, delta, now, this.markerCache);
+        const applied = applyPositiveDelta(this.accountingState, sessionHash, delta, now, markers);
         const totals = { ...applied.state.sessionTotals, [sessionHash]: body.totalSeconds };
         const keys = Object.keys(totals);
         for (const key of keys.slice(0, Math.max(0, keys.length - 30))) delete totals[key];
-        this.accountingState = { ...applied.state, sessionTotals: totals };
+        const nextState = { ...applied.state, sessionTotals: totals };
         for (const key of applied.markerKeys) {
           await storage.put(key, true);
-          this.markerCache.add(key);
+          markers.add(key);
         }
         for (const entry of applied.outbox) await storage.put(outboxKey(entry), entry);
-        await storage.put('accountingState:v2', this.accountingState);
+        await storage.put('accountingState:v2', nextState);
+        // Eviction only drops the optimization: durable markers remain authoritative.
+        for (const key of markers) {
+          if (markers.size <= 128) break;
+          markers.delete(key);
+        }
+        committedState = nextState;
+        committedMarkers = markers;
       };
       if (typeof this.ctx.storage.transaction === 'function') await this.ctx.storage.transaction(persist);
       else await persist(this.ctx.storage);
+      this.accountingState = committedState;
+      this.markerCache = committedMarkers;
       this.pendingSeconds = this.accountingState.pendingSeconds;
       this.sessionTotals = this.accountingState.sessionTotals;
       this.lastFlushedMonthlyTotal = this.accountingState.lastFlushedMonthlyTotal;

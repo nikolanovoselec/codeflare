@@ -2,7 +2,7 @@ import { discoverOAuthServerInfo, extractWWWAuthenticateParams, registerClient, 
   type OAuthServerInfo } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { OAuthClientInformationMixed, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { Env } from '../types';
-import { encryptAndStore, encryptForKV, getAndDecrypt, getOrImportKey } from './kv-crypto';
+import { decryptFromKV, encryptAndStore, encryptForKV, getOrImportKey } from './kv-crypto';
 import { getConfiguredMcpPortals, publicHttps, type McpPortal } from './mcp-portals';
 export { publicHttps } from './mcp-portals';
 import { claimOauthNonce } from './oauth-state';
@@ -35,7 +35,11 @@ async function read<T>(env: Env, key: string): Promise<T | null> {
   // This is a new namespace, not a plaintext migration path.
   const raw = await env.KV.get(key);
   if (!raw?.startsWith('v1:')) return null;
-  return getAndDecrypt<T>(env.KV, key, cryptoKey);
+  try {
+    return JSON.parse(await decryptFromKV(raw.slice(3), cryptoKey, key)) as T;
+  } catch {
+    return null;
+  }
 }
 async function write(env: Env, key: string, value: unknown): Promise<void> {
   await encryptAndStore(env.KV, key, value, await encryption(env));

@@ -283,6 +283,28 @@ describe('usage report delivery claims (REQ-SUB-027)', () => {
       { recipient: 'test@example.com', state: 'accepted', attempt: 1, claim_token: null, lease_expires_at: null },
     ]);
   });
+  it('REQ-SUB-027 AC2: recovery regenerates current persisted usage but keeps identity and records provider rejection as failure', async () => {
+    await writeUsageHistory(db, 'alice@example.com', [{ kind: 'month', start: '2027-07', runtimeSeconds: 60, sessionCount: 1, sourceSequence: 1, snapshotAt: now.toISOString() }]);
+    await createReportDispatch(db, 'test', 'test:recover-body', 7, '2027-07', ['ops@example.com'], now);
+    const requests: Array<{ key: string | null; body: any }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+      requests.push({ key: new Headers(init?.headers).get('Idempotency-Key'), body: JSON.parse(String(init?.body)) });
+      // Model ambiguous failure followed by the provider's changed-payload rejection.
+      return new Response('{}', { status: requests.length === 1 ? 503 : 409 });
+    }));
+    const kv = createMockKV();
+    const reportEnv = { KV: kv, USAGE_DB: db, RESEND_API_KEY: 'test-email-key' } as unknown as Env;
+    await runUsageReportScheduler(reportEnv, now);
+    await writeUsageHistory(db, 'alice@example.com', [{ kind: 'month', start: '2027-07', runtimeSeconds: 120, sessionCount: 2, sourceSequence: 2, snapshotAt: now.toISOString() }]);
+    await runUsageReportScheduler(reportEnv, now);
+    expect(requests).toHaveLength(2);
+    expect(requests.map(request => request.key)).toEqual(['usage-report-test:test:recover-body:ops@example.com', 'usage-report-test:test:recover-body:ops@example.com']);
+    expect(requests[0].body.attachments[0].content).not.toBe(requests[1].body.attachments[0].content);
+    expect(requests[1].body.html).not.toBe(requests[0].body.html);
+    expect(await db.prepare('SELECT state, reason, attempt FROM report_deliveries WHERE dispatch_id = ?1').bind('test:recover-body').first())
+      .toEqual({ state: 'failed', reason: 'provider_unavailable', attempt: 2 });
+  });
+
   it('claims pending, failed, and expired rows but not an active lease or exhausted row', async () => {
     await insertDelivery('pending', 'pending', 0);
     await insertDelivery('failed', 'failed', 1);

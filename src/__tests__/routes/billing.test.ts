@@ -45,6 +45,9 @@ vi.mock('../../lib/stripe', async (importOriginal) => {
   };
 });
 
+vi.mock('../../lib/turnstile', () => ({ verifyTurnstileToken: vi.fn(async () => ({ success: true })) }));
+import { verifyTurnstileToken } from '../../lib/turnstile';
+
 // Import after mocks
 import billingRoutes from '../../routes/billing';
 import stripeWebhookRoute from '../../routes/stripe-webhook';
@@ -65,6 +68,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
     return t;
   });
   mockKV._set('tiers:config', tiersWithPrices);
+  mockKV._store.set('setup:turnstile_site_key', 'test-site-key');
   const mockTimekeeper = createMockBillingCoordinator(mockKV);
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -72,6 +76,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
       TIMEKEEPER: mockTimekeeper,
+      TURNSTILE_SECRET_KEY: 'test-secret',
       STRIPE_SECRET_KEY: 'sk_test_123',
       STRIPE_WEBHOOK_SECRET: 'whsec_test_123',
       ...envOverrides,
@@ -130,12 +135,39 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it.each(['secret', 'site-key', 'token', 'rejected', 'unavailable'])('REQ-SETUP-009 AC3: %s challenge failure has no billing/user effects', async (failure) => {
+    const { app, mockKV } = createApp(failure === 'secret' ? { TURNSTILE_SECRET_KEY: undefined } : {});
+    if (failure === 'site-key') mockKV._store.delete('setup:turnstile_site_key');
+    if (failure === 'rejected') vi.mocked(verifyTurnstileToken).mockResolvedValueOnce({ success: false });
+    if (failure === 'unavailable') vi.mocked(verifyTurnstileToken).mockRejectedValueOnce(new Error('verification unavailable'));
+    mockKV._set('user:user@example.com', { role: 'user', trialUsed: true });
+    const before = await mockKV.get('user:user@example.com', 'json');
+    const res = await app.request('/billing/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'standard', turnstileToken: failure === 'token' ? undefined : 'valid-token' }),
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+    expect(await mockKV.get('user:user@example.com', 'json')).toEqual(before);
+  });
+
+  it.each(['active', 'trialing'])('REQ-SETUP-009 AC3: %s subscriber remains CAPTCHA-exempt', async (billingStatus) => {
+    const { app, mockKV } = createApp({ TURNSTILE_SECRET_KEY: undefined });
+    mockKV._store.delete('setup:turnstile_site_key');
+    mockKV._set('user:user@example.com', { billingStatus });
+    const res = await app.request('/billing/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier: 'standard' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ checkoutUrl: 'https://checkout.stripe.com/test' });
+  });
+
   it('returns checkoutUrl for paid tier', async () => {
     const { app } = createApp();
     const res = await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(res.status).toBe(200);
@@ -150,7 +182,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     const mockedFn = createCheckoutSession as ReturnType<typeof vi.fn>;
@@ -173,7 +205,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     const mockedFn = createCheckoutSession as ReturnType<typeof vi.fn>;
@@ -200,7 +232,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     const res = await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'unknown-tier', mode: 'default' }),
+      body: JSON.stringify({ tier: 'unknown-tier', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(res.status).toBe(400);
@@ -238,7 +270,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
         'Content-Type': 'application/json',
         'CF-IPCountry': 'DE',
       },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -251,7 +283,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
     await app.request('/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -267,7 +299,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
         'Content-Type': 'application/json',
         'CF-IPCountry': 'CH',
       },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -283,7 +315,7 @@ describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-I
         'Content-Type': 'application/json',
         'CF-IPCountry': 'GB',
       },
-      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+      body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
     });
 
     expect(createCheckoutSession).toHaveBeenCalledWith(
@@ -301,7 +333,7 @@ describe('DEEP-22-004: enterprise billing guards precede action limiters', () =>
         const res = await app.request(path, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+          body: JSON.stringify({ tier: 'standard', mode: 'default', turnstileToken: 'valid-token' }),
         });
         expect(res.status).toBe(403);
       }

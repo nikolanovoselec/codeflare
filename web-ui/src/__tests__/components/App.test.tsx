@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@solidjs/testing-library';
+import { render, screen, waitFor, cleanup, fireEvent } from '@solidjs/testing-library';
 import type { JSX } from 'solid-js';
 import { ApiError } from '../../api/fetch-helper';
 
@@ -8,6 +8,18 @@ const getUserMock = vi.fn();
 const getOnboardingConfigMock = vi.fn();
 const getPortalsMock = vi.fn().mockResolvedValue([]);
 const recoverPortalMock = vi.fn();
+const listActivitiesMock = vi.fn().mockResolvedValue({ items: [], nextCursor: null, workingCount: 0, unreadCount: 0, latestSequence: 0 });
+const activityDetailMock = vi.fn();
+const diagnosticSummaryMock = vi.fn();
+let acknowledgedSequence = 0;
+vi.mock('../../api/operator-activities', async importOriginal => ({
+  ...await importOriginal<typeof import('../../api/operator-activities')>(),
+  listOperatorActivities: (...args: unknown[]) => listActivitiesMock(...args),
+  getOperatorActivity: (...args: unknown[]) => activityDetailMock(...args),
+  getOperatorActivityDiagnostics: (...args: unknown[]) => diagnosticSummaryMock(...args),
+  getOperatorActivityDiagnosticHistory: async () => ({ records: [], nextCursor: null, pageStatus: 'complete' }),
+  acknowledgeOperatorActivities: async (sequence: number) => { acknowledgedSequence = sequence; return { unreadCount: 0 }; },
+}));
 vi.mock('../../api/mcp-portals', () => ({
   getMcpPortalStatuses: (...args: unknown[]) => getPortalsMock(...args),
   recoverMcpPortal: (...args: unknown[]) => recoverPortalMock(...args),
@@ -20,7 +32,10 @@ vi.mock('../../api/client', () => ({
 }));
 
 vi.mock('../../components/Layout', () => ({
-  default: () => <div data-testid="layout">layout</div>,
+  default: (props: { userName?: string; userRole?: string; enterpriseMode?: boolean }) => <div data-testid="layout">
+    <span>{props.userName}</span><span>{props.userRole}</span>
+    <OperatorActivityButton enabled={props.enterpriseMode === true} />
+  </div>,
 }));
 
 vi.mock('../../components/setup/SetupWizard', () => ({
@@ -80,6 +95,7 @@ vi.mock('../../stores/terminal', () => ({
 }));
 
 import App from '../../App';
+import OperatorActivityButton from '../../components/OperatorActivityButton';
 
 // REQ-SETUP-003: three deployment modes — App routes to the setup wizard when the
 // deployment is not yet configured.
@@ -305,6 +321,123 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
       }
       expect(providerNavigation).toEqual([]);
     });
+
+  // REQ-OPERATOR-033 AC5/7: exercise the real mounted App authentication resume,
+  // real activity resources and diagnostic lifetime, not a test-only owner prop.
+  const activity = (name: string) => ({ activityId: `${name}-run`, operatorId: 'dispatcher', operatorName: `${name} private run`,
+    context: `${name}/private`, executionStatus: 'completed', cleanupStatus: 'released', collectionStatus: 'consumed',
+    attention: false, sessionId: null, source: null, updatedAt: new Date().toISOString() });
+  const page = (name: string, unreadCount = 0) => ({ items: [activity(name)], nextCursor: null,
+    workingCount: 0, unreadCount, latestSequence: 73 });
+  const snapshot = () => ({ capturedAt: 1791936000000, capture: 'enabled', fence: null,
+    binding: { generation: 3, artifactDigest: 'a'.repeat(64), inputDigest: 'b'.repeat(64) },
+    health: { status: 'available', sdkImport: 'host-persisted', gaps: [] },
+    retention: { epoch: 1, evictedRoutine: 0, droppedFailure: 0, droppedTerminal: 0, oversized: 0, rejected: 0 },
+    provenance: { hostRevision: 'A-private-revision' }, capabilities: [], sdkBinding: { status: 'unavailable' },
+    diagnosis: { state: 'observed-failure', code: 'tool-failed', nextCheck: 'inspect-failure', lastConfirmedId: null, failedId: null } });
+  const resumeFromBack = () => {
+    const event = new Event('pageshow'); Object.defineProperty(event, 'persisted', { value: true }); window.dispatchEvent(event);
+  };
+  async function openActivity() {
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    await screen.findByRole('button', { name: 'View A-run' });
+  }
+  async function mountOwnerActivity() {
+    getUserMock.mockResolvedValue({ ...owner, enterpriseMode: true });
+    listActivitiesMock.mockResolvedValue(page('A'));
+    activityDetailMock.mockResolvedValue({ ...activity('A'), result: null });
+    diagnosticSummaryMock.mockResolvedValue(snapshot());
+    render(() => <App />);
+    await screen.findByTestId('layout');
+    await openActivity();
+  }
+  async function switchToB() {
+    listActivitiesMock.mockResolvedValue(page('B'));
+    getUserMock.mockResolvedValue({ ...owner, email: 'B@example.com', role: 'admin', enterpriseMode: true });
+    resumeFromBack();
+    await screen.findByText('B@example.com');
+    expect(screen.getByText('admin')).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('A private run')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    await screen.findByRole('button', { name: 'View B-run' });
+  }
+
+  it('REQ-OPERATOR-033 AC5/7: visibility resume replaces owner identity and discards A diagnostics before B is usable', async () => {
+    await mountOwnerActivity();
+    await fireEvent.click(screen.getByRole('button', { name: 'View A-run' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View diagnostics' }));
+    await screen.findByText('Evidence summary');
+    const authentication = deferred<typeof owner & { enterpriseMode: boolean }>();
+    changeVisibility('hidden');
+    getUserMock.mockImplementationOnce(() => authentication.promise);
+    changeVisibility('visible');
+    listActivitiesMock.mockResolvedValue(page('B'));
+    authentication.resolve({ ...owner, email: 'B@example.com', enterpriseMode: true });
+    await screen.findByText('B@example.com');
+    expect(screen.queryByText('Evidence summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('A-private-revision')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    await screen.findByRole('button', { name: 'View B-run' });
+    expect(screen.queryByRole('button', { name: 'View A-run' })).not.toBeInTheDocument();
+    expect(providerNavigation).toEqual([]);
+  });
+
+  it.each(['detail', 'diagnostics'] as const)('REQ-OPERATOR-033 AC5: persisted pageshow discards a late A %s response', async view => {
+    await mountOwnerActivity();
+    const lateDetail = deferred<ReturnType<typeof activity> & { result: null }>();
+    const lateSnapshot = deferred<ReturnType<typeof snapshot>>();
+    if (view === 'detail') activityDetailMock.mockImplementationOnce(() => lateDetail.promise);
+    else diagnosticSummaryMock.mockImplementationOnce(() => lateSnapshot.promise);
+    await fireEvent.click(screen.getByRole('button', { name: 'View A-run' }));
+    if (view === 'diagnostics') {
+      await fireEvent.click(await screen.findByRole('button', { name: 'View diagnostics' }));
+      await screen.findByText('Loading diagnostics…');
+    } else await screen.findByText('Loading activity detail…');
+    await switchToB();
+    lateDetail.resolve({ ...activity('A'), result: null }); lateSnapshot.resolve(snapshot());
+    await Promise.all([lateDetail.promise, lateSnapshot.promise]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View B-run' })).toBeVisible());
+    expect(screen.queryByText('Evidence summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('A private run')).not.toBeInTheDocument();
+    expect(screen.queryByText('A-private-revision')).not.toBeInTheDocument();
+  });
+
+  it('REQ-OPERATOR-033 AC5: late A opening list cannot repopulate B or acknowledge A sequence as B', async () => {
+    await mountOwnerActivity();
+    await fireEvent.click(screen.getByRole('button', { name: 'Close operators' }));
+    const lateList = deferred<ReturnType<typeof page>>();
+    listActivitiesMock.mockImplementationOnce(() => lateList.promise);
+    acknowledgedSequence = 0;
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    await switchToB();
+    lateList.resolve(page('A', 1)); await lateList.promise;
+    await Promise.resolve(); await Promise.resolve();
+    expect(screen.getByRole('button', { name: 'View B-run' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'View A-run' })).not.toBeInTheDocument();
+    expect(acknowledgedSequence).toBe(0); // No cross-owner read-marker mutation.
+  });
+
+  it('REQ-OPERATOR-033 AC7: same-owner resume retains the opened diagnostic snapshot without background refresh', async () => {
+    await mountOwnerActivity();
+    await fireEvent.click(screen.getByRole('button', { name: 'View A-run' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View diagnostics' }));
+    await screen.findByText('Evidence summary');
+    const layout = screen.getByTestId('layout');
+    listActivitiesMock.mockResolvedValue(page('unexpected-refresh'));
+    diagnosticSummaryMock.mockRejectedValue(new ApiError('Forbidden', 403, 'Forbidden'));
+    const authentication = deferred<typeof owner & { enterpriseMode: boolean }>();
+    getUserMock.mockImplementationOnce(() => authentication.promise);
+    resumeFromBack(); authentication.resolve({ ...owner, enterpriseMode: true });
+    await authentication.promise; await Promise.resolve();
+    expect(screen.getByTestId('layout')).toBe(layout);
+    expect(screen.getByText('Evidence summary')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Hide diagnostics' })).toBeVisible();
+    expect(screen.queryByText(/access or permission could not be confirmed/)).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to activities' }));
+    expect(screen.getByRole('button', { name: 'View A-run' })).toBeVisible();
+  });
 
   it('resumes recovery on authenticated BFCache Back without remounting or repeating authorization', async () => {
     getPortalsMock.mockResolvedValue([

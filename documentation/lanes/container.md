@@ -108,7 +108,7 @@ Codex/Copilot V8 warmups are disabled by image-size owner decision [AD96](../dec
 <a id="pi-extension-jiti-transpile-cache-warm-up-ad79"></a>
 ### Pi Extension Jiti Transpile Cache Warm-Up ([AD79](../decisions/README.md#ad79-image-baked-pi-extension-transpile-cache))
 
-`pi --version` does not load extensions. A separate build layer pre-transpiles npm and local preseed extensions into `/opt/codeflare/jiti-cache`, avoiding roughly 9 seconds of cold extension startup and the host's 20-second prewarm cap.
+`pi --version` does not load extensions. A separate build layer pre-transpiles npm and local preseed extensions into `/opt/codeflare/jiti-cache` to reduce cold extension startup work within the host's 20-second prewarm cap. Startup duration depends on the selected image and extensions; this is not a measured timing guarantee.
 
 - Warmup redirects `$TMPDIR/jiti` before moving the cache. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR -->
 - Before host startup, entrypoint exports `TMPDIR=/run/codeflare/pi-tmp` and links its `jiti` child to the image cache. Fast Start Off replaces only the runtime link with a runtime-owned directory after updates. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache --> <!-- @impl: scripts/verify-pi-lockstep.mjs::resetRuntimeJitiCache -->
@@ -119,7 +119,7 @@ The advanced transcript trimmer imports `extensions/transcript-trim/engine.mjs` 
 
 ### OpenCode Database Pre-Initialization
 
-OpenCode Goose migrations initialize `~/.local/share/opencode/opencode.db` on first interactive launch. The former image `opencode run "hello"` warmup is disabled (roughly 147 MB, [AD96](../decisions/README.md#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size)); the commented block records the old choice.
+OpenCode Goose migrations initialize `~/.local/share/opencode/opencode.db` on first interactive launch. The image `opencode run "hello"` warmup is disabled to avoid baking its generated database into every image ([AD96](../decisions/README.md#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size)); first launch owns that initialization.
 
 ### Browser Shims
 

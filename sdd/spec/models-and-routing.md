@@ -1016,18 +1016,18 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 <a id="req-enterprise-048-native-provider-capability-verification"></a>
 ### REQ-ENTERPRISE-048: Native Provider Capability Catalog
 
-**Intent:** Native providers use evidence-backed compatibility profiles that state only the capabilities demonstrated for each cataloged family.
+**Intent:** Native providers use scoped built-in compatibility profiles without treating catalog definitions as exact-target verification.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Evidence-backed built-ins cover Bedrock Claude Sonnet/Opus, Google AI Studio Gemini 3.1 Pro and 3.7/3.8 Flash, OpenAI GPT-5.6 Sol/Terra/Luna, and Codeflare Inference Mesh Ornith. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
+1. Built-in profile scope covers Bedrock Claude Sonnet/Opus, Google AI Studio Gemini 3.1 Pro and 3.7/3.8 Flash, OpenAI GPT-5.6 Sol/Terra/Luna, and Codeflare Inference Mesh Ornith. Catalog classifications and recorded model metadata define profile scope; exact-target verification determines readiness. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
 2. Compatibility-mode Bedrock, Gemini, and Mesh use provider-default reasoning; provider-native Bedrock controls are specified separately. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: Bedrock Anthropic uses provider-default opaque reasoning without Pi levels) -->
-3. OpenAI GPT-5.6 exposes only the verified `off` mapping `reasoning_effort: none`. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
-4. GPT-6 Astra remains excluded after live Chat Completions tool failure. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
+3. The OpenAI GPT-5.6 built-in exposes only the `off` mapping `reasoning_effort: none`; each exact model still requires target verification. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
+4. GPT-6 Astra remains excluded from the profile. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
 
-**Constraints:** Provider-default profiles do not claim Off, Medium, High, or signed-thinking semantics.
+**Constraints:** Provider-default profiles do not claim Off, Medium, High, or signed-thinking semantics. Built-in catalog metadata does not replace the exact-target verification and runtime enforcement in [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement).
 
 **Priority:** P1
 

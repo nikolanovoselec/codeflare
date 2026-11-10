@@ -3,6 +3,7 @@ import { mcpPortalFixture, portal, instance, access, refresh } from '../helpers/
 import { beginMcpPortalConnect, finishMcpPortalConnect, getMcpPortalGrant, getValidMcpPortalToken, disconnectMcpPortal,
   portalOAuthFetch, publicHttps } from '../../lib/mcp-portal-token';
 import { SETUP_KEYS } from '../../lib/kv-keys';
+import { decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
 
 describe('Worker-owned MCP portal OAuth', () => {
   it('REQ-AGENT-226 AC1: standard OAuth PKCE exchange stores only encrypted owner/portal grants', async () => {
@@ -94,6 +95,50 @@ describe('Worker-owned MCP portal OAuth', () => {
     await f.kv.put(key, JSON.stringify({ grant: { tokens: { access_token: access } } }));
     expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
   });
+
+  it('REQ-AGENT-226 AC4: grant lookup uses one ciphertext snapshot, never a later plaintext substitute', async () => {
+    const f = await mcpPortalFixture();
+    await f.begin(); await f.finish();
+    const key = 'mcp-portal:owner:owner:portal:fixture';
+    const ciphertext = await f.kv.get(key) as string;
+    const cryptoKey = (await getOrImportKey(f.env))!;
+    const plaintext = await decryptFromKV(ciphertext.slice(3), cryptoKey, key);
+    const originalGet = f.kv.get.getMockImplementation()!;
+    let delivered = false;
+    f.kv.get.mockImplementation(async (name, type) => {
+      if (name !== key) return originalGet(name, type);
+      if (!delivered) { delivered = true; return ciphertext; }
+      // Model a different value on a hypothetical second fetch. This grant
+      // remains correctly bound so only the ciphertext boundary rejects it.
+      const substitute = JSON.parse(plaintext);
+      substitute.grant.tokens.access_token = 'SYNTHETIC-PLAINTEXT-SUBSTITUTE';
+      return JSON.stringify(substitute);
+    });
+    const before = f.kv._store.get(key);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(access);
+    expect(f.kv._store.get(key)).toBe(before);
+  });
+
+  it.each(['plaintext', 'malformed', 'wrong-key'] as const)(
+    'REQ-AGENT-226 AC4: %s grants are unusable without migration writes', async kind => {
+      const f = await mcpPortalFixture();
+      await f.begin(); await f.finish();
+      const key = 'mcp-portal:owner:owner:portal:fixture';
+      const ciphertext = await f.kv.get(key) as string;
+      if (kind === 'plaintext') {
+        const cryptoKey = (await getOrImportKey(f.env))!;
+        await f.kv.put(key, await decryptFromKV(ciphertext.slice(3), cryptoKey, key));
+      } else if (kind === 'malformed') {
+        await f.kv.put(key, 'v1:not-valid-ciphertext');
+      } else {
+        f.env.ENCRYPTION_KEY = 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=';
+      }
+      const before = f.kv._store.get(key);
+      expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+      expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBeNull();
+      expect(f.kv._store.get(key)).toBe(before);
+    }
+  );
 
   it.each(['changed', 'removed'] as const)('REQ-AGENT-227 AC4: %s destinations invalidate a previously saved grant', async change => {
     const f = await mcpPortalFixture();

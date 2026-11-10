@@ -482,7 +482,7 @@ Without a global default, clients submit an empty route with `reasoning: "off"`;
 
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/billing/checkout` | Session cookie | [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment), [REQ-SUB-004](../../sdd/spec/subscription.md#req-sub-004-paid-tiers-integrate-with-stripe-checkout) | Create Stripe Checkout Session for paid tier (rate-limited 5/min) |
+| POST | `/api/billing/checkout` | Session cookie | [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment), [REQ-SUB-004](../../sdd/spec/subscription.md#req-sub-004-paid-tiers-integrate-with-stripe-checkout) | Create Stripe Checkout Session for paid tier (rate-limited 5/min); new subscribers require configured Turnstile secret/site key and successful token verification before billing/user effects; active/trialing subscribers are exempt |
 | GET | `/api/billing/status` | Session cookie | [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016-customer-portal-and-plan-switching), [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) | Billing state (subscription, period, status): refresh from Stripe only when a subscription ID and provider key are configured; otherwise, or on provider failure, return persisted KV fields. Fallback is not live provider evidence |
 | POST | `/api/billing/portal` | Session cookie | [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016-customer-portal-and-plan-switching) | Create Stripe Customer Portal session (rate-limited 5/min) |
 | POST | `/api/billing/switch` | Session cookie | [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016-customer-portal-and-plan-switching) | Deep-link portal for plan change confirmation (rate-limited 5/min) |
@@ -493,8 +493,10 @@ Without a global default, clients submit an empty route with `reasoning: "off"`;
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Return masked deploy credentials, never full tokens; at-rest encryption is conditional on configured platform `ENCRYPTION_KEY` |
-| PUT | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Save/update deploy credentials (GitHub PAT, CF API token) |
-| DELETE | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Erase all deploy credentials |
+| PUT | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Save/update deploy credentials (GitHub PAT, CF API token); shared PUT/DELETE authenticated-owner budget: 20/minute |
+| DELETE | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Erase all deploy credentials; shares the PUT/DELETE authenticated-owner 20/minute budget |
+
+Deploy-key mutation exhaustion returns `429 RATE_LIMIT_ERROR` with `Retry-After` and rate-limit advisory headers, before credential/provider I/O. GET does not consume this budget. General resource-protection fallback and stress-bypass policy remain in [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy).
 
 At-rest deploy-credential encryption uses the configured platform key; absent `ENCRYPTION_KEY`, storage uses plaintext JSON while GET remains masked. The deployment key is immutable: key rotation or key-change migration is unsupported; legacy plaintext encryption under the unchanged key is separate ([REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token) AC2/AC4; [REQ-SEC-004](../../sdd/spec/security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)).
 
@@ -970,7 +972,7 @@ The landing contact surface ([REQ-LANDING-002](../../sdd/spec/landing.md#req-lan
 
 For REQ-LANDING-002 AC2/AC4/AC5, separately authorize contact submissions, provider calls and delivery to existing disposable admin inboxes. Check contact availability on approved SaaS/onboarding targets and 404 where neither public flag is active (including Enterprise-only); waitlist stays onboarding-only. Submit one non-sensitive valid inquiry through Turnstile. Inspect all configured admin deliveries: reply-to must be the submitter, and user markup must render escaped, never execute.
 
-Trace the current contact handler and limiter/email calls to verify content is not stored and only limiter bookkeeping reaches KV. Delivery alone cannot prove non-persistence. Pass only if every branch and storage sink preserves these privacy/abuse boundaries. Missing safe inboxes or mode targets remain unverified; never email real users, replay submissions or export secrets to complete this check.
+Trace the current contact handler and limiter/email calls to verify content is not stored and only limiter bookkeeping reaches KV. Include accepted-contact and verification-failure logging: application diagnostics contain no submission fields, including email (full or masked) and topic. The source-level logging regression checks this minimization; it does not establish deployed log settings, production-log contents or email delivery. Delivery alone cannot prove non-persistence. Pass only if every branch and storage sink preserves these privacy/abuse boundaries. Missing safe inboxes or mode targets remain unverified; never email real users, replay submissions or export secrets to complete this check.
 
 ### GET `/public/contact-config`
 
@@ -984,7 +986,7 @@ Exposes only the public Turnstile site key for the landing form widget.
 
 ### POST `/public/contact`
 
-Demo-request submission: Turnstile-verified, relayed to all admin users as email (reply-to set to the submitter), and **never persisted** — the only KV writes on this path are rate-limiter bookkeeping. Rate-limited to **5 requests/minute per client IP** (`contact-submit` bucket).
+Demo-request submission: Turnstile-verified, relayed to all admin users as email (reply-to set to the submitter), and **never persisted** — the only KV writes on this path are rate-limiter bookkeeping. Accepted-contact and verification-failure application logs omit submission fields, including email (full or masked) and topic. Rate-limited to **5 requests/minute per client IP** (`contact-submit` bucket).
 
 Request body (JSON):
 

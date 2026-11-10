@@ -371,26 +371,32 @@ async function loadAuthConfig(env?: Env): Promise<ResolvedAuthConfig> {
   if (env?.KV && cachedAuthDomain === undefined) {
     if (!pendingAuthConfigFetch) {
       pendingAuthConfigFetch = (async () => {
-        cachedAuthDomain = await env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
+        const authDomain = await env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
+        let accessAudList: string[] | null;
         const audListRaw = await env.KV.get(SETUP_KEYS.ACCESS_AUD_LIST);
         if (audListRaw) {
           try {
             const parsed = JSON.parse(audListRaw);
             if (Array.isArray(parsed) && parsed.every((value: unknown) => typeof value === 'string')) {
-              cachedAccessAudList = parsed;
+              accessAudList = parsed;
             } else {
-              cachedAccessAudList = null;
+              accessAudList = null;
             }
           } catch {
             logger.warn('Failed to parse access_aud_list', { raw: audListRaw });
-            cachedAccessAudList = null;
+            accessAudList = null;
           }
         } else {
-          cachedAccessAudList = null;
+          accessAudList = null;
         }
-        cachedAccessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
+        const accessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
+        // Publish only a complete snapshot. A rejected read leaves the cache
+        // cold, so concurrent and later requests cannot use partial setup state.
+        cachedAuthDomain = authDomain;
+        cachedAccessAudList = accessAudList;
+        cachedAccessAud = accessAud;
         authConfigCachedAt = Date.now();
-        if (cachedAuthDomain && (cachedAccessAud || (cachedAccessAudList && cachedAccessAudList.length > 0))) {
+        if (authDomain && (accessAud || (accessAudList && accessAudList.length > 0))) {
           authConfigFetched = true;
         }
       })().finally(() => { pendingAuthConfigFetch = null; });

@@ -45,7 +45,7 @@ Optional AES-256-GCM for KV credentials (per-value random IVs, AAD binding to ke
 **Applies To:** System (storage layer)
 
 ### CON-SEC-004: Rate limiting on all mutation endpoints
-KV-backed, per-user (bucketName or IP fallback). WebSocket: 30 connections per 60s window. Security-critical limiters deny on KV error (HTTP 429 via `RateLimitError`, not 503). The all-mutation limiting obligation remains; unwrapped deploy-key mutations remain a coverage/enforcement residual, not an exemption. 64 KiB body limit on all `/api/*` routes (storage routes exempt for file uploads).
+KV-backed, per-user (bucketName or IP fallback). WebSocket: 30 connections per 60s window. Security-critical limiters deny on KV error (HTTP 429 via `RateLimitError`, not 503). The all-mutation limiting obligation remains. Deploy-key PUT and DELETE share a 20/minute authenticated-owner budget before credential I/O; GET does not consume it. They retain the general resource-protection fallback policy, not the security-critical fail-closed policy. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (CON-SEC-004 / REQ-SEC-007 AC1/3/4: unwrapped %s shares the authenticated mutation bound) --> 64 KiB body limit on all `/api/*` routes (storage routes exempt for file uploads).
 **Applies To:** All endpoints
 
 <a id="con-sec-005-security-headers-on-every-response"></a>

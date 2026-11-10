@@ -321,7 +321,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
  * (`navigator.serviceWorker.controller` is null on first paint), so SilverBullet
  * boots without the SW-backed local space and renders an empty / partial editor
  * until a manual reload. This reloads the page exactly once -- gated by a
- * `sessionStorage` one-shot so it can NEVER loop -- when a vault SW is active but
+ * verified `sessionStorage` one-shot (no reload if storage fails) -- when a vault SW is active but
  * not yet controlling this client. Inert in the headless prewarm iframe
  * (`window.parent !== window`), on a genuine first boot (no vault SW yet), and when
  * the SW already controls the page (the one-shot is cleared then so a later in-tab
@@ -334,7 +334,7 @@ export function injectVaultControlledReload(html: string): string {
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const script = '<script ' + VAULT_CONTROLLED_RELOAD_MARKER + '="1">(function () {(' +
-    source + ')(window, navigator, window.sessionStorage);})();</script>';
+    source + ')(window, navigator);})();</script>';
   return html.replace('</head>', `${script}</head>`);
 }
 

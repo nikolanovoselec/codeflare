@@ -140,7 +140,9 @@ For explicit mapped profiles, the Worker uses the exact requested executable lev
 
 Literal native Off needs a completed private observation of absent thinking, including hidden/redacted blocks even when counters are missing; stripped public SSE cannot prove absence. Accepted controls without observable thinking remain unverified. Enabled reasoning length/token evidence proves enabled behavior, not graduated fidelity or monotonically increasing token counts. Observations expose no thinking text, signatures or invented counters. AWS budgeted/adaptive/adaptive-only forms differ; a model namespace cannot select their semantics.
 
-Retained Sonnet 5/Opus 5 profiles keep validated disabled/adaptive mappings and aliases under exact evidence-model guards; no future-name substring inheritance, dangling alias, unfamiliar-model Sonnet alias or Max→Medium mapping is invented. Minimal→Low is explicit. Retained Sonnet XHigh/Max are High aliases; automatic Opus XHigh/Max remain Invoke. Generic Provider default has no mapped upper effort and uses Eventstream under auto.
+Built-in catalog classifications and `originallyCreatedAgainst` fields describe configured profile scope. Catalog assertion tests check those definitions and translation behavior; exact-target server verification remains required. GPT-5.6 Sol/Terra/Luna are the retained OpenAI profile scope, with GPT-6 Astra excluded.
+
+Retained Sonnet 5/Opus 5 profiles keep disabled/adaptive mappings and aliases under exact evidence-model guards; no future-name substring inheritance, dangling alias, unfamiliar-model Sonnet alias or Max→Medium mapping is invented. Minimal→Low is explicit. Retained Sonnet XHigh/Max are High aliases; automatic Opus XHigh/Max remain Invoke. Generic Provider default has no mapped upper effort and uses Eventstream under auto.
 
 Normal next session/container start publishes saved opaque capabilities without hot mutation, forced reset or restart. Pi startup names are `Dynamic Route - <route name>` and `Native Route - <native label>`; selectors prefer the user label with model fallback. Gateway pickers, thinking settings, default/selection messages and footer use those names; requests retain unchanged route IDs/native handles. Pi uses the `system` role rather than OpenAI `developer` for its managed prompt across Dynamic backends. The scope default is reasserted each start; absent reasoning default removes restored thinking overrides rather than manufacturing a provider control.
 
@@ -240,9 +242,9 @@ The existing CI `pi-prompt` lane runs [scripts/verify-bedrock-pi-prompt-cache.mj
 <a id="live-evidence-not-synthetic-capability-claims"></a>
 <a id="cherry-pick--reimplementation-contract"></a>
 <a id="evidence-and-remaining-boundaries"></a>
-### Historical anchors
+### Qualification boundaries
 
-These aliases retain access to original measurements, retired grades, unresolved diagnostic samples and feature-integration sequences, not current acceptance claims. Immutable original provenance is [Bedrock cache/stream measurements](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/bedrock-prompt-caching.md#live-evidence-not-synthetic-capability-claims), [original integration sequence](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/bedrock-prompt-caching.md#cherry-pick--reimplementation-contract), and [discovery evidence/remaining boundaries](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/target-capability-discovery.md#evidence-and-remaining-boundaries). Historical direct-Gateway/real-Pi samples are model/transport/policy-specific; they do not certify arbitrary prompts, every Dynamic branch, graduated reasoning or deployed application sessions. An unexplained sample failure and a later passing diagnostic are not a fix or explanation.
+Provider qualification is specific to the exact model, transport, policy and saved contract. Catalog definitions and synthetic serializer/parser checks do not certify live provider behavior, arbitrary prompts, every Dynamic branch, graduated reasoning or deployed application sessions. Use the existing Discover/Advanced verification and explicit Review/Save flow above when separately authorized; a successful check does not extend to unobserved backends.
 
 <a id="authoritative-references"></a>
 <a id="evidence-and-references"></a>

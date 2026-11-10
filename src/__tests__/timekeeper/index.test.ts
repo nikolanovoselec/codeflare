@@ -92,6 +92,7 @@ function createBillingTimekeeper(initialUser: Record<string, unknown>) {
   return {
     timekeeper: new Timekeeper(ctx, { KV: kv, SAAS_MODE: 'active' } as any),
     readUser: () => JSON.parse(userRecords.get('user:alice@example.com') ?? '{}') as Record<string, unknown>,
+    restart: () => new Timekeeper(ctx, { KV: kv, SAAS_MODE: 'active' } as any),
   };
 }
 
@@ -672,6 +673,38 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
   });
 
   describe('billing sync deletion ordering', () => {
+    it('REQ-SUB-004 AC7: checkout receipts suppress reapplication and retain subscription date/trial history', async () => {
+      const { timekeeper, readUser, restart } = createBillingTimekeeper({ subscribedAt: '2025-01-01T00:00:00.000Z', stripeSubscriptionId: 'sub_old', trialUsed: true });
+      const start = async () => {
+        const res = await timekeeper.fetch(billingRequest('/billing-sync/start', { userEmail: 'alice@example.com' }));
+        return (await res.json() as { token: number }).token;
+      };
+      const patch = { stripeSubscriptionId: 'sub_old', stripeCustomerId: 'cus_old', billingStatus: 'active', cancelAtPeriodEnd: false,
+        lastSyncedAt: '2026-01-01T00:00:00.000Z', subscriptionTier: 'standard', accessTier: 'standard' };
+      const checkout = { sessionId: 'cs_old', subscribedAt: '2025-01-01T00:00:00.000Z' };
+      const apply = async () => timekeeper.fetch(billingRequest('/billing-sync/apply', { userEmail: 'alice@example.com', token: await start(), patch, checkout }));
+      expect(await (await apply()).json()).toMatchObject({ applied: true, notifyCheckout: true, subscribedAt: checkout.subscribedAt });
+      expect(await (await apply()).json()).toMatchObject({ applied: false });
+      expect(readUser()).toMatchObject({ subscribedAt: checkout.subscribedAt, trialUsed: true });
+      const replayStart = await restart().fetch(billingRequest('/billing-sync/start', { userEmail: 'alice@example.com', checkoutSessionId: checkout.sessionId }));
+      expect(await replayStart.json()).toEqual({ checkoutCompleted: true });
+    });
+
+    it('REQ-SUB-004 AC7: late deletion and update for a different subscription preserve current billing state', async () => {
+      const current = { stripeSubscriptionId: 'sub_new', stripeCustomerId: 'cus_old', billingStatus: 'active', subscriptionTier: 'max', accessTier: 'max' };
+      const { timekeeper, readUser } = createBillingTimekeeper(current);
+      for (const patch of [
+        { cleanupBillingState: true, subscriptionId: 'sub_old', billingStatus: 'canceled', subscriptionTier: 'free', accessTier: 'free', subscribedMode: 'default' },
+        { stripeSubscriptionId: 'sub_old', stripeCustomerId: 'cus_old', billingStatus: 'canceled', cancelAtPeriodEnd: false, lastSyncedAt: '2026-01-01T00:00:00.000Z' },
+      ]) {
+        const start = await timekeeper.fetch(billingRequest('/billing-sync/start', { userEmail: 'alice@example.com' }));
+        const { token } = await start.json() as { token: number };
+        const res = await timekeeper.fetch(billingRequest('/billing-sync/apply', { userEmail: 'alice@example.com', token, patch }));
+        expect(await res.json()).toEqual({ applied: false });
+        expect(readUser()).toEqual(current);
+      }
+    });
+
     it('REQ-SUB-015 AC3: canceled/free cleanup rejects an older paid apply', async () => {
       const { timekeeper, readUser } = createBillingTimekeeper({
         addedBy: 'self',

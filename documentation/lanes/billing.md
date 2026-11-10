@@ -56,15 +56,19 @@ Legacy records without `subscriptionTier` retain their documented fallback. Non-
 
 When Stripe is configured, paid tiers use Stripe Checkout; the free tier remains direct. The backend derives supported currency from `CF-IPCountry`, creates a provider session, and redirects to hosted checkout. After `checkout=success`, the frontend polls auth status every three seconds without a total deadline; after five minutes it exposes a report-problem control and continues polling. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
 
-When Stripe is intentionally not configured, deployment policy may permit the direct subscription route. This is a configured mode, not a fail-open response to an unexpected provider outage. Turnstile behavior for initial activation is conditional on configuration and new-subscription state; the exact route contract belongs to [API Reference](api-reference.md#auth-saas-mode).
+New paid checkout requires configured Turnstile secret and site key, a token and successful verification before any Stripe or user mutation. Missing configuration or unavailable verification does not bypass the challenge. Active/trialing subscribers remain exempt.
+
+When Stripe is intentionally not configured, selectable non-contact tiers are presented as payment-free direct choices, even with saved positive prices or Stripe price identifiers; stored administration configuration is unchanged and Custom retains its contact CTA. This is a configured mode, not a fail-open response to an unexpected provider outage. Payment-free direct activation retains conditional Turnstile behavior; its exact route contract belongs to [API Reference](api-reference.md#auth-saas-mode).
 
 ### Stripe signal-and-sync
 
 Webhooks are authenticated signals. Checkout completion and subscription updates call `syncSubscriptionState()` to fetch current provider state. It resolves the user, obtains a monotonic per-user synchronization-start token from Timekeeper, and permits only the newest-started in-flight synchronization to apply. It preserves unrelated user fields; `lastSyncedAt` is recorded but is not ordering authority. Subscription deletion instead uses the same coordinator to apply billing cleanup and canceled/free/default state directly, without fetching a subscription snapshot. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 
-Price metadata supplies mode when present; otherwise configured Standard/Pro price slots can recover mode only. Snapshot tier fields are written only when non-null; a missing snapshot tier preserves the prior tier, not inferred price-slot entitlement. Non-deletion synchronization reconciles agent configuration and flips the session-mode preference only when the subscribed mode actually changes. Tier-only or same-mode entitlement changes do not enter that branch; this describes its scope, not certification that retained capabilities are safe. Deletion separately attempts default-mode reconciliation and preference reset after its coordinated cleanup.
+Price metadata supplies mode when present; otherwise configured Standard/Pro price slots can recover mode only. Snapshot tier fields are written only when non-null; a missing snapshot tier preserves the prior tier, not inferred price-slot entitlement. On subscribed-mode changes, non-deletion synchronization reconciles the selected permitted mode: promotion preserves an explicit Standard selection and initializes Pro only when no mode is selected. Tier-only or same-mode entitlement changes do not enter that reconciliation branch. Downgrade/termination still reconcile Standard; deletion separately attempts default-mode reconciliation and preference reset after coordinated cleanup.
 
-Successful webhook handling writes an event-ID marker for 72 hours; failed handling leaves no marker so the provider can retry. KV suppression is eventual and non-atomic: concurrent requests or propagation lag can process the same event again. Latest-provider-state synchronization limits stale billing-state application, but checkout replay can rewrite `subscribedAt` and repeat notification emails. Neither the marker nor the coordinator guarantees exactly-once webhook side effects or billing-wide atomicity.
+Successful webhook handling writes an event-ID marker for 72 hours; failed handling remains retryable. KV suppression is eventual and non-atomic: concurrent requests or propagation lag can process the same event again. Durable per-checkout receipts separately suppress checkout metadata and notice replay without that expiry. Checkout metadata applies with the provider snapshot; same-subscription date/trial history is retained, preferring provider creation time and using first processing time only when creation time is absent. Stale different-subscription updates/deletions and timestamp-older checkouts cannot replace newer subscription state. An unavailable initial provider snapshot returns retryable failure without partial checkout activation. A transient stale-token checkout rejection likewise returns retryable failure without a processed event marker; confirmed completed or permanently superseded checkouts remain successful no-ops.
+
+Checkout notices are claimed before best-effort fire-and-forget sending: a crash or provider failure can omit a notice, so neither inbox delivery nor billing-wide exactly-once side effects are promised. KV, coordinator storage and provider operations are not one atomic transaction.
 
 ### Cancellation, past due, and provider unavailability
 
@@ -84,6 +88,8 @@ One Timekeeper Durable Object owns each user's in-flight usage accumulator. A pi
 | Real-time usage query | Flushed KV plus pending durable accumulator |
 | Monthly entitlement | Effective tier configuration, not client-provided quota or a historical D1 total |
 | Historical snapshots/outbox | Timekeeper period state and retained rollover outbox feed D1 separately; acknowledgment releases sent outbox entries |
+
+Positive historical accounting stages state and marker-cache changes until persistence succeeds, so a failed transaction does not publish speculative in-memory totals. The FIFO marker cache holds at most 128 keys; eviction reloads durable markers without recounting distinct sessions, independently of durable cleanup.
 
 Pending usage is decremented only after a successful KV write. Timekeeper identity mismatch fails closed with 403. Usage accumulates in every mode; SaaS additionally owns quota/trial decisions. Timekeeper is an accounting and quota signal, not an atomic session-admission reservation. D1 history may lag this live path and never overrides quota truth.
 
@@ -160,6 +166,8 @@ Historical rows use UTC periods. Active day rows retain current day plus 399 pre
 
 One 15-minute scheduler owns report dispatch, recovery, and a once-daily token-guarded retention transaction. Test-send uses request `waitUntil()` only as a fast path; pending, failed and lease-expired scheduled/test deliveries remain scheduler-recoverable. Reports default disabled. KV stores schedule next-due instants under `admin:usage-reports:next:<settingsRevision>` so a stale revision cannot consume the current schedule. Each enabled recipient gets a separately claimed delivery with at most three attempts. `accepted` means Resend accepted the request, not inbox delivery; no provider ID is invented. ([REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SUB-030](../../sdd/spec/subscription.md#req-sub-030-monthly-usage-report-schedule-periods)) <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler -->
 
+Reports are informational views of persisted usage, not immutable invoices or accounting records. Delivery recovery regenerates the selected month's summary and CSV from current D1 usage; later recovery can therefore include newly persisted usage. It never rewrites the authoritative usage ledger or payment accounting. Dispatch identities and recipient Resend idempotency keys stay fixed across attempts. If Resend rejects a changed payload under the same key, the attempt remains a provider failure, not an accepted delivery.
+
 CSV attachments stop at 8 MiB. Scheduled messages report latest closed UTC month with deterministic idempotency; tests report current UTC month using request identity so two test clicks remain distinct. ([REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SUB-030](../../sdd/spec/subscription.md#req-sub-030-monthly-usage-report-schedule-periods)) <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/routes/admin/usage-reports.ts::default -->
 
 ## Operation Envelope and Logging
@@ -168,13 +176,13 @@ At 2,000 active developers with three sessions each, a steady-state non-SaaS pos
 
 D1 history metrics record rows read/written, SQL duration, backlog age and snapshot count without emails or secrets. Sampling placement and non-default rollout verification belong to the [private deployment-testing owner](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/verification/deployment-testing.md). History acceptance requires operation/spend alerts and discoverability of caught structured errors and uncaught exceptions under the intended sampling; reference prose is not completion evidence. ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: scripts/ci/set-head-sampling.mjs::setHeadSampling -->
 
-Historical pricing assumptions are not current price guarantees; the [original dated assumptions](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/administration-analytics.md#operation-envelope-and-logging) retain their observation scope. Verify included-operation and overage prices through the deployment owner before approving new spend. The continuous stress model's under-48-million billed-row-write envelope includes indexes and retention; the existing CI guard is not a new acceptance claim. ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+Verify current included-operation and overage prices through the deployment owner before approving new spend; workload envelopes are not price guarantees. The continuous stress model's under-48-million billed-row-write envelope includes indexes and retention; the existing CI guard is not a new acceptance claim. ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 
 <a id="design-source-review"></a>
 <a id="integration-acceptance-checklist"></a>
-### Historical rollout evidence
+### Release qualification
 
-The [original design-source review](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/administration-analytics.md#design-source-review) and [Integration checklist](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/administration-analytics.md#integration-acceptance-checklist) preserve the historical checkpoint and its outstanding browser/manual checks. They are not current reference procedures or evidence that acceptance completed. Active status and verification qualifiers remain in SDD.
+Use the current [Integration checklist](deployment.md#integration-acceptance-checklist) and the account acceptance methods below. Bind observations to the release and tested environment; neither this procedure nor an earlier release's results establish current acceptance.
 
 ## Account acceptance methods
 
@@ -201,13 +209,13 @@ Use existing authorized checkout, signed-event, portal and invoice records, matc
 | Contract | Action and required outcome |
 |---|---|
 | REQ-SUB-004 AC4 | Follow an existing `checkout=success` trace through pending activation and five minutes. Auth polls every three seconds; report-problem appears without ending polling. Activation ends the flow. Read `SubscribePage.tsx` to verify no total polling deadline. |
-| REQ-SUB-004 AC5/7 | Match completed/updated signed-event histories to latest-provider-state synchronization and deleted histories to coordinated direct canceled/free/default cleanup. Inspect `stripe-webhook.ts`: successful events get the 72-hour marker; failures do not. Compare available duplicate receipts with marker visibility and resulting state; visible markers suppress processing, but concurrent/propagation replays may process again, rewrite `subscribedAt` and repeat emails. Eventual KV suppression is not atomic exactly-once side-effect delivery; missing replay observations stay unavailable. |
+| REQ-SUB-004 AC5/7 | Match completed/updated signed events to latest-provider-state synchronization and deletions to coordinated canceled/free/default cleanup. Compare event-marker visibility separately from durable per-checkout receipts: replay after marker expiry preserves same-subscription date/trial history and does not claim notices again. Check stale different-subscription updates/deletions leave replacement state unchanged, and an unavailable initial snapshot or transient stale-token rejection leaves checkout retryable without partial activation or a processed event marker. Notices remain best-effort after claim, not guaranteed inbox delivery or billing-wide exactly-once effects. |
 | REQ-SUB-016 AC2/6 | Match hosted plan confirmation to selected price/subscription item. Portal creation is authenticated, customer-bound and limited to five per minute. Existing unauthorized/no-customer/over-limit cases return no portal URL. |
 | REQ-SUB-021 AC2/3/5 | Compare new/trial-end subscriptions and invoices: initial charge prorates to the next UTC month; later monthly anchors fall on its first day. A pre-change subscription retains its recorded anniversary. Checkout parameters alone cannot prove recurring billing. |
 
 ### Integration analytics and report presentation acceptance
 
-This current method does not relabel historical checklist evidence. On an authorized Integration candidate, use existing admin/non-admin identities and dated histories. Do not delete/reactivate users, test-send/resend reports or change schedules.
+On an authorized Integration candidate, use existing admin/non-admin identities and dated histories. Do not delete/reactivate users, test-send/resend reports or change schedules.
 
 | Contract | Action and required outcome |
 |---|---|
