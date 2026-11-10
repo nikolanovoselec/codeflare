@@ -133,9 +133,19 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     for (const regime of ['sse-c', 'plain']) {
       mockKV._set('r2-regime:test-bucket', { status: 'ready', regime, generation: 1 });
       mockFetch.mockClear().mockImplementation(async () => new Response('', { headers: { ETag: 'part-etag' } }));
+      let uploadId: string | undefined;
+      if (path === '/upload/part') {
+        const initiated = await app.request('/upload/initiate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'Uploads/file.txt' }),
+        });
+        expect(initiated.status).toBe(200);
+        ({ uploadId } = await initiated.json() as { uploadId: string });
+        mockFetch.mockClear();
+      }
       const response = await app.request(path, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'Uploads/file.txt', ...payload }),
+        body: JSON.stringify({ key: 'Uploads/file.txt', ...payload, ...(uploadId ? { uploadId } : {}) }),
       });
       expect(response.status).toBe(200);
       const headers = new Headers(mockFetch.mock.calls[0][1].headers);

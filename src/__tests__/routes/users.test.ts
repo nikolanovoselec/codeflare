@@ -159,6 +159,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
   describe('DELETE /users/:email', () => {
     it('removes KV entry for user', async () => {
       const app = createTestApp('admin@example.com');
+      mockKV._store.set('setup:account_id', 'test-account-id');
 
       // Pre-populate user
       mockKV._set('user:target@example.com', { addedBy: 'admin@example.com', addedAt: '2024-01-01T00:00:00.000Z' });
@@ -172,6 +173,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       expect(body.success).toBe(true);
       expect(body.email).toBe('target@example.com');
       expect(mockKV.delete).toHaveBeenCalledWith('user:target@example.com');
+      expect(await mockKV.get('user:target@example.com')).toBeNull();
     });
 
     it('returns 400 when trying to remove self', async () => {
@@ -426,6 +428,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
 
     it('DELETE non-admin user succeeds normally', async () => {
       const app = createTestAppWithRole('admin@example.com', 'admin');
+      mockKV._store.set('setup:account_id', 'test-account-id');
       mockKV._set('user:regular@example.com', {
         addedBy: 'admin@example.com',
         addedAt: '2024-01-01T00:00:00.000Z',
@@ -439,6 +442,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as { success: boolean };
       expect(body.success).toBe(true);
+      expect(await mockKV.get('user:regular@example.com')).toBeNull();
     });
 
     it('PATCH admin user tier returns 400 - cannot change admin access tier', async () => {

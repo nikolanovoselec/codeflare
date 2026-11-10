@@ -111,7 +111,9 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     expect(proxy.headers.get('X-Powered-By')).toBeNull(); expect(proxy.headers.get('ETag')).toBe('"keep"');
     vaultRouteState.validate = undefined;
     const assets = { ...env, ASSETS: { fetch: async () => new Response('asset', { headers: { 'X-Powered-By': 'private-server', 'ETag': '"keep"' } }) } };
-    const asset = await worker.fetch(new Request('https://example.com/assets/example.js'), assets as any, ctx);
+    const asset = await worker.fetch(new Request('https://example.com/setup/example.js'), assets as any, ctx);
+    expect(asset.status).toBe(200);
+    expect(await asset.text()).toBe('asset');
     expect(asset.headers.get('X-Powered-By')).toBeNull(); expect(asset.headers.get('ETag')).toBe('"keep"');
     const api = withSecurityHeaders(new Response('api', { headers: { 'X-Powered-By': 'private-server', 'X-Other': 'keep' } }));
     expect(api.headers.get('X-Powered-By')).toBeNull(); expect(api.headers.get('X-Other')).toBe('keep');

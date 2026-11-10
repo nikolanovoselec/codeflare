@@ -180,11 +180,11 @@ describe('protected raw execution logging through the existing diagnostic entryp
     const records = capture();
     const secrets = ['credential-password-value', 'credential-access-token', 'credential-api-key', 'credential-cookie-value',
       'credential-url-user', 'credential-url-password', 'credential-signature', 'credential-json-secret',
-      'credential-cf-access-jwt-value', 'credential-access-key-id-value'];
+      'credential-cf-access-jwt-value', 'credential-access-key-id-value', 'PRIVATE_TRANSCRIPT_SIGNATURE'];
     const raw = { text: 'NORMAL_RAW_TEXT', nested: { password: secrets[0], access_token: secrets[1], apiKey: secrets[2], keep: 'KEEP_NESTED' },
       headers: { Authorization: `Bearer ${secrets[1]}`, Cookie: `session=${secrets[3]}`, 'Set-Cookie': `session=${secrets[3]}; HttpOnly`,
         'cf-access-jwt-assertion': secrets[8], 'content-type': 'application/json', 'x-request-id': 'KEEP_REQUEST_ID' },
-      accessKeyId: secrets[9], thinkingSignature: 'KEEP_TRANSCRIPT_SIGNATURE',
+      accessKeyId: secrets[9], thinkingSignature: secrets[10],
       url: `https://${secrets[4]}:${secrets[5]}@service.example.test/path?X-Amz-Signature=${secrets[6]}&label=KEEP_QUERY`,
       body: JSON.stringify({ client_secret: secrets[7], description: 'KEEP_JSON_NEIGHBOR', deep: { toolOutput: 'KEEP_TOOL_OUTPUT' } }) };
     emit(raw);
@@ -192,7 +192,8 @@ describe('protected raw execution logging through the existing diagnostic entryp
     const wire = JSON.stringify(observed);
     for (const secret of secrets) expect(wire).not.toContain(secret);
     for (const retained of ['NORMAL_RAW_TEXT', 'KEEP_NESTED', 'application/json', 'KEEP_REQUEST_ID',
-      'service.example.test/path', 'label=KEEP_QUERY', 'KEEP_JSON_NEIGHBOR', 'KEEP_TOOL_OUTPUT', 'KEEP_TRANSCRIPT_SIGNATURE']) expect(wire).toContain(retained);
+      'service.example.test/path', 'label=KEEP_QUERY', 'KEEP_JSON_NEIGHBOR', 'KEEP_TOOL_OUTPUT']) expect(wire).toContain(retained);
+    expect(raw.thinkingSignature).toBe(secrets[10]); // REQ-ENTERPRISE-079: observation only.
     expect(raw.nested.password).toBe(secrets[0]); // Redaction cannot mutate the functional input.
   });
 
@@ -234,7 +235,13 @@ describe('protected raw execution logging through the existing diagnostic entryp
       const reconstructed = observed.filter(item => item.stage === 'sdk-event' && item.value.contentIndex === contentIndex)
         .map(item => item.value.delta ?? '').join('');
       expect(reconstructed).not.toContain(secrets[contentIndex]);
-      expect(reconstructed).toContain(`KEEP_SDK_NEIGHBOR_${contentIndex}`);
+      if (contentIndex === 0) {
+        // REQ-ENTERPRISE-079: the whole private reasoning channel is hidden,
+        // even when its contents look like otherwise-public JSON/tool data.
+        expect(reconstructed).not.toContain('KEEP_SDK_NEIGHBOR_0');
+        expect(observed.filter(item => item.stage === 'sdk-event' && item.value.contentIndex === 0)
+          .every(item => item.value.delta === '[REDACTED]')).toBe(true);
+      } else expect(reconstructed).toContain(`KEEP_SDK_NEIGHBOR_${contentIndex}`);
     }
     expect(JSON.stringify(observed)).not.toContain(secrets[0]);
     expect(JSON.stringify(observed)).not.toContain(secrets[1]);
@@ -243,6 +250,42 @@ describe('protected raw execution logging through the existing diagnostic entryp
     expect(message.content[1].text).toBe(bodies[1]);
     expect(message.content[2].arguments.apiKey).toBe(secrets[2]);
     expect(events.map(event => event.value.delta)).toEqual(deltas.map(event => event.delta));
+  });
+
+  it('REQ-ENTERPRISE-079 / REQ-OPERATOR-090: private prefixes and completed reasoning do not erase public SDK neighbors or literal characters', () => {
+    const records = capture();
+    const thought = 'PRIVATE_COMPLETED_THOUGHT';
+    const message = (thinking: string) => ({ role: 'assistant', provider: 'custom', model: 'saved', timestamp: 39,
+      content: [{ type: 'thinking', thinking, thinkingSignature: 'PRIVATE_SIGNED_REPLAY' },
+        { type: 'text', text: 'KEEP_PUBLIC_THOUGHT_NEIGHBOR' },
+        { type: 'toolCall', arguments: { path: 'private/release.json', note: 'KEEP_PUBLIC_TOOL_NEIGHBOR' } }] });
+    const publicText = 'PRIVATE letters, spaces, braces {} and KEEP_PUBLIC_SDK_NEIGHBOR';
+    const publicEvents = [...publicText].map(delta => ({ stage: 'sdk-event', value: {
+      type: 'text_delta', contentIndex: 1, delta, partial: message(thought),
+    } }));
+    const payload = [
+      ...[...thought].map((_, index) => ({ stage: 'sdk-event', value: { type: 'thinking_delta', contentIndex: 0,
+        delta: thought[index], partial: message(thought.slice(0, index + 1)) } })),
+      { stage: 'sdk-event', value: { type: 'thinking_end', contentIndex: 0, content: thought, partial: message(thought) } },
+      ...publicEvents,
+      { stage: 'sdk-result', value: message(thought) },
+      { stage: 'provider-request', value: { body: JSON.stringify(message(thought)), echo: thought } },
+    ];
+    const original = JSON.stringify(payload);
+    emit(payload);
+    const observed = valueOf(records()) as Array<{ value: {
+      type?: string; delta?: string; content?: unknown; partial?: ReturnType<typeof message>;
+    } }>;
+    const textEvents = observed.filter(item => item.value.type === 'text_delta');
+    expect(textEvents.map(item => item.value.delta).join('')).toBe(publicText);
+    expect(textEvents.map(item => item.value.partial?.content[2])).toEqual(publicEvents.map(item => item.value.partial.content[2]));
+    expect(JSON.stringify(observed)).not.toContain(thought);
+    expect(JSON.stringify(observed)).not.toContain('PRIVATE_SIGNED_REPLAY');
+    expect(JSON.stringify(observed)).toContain('KEEP_PUBLIC_THOUGHT_NEIGHBOR');
+    expect(JSON.stringify(observed)).toContain('KEEP_PUBLIC_TOOL_NEIGHBOR');
+    expect(observed.filter(item => item.value.type === 'thinking_delta').every(item => item.value.delta === '[REDACTED]')).toBe(true);
+    expect(observed.find(item => item.value.type === 'thinking_end')?.value.content).toBe('[REDACTED]');
+    expect(JSON.stringify(payload)).toBe(original);
   });
 
   it('REQ-OPERATOR-090: native text and tool-argument fragments cannot reconstruct credentials while neighboring data survives', () => {

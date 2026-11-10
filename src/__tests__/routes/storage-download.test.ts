@@ -8,7 +8,7 @@ import { createMockKV } from '../helpers/mock-kv';
 
 // Track mock state for assertions - vi.hoisted() ensures these are available when vi.mock() factory runs
 const { mockGetR2Url, mockFetchObjectWithRegimeFallback, mockMarkMixedRecovery } = vi.hoisted(() => ({
-  mockGetR2Url: vi.fn((endpoint: string, bucket: string, key?: string) => (key ? `${endpoint}/${bucket}/${key}` : `${endpoint}/${bucket}`)),
+  mockGetR2Url: vi.fn<typeof import('../../lib/r2-client').getR2Url>(),
   mockFetchObjectWithRegimeFallback: vi.fn(),
   mockMarkMixedRecovery: vi.fn(async () => {}),
 }));
@@ -16,7 +16,11 @@ const { mockGetR2Url, mockFetchObjectWithRegimeFallback, mockMarkMixedRecovery }
 // download.ts builds the object URL with getR2Url, then reads via fetchObjectWithRegimeFallback
 // (REQ-ENTERPRISE-021 dual-regime read). The regime-fallback logic itself is covered in
 // r2-migration.test.ts; here we control the returned R2 Response to exercise download behavior.
-vi.mock('../../lib/r2-client', () => ({ getR2Url: mockGetR2Url }));
+vi.mock('../../lib/r2-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/r2-client')>();
+  mockGetR2Url.mockImplementation(actual.getR2Url);
+  return { ...actual, getR2Url: mockGetR2Url };
+});
 vi.mock('../../lib/r2-config', () => ({
   getR2Config: vi.fn().mockResolvedValue({ accountId: 'test-account', endpoint: 'https://test.r2.cloudflarestorage.com' }),
 }));

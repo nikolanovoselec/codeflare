@@ -21,13 +21,9 @@ const state = vi.hoisted(() => ({
   containerStatus: 'running',
   containerError: null as Error | null,
 }));
-const reconcile = vi.hoisted(() => vi.fn(async (): Promise<{
-  written: string[];
-  skipped: string[];
-  deleted: string[];
-  warnings: string[];
-  managedPathsDigest: string | undefined;
-}> => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined })));
+const reconcile = vi.hoisted(() => vi.fn<typeof import('../../lib/r2-seed').reconcileAgentConfigs>(async () => (
+  { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined }
+)));
 const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped: [] })));
 const createBucket = vi.hoisted(() => vi.fn(async () => ({ success: true, created: false })));
 const fetchR2 = vi.hoisted(() => vi.fn(async () => new Response('', { status: 200 })));
@@ -155,13 +151,13 @@ describe('managed storage reconcile', () => {
     });
     kv._store.set(getManagedEnvironmentPatKey(configFingerprint), credential);
 
+    const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+    // Exercise the real writer while the journal and reauthorization callback are live,
+    // not by replaying a completed request after its pending state was cleared.
+    reconcile.mockImplementationOnce(actual.reconcileAgentConfigs);
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
     expect(response.status).toBe(200);
     expect(reconcile).toHaveBeenCalledTimes(1);
-
-    const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
-    const call = reconcile.mock.calls[0] as unknown as Parameters<typeof actual.reconcileAgentConfigs>;
-    await actual.reconcileAgentConfigs(...call);
 
     const r2Calls = fetchR2.mock.calls as unknown as Array<[string, RequestInit?]>;
     const writes = r2Calls.filter(([, init]) => init?.method === 'PUT');
@@ -718,6 +714,30 @@ describe('managed storage reconcile', () => {
     expect(createBucket).not.toHaveBeenCalled();
     expect(reconcile).not.toHaveBeenCalled();
   });
+
+  it.each([undefined, 'default'] as const)(
+    'REQ-STOR-035 AC7: unchanged effective default mode (%s) and structural target identity permit publication', async sessionMode => {
+      const kv = createMockKV();
+      kv._set('user-prefs:user-bucket', { sessionMode });
+      reconcile.mockImplementationOnce(async () => {
+        const latest = await kv.get('user-prefs:user-bucket', 'json') as import('../../types').UserPreferences;
+        const target = latest.managedEnvironmentReconciliation!.targets[0];
+        // JSON property order is not part of the pending target identity.
+        kv._set('user-prefs:user-bucket', { ...latest, sessionMode: 'default',
+          managedEnvironmentReconciliation: { targets: [{
+            projectionIdentity: target.projectionIdentity, mode: target.mode,
+            sequence: target.sequence, digest: target.digest,
+          }] },
+        });
+        return { written: [], skipped: [], deleted: [], warnings: [] };
+      });
+      const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+      expect(response.status).toBe(200);
+      const stored = await kv.get('user-prefs:user-bucket', 'json') as import('../../types').UserPreferences;
+      expect(stored.managedEnvironmentApplied).toMatchObject({ digest: state.active!.digest, mode: 'default' });
+      expect(stored.managedEnvironmentReconciliation).toBeUndefined();
+    },
+  );
 
   it.each(['release', 'policy', 'mode', 'projection', 'owner', 'migration', 'encryption', 'pending'] as const)(
     'REQ-STOR-035 AC7: manual Recreate refuses %s drift and retains its journal', async drift => {

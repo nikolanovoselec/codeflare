@@ -155,7 +155,9 @@ const r2Env = {
   ENCRYPTION_KEY,
 } as unknown as Env;
 
-const driverEnv = (kv: KVNamespace) => ({ ...r2Env, R2_ACCOUNT_ID: 'acct', KV: kv } as unknown as Env);
+// The driver uses get/put/delete; accept the shared route KV fake at this existing
+// environment boundary without pretending it implements unused getWithMetadata.
+const driverEnv = (kv: KVNamespace | ReturnType<typeof createMockKV>) => ({ ...r2Env, R2_ACCOUNT_ID: 'acct', KV: kv } as unknown as Env);
 
 beforeEach(() => {
   vi.clearAllMocks();

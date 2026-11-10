@@ -48,6 +48,12 @@ async function assertNoOwningSession(
   }
 }
 
+function managedTargetSetIdentity(targets: readonly ManagedReconciliationTarget[]): string {
+  return JSON.stringify(targets.map(target => JSON.stringify([
+    target.digest, target.sequence, target.mode, target.projectionIdentity ?? null,
+  ])).sort());
+}
+
 function assertAppliedManagedIdentity(applied: NonNullable<UserPreferences['managedEnvironmentApplied']>): void {
   if (
     !/^[0-9a-f]{64}$/.test(applied.digest)
@@ -234,8 +240,8 @@ export async function reconcileAgentConfigsForBootstrap(input: {
             || codingAgentProjectionIdentity(env.CODING_AGENTS) !== projectionIdentity
             || currentMode !== mode
             || currentSseDisabled !== r2SseDisabled
-            || JSON.stringify(currentPreferences.managedEnvironmentReconciliation?.targets ?? [])
-              !== JSON.stringify(expectedReconciliationTargets ?? [])
+            || managedTargetSetIdentity(readManagedReconciliationTargets(currentPreferences.managedEnvironmentReconciliation))
+              !== managedTargetSetIdentity(expectedReconciliationTargets ?? existingTargets)
           ) {
             throw new Error('Managed reconciliation target changed before finalization');
           }
@@ -341,8 +347,8 @@ export async function reconcileAgentConfigsForBootstrap(input: {
     // cache invalidation have succeeded.
     const latestPreferences = await env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
     if (
-      JSON.stringify(latestPreferences.managedEnvironmentReconciliation?.targets ?? [])
-      !== JSON.stringify(expectedReconciliationTargets ?? existingTargets)
+      managedTargetSetIdentity(readManagedReconciliationTargets(latestPreferences.managedEnvironmentReconciliation))
+      !== managedTargetSetIdentity(expectedReconciliationTargets ?? existingTargets)
     ) {
       throw new Error('Managed reconciliation target state changed before publication');
     }

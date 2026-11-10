@@ -101,6 +101,7 @@ function jsonValue(text: string): unknown {
 function redact(value: unknown, credentials: readonly string[]): unknown {
   const known = new Set(credentials.filter(Boolean));
   const completedText = new Map<string, string>();
+  const privateText = new Set<string>();
   const streamKey = (message: Record<string, unknown>, index: number) =>
     JSON.stringify([message.provider, message.model, message.timestamp, index]);
   const assistant = (item: unknown): item is Record<string, unknown> & { content: unknown[] } =>
@@ -149,7 +150,10 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
           completedText.set(streamKey(item, index), text);
       });
       for (const [key, child] of Object.entries(item)) {
-        if (credentialKey(key) || (key === 'data' && (item as Record<string, unknown>).type === 'redacted_thinking')) collectCredential(child);
+        // Thinking prefixes are not credential literals: a one-character
+        // partial must never become a global character replacement rule.
+        if (key === 'thinking' && typeof child === 'string') privateText.add(child);
+        else if (credentialKey(key) || (key === 'data' && (item as Record<string, unknown>).type === 'redacted_thinking')) collectCredential(child);
         collect(child);
       }
     }
@@ -204,6 +208,10 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     }
     for (const stream of nativeStreams.values()) collect(stream.text);
   }
+  // Only completed private values identify whole-value literal echoes. Native
+  // and SDK public channels are sanitized by credential spans, not by private
+  // prefixes (or characters) that happen to occur in unrelated public text.
+  const privateEchoes = new Set([...privateText].filter(text => text && ![...privateText].some(other => other.length > text.length && other.startsWith(text))));
   const knownByLength = [...known].sort((a, b) => b.length - a.length);
   const intervals = new Map<string, Array<[number, number]>>();
   const credentialIntervals = (full: string): Array<[number, number]> => {
@@ -227,7 +235,8 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     intervals.set(full, merged);
     return merged;
   };
-  const cleanText = (text: string): string => {
+  const cleanText = (text: string, privateEcho = true): string => {
+    if (privateEcho && privateEchoes.has(text)) return REDACTED;
     const parsed = jsonValue(text);
     if (parsed !== undefined) {
       const original = JSON.stringify(parsed), sanitized = JSON.stringify(clean(parsed));
@@ -257,7 +266,7 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
   };
   const nativeText = (parent: object, key: string): string | undefined => {
     const part = nativeLeaves.get(parent)?.get(key);
-    return part ? cleanText(redactSpan(part.text, part.stream.text, part.start)) : undefined;
+    return part ? cleanText(redactSpan(part.text, part.stream.text, part.start), false) : undefined;
   };
   const clean = (item: unknown): unknown => {
     if (typeof item === 'string') return cleanText(item);
@@ -266,7 +275,10 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     if (Array.isArray(item)) return item.map((child, index) => nativeText(item, String(index)) ?? clean(child));
     const data = item as Record<string, unknown>;
     return Object.fromEntries(Object.entries(item).map(([key, child]) => {
-      if (credentialKey(key) || (key === 'data' && data.type === 'redacted_thinking')) return [cleanText(key), REDACTED];
+      if (credentialKey(key) || (key === 'data' && data.type === 'redacted_thinking')
+        || (key === 'delta' && data.type === 'thinking_delta')
+        || (key === 'content' && data.type === 'thinking_end')) return [cleanText(key), REDACTED];
+      if (key === 'text' && data.type === 'text' && typeof child === 'string') return [cleanText(key), cleanText(child, false)];
       const native = nativeText(item, key);
       if (native !== undefined) return [cleanText(key), native];
       if (key === 'delta' && typeof child === 'string' && assistant(data.partial) && Number.isSafeInteger(data.contentIndex)) {

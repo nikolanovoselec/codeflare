@@ -516,13 +516,19 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bucketName: 'existing-bucket', ...keys }),
       }));
       expect((await post({ openaiApiKey: 'old-openai', geminiApiKey: 'old-gemini', encryptionKey: 'immutable' })).status).toBe(409);
-      expect(instance.envVars.CODEFLARE_OPENAI_API_KEY).toBe('old-openai');
-      const auth = instance.envVars.CONTAINER_AUTH_TOKEN;
+      const beforeRevocation = instance.envVars;
+      if (!beforeRevocation) throw new Error('Warm restart did not emit an environment');
+      expect(beforeRevocation.CODEFLARE_OPENAI_API_KEY).toBe('old-openai');
+      expect(beforeRevocation.CODEFLARE_GEMINI_API_KEY).toBe('old-gemini');
+      const auth = beforeRevocation.CONTAINER_AUTH_TOKEN;
+      expect(auth).toEqual(expect.any(String));
       expect((await post({ openaiApiKey: null, geminiApiKey: null })).status).toBe(409);
-      expect(instance.envVars.CODEFLARE_OPENAI_API_KEY).toBeUndefined();
-      expect(instance.envVars.CODEFLARE_GEMINI_API_KEY).toBeUndefined();
-      expect(instance.envVars.CONTAINER_AUTH_TOKEN).toBe(auth);
-      expect(instance.envVars.ENCRYPTION_KEY).toBe('immutable');
+      const afterRevocation = instance.envVars;
+      if (!afterRevocation) throw new Error('Credential revocation did not emit an environment');
+      expect(afterRevocation.CODEFLARE_OPENAI_API_KEY).toBeUndefined();
+      expect(afterRevocation.CODEFLARE_GEMINI_API_KEY).toBeUndefined();
+      expect(afterRevocation.CONTAINER_AUTH_TOKEN).toBe(auth);
+      expect(afterRevocation.ENCRYPTION_KEY).toBe('immutable');
     });
 
     it.each(['delete', 'transaction'] as const)('REQ-SESSION-009: rejected KILL %s revokes warm credentials and keeps the termination claim retryable', async failure => {

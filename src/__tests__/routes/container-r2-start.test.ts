@@ -92,6 +92,10 @@ vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => testState
 vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
   getActiveVerifiedManagedRelease: vi.fn(async () => testState.verifiedRelease),
+  getActiveManagedRelease: vi.fn(async () => {
+    if (testState.managedReleaseError) throw testState.managedReleaseError;
+    return testState.activeManagedRelease;
+  }),
   getCachedActiveManagedRelease: vi.fn(async () => {
     if (testState.managedReleaseError) throw testState.managedReleaseError;
     return testState.activeManagedRelease;

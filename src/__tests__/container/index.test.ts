@@ -2459,10 +2459,17 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           if (stage === 'provider-error') {
             await expect(f.instance.destroy()).rejects.toThrow(sensitive);
             expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+          } else if (stage === 'cleanup-error') {
+            await expect(f.instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
           } else await expect(f.instance.destroy()).resolves.toBeUndefined();
           expect(authenticatedDrain).toBe(true);
           expect(nativeReached).toBe(true);
-          if (stage === 'cleanup-error') expect(await f.storage.get('bucketName')).toBe('test-bucket');
+          if (stage === 'cleanup-error') {
+            expect(await f.storage.get('bucketName')).toBe('test-bucket');
+            expect(await f.storage.get('shutdownRequested')).toEqual(expect.any(Number));
+            expect(await f.storage.get('containerAuthToken')).toBeUndefined();
+            expect((await f.instance.fetch(new Request('http://container/workspace'))).status).toBe(503);
+          }
           if (stage === 'stop-error') expect(stopSignals).toContain('SIGTERM');
           const audit = await f.storage.get('finalSyncAudit');
           const outcome = stage === 'host-reason' ? 'incomplete' : stage === 'fetch-error' ? 'errored' : 'completed';
@@ -2635,7 +2642,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       });
       const instance = new ContainerClass(mockCtx as any, mockEnv);
 
-      await expect(instance.destroy()).resolves.toBeUndefined();
+      await expect(instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
 
       const deletedKeys = mockStorage.delete.mock.calls.map((call) => call[0]);
       expect(deletedKeys).toContain('metricsTransportRecovery');

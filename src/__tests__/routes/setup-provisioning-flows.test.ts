@@ -324,7 +324,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         ...baseFlowMocks(), ...customDomainFlowMocks(), ...accessAppFlowMocks(),
         '/zones?name=': async () => { entered(); await pending; return _jsonResponse({ success: true, result: [] }); },
       });
-      const first = configure(app, 'wrong.invalid').then(readNdjson);
+      const first = Promise.resolve(configure(app, 'wrong.invalid')).then(readNdjson);
       await started;
       try {
         const overlap = getNdjsonSummary(await readNdjson(await configure(app, standardBody.customDomain)));
@@ -343,10 +343,15 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       const legacyApps = new Set(['legacy-one', 'legacy-two']);
       globalThis.fetch = createUrlMockFetch({
         ...baseFlowMocks(), ...customDomainFlowMocks(), ...accessAppFlowMocks(),
-        '/access/apps': () => _jsonResponse({ success: true, result: [
-          { id: 'legacy-one', name: TEST_WORKER_NAME, domain: standardBody.customDomain },
-          { id: 'legacy-two', name: TEST_WORKER_NAME, domain: `${standardBody.customDomain}/setup` },
-        ] }),
+        '~/access/apps': (_url, init) => {
+          if (!init?.method || init.method === 'GET') {
+            return _jsonResponse({ success: true, result: [
+              { id: 'legacy-one', name: TEST_WORKER_NAME, domain: standardBody.customDomain },
+              { id: 'legacy-two', name: TEST_WORKER_NAME, domain: `${standardBody.customDomain}/setup` },
+            ] });
+          }
+          return mockResponses.accessAppCreate();
+        },
         '/access/apps/legacy-one': () => { throw new Error('delete acknowledgement lost'); },
         '/access/apps/legacy-two': async () => {
           entered(); await pending; legacyApps.delete('legacy-two');
@@ -354,9 +359,12 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         },
       });
       let finished = false;
-      const first = configure(app, standardBody.customDomain).then(readNdjson)
+      const first = Promise.resolve(configure(app, standardBody.customDomain)).then(readNdjson)
         .then(lines => { finished = true; return lines; });
-      await started;
+      await Promise.race([
+        started,
+        first.then(() => { throw new Error('Setup completed before the held sibling deletion started'); }),
+      ]);
       // Let the rejected deletion propagate while its already-started sibling stays held.
       await new Promise(resolve => setTimeout(resolve, 0));
       try {
