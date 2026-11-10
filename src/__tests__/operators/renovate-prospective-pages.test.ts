@@ -89,17 +89,17 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
   });
 });
 
-describe('REQ-OPERATOR-061 AC2: retained failed-target cutoff exception', () => {
+describe('REQ-OPERATOR-061 AC2: retained failures never bypass the original cutoff', () => {
   const retained = { repositoryId: 424242, pullRequest: 2, head: 'a'.repeat(40), createdAt: '2026-09-26T00:00:00.000Z' };
   const old = { ...row(2), created_at: retained.createdAt };
-  it('re-observes only the exact retained failed head without widening the cutoff, bot, repository or base authority', async () => {
+  it('refuses a retained pre-cutoff head alongside ordinary stale or foreign candidates', async () => {
     const candidates = await scan([{ rows: [row(1), old,
       { ...old, number: 3 }, { ...old, head: { sha: 'b'.repeat(40) } },
       { ...old, draft: true }, { ...old, user: { ...old.user, id: 1 } },
       { ...old, base: { ...old.base, ref: 'main' } },
       { ...old, base: { ...old.base, repo: { id: 1, full_name: 'acme/updates' } } }] }],
       undefined, undefined, undefined, [retained]);
-    expect(candidates.map(value => [value.pullRequest, value.head])).toEqual([[1, 'a'.repeat(40)], [2, 'a'.repeat(40)]]);
+    expect(candidates.map(value => [value.pullRequest, value.head])).toEqual([[1, 'a'.repeat(40)]]);
   });
   it('does not admit a retained target absent from the complete authenticated open-PR observation', async () => {
     expect(await scan([{ rows: [] }], undefined, undefined, undefined, [retained])).toEqual([]);

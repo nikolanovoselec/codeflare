@@ -197,6 +197,21 @@ describe('Storage Download Routes', () => {
       expect(encodedPart).not.toContain('%0A');
     });
 
+    it.each(['attachment', 'inline'])('REQ-SEC-013: %s preserves Unicode object identity and emits no HTTP controls', async (disposition) => {
+      const key = 'Uploads/東京😀\u0009\u001f\u007f\u0085.txt';
+      // The query parser and validateKey each decode once; preserve the intended key.
+      const res = await createTestApp().request(`/download?key=${encodeURIComponent(encodeURIComponent(key))}&disposition=${disposition}`);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe('file-content');
+      expect(mockFetchObjectWithRegimeFallback).toHaveBeenCalledWith(
+        expect.anything(), 'test-bucket', `https://test.r2.cloudflarestorage.com/test-bucket/${key}`, { method: 'GET' },
+      );
+      const header = res.headers.get('Content-Disposition')!;
+      expect(header.startsWith(`${disposition};`)).toBe(true);
+      expect(header).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+      expect(decodeURIComponent(header.split("filename*=UTF-8''")[1])).toBe('東京😀____.txt');
+    });
+
     it('REQ-STOR-007: serves an inline image with its real type, inline disposition, and nosniff', async () => {
       const app = createTestApp();
 

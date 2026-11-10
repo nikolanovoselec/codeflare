@@ -109,7 +109,9 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     setSelected(id); setDetail(undefined); setDetailLoading(true); setError('');
     try { const value = await api.getOwnedActivity(id); if (active && sequence === detailSequence) {
       setDetail(value);
-      if (unresolvedStartId() === id) { setUnresolvedStartId(''); setUncertain(false); }
+      if (unresolvedStartId() === id && value.activityId === id && value.executionStatus !== 'unknown') {
+        setUnresolvedStartId(''); setUncertain(false);
+      }
     } }
     catch (cause) { if (active && sequence === detailSequence) setError(message(cause)); }
     finally { if (active && sequence === detailSequence) setDetailLoading(false); }

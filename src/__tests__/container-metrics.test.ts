@@ -1817,13 +1817,19 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     // abort support is not established. This stub ignores the signal entirely and
     // never answers — exactly the unproven case — and the alarm must still re-arm.
     // Deleting the race in raceBudget hangs this test until its own timeout.
-    it('REQ-SESSION-020 AC1: re-arms the alarm when the Timekeeper ping never answers', async () => {
+    it.each(['headers', 'body'])('REQ-SESSION-020 AC3: bounds peer %s stalls, re-arms and permits a later tick', async stall => {
       testState.storedBucketName = 'test-bucket';
       testState.storedSessionId = 'testsession123456';
       testState.storedUserEmail = 'quota@example.com';
 
+      let cancelled = false;
       const timekeeperStub = {
-        fetch: vi.fn(() => new Promise<Response>(() => { /* never settles, signal ignored */ })),
+        fetch: vi.fn(() => stall === 'headers'
+          ? new Promise<Response>(() => { /* never settles, signal ignored */ })
+          : Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+            start(controller) { controller.enqueue(new TextEncoder().encode('{')); },
+            cancel() { cancelled = true; },
+          })))),
       };
       const TIMEKEEPER = {
         idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
@@ -1874,7 +1880,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         vi.useRealTimers();
       }
 
-      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      if (stall === 'body') expect(cancelled).toBe(true);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      timekeeperStub.fetch.mockImplementation(async () => Response.json({ quotaExceeded: false }));
+      testState.scheduleCalls = [];
+      await instance.collectMetrics();
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 

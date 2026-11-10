@@ -152,6 +152,14 @@ describe('REQ-SEC-013: Content-Disposition is built safely', () => {
     expect(header).toMatch(/filename\*=UTF-8''caf%C3%A9\.txt/);
   });
 
+  it('REQ-SEC-013 AC3: removes HTTP controls without losing Unicode identity', () => {
+    const filename = '東京😀\u0000\u0009\u001f\u007f\u0085.txt';
+    const header = buildContentDisposition(filename);
+    expect(header).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(decodeURIComponent(header.split("filename*=UTF-8''")[1])).toBe('東京😀_____.txt');
+    expect(() => new Headers({ 'Content-Disposition': header })).not.toThrow();
+  });
+
   it('REQ-SEC-013 AC2: leaves a plain ASCII filename completely unchanged', () => {
     const header = buildContentDisposition('plain.txt');
     expect(header).toBe(`attachment; filename="plain.txt"; filename*=UTF-8''plain.txt`);

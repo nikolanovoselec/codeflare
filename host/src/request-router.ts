@@ -278,10 +278,14 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     const { pathname } = parseUrl(req.url ?? '');
     const method = req.method;
 
-    // REQ-SEC-022: container auth-token check. Logic extracted to
-    // ./auth-check.ts so it can be unit-tested without spawning node-pty.
+    // REQ-SEC-022: the legacy exemptions apply only to a minimal startup
+    // health signal, not inventory reads or heartbeat mutation. Reuse the
+    // existing protected observation policy before any route effects.
+    const authPath = pathname === '/activity'
+      || (pathname === '/health' && req.headers.authorization !== undefined)
+      ? '/internal/runtime-observation' : pathname ?? '';
     const authOutcome = checkContainerAuth(
-      pathname ?? '',
+      authPath,
       req.headers['authorization'],
       process.env.CONTAINER_AUTH_TOKEN,
     );
@@ -457,7 +461,15 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       return;
     }
 
-    // Health check with full metrics (consolidates separate health server)
+    // Anonymous entrypoint probes need only proof that the listener is bound.
+    // Do not collect metrics, inspect workspace inventory or read session state.
+    if (pathname === '/health' && method === 'GET' && req.headers.authorization === undefined) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'healthy' }));
+      return;
+    }
+
+    // Health check with full metrics requires the lifecycle bearer above.
     if (pathname === '/health' && method === 'GET') {
       const syncInfo = getSyncStatus();
       const sysMetrics = await getSystemMetrics(log);

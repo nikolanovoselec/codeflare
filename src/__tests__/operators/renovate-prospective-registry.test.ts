@@ -527,7 +527,7 @@ describe('REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry', () => {
       expect(await registry.readProspectiveRenovateAdmission('stale-retry')).toBeNull();
     } finally { clock.mockRestore(); }
   }));
-  it('retains a proven historical target without moving the cutoff and refuses changed or unretained pre-cutoff heads', () => fixture(async ({ registry, proofs, native }) => {
+  it('REQ-OPERATOR-061 AC2/6: preserves historical evidence but never renews a pre-cutoff target, even with verified failure proof', () => fixture(async ({ registry, proofs, native }) => {
     const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now);
     try {
       const a = await enrollRetry(registry, 'a'); if (!a.ok) throw Error('Activation unavailable');
@@ -540,14 +540,14 @@ describe('REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry', () => {
       await native.storage.put(`renovate-admission:${repoId}:1300:${head}`, admission);
       proofs.set('activity-1', terminalProof('activity-1', oldCreatedAt, now + 1000));
       clock.mockReturnValue(now + 900_000);
-      expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([{
-        repositoryId: repoId, pullRequest: 1300, head, createdAt: oldCreatedAt }]);
+      expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([]);
       expect(await registry.reserveProspectiveRenovateActivity({ ...observed, createdAt: oldCreatedAt, head: newerHead, activityId: 'changed-old-head' }))
         .toMatchObject({ ok: false, reason: 'pre-activation' });
       expect(await registry.reserveProspectiveRenovateActivity({ ...observed, createdAt: oldCreatedAt, pullRequest: 1301, activityId: 'unretained-old-pr' }))
         .toMatchObject({ ok: false, reason: 'pre-activation' });
       expect(await registry.reserveProspectiveRenovateActivity({ ...observed, createdAt: oldCreatedAt, activityId: 'retained-retry' }))
-        .toMatchObject({ ok: true, activityId: 'retained-retry' });
+        .toMatchObject({ ok: false, reason: 'pre-activation' });
+      expect(await registry.readProspectiveRenovateAdmission('retained-retry')).toBeNull();
       expect(await registry.currentProspectiveRenovateRegistration(a.registrationId)).toMatchObject({ activatedAt: a.activatedAt });
       expect(await registry.readProspectiveRenovateAdmission('activity-1')).toEqual(admission);
     } finally { clock.mockRestore(); }

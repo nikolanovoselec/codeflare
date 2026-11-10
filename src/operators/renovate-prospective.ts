@@ -112,9 +112,7 @@ export async function listProspectiveRenovatePrs(input: {
         || row.base.repo.full_name.toLowerCase() !== identity.data.repository.toLowerCase()
         || row.user.id !== 29139614 || row.user.login !== 'renovate[bot]' || row.user.type !== 'Bot') continue;
       const createdAt = new Date(row.created_at).toISOString();
-      const retained = input.retainedRetryTargets?.some(target => target.repositoryId === identity.data.repositoryId
-        && target.pullRequest === row.number && target.head === row.head.sha && target.createdAt === createdAt);
-      if (createdAt > registration.activatedAt || retained) found.push({ ...identity.data,
+      if (createdAt > registration.activatedAt) found.push({ ...identity.data,
         pullRequest: row.number, head: row.head.sha, createdAt });
     }
     if (rows.length < 100) { complete = true; break; }

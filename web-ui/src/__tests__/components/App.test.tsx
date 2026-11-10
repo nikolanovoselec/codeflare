@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup, fireEvent } from '@solidjs/testing-library';
 import type { JSX } from 'solid-js';
 import { ApiError } from '../../api/fetch-helper';
+import type { DiagnosticHistory } from '../../api/operator-diagnostics-wire';
 
 const getSetupStatusMock = vi.fn();
 const getUserMock = vi.fn();
@@ -17,7 +18,17 @@ vi.mock('../../api/operator-activities', async importOriginal => ({
   listOperatorActivities: (...args: unknown[]) => listActivitiesMock(...args),
   getOperatorActivity: (...args: unknown[]) => activityDetailMock(...args),
   getOperatorActivityDiagnostics: (...args: unknown[]) => diagnosticSummaryMock(...args),
-  getOperatorActivityDiagnosticHistory: async () => ({ records: [], nextCursor: null, pageStatus: 'complete' }),
+  getOperatorActivityDiagnosticHistory: async (activityId: string): Promise<DiagnosticHistory> => ({
+    version: 2, activityId, capturedAt: 1791936000000, consistency: 'stable-binding',
+    binding: { generation: 3, artifactDigest: 'a'.repeat(64), inputDigest: 'b'.repeat(64) },
+    highWater: { events: 0, operations: 0 },
+    health: { status: 'available', sdkImport: 'host-persisted', gaps: [] },
+    retention: { epoch: 1, firstSequence: null, lastSequence: null,
+      routineLimit: 1536, failureLimit: 64, terminalLimit: 64,
+      evictedRoutine: 0, droppedFailure: 0, droppedTerminal: 0, oversized: 0, rejected: 0 },
+    records: [], nextCursor: null, pageStatus: 'complete', retainedStatus: 'complete',
+    sourceOrder: 'diagnostic-sequence-then-operation-storage-key',
+  }),
   acknowledgeOperatorActivities: async (sequence: number) => { acknowledgedSequence = sequence; return { unreadCount: 0 }; },
 }));
 vi.mock('../../api/mcp-portals', () => ({
@@ -239,6 +250,12 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
   }
   beforeEach(() => {
     vi.clearAllMocks();
+    // Clearing call history leaves unconsumed mockImplementationOnce responses queued.
+    // Each mounted owner lifetime must start with its own authentication/resources.
+    for (const mock of [getSetupStatusMock, getUserMock, getPortalsMock, recoverPortalMock,
+      listActivitiesMock, activityDetailMock, diagnosticSummaryMock]) mock.mockReset();
+    listActivitiesMock.mockResolvedValue({ items: [], nextCursor: null, workingCount: 0, unreadCount: 0, latestSequence: 0 });
+    acknowledgedSequence = 0;
     window.history.replaceState({}, '', '/app/session/abcdef0123456789');
     sessionStorage.clear();
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;

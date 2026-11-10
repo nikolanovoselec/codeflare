@@ -26,7 +26,7 @@ vi.mock('../../lib/access', async importOriginal => ({
 import worker from '../../index';
 
 afterEach(() => { identity.email = 'manager@example.test'; identity.role = 'user'; identity.groups = [];
-  identity.issuer = 'https://access.example.test'; vi.unstubAllGlobals(); });
+  identity.issuer = 'https://access.example.test'; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const policy = { capabilities: [], resourceProfileId: null };
 const registration = { repositoryUrl: 'https://github.com/acme/review-operator', githubPat: 'acquisition-only-pat',
@@ -227,6 +227,26 @@ describe('REQ-OPERATOR-086 AC5: installed activity catalog visibility', () => {
 });
 
 describe('REQ-OPERATOR-043: catalog and independently configured installations', () => {
+  it('REQ-OPERATOR-043 AC6: a forced registration collision preserves the original catalog, credential and ACLs', async () => withManagementApi(async (request, ctx) => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    await configureControls(request);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('11111111-1111-4111-8111-111111111111');
+    const original = await request('/operators', 'POST', registration);
+    expect(original.status).toBe(201);
+    const before = await (await request('/operators?limit=50')).json();
+    const snapshot = () => ['operator_catalog', 'operator_acl', 'operator_invoker_acl']
+      .map(table => ctx.storage.sql.exec(`SELECT * FROM ${table} ORDER BY 1,2`).toArray());
+    const stored = snapshot();
+    const collision = await request('/operators', 'POST', { ...registration,
+      realm: 'external', githubPat: 'different-credential',
+      managers: { users: ['other@example.test'], groups: [] }, invokers: { users: ['other@example.test'], groups: [] } });
+    expect(collision.status).toBe(409);
+    expect(await (await request('/operators?limit=50')).json()).toEqual(before);
+    expect(snapshot()).toEqual(stored);
+    identity.email = 'other@example.test';
+    expect((await request('/operators?limit=50')).status).toBe(404);
+  }));
+
   it('creates distinct operator and installation identities', async () => withManagementApi(async (request, ctx) => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
     await configureControls(request);

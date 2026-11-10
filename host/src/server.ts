@@ -198,8 +198,9 @@ function stopTerminalRuntime(): void {
     stdio: 'ignore',
     timeout: 6000,
   });
-  if (result.error) {
-    log('warn', 'Herdr runtime stop failed');
+  if (result.error || result.status !== 0) {
+    log('warn', 'Herdr runtime stop failed', { status: result.status });
+    throw new Error('Herdr runtime stop failed');
   }
 }
 
@@ -560,12 +561,17 @@ async function shutdown(signal: string): Promise<void> {
   herdrAgentStatusMonitor?.stop();
   herdrAgentStatusMonitor = null;
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes
-  sessionManager.killAll();
+  let exitCode = 0;
+  try { sessionManager.killAll(); }
+  catch {
+    exitCode = 1;
+    log('warn', 'Terminal runtime shutdown unconfirmed');
+  }
   sessionManager.stopCleanup();
   wss.close();
   upgradeDispatcher.close();
   server.close();
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 // Handle shutdown

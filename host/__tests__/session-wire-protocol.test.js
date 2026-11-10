@@ -114,6 +114,19 @@ describe('REQ-TERM-002 AC3: PTY spawned as a full-color login shell', () => {
     session.kill();
   });
 
+  it('REQ-TERM-006 AC5: failed runtime stop remains observable after local PTY and client cleanup', () => {
+    const session = new Session('failed-stop', 'Terminal', false, {
+      stopTerminalRuntime: () => { throw new Error('Named runtime stop failed'); },
+    });
+    session.start();
+    let closed = false;
+    session.clients.add({ close() { closed = true; } });
+    assert.throws(() => session.kill(), /Named runtime stop failed/);
+    assert.equal(session.isPtyAlive(), false);
+    assert.equal(closed, true);
+    assert.equal(session.clients.size, 0);
+  });
+
   it('kill() invokes the injected terminal-runtime cleanup exactly once', () => {
     let stops = 0;
     const session = new Session('sess-herdr', 'Terminal', false, {

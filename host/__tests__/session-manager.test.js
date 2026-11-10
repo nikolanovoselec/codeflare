@@ -169,6 +169,16 @@ describe('SessionManager', () => {
     });
   });
 
+  it('REQ-TERM-006 AC5: shutdown attempts other terminal cleanups but retains and reports a failed runtime', () => {
+    const failed = mgr.getOrCreate('failed-stop', 'Terminal');
+    const healthy = mgr.getOrCreate('healthy-stop', 'Terminal');
+    failed.kill = () => { throw new Error('Named runtime stop failed'); };
+    assert.throws(() => mgr.killAll(), /Terminal runtime cleanup failed/);
+    assert.equal(healthy._killed, true);
+    assert.equal(mgr.sessions.has('failed-stop'), true);
+    assert.equal(mgr.sessions.has('healthy-stop'), false);
+  });
+
   // ── list ───────────────────────────────────────────────────────────
 
   describe('list()', () => {

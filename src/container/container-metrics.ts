@@ -5,6 +5,7 @@
  * All functions receive explicit state/context parameters instead of `this`.
  */
 import type { Env, Session } from '../types';
+import { readBoundedResponse } from '../lib/bounded-stream';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { createLogger } from '../lib/logger';
 import { D1SessionRepository, type D1Session } from '../lib/session-repository';
@@ -1412,31 +1413,31 @@ export async function collectMetrics(
 
       const tkId = env.TIMEKEEPER.idFromName(state._bucketName);
       const tk = env.TIMEKEEPER.get(tkId);
-      // Bounded for the same reason as the container polls above: this await sits
-      // before the re-arm, so a Timekeeper DO that does not answer would take the
-      // alarm loop with it just as surely as a wedged container did.
-      //
-      // Unlike those polls, the bound here does NOT rest on the signal alone. The
-      // container polls go through getTcpPort().fetch, where drainFinalSync already
-      // depends on AbortSignal.timeout in production; a Durable Object stub is a
-      // different transport and its abort support is not established here. So the
-      // ping is raced against a timer, which holds whether or not the stub honours
-      // the signal. The signal stays because it genuinely cancels the request where
-      // it IS honoured, rather than leaving it running behind the race.
-      const pingRes = await raceBudget(tk.fetch(new Request('http://timekeeper/ping', {
-        method: 'POST',
-        body: JSON.stringify({
-          bucketName: state._bucketName,
-          sessionId: state._sessionId,
-          totalSeconds: state._usageSeconds,
-          email: state._userEmail!,
-        }),
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(CONTAINER_POLL_BUDGET_MS),
-      })), CONTAINER_POLL_BUDGET_MS);
+      // One peer budget owns headers AND body, even when the stub ignores abort.
+      // Abort also cancels a stalled body reader before the next eligible alarm.
+      const controller = new AbortController();
+      let ping: { quotaExceeded: boolean } | null;
+      try {
+        ping = await raceBudget((async () => {
+          const response = await tk.fetch(new Request('http://timekeeper/ping', {
+            method: 'POST',
+            body: JSON.stringify({ bucketName: state._bucketName, sessionId: state._sessionId,
+              totalSeconds: state._usageSeconds, email: state._userEmail! }),
+            headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+          }));
+          if (!response.ok || controller.signal.aborted) {
+            void response.body?.cancel().catch(() => undefined);
+            return null;
+          }
+          const bytes = await readBoundedResponse(response, 64 * 1024, 'Peer response', controller.signal);
+          return JSON.parse(new TextDecoder().decode(bytes)) as { quotaExceeded: boolean };
+        })(), CONTAINER_POLL_BUDGET_MS);
+      } finally {
+        controller.abort();
+      }
 
-      if (pingRes?.ok) {
-        const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
+      if (ping) {
+        const { quotaExceeded } = ping;
         if (quotaExceeded && isSaasModeActive(env.SAAS_MODE) && execution.isCurrent()) {
           logger.warn('Quota exceeded — stopping container', { ...finalSyncLogContext(), reason: 'quota', bucketName: state._bucketName });
           // Final notification delivery and R2 sync are independent

@@ -740,9 +740,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       "SELECT data FROM operator_boundary_preparations WHERE json_extract(data,'$.activityId')=? LIMIT 1", activityId).toArray()[0];
     if (!row) return null;
     const current = JSON.parse(row.data) as BoundaryPreparation;
+    const action = this.managementControls().boundaryActions?.find(binding => binding.enabled !== false
+      && binding.repositoryId === current.repositoryId && binding.protectedRef === current.protectedRef);
     const handoff = this.ctx.storage.sql.exec<{ consumed: number; run_id: number | null; run_attempt: number | null }>(
       'SELECT consumed,run_id,run_attempt FROM operator_boundary_handoffs WHERE activity_id=?', activityId).toArray()[0];
-    return { claimed: current.phase === 'claimed' && handoff?.consumed === 1
+    return { claimed: action?.verified === true && /^[a-f0-9]{40}$/.test(action.runtimeSha ?? '')
+      && current.phase === 'claimed' && handoff?.consumed === 1
       && handoff.run_id != null && handoff.run_attempt != null && current.deadline > Date.now()
       && this.boundarySelectionCurrent(current), repositoryId: current.repositoryId, pullRequest: current.pullRequest,
       head: current.revision.head, base: current.revision.base, mergeBase: current.revision.mergeBase,
@@ -1035,10 +1038,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     }
   }
 
-  private saveManagement(state: ManagementOperatorState): ManagementOperatorProjection {
+  private saveManagement(state: ManagementOperatorState, insertOnly = false): ManagementOperatorProjection {
     const sql = this.ctx.storage.sql;
     const enabled = sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND enabled=1 LIMIT 1', state.id).toArray().length > 0;
-    sql.exec('INSERT OR REPLACE INTO operator_catalog VALUES(?,?,?,?,?,?)', state.id, state.profile, state.realm, Number(enabled), '', JSON.stringify(state));
+    sql.exec(`${insertOnly ? 'INSERT' : 'INSERT OR REPLACE'} INTO operator_catalog VALUES(?,?,?,?,?,?)`, state.id, state.profile, state.realm, Number(enabled), '', JSON.stringify(state));
     sql.exec('DELETE FROM operator_acl WHERE id=?', state.id);
     for (const principal of new Set([...state.managers.users.map(user => `u:${user.trim().toLowerCase()}`),
       ...state.managers.groups.map(group => `g:${JSON.stringify([group.issuer, group.id])}`)])) {
@@ -1066,10 +1069,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (!Number.isFinite(authority.expiresAt) || authority.expiresAt <= Date.now()) return { ok: false, reason: 'authority-expired' };
       if (this.managementControls().revision !== authority.controlsRevision) return { ok: false, reason: 'revision-conflict' };
       if (!this.withinManagementCeiling(input.policy)) throw new ValidationError('Operator exceeds management ceiling');
+      if (this.managementState(id)) return { ok: false, reason: 'revision-conflict' };
       const state: ManagementOperatorState = { id, revision: 1, sourceRevision: 1, repositoryUrl: input.repositoryUrl,
         repositoryId: input.repositoryId, githubPatCiphertext, profile: input.profile, realm: input.realm,
         managers: input.managers, invokers: input.invokers, policy: input.policy, approvedWorkflow: input.approvedWorkflow };
-      return { ok: true, value: this.saveManagement(state) };
+      return { ok: true, value: this.saveManagement(state, true) };
     });
   }
 
@@ -1951,7 +1955,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     const created = prospectiveRenovateTimestamp(input.createdAt);
     const cutoff = activation ? prospectiveRenovateTimestamp(activation.activatedAt) : null;
     if (created === null) return { ok: false, reason: 'invalid-target' };
-    if (!activation || activation.repositoryId !== input.repositoryId || cutoff === null) {
+    if (!activation || activation.repositoryId !== input.repositoryId || cutoff === null || created <= cutoff) {
       return { ok: false, reason: 'pre-activation' };
     }
     const key = `renovate-admission:${input.repositoryId}:${input.pullRequest}:${input.head}`;
@@ -1959,9 +1963,6 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     if (existing && existing.createdAt !== input.createdAt) return { ok: false, reason: 'invalid-target' };
     const retry = existing ? await this.prospectiveRetryProof(existing) : null;
     if (existing && !retry) return { ok: true, activityId: existing.activityId, actor: existing.actor };
-    if (created <= cutoff && (!existing || !retry || existing.createdAt !== input.createdAt)) {
-      return { ok: false, reason: 'pre-activation' };
-    }
     const election = await this.ctx.storage.get<number>('renovate-election-revision') ?? 0;
     const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
     if (registrations.size > 32) return { ok: false, reason: 'registration-limit' };
@@ -2052,7 +2053,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     const admissions = await this.ctx.storage.list<ProspectiveAdmission>({ prefix: 'renovate-activity:' });
     const targets: RetainedRenovateRetryTarget[] = [];
     for (const admission of admissions.values()) {
-      if (admission.installationId !== current.installationId || admission.repositoryId !== current.repositoryId
+      const created = prospectiveRenovateTimestamp(admission.createdAt);
+      const cutoff = prospectiveRenovateTimestamp(current.activatedAt);
+      if (created === null || cutoff === null || created <= cutoff
+        || admission.installationId !== current.installationId || admission.repositoryId !== current.repositoryId
         || admission.repository !== current.repository || admission.baseBranch !== current.baseBranch) continue;
       const latest = await this.ctx.storage.get<ProspectiveAdmission>(
         `renovate-admission:${admission.repositoryId}:${admission.pullRequest}:${admission.head}`);

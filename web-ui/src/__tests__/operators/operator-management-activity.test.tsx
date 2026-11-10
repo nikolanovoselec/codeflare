@@ -200,6 +200,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
   it('REQ-OPERATOR-058: AC4 does not allow another start after an uncertain response until the prepared activity is reconciled', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
     let indexed = false;
+    let executionStatus = 'unknown';
     const writes: Array<{ path: string; body: unknown }> = [];
     serve = (url, init) => {
       if (init?.method === 'POST') writes.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
@@ -208,7 +209,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       }
       if (url.pathname.endsWith('/activity-2/start')) return json({ error: 'Unavailable' }, 503);
       if (url.pathname.endsWith('/activity-2')) return indexed
-        ? json({ ...summary, activityId: 'activity-2', checkpoint: null, result: null })
+        ? json({ ...summary, activityId: 'activity-2', executionStatus, checkpoint: null, result: null })
         : json({ error: 'Not found' }, 404);
       return json({ items: [summary] });
     };
@@ -235,7 +236,16 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     indexed = true;
     fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
     expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled();
+    expect(screen.getByText('Execution: unknown · Cleanup: pending')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh activities' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh activities' })).not.toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
+    submitAssessment();
+    expect(writes.map(value => value.path)).toEqual(['/api/operator-activities', '/api/operator-activities/activity-2/start']);
+    executionStatus = 'running';
+    fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled());
   });
 
   it('REQ-OPERATOR-058: AC5 does not reconcile failed preparation against an earlier accepted activity', async () => {
