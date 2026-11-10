@@ -237,9 +237,14 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const snapshot = () => ['operator_catalog', 'operator_acl', 'operator_invoker_acl']
       .map(table => ctx.storage.sql.exec(`SELECT * FROM ${table} ORDER BY 1,2`).toArray());
     const stored = snapshot();
-    const collision = await request('/operators', 'POST', { ...registration,
-      realm: 'external', githubPat: 'different-credential',
-      managers: { users: ['other@example.test'], groups: [] }, invokers: { users: ['other@example.test'], groups: [] } });
+    const replacement = { ...registration, realm: 'external', githubPat: 'different-credential',
+      managers: { users: ['other@example.test'], groups: [] }, invokers: { users: ['other@example.test'], groups: [] } };
+    // A foreign-only proposed ACL is hidden before acquisition or ID allocation.
+    expect((await request('/operators', 'POST', replacement)).status).toBe(404);
+    expect(snapshot()).toEqual(stored);
+    // Keep this caller authorized on the proposed record so the forced ID reaches collision handling.
+    const collision = await request('/operators', 'POST', { ...replacement,
+      managers: { users: ['manager@example.test', 'other@example.test'], groups: [] } });
     expect(collision.status).toBe(409);
     expect(await (await request('/operators?limit=50')).json()).toEqual(before);
     expect(snapshot()).toEqual(stored);

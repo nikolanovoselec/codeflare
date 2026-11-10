@@ -380,6 +380,10 @@ Pi and Claude use marker-aware review ingress under [AD144](../decisions/README.
 
 In Enterprise Pi sessions only, [REQ-OPERATOR-053](../../sdd/spec/operators.md#req-operator-053-enterprise-pr-boundary-review-handoff) adds authenticated protected-Action applicability at that PR boundary. Confirmed applicability currently emits a remote-only monitoring/CI plan without local reviewers or a local completion marker; confirmed absence keeps the local procedure. Unavailable applicability stays non-green without fallback. Manual completion checks applicability without staging a Review activity. Action claim, independently published results, remote completion and FIX correlation remain pending; selection is not review clearance. Local `/review`, Claude, and non-Enterprise behavior retain their separate local paths.
 
+Each Pi automatic attempt completes its own authoritative refresh; pending lookups do not suppress another attempt. After refresh, only an established exact-identity round suppresses duplicates, and obsolete session generations are discarded.
+
+Claude pre-triage and Pi lane suppression call the unchanged canonical round-limit executable. Both lanes count only leading supported agent tags, never embedded tag mentions; unavailable or failed gates preserve review. Only direct current-session root user authority releases the round-limit gate, not config, transcript/tool data or quoted mentions. Pi accepts native interactive/RPC instructions and revokes authority on cancellation/session replacement; reload requires renewed authority. Count and decision remain reviewer evidence, and all other gates remain binding.
+
 A selected local launch starts one fresh current round. The newest retained same-PR ancestor selects an incremental range when it remains an ancestor; otherwise the plan uses the full protected-base diff. Required reviewers start together with deterministic output paths. Push or PR-create context may add exact-head CI immediately afterward through the existing resolver:
 
 ```bash
@@ -402,7 +406,7 @@ Claude CI monitoring remains bounded to eligible PR-boundary plans, explicit use
 
 Its bounded script requires a non-empty workflow/run fingerprint to stay stable across two polls before success and returns one terminal `CI_RESULT success`, `failure`, or `timeout` through native Agent completion. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::CI_PROMPT --> <!-- @impl: preseed/agents/claude/agents/ci-monitor.md::ci-monitoring/scripts/monitor-ci.mjs -->
 
-Every terminal result carries `repo=<owner/repo> pr=<number> head=<sha>`. The Stop gate accepts it only from the exact background Agent tool-use ID launched for those values, so an unrelated notification or a result for another repository cannot satisfy acknowledgement.
+Every terminal result carries exact repository, PR and head identity. Claude completion requires an assistant `Agent` call for `ci-monitor`, `run_in_background=true`, the exact structured resolver JSON including cwd, a successful correlated launch receipt, and a subsequent native terminal envelope for that tool-use ID with `CI_RESULT` and matching identity. Quoted JSON/identity strings, arbitrary tool data, assistant result prose, failed receipts and unrelated notifications cannot satisfy acknowledgement. Pi retains its structured launch/terminal correlation.
 
 The monitor neither cancels workflow runs nor consults the remote about its own relevance. It filters observed runs by the bound head. Superseded runs are cancelled by workflows, which each declare their own `concurrency` policy; workflows omitting `cancel-in-progress`, including `deploy.yml`, do so because a half-finished run is worse than a redundant one ([AD122](../decisions/README.md#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote)).
 
@@ -605,7 +609,7 @@ closed. Shell composition beyond one optional leading `cd … &&` prefix, or any
 redirection, cannot turn an allowed wrapper invocation into a write. Builds, package
 test scripts, broad integration suites, type checks, Knip and other dependency-graph
 analysis, installs, servers, and authoritative verification remain CI-only. Both Pi and Claude guards allow only the
-exact wrapper path, and direct blocked commands point agents to the skill; the
+exact wrapper path. Outer guards contain analyzer argv using actual tool cwd and canonical Git root before allowing that exception; absolute/parent/symlink/config escapes and unresolved dynamic paths fail closed. Pi applies this before graph-query exemptions. The tuned wrapper remains unchanged, and direct blocked commands point agents to the skill; the
 user-only one-shot bypass remains unchanged. Its exact sentinel is `/tmp/local-build-bypass`: only the user may create it, successful consumption deletes it before allowing one guarded command, failed consumption keeps blocking, and the block message names that same path. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand -->
 
 The `agents/` tree is advanced-only: architect, build-error-resolver,
@@ -1163,7 +1167,7 @@ Full semantic build/refresh records clone-time intent only: after corpus detecti
 
 Clone detection is scoped to shell-only command text: Bash `.command` fields, `ctx_execute` blocks with `language: "shell"`, and `ctx_batch` string command arrays. The shell parsers also accept legacy `ctx_batch_execute` and object entries with `.command` (and string entries) for compatibility; current startup hook matchers register `ctx_batch`, not the legacy name. Non-shell `ctx_execute` bodies are excluded so a source literal containing `git clone` cannot trigger the prompt.
 
-The detection regex also tolerates a leading env-var prefix (`BROWSER="" gh repo clone`, `GIT_TERMINAL_PROMPT=0 git clone`, `env BROWSER="" gh repo clone`).
+Executable argv parsing tolerates leading environment assignments (`BROWSER="" gh repo clone`, `GIT_TERMINAL_PROMPT=0 git clone`, `env BROWSER="" gh repo clone`) and ignores quoted `;`, `&&` or `|` command-like data. Pi clone eligibility/destination and Claude's boundary classifier consume executable commands, not a separator regex.
 
 ### Pi native graphify tools ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 

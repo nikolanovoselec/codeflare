@@ -402,7 +402,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. Every Worker-to-container proxied request carries the stored lifecycle Bearer credential. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-022 AC1: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-022 AC1: missing lifecycle credentials refuse protected forwarding (%s)) -->
 2. The container's terminal server validates the bearer credential on every non-exempt HTTP path. <!-- @impl: host/src/auth-check.ts::checkContainerAuth --> <!-- @test: host/__tests__/server-auth-check.test.js (REQ-SEC-022 AC2: protected paths require a matching Bearer token) -->
-3. Only the health and activity paths are auth-exempt; both expose no user data and no mutable state. <!-- @impl: host/src/auth-check.ts::AUTH_EXEMPT_PATHS --> <!-- @test: host/__tests__/server-auth-check.test.js (REQ-SEC-022 AC3: only /health and /activity are auth-exempt) -->
+3. Only anonymous GET `/health` is exempt, returning fixed `{ "status": "healthy" }` before metrics, workspace, readiness or session reads. Supplied invalid credentials are denied; rich health and `/activity` require the lifecycle bearer before protected reads or heartbeat mutation. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/server-auth-check.test.js (REQ-SEC-022: host inventory and heartbeat boundaries (RQ0044)) -->
 4. The terminal server validates the bearer credential before routing every WebSocket upgrade. <!-- @impl: host/src/upgrade-dispatcher.ts::createUpgradeDispatcher --> <!-- @test: host/__tests__/browser-ide-upgrade.test.js (REQ-SEC-022 AC4: rejects a missing container bearer before opening a code-server socket) -->
 5. Raw-port notification drains set the stored lifecycle token as an explicit Bearer header; a missing or wrong header is rejected before the body is parsed, and the drain path never joins the auth-exempt set. <!-- @impl: src/container/container-metrics.ts::drainAgentEvents --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: src/__tests__/container/container-metrics-drain.test.ts (POSTs the exact request with the stored lifecycle Bearer and bounded signal) --> <!-- @test: host/__tests__/request-router.test.js (returns 401 before parsing a headerless drain body) --> <!-- @manual: On a deployed live container, submit a headerless drain and confirm 401 occurs before body parsing, then confirm the DO-issued Bearer reaches the same route. -->
 
@@ -412,6 +412,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 - The token is unique per DO lifecycle, persisted across hibernate/wake cycles within that lifecycle.
 - Token is never exposed to the client.
+- Router policy narrows the legacy pure auth helper's exemption set; that helper alone does not define effective endpoint access.
 
 **Priority:** P0
 
@@ -419,7 +420,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [server-auth-check.test.js](../../host/__tests__/server-auth-check.test.js), [browser-ide-upgrade.test.js](../../host/__tests__/browser-ide-upgrade.test.js), [container-metrics-drain.test.ts](../../src/__tests__/container/container-metrics-drain.test.ts), [request-router.test.js](../../host/__tests__/request-router.test.js); Manual: [Boundary and storage policy acceptance](../../documentation/lanes/security.md#boundary-and-storage-policy-acceptance)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -498,9 +499,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. File download responses use `Content-Disposition: attachment` with sanitized filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) -->
-2. Special characters are stripped from filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) -->
-3. Header-injection control characters are stripped from filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) -->
+1. File download responses use one sanitized Content-Disposition builder for attachment and permitted inline responses without changing the fetched object key. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) --> <!-- @test: src/__tests__/routes/storage-download.test.ts (REQ-SEC-013: %s preserves Unicode object identity and emits no HTTP controls) -->
+2. The legacy filename fallback replaces quotes/backslashes and percent-encodes non-Latin-1 characters; RFC 5987 `filename*` retains the full sanitized Unicode name. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) -->
+3. C0, DEL and C1 controls are replaced with underscores in suggested filenames; constructed headers contain no raw HTTP controls. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013 AC3: removes HTTP controls without losing Unicode identity) -->
 
 **Constraints:**
 
@@ -510,7 +511,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-009](#req-sec-009-input-validation-at-system-boundaries)
 
-**Verification:** Automated: [storage-security.test.ts](../../src/__tests__/security/storage-security.test.ts)
+**Verification:** Automated: [storage-download.test.ts](../../src/__tests__/routes/storage-download.test.ts), [storage-security.test.ts](../../src/__tests__/security/storage-security.test.ts)
 
 **Status:** Implemented
 

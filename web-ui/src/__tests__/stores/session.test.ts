@@ -1455,11 +1455,14 @@ describe('Session Store', () => {
   });
 
   describe('stopSession', () => {
+    let stopGeneration = 100;
     beforeEach(async () => {
+      stopGeneration += 2;
       mockGetSessions.mockResolvedValue([
         {
           id: 'session-1',
           name: 'Test Session',
+          status: 'running', lifecycle: 'running', generation: stopGeneration, revision: 10,
           createdAt: new Date().toISOString(),
           lastAccessedAt: new Date().toISOString(),
         },
@@ -1475,11 +1478,101 @@ describe('Session Store', () => {
           path: '/workspace',
         },
       });
-      // First load (fresh) — session arrives as 'stopped'
       await sessionStore.loadSessions();
-      // Simulate user started the session
       sessionStore.updateSessionStatus('session-1', 'running');
       sessionStore.initializeTerminalsForSession('session-1');
+    });
+
+    it.each([
+      ['missing row', undefined],
+      ['unordered stopped', { status: 'stopped' }],
+      ['old generation', { status: 'stopped', generationOffset: -1, revision: 999 }],
+      ['stale revision', { status: 'stopped', generationOffset: 0, revision: 9 }],
+      ['unchanged revision', { status: 'stopped', generationOffset: 0, revision: 10 }],
+      ['another generation', { status: 'stopped', generationOffset: 1, revision: 11 }],
+    ] as const)('REQ-SESSION-006 AC7: Stop retains mounted workspace on %s until newer current-generation exit', async (_label, evidence) => {
+      mockStopSession.mockResolvedValue(undefined);
+      sessionStore.setActiveSession('session-1');
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      const tabs = JSON.parse(JSON.stringify(sessionStore.getTerminalsForSession('session-1')));
+      const projection = evidence && ('generationOffset' in evidence
+        ? { status: evidence.status, generation: stopGeneration + evidence.generationOffset, revision: evidence.revision }
+        : evidence);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: projection ? { 'session-1': projection } : {} });
+      const stopping = sessionStore.stopSession('session-1');
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')?.status).toBe('stopping');
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(true);
+      expect(sessionStore.activeSessionId).toBe('session-1');
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(tabs);
+
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 },
+      } });
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      await stopping;
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')).toMatchObject({
+        status: 'stopped', lifecycle: 'stopped', generation: stopGeneration, revision: 11,
+      });
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(false);
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(tabs);
+    });
+
+    it('REQ-SESSION-006 AC7: Stop confirms an exit already accepted by catalog refresh without timing out', async () => {
+      mockStopSession.mockResolvedValue(undefined);
+      sessionStore.setActiveSession('session-1');
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      terminalLifecycle.ownedSessionIds.add('unrelated-runtime');
+      const tabs = JSON.parse(JSON.stringify(sessionStore.getTerminalsForSession('session-1')));
+      let settled = false;
+      const stopping = sessionStore.stopSession('session-1').then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const exit = { ...sessionStore.sessions.find(s => s.id === 'session-1')!,
+        status: 'stopped' as const, lifecycle: 'stopped' as const, generation: stopGeneration, revision: 11 };
+      mockGetSessions.mockResolvedValue([exit]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': exit } });
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')).toMatchObject({
+        status: 'stopping', lifecycle: 'stopped', generation: stopGeneration, revision: 11,
+      });
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      expect(settled).toBe(true);
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')).toMatchObject({
+        status: 'stopped', lifecycle: 'stopped', generation: stopGeneration, revision: 11,
+      });
+      expect(sessionStore.error).toBeNull();
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(false);
+      expect(terminalLifecycle.ownedSessionIds.has('unrelated-runtime')).toBe(true);
+      expect(sessionStore.activeSessionId).toBe('session-1');
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(tabs);
+      await stopping;
+    });
+
+    it('REQ-SESSION-006 AC7: an in-flight old Stop cannot dispose a newly accepted generation workspace', async () => {
+      mockStopSession.mockResolvedValue(undefined);
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      sessionStore.setActiveSession('session-1');
+      const tabs = JSON.parse(JSON.stringify(sessionStore.getTerminalsForSession('session-1')));
+      let reply!: (value: unknown) => void;
+      mockGetBatchSessionStatus.mockImplementationOnce(() => new Promise(resolve => { reply = resolve; }));
+      const stopping = sessionStore.stopSession('session-1');
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      const replacement = { ...sessionStore.sessions.find(s => s.id === 'session-1')!,
+        status: 'running' as const, lifecycle: 'running' as const, generation: stopGeneration + 1, revision: 12 };
+      mockGetSessions.mockResolvedValue([replacement]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': replacement } });
+      await sessionStore.loadSessions();
+      reply({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 } } });
+      await vi.advanceTimersByTimeAsync(0);
+      await stopping;
+      // Local Stop intent may still label the row stopping; it cannot unmount the replacement.
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')).toMatchObject({ generation: stopGeneration + 1, revision: 12 });
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(true);
+      expect(sessionStore.activeSessionId).toBe('session-1');
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(tabs);
     });
 
     it('REQ-SESSION-035: suppresses duplicate local Stop submissions until the first attempt finishes', async () => {
@@ -1487,7 +1580,7 @@ describe('Session Store', () => {
       const accepted = new Promise<void>(resolve => { accept = resolve; });
       const commands: string[] = [];
       mockStopSession.mockImplementation(async id => { commands.push(id); await accepted; });
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped' } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 } }, maxSessions: 3 });
       const first = sessionStore.stopSession('session-1');
       const duplicate = sessionStore.stopSession('session-1');
       try {
@@ -1506,11 +1599,11 @@ describe('Session Store', () => {
       await sessionStore.stopSession('session-1');
       expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopping' });
       expect(sessionStore.error).toContain('confirmation unavailable');
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped' } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 } }, maxSessions: 3 });
       const retry = sessionStore.stopSession('session-1');
       await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
       await retry;
-      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped' });
+      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped', generation: stopGeneration, revision: 11 });
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
     });
 
@@ -1530,11 +1623,11 @@ describe('Session Store', () => {
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
       await firstStop;
 
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped' } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 } }, maxSessions: 3 });
       const retry = sessionStore.stopSession('session-1');
       await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
       await retry;
-      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped' });
+      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped', generation: stopGeneration, revision: 11 });
     });
 
     it('should set status to stopping immediately then stopped after polling', async () => {
@@ -1542,7 +1635,7 @@ describe('Session Store', () => {
       // First poll returns 'running' (still shutting down), second returns 'stopped'
       mockGetBatchSessionStatus
         .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'running', ptyActive: false } }, maxSessions: 3 })
-        .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
+        .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11, ptyActive: false } }, maxSessions: 3 });
 
       const stopPromise = sessionStore.stopSession('session-1');
 
@@ -1561,7 +1654,7 @@ describe('Session Store', () => {
 
     it('should preserve terminal state (dispose without cleanup)', async () => {
       mockStopSession.mockResolvedValue(undefined);
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11, ptyActive: false } }, maxSessions: 3 });
 
       const stopPromise = sessionStore.stopSession('session-1');
       await vi.advanceTimersByTimeAsync(3000);
@@ -1604,7 +1697,7 @@ describe('Session Store', () => {
 
     it('should clear initialization state if in progress', async () => {
       mockStopSession.mockResolvedValue(undefined);
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11, ptyActive: false } }, maxSessions: 3 });
 
       // Simulate session being in initializing state
       sessionStore.initializeTerminalsForSession('session-1');

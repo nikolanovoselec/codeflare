@@ -706,6 +706,10 @@ function startSession(id: string): Promise<void> {
 
 async function stopSession(id: string): Promise<void> {
   if (localStopAttempts.has(id)) return;
+  // A delayed Stop response can only confirm exit for its original runtime.
+  const attemptedSession = state.sessions.find((session) => session.id === id);
+  const generation = attemptedSession?.generation;
+  const revision = attemptedSession?.revision;
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {
@@ -764,7 +768,32 @@ async function stopSession(id: string): Promise<void> {
             const batchResp = await api.getBatchSessionStatus();
             consecutiveErrors = 0;
             const sessionStatus = batchResp.statuses[id];
-            if (!sessionStatus || sessionStatus.status === 'stopped') {
+            if (finished) return;
+            const current = state.sessions.find((session) => session.id === id);
+            if (!current || current.generation !== generation) {
+              finishStopPolling();
+              return;
+            }
+            // Missing/unordered evidence is uncertainty, never positive exit.
+            if (!sessionStatus || generation === undefined || revision === undefined
+              || sessionStatus.generation !== generation || sessionStatus.revision === undefined) return;
+            const incoming = {
+              lifecycle: sessionStatus.status as BackendLifecycle,
+              generation: sessionStatus.generation,
+              revision: sessionStatus.revision,
+            };
+            const ordered = applyOrderedProjection({
+              lifecycle: (current.lifecycle ?? 'stopping') as BackendLifecycle,
+              generation: current.generation,
+              revision: current.revision,
+            }, incoming);
+            // Catalog refresh may already have accepted this exit revision.
+            // Ordering rejects stale evidence; only the original Stop needs a newer revision.
+            if (ordered === incoming && incoming.lifecycle === 'stopped'
+              && incoming.revision > revision) {
+              const index = state.sessions.findIndex((session) => session.id === id);
+              setState('sessions', index, 'lifecycle', incoming.lifecycle);
+              setState('sessions', index, 'revision', incoming.revision);
               finishStopPolling(true);
             }
           } catch {

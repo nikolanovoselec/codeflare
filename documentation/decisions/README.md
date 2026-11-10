@@ -2182,12 +2182,12 @@ Safety rests on `updateKvStatus` re-reading sessionId/bucketName from DO storage
 
 **Decision:** Accept the static import for now. The corpus is read once at seed time and the static import keeps the seed path synchronous and simple, which is worth the bundle cost while the gzipped corpus is ~1 MB against a 10 MB gzipped ceiling. The bound MUST be guarded by a CI check on the gzipped Worker bundle size so the corpus cannot silently grow the bundle toward the ceiling between deploys.
 
-The structural escape hatch, taken as the gzipped bundle approaches the ceiling, is to stop statically importing the corpus: either relocate it to R2 and fetch it at seed time, or convert the top-level import to a lazy `await import('./agent-seed.generated')` so it is only pulled when seeding actually runs. Either path removes the corpus from the always-shipped bundle.
+Relocating the corpus outside the Worker bundle, for example to R2 with seed-time fetching, is a possible structural alternative if compressed headroom shrinks. A lazy `await import('./agent-seed.generated')` alone does not establish byte removal under the current compiler/bundler; that claim requires an exact retained build artifact. The accepted static-import design remains unchanged.
 
 **Consequences:**
 - The corpus ships in every Worker bundle and is counted against the gzipped size limit; a CI bundle-size check is the guardrail that keeps this from regressing.
 - The seed path stays synchronous and simple while the corpus is small relative to the ceiling.
-- Trade-off: corpus growth is bounded by deploy mechanics rather than by application need; once the CI check trends toward the ceiling, the R2-relocation / lazy-`import()` escape hatch must be taken rather than raising the budget.
+- Trade-off: corpus growth is bounded by deploy mechanics rather than by application need; a CI trend toward the ceiling calls for a separately evaluated structural change, not assumed size relief from lazy import or an automatic budget increase.
 
 **Related REQ/finding:** Recorded from finding CF-011 (preseed corpus bundle-size bound). Relates to [AD3](#ad3-per-user-r2-buckets) (per-user R2 buckets) as the R2-relocation target for the escape hatch.
 
@@ -3017,9 +3017,9 @@ Enterprise registers its API handler even without Browser configuration. Managed
 
 **Status:** Accepted (2026-07-05); the polling cadence and 60-second cost consequence are partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
 
-**Current-scope qualification (documentary, not a new acceptance):** Cross-runtime byte parity applies to matching regular-file sets, not all Vault content. `preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::collect` opens file-symlink targets; `preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes` selects Dirent regular files and excludes symlinks. The file-symlink/outside-Vault parity and provenance gap remains explicit (C0413); no manifest algorithm change or new parity execution is claimed.
+**Current-scope qualification:** Both manifest scanners skip file and directory symlinks, including contained, outside and dangling targets. Cross-runtime manifest parity covers the same eligible regular-file set; links cannot attribute outside-Vault bytes to a Vault path. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::collect --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes -->
 
-**Context:** vault-extract detected user edits by **file mtime**: `vault-extract.last` (a marker in ephemeral `~/.cache/codeflare-hooks/`) plus a `find -newer` scan (Claude daemon + contract) / `statSync().mtimeMs > since` walk (Pi). The boot R2 restore is `rclone sync` **without** `--use-server-modtime` (only the later bisync baseline uses it), and it rewrites **every** vault file's mtime to download-time — measured live on a real vault: a May-authored note comes back stamped that day's date, all 31 files clustered at one instant. `~/.cache/**` is excluded from R2 sync ([entrypoint.sh](../../entrypoint.sh) filters), so the marker is re-seeded fresh each boot. Current filesystem hashing explains the regular-file mechanism, not the old measured token cost or cross-runtime file-symlink equivalence. <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes -->
+**Context:** File-mtime checkpoints cannot distinguish edits from restore-induced timestamp changes, and the ephemeral `~/.cache/codeflare-hooks/` marker is not restored from R2. Both runtimes use persisted content hashes over eligible regular files instead; symlinks are excluded. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::collect --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes -->
 
 On the boot where the restore (or a subsequent bisync with `--conflict-resolve newer`) stamps file mtimes *after* the seeded marker, `find -newer` matches the whole vault and the sonnet extractor re-reads every note — **~200k tokens / ~20 min every session**. The failure is a race, which is why it presented intermittently.
 

@@ -98,7 +98,7 @@ Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic
 
 Each lifecycle instance generates an unpredictable bearer credential for private host HTTP and WebSocket forwarding. The credential is lifecycle-scoped and not a public user token. <!-- @impl: src/container/container-config.ts::updateEnvVars -->
 
-The host rejects missing/invalid credentials before route dispatch except for the private SDK `/health` and `/activity` paths. An unconfigured host token returns 503; a missing or incorrect request bearer returns 401. <!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
+Only anonymous GET `/health` is exempt, returning fixed `{ "status": "healthy" }` without metrics, inventory, readiness or session reads so entrypoint startup probing still works before token wiring. Rich authenticated health and `/activity` require the lifecycle bearer before reads or heartbeat mutation. A supplied wrong bearer returns 401; missing configured credentials refuse protected access with 503. The router narrows the legacy pure auth helper's exemption set. <!-- @impl: host/src/request-router.ts::createRequestHandler -->
 
 <a id="dual-r2-credential-architecture"></a>
 ### R2 authority separation
