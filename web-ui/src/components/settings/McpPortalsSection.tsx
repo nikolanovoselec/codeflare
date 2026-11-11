@@ -91,7 +91,7 @@ const McpPortalsSection: Component<McpPortalsSectionProps> = (props) => {
           <div class="mcp-portal-identity">
             <span class="oauth-connect-name" data-testid={`mcp-${portal.name}-identity`}>{portal.name}</span>
             <Show when={portal.connected}>
-              <span class="mcp-portal-status" role="status" aria-live="polite" aria-busy={busy().includes(portal.name)}
+              <span class="mcp-portal-saved-status" role="status" aria-live="polite" aria-busy={busy().includes(portal.name)}
                 data-testid={`mcp-${portal.name}-connected-badge`}>
                 <Show when={!busy().includes(portal.name)}><Icon path={mdiCheck} size={14} aria-hidden="true" /></Show>
                 {busy().includes(portal.name) ? 'Disconnecting…' : 'Authorization saved'}

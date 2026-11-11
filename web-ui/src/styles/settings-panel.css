@@ -994,7 +994,7 @@
   overflow-wrap: anywhere;
 }
 
-.mcp-portal-status {
+.mcp-portal-saved-status {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -1002,7 +1002,7 @@
   font-size: var(--text-xs);
 }
 
-.mcp-portal-status svg {
+.mcp-portal-saved-status svg {
   flex-shrink: 0;
 }
 
