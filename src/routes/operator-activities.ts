@@ -11,7 +11,7 @@ import type { container as SessionContainer } from '../container/index';
 import { D1SessionRepository } from '../lib/session-repository';
 import { getContainerId } from '../lib/container-helpers';
 import { isEnterpriseMode } from '../lib/subscription';
-import { AppError } from '../lib/error-types';
+import { AppError, ValidationError } from '../lib/error-types';
 import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/browser-activity';
 import type { ManagementExecutionSelection, OperatorRegistry, OperatorRegistryResult } from '../operators/registry';
 import type { OperatorActivity, RetiredEffectReceipts } from '../operators/activity';
@@ -171,15 +171,37 @@ app.get('/installations', async c => {
     const release = releases.find(value => value.id === installation.releaseId && value.operatorId === operator.id);
     const approved = release?.approved === true;
     const selected = approved ? await registry.resolveManagementConfiguration(installation.id) : null;
-    const preview = selected?.ok && selected.value.release.id === installation.releaseId
-      && selected.value.installation.revision === installation.revision ? guidedPreview(selected.value) : null;
-    const settings = preview?.guidedMode === 'repository' ? parseRenovateRunSettings(installation.configurationJson) : null;
-    items.push({ id: installation.id, operatorId: operator.id, name: preview?.name ?? release?.name ?? operator.name ?? operator.id,
+    const selection = selected?.ok && selected.value.operator.id === operator.id
+      && selected.value.operator.revision === operator.revision && selected.value.controlsRevision === controls.revision
+      && selected.value.installation.id === installation.id && selected.value.installation.operatorId === operator.id
+      && selected.value.installation.revision === installation.revision
+      && selected.value.installation.releaseId === installation.releaseId
+      && selected.value.installation.configurationJson === installation.configurationJson
+      && selected.value.release.id === installation.releaseId && selected.value.release.operatorId === operator.id
+      && selected.value.release.bundleDigest === release?.bundleDigest && selected.value.release.approved
+      ? selected.value : null;
+    let preview: ReturnType<typeof guidedPreview> = null;
+    let settings: ReturnType<typeof parseRenovateRunSettings> = null;
+    try {
+      settings = selection ? parseRenovateRunSettings(selection.installation.configurationJson) : null;
+      preview = selection ? guidedPreview(selection) : null;
+    } catch (error) {
+      if (!(error instanceof ValidationError)) throw error;
+      // Invalid saved settings remain visible but grant no automatic-run eligibility.
+    }
+    const canActivateAutomaticRuns = platformAdmin && invoke && operator.enabled && operator.profile === 'dispatcher'
+      && installation.enabled && installation.policy.resourceProfileId === null && approved
+      && selection !== null && selection.operator.enabled && selection.operator.profile === 'dispatcher'
+      && selection.installation.enabled && selection.installation.policy.resourceProfileId === null
+      && prospectiveRenovatePackageSupported(selection.manifestJson) && settings?.automaticRuns === true;
+    const guidedSettings = preview?.guidedMode === 'repository' ? settings : null;
+    items.push({ id: installation.id, operatorId: operator.id, profile: operator.profile,
+      name: preview?.name ?? release?.name ?? operator.name ?? operator.id,
       installationName: installation.name, revision: installation.revision, enabled: installation.enabled, approved,
       version: release ? release.tagName ?? `GitHub release #${release.githubReleaseId}` : null,
-      canInvoke: invoke, canManage: manage, guidedMode: preview?.guidedMode ?? null,
-      repository: settings?.repository ?? null, automaticRuns: settings?.automaticRuns ?? null,
-      repetitionIntervalSeconds: settings?.repetitionIntervalSeconds ?? null });
+      canInvoke: invoke, canManage: manage, canActivateAutomaticRuns, guidedMode: preview?.guidedMode ?? null,
+      repository: guidedSettings?.repository ?? null, automaticRuns: guidedSettings?.automaticRuns ?? null,
+      repetitionIntervalSeconds: guidedSettings?.repetitionIntervalSeconds ?? null });
   }
   c.header('Cache-Control', 'no-store');
   return c.json({ items, cursor: page.cursor });

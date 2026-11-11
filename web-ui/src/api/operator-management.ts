@@ -138,6 +138,7 @@ export const getOwnedActivities = () => activityRequest('', z.object({ items: z.
 const installedOperatorSchema = z.strictObject({ id, operatorId: id, name: z.string().max(256),
   installationName: z.string().max(256), version: z.string().max(256).nullable(), revision,
   enabled: z.boolean(), approved: z.boolean(), canInvoke: z.boolean(), canManage: z.boolean(),
+  profile: z.enum(['conductor', 'dispatcher']), canActivateAutomaticRuns: z.boolean(),
   guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), repository: z.string().max(201).nullable(),
   automaticRuns: z.boolean().nullable(), repetitionIntervalSeconds: z.number().int().positive().safe().nullable() });
 export type InstalledOperator = z.infer<typeof installedOperatorSchema>;

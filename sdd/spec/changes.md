@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-11
 
+- Separate Installed manual actions from automatic configuration, add profile-backed Dispatcher/Conductor role help and expose the existing explicit current-session activation flow. Saved settings remain distinct from an acknowledged activation; revision, authority, expiry and no-replay boundaries are unchanged ([REQ-OPERATOR-099](operators.md#req-operator-099-installed-review-invocation-and-presentation), [REQ-OPERATOR-209](operators.md#req-operator-209-installed-schema-and-scheduling-safeguards), [REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)).
+
 - Add Cloudflare-only Integrations to Settings and Administration in every deployment mode, with GitHub retained on the dashboard. Enterprise management APIs use separate Worker-held owner grants without borrowing administrator Browser credentials or changing LLM routing ([REQ-AGENT-018](agents.md#req-agent-018-integrations-connection-management-ui), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)).
 
 - Preserve header-safe opaque MCP access tokens, including provider-issued colon separators, through callback publication and renewal without imposing base64/JWT syntax. Retain encryption, owner binding, token-type/lifetime validation and rejection of unsafe header values; hosted acceptance remains separate ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)).

@@ -25,7 +25,7 @@ function fixture() {
     name: 'Renovate Dispatcher', managers: grant(), invokers: grant([identity.email]) };
   const hidden = { ...operator, id: 'hidden-operator', name: 'PRIVATE_OPERATOR', invokers: grant(), managers: grant() };
   const installed = { id: 'visible-install', operatorId: operator.id, name: 'Updates', revision: 7, enabled: true,
-    releaseId: 'release-1', policy: { capabilities: ['fetch'], resourceProfileId: null }, approvedSourceRevision: 1,
+    releaseId: 'release-1', policy: { capabilities: ['fetch'], resourceProfileId: null as string | null }, approvedSourceRevision: 1,
     configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 3600 }, private: 'PRIVATE_CONFIGURATION' }) };
   const release = { id: 'release-1', operatorId: operator.id, githubReleaseId: 100, tagName: 'v0.1.27',
     approved: true, sourceRevision: 1, name: 'Renovate Dispatcher', version: '0.1.27',
@@ -33,7 +33,11 @@ function fixture() {
   const controls = { revision: 1, managers: grant(), ceiling: { capabilities: ['fetch'], resourceProfileIds: [] } };
   const catalog = { items: [operator, hidden], cursor: null as string | null };
   const manifests = { value: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', name: 'Renovate Dispatcher', intentVersion: '4', inputSchema: schema }) };
+  const resolved = { operator, installation: installed, release, controlsRevision: 1 };
+  const effects: string[] = [];
+  const forbiddenEffect = (name: string) => { effects.push(name); throw new Error(`Installed read attempted ${name}`); };
   const registry = {
+    activateProspectiveRenovate: async () => forbiddenEffect('activation'),
     listManagementOperators: async ({ limit }: { limit: number }) => ({ ...catalog, items: catalog.items.slice(0, limit) }),
     listManagementInstallationPage: async () => ({ items: [{ ...installed },
       { ...installed, operatorId: hidden.id, id: 'PRIVATE_INSTALL' }], cursor: catalog.cursor }),
@@ -45,15 +49,18 @@ function fixture() {
       : id === hidden.id ? { ok: true, value: hidden } : { ok: false, reason: 'not-found' },
     getManagementInstallations: async (id: string) => [{ ...installed, operatorId: id, id: id === operator.id ? installed.id : 'PRIVATE_INSTALL' }],
     getManagementReleases: async (id: string) => [{ ...release, operatorId: id }],
-    resolveManagementExecution: async (id: string) => id === installed.id && installed.enabled && release.approved
-      ? { ok: true, value: { operator, installation: installed, release, manifestJson: manifests.value, controlsRevision: 1 } }
+    resolveManagementExecution: async (id: string) => id === installed.id && operator.enabled && installed.enabled && release.approved
+      ? { ok: true, value: { ...resolved, manifestJson: manifests.value } }
       : { ok: false, reason: 'disabled' },
     resolveManagementConfiguration: async (id: string) => id === installed.id && release.approved
-      ? { ok: true, value: { operator, installation: installed, release, manifestJson: manifests.value, controlsRevision: 1 } }
+      ? { ok: true, value: { ...resolved, manifestJson: manifests.value } }
       : { ok: false, reason: 'artifact-unapproved' },
   };
   const env = { ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY: { getByName: () => registry },
-    OPERATOR_ACTIVITY: { getByName: () => { throw new Error('Installed reads must not access Activities'); } } } as unknown as Env;
+    OPERATOR_ACTIVITY: { getByName: () => forbiddenEffect('activity') },
+    USAGE_DB: { prepare: () => forbiddenEffect('session lookup') },
+    CONTAINER: { getByName: () => forbiddenEffect('container'), idFromName: () => forbiddenEffect('container') },
+  } as unknown as Env;
   const app = new Hono<{ Bindings: Env }>();
   app.onError((error, c) => error instanceof AppError ? c.json(error.toJSON(), error.statusCode as never)
     : c.json({ error: 'Internal error' }, 500));
@@ -62,7 +69,7 @@ function fixture() {
     `https://enterprise.example.test/api/operator-activities/installations${query}`, {
       headers: authenticated ? { 'cf-access-authenticated-user-email': identity.email } : {},
     }, bindings);
-  return { request, env, operator, hidden, installed, release, controls, catalog, manifests };
+  return { request, env, operator, hidden, installed, release, controls, catalog, manifests, resolved, effects };
 }
 beforeEach(() => { identity.role = 'user'; identity.current = true; identity.email = 'invoker@example.test'; identity.groups = []; });
 
@@ -74,7 +81,8 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     const value = await response.json();
     expect(value).toMatchObject({ items: [{ id: 'visible-install', operatorId: 'visible-operator',
       name: 'Renovate Dispatcher', installationName: 'Updates', version: 'v0.1.27', enabled: true, approved: true,
-      canInvoke: true, canManage: false, guidedMode: 'repository', repository: 'acme/updates', automaticRuns: false }], cursor: null });
+      canInvoke: true, canManage: false, profile: 'dispatcher', canActivateAutomaticRuns: false,
+      guidedMode: 'repository', repository: 'acme/updates', automaticRuns: false }], cursor: null });
     const bytes = JSON.stringify(value);
     for (const secret of ['PRIVATE_CONFIGURATION', 'PRIVATE_ACCESS_JWT', 'PRIVATE_OPERATOR', 'PRIVATE_INSTALL']) expect(bytes).not.toContain(secret);
     expect(value).not.toHaveProperty('grants');
@@ -146,6 +154,86 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     const f = fixture(); f.manifests.value = JSON.stringify({ name: 'Third-party package', inputSchema: { type: 'string' } });
     expect(await (await f.request()).json()).toMatchObject({ items: [{ guidedMode: null, automaticRuns: null }] });
   });
+
+  it.each([
+    { profile: 'conductor', operatorName: 'Renovate Dispatcher', manifestName: 'Renovate Dispatcher', manifestProfile: 'dispatcher' },
+    { profile: 'dispatcher', operatorName: 'Conductor', manifestName: 'Conductor', manifestProfile: 'conductor' },
+  ])('REQ-OPERATOR-209 AC5: projects authorized $profile despite spoofed operator and manifest names', async row => {
+    const f = fixture(); f.operator.profile = row.profile; f.operator.name = row.operatorName;
+    f.manifests.value = JSON.stringify({ ...JSON.parse(f.manifests.value), name: row.manifestName, profile: row.manifestProfile });
+    const response = await f.request(); expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ items: [{ id: f.installed.id, profile: row.profile, canActivateAutomaticRuns: false }] });
+  });
+
+  it('REQ-OPERATOR-209 AC5/6: reports advisory eligibility without session authority, credentials or schedule effects', async () => {
+    const f = fixture(); identity.role = 'admin';
+    f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true,
+      repetitionIntervalSeconds: 3719 }, private: 'PRIVATE_CONFIGURATION' });
+    const before = structuredClone({ installation: f.installed, operator: f.operator, release: f.release });
+    for (let read = 0; read < 2; read++) {
+      const response = await f.request(); expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      const value = await response.json();
+      expect(value.items[0]).toEqual({ id: f.installed.id, operatorId: f.operator.id, profile: 'dispatcher',
+        name: 'Renovate Dispatcher', installationName: 'Updates', version: 'v0.1.27', revision: 7,
+        enabled: true, approved: true, canInvoke: true, canManage: true, canActivateAutomaticRuns: true,
+        guidedMode: 'repository', repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3719 });
+      expect(JSON.stringify(value)).not.toContain('PRIVATE_');
+    }
+    // These are externally significant forbidden effects, not invocation-count assertions.
+    expect(f.effects).toEqual([]);
+    expect({ installation: f.installed, operator: f.operator, release: f.release }).toEqual(before);
+  });
+
+  it('REQ-OPERATOR-209 AC5: supported prospective eligibility does not depend on operator or manifest display names', async () => {
+    const f = fixture(); identity.role = 'admin';
+    f.operator.name = 'Conductor';
+    f.manifests.value = JSON.stringify({ ...JSON.parse(f.manifests.value), name: 'Conductor' });
+    f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true } });
+    const response = await f.request(); expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ items: [{ id: f.installed.id, profile: 'dispatcher', canActivateAutomaticRuns: true }] });
+    expect(f.effects).toEqual([]);
+  });
+
+  it.each(['nonadmin', 'manager-only', 'admin-without-invoke', 'disabled', 'operator-disabled', 'unapproved',
+    'unsupported', 'conductor', 'automatic-off', 'missing-settings', 'invalid-settings', 'invalid-json', 'invalid-automatic', 'invalid-repository', 'resource-profile',
+    'missing-pin', 'resolved-release', 'resolved-revision', 'resolved-operator', 'resolved-installation',
+    'resolved-operator-revision', 'resolved-controls', 'resolved-configuration', 'resolved-digest']) (
+    'REQ-OPERATOR-209 AC5: automatic activation eligibility is false for %s', async fault => {
+      const f = fixture(); identity.role = 'admin';
+      f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3600 } });
+      if (fault === 'nonadmin') identity.role = 'user';
+      if (fault === 'manager-only') {
+        identity.role = 'user'; f.operator.invokers = grant();
+        f.operator.managers = grant([identity.email]); f.controls.managers = grant([identity.email]);
+      }
+      if (fault === 'admin-without-invoke') f.operator.invokers = grant();
+      if (fault === 'disabled') f.installed.enabled = false;
+      if (fault === 'operator-disabled') f.operator.enabled = false;
+      if (fault === 'unapproved') f.release.approved = false;
+      if (fault === 'unsupported') f.manifests.value = JSON.stringify({ ...JSON.parse(f.manifests.value), intentVersion: '2' });
+      if (fault === 'conductor') f.operator.profile = 'conductor';
+      if (fault === 'automatic-off') f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false } });
+      if (fault === 'missing-settings') f.installed.configurationJson = '{}';
+      if (fault === 'invalid-settings') f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 0 } });
+      if (fault === 'invalid-json') f.installed.configurationJson = '{';
+      if (fault === 'invalid-automatic') f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: 'true' } });
+      if (fault === 'invalid-repository') f.installed.configurationJson = JSON.stringify({ renovate: { repository: '../updates', automaticRuns: true } });
+      if (fault === 'resource-profile') f.installed.policy.resourceProfileId = 'resource-1';
+      if (fault === 'missing-pin') f.installed.releaseId = 'missing-release';
+      if (fault === 'resolved-release') f.resolved.release = { ...f.release, id: 'other-release' };
+      if (fault === 'resolved-revision') f.resolved.installation = { ...f.installed, revision: 8 };
+      if (fault === 'resolved-operator') f.resolved.operator = { ...f.operator, id: 'other-operator' };
+      if (fault === 'resolved-installation') f.resolved.installation = { ...f.installed, id: 'other-installation' };
+      if (fault === 'resolved-operator-revision') f.resolved.operator = { ...f.operator, revision: 2 };
+      if (fault === 'resolved-controls') f.resolved.controlsRevision = 2;
+      if (fault === 'resolved-configuration') f.resolved.installation = { ...f.installed, configurationJson: '{}' };
+      if (fault === 'resolved-digest') f.resolved.release = { ...f.release, bundleDigest: 'b'.repeat(64) };
+      const response = await f.request(); expect(response.status).toBe(200);
+      const value = await response.json();
+      expect(value.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: f.installed.id, canActivateAutomaticRuns: false })]));
+      expect(f.effects).toEqual([]);
+    });
 
   it('retains enterprise and authenticated-human gates for installed reads', async () => {
     const f = fixture();

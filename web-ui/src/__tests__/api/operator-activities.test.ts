@@ -31,7 +31,7 @@ describe('REQ-OPERATOR-080/081: public SDK diagnostic browser wire', () => {
 describe('REQ-OPERATOR-086 AC2/5: five-entry installation page wire', () => {
   const installation = (index: number) => ({ id: `installation-${index}`, operatorId: 'operator-1', name: 'Review',
     installationName: `Configuration ${index}`, version: null, revision: 1, enabled: false, approved: false,
-    canInvoke: true, canManage: false, guidedMode: null, repository: null, automaticRuns: null, repetitionIntervalSeconds: null });
+    profile: 'conductor', canActivateAutomaticRuns: false, canInvoke: true, canManage: false, guidedMode: null, repository: null, automaticRuns: null, repetitionIntervalSeconds: null });
 
   it.each([null, 'installation-5'])('reads five installations using the authenticated opaque cursor %s', async cursor => {
     const items = Array.from({ length: 5 }, (_, index) => installation(index + (cursor ? 6 : 1)));
@@ -45,6 +45,41 @@ describe('REQ-OPERATOR-086 AC2/5: five-entry installation page wire', () => {
       return Response.json({ items, cursor: cursor ? null : 'installation-5' });
     });
     expect(await listOperatorInstallations(cursor)).toEqual({ items, cursor: cursor ? null : 'installation-5' });
+  });
+
+  it.each([
+    { profile: 'conductor', name: 'Renovate Dispatcher', canActivateAutomaticRuns: false },
+    { profile: 'dispatcher', name: 'Conductor', canActivateAutomaticRuns: false },
+    { profile: 'dispatcher', name: 'Conductor', canActivateAutomaticRuns: true },
+  ])('REQ-OPERATOR-209 AC5: round-trips required $profile and advisory eligibility $canActivateAutomaticRuns independently of names', async metadata => {
+    const item = { ...installation(1), ...metadata, enabled: true, approved: true, canManage: true,
+      guidedMode: 'repository', repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3719 };
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (request.method !== 'GET' || request.credentials !== 'same-origin'
+        || new URL(request.url).pathname !== '/api/operator-activities/installations') {
+        return Response.json({ error: 'Listing must not activate or mutate' }, { status: 403 });
+      }
+      return Response.json({ items: [item], cursor: null });
+    });
+    expect(await listOperatorInstallations()).toEqual({ items: [item], cursor: null });
+  });
+
+  it.each([
+    ['missing profile', 'profile', undefined], ['null profile', 'profile', null],
+    ['unknown profile', 'profile', 'reviewer'], ['capitalized profile', 'profile', 'Dispatcher'],
+    ['numeric profile', 'profile', 1], ['missing eligibility', 'canActivateAutomaticRuns', undefined],
+    ['null eligibility', 'canActivateAutomaticRuns', null], ['string eligibility', 'canActivateAutomaticRuns', 'true'],
+    ['numeric eligibility', 'canActivateAutomaticRuns', 1],
+    ['credential field', 'accessJwt', 'PRIVATE_ACCESS_JWT'], ['capability field', 'startCapability', 'PRIVATE_CAPABILITY'],
+    ['session authority field', 'sessionId', 'session123'], ['schedule status field', 'active', true],
+    ['acknowledgement field', 'activatedAt', '2026-11-09T00:00:00.000Z'],
+  ])('REQ-OPERATOR-209 AC5/6: rejects %s in the closed Installed wire', async (_fault, field, value) => {
+    const item: Record<string, unknown> = { ...installation(1) };
+    if (value === undefined) delete item[String(field)];
+    else item[String(field)] = value;
+    vi.stubGlobal('fetch', async () => Response.json({ items: [item], cursor: null }));
+    await expect(listOperatorInstallations()).rejects.toBeDefined();
   });
 
   it('rejects a six-installation response rather than silently showing a different page size', async () => {
