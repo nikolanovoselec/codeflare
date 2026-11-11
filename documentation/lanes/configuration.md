@@ -205,7 +205,7 @@ Cloudflare API tokens do not expire by default but can be set to expire during c
 
 ### Cloudflare Connect (OAuth)
 
-Integrations currently supports Cloudflare only. MCP portals remain separate; no AWS, Azure or GCP connection is implied.
+Integrations currently supports Cloudflare only. MCP portals remain separate; no AWS, Azure or GCP connection is implied. ([REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-integrations-connection-management-ui)).
 
 In every deployment mode, Settings → Integrations shows Cloudflare when its OAuth client is configured; users authorize their own accounts without pasting a token ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). `GET /api/cloudflare/connect` and `POST /api/cloudflare/disconnect` use `authMiddleware` (`requireActiveUser`): pending/blocked users are rejected in app-owned OIDC modes. The separately mounted callback reauthenticates the live session and verifies bucket-bound OAuth state. Guided Setup and Settings expose connection without an advanced-session entitlement; authentication does not replace active-user authorization.
 
@@ -213,7 +213,7 @@ The token/refresh/expiry persist across the existing `deploy-keys:<bucket>` Clou
 
 **Enterprise separates owner integrations from Browser Run.** Owner Cloudflare API access uses the bound user’s stored grant, never the platform deployment or administrator Browser token. Browser Run retains its separate administrator-configured account and token ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 
-**Operator OAuth client (Administration → Environment → Integrations; admin, every mode).** The operator registers one Cloudflare OAuth Application and saves its client ID and secret using the existing configuration workflow; each user separately authorizes their own account. Client configuration makes Cloudflare available; it does not create an owner grant. Initialization remains compatible. Saving an explicitly blank client ID in Administration removes the saved ID. An omitted ID in the internal Initialization compatibility submission preserves it, and a blank replacement secret preserves the saved secret.
+**Operator OAuth client (Administration → Environment → Integrations; admin, every mode).** The operator registers one Cloudflare OAuth Application and saves its client ID and secret using the existing configuration workflow; each user separately authorizes their own account. Client configuration makes Cloudflare available; it does not create an owner grant. Initialization remains compatible. Saving an explicitly blank client ID in Administration removes the saved ID. An omitted ID in the internal Initialization compatibility submission preserves it, and a blank replacement secret preserves the saved secret. ([REQ-AGENT-230](../../sdd/spec/setup.md#req-agent-230-administrator-cloudflare-oauth-client-configuration)). <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask -->
 
 | KV key | Purpose |
 |--------|---------|
@@ -230,7 +230,7 @@ For a per-scope dashboard display-name lookup (Cloudflare's picker shows descrip
 
 ### GitHub Integration
 
-The GitHub panel lets a connected user browse and clone their repositories and lets the in-session agent act with the user's GitHub permissions. The repo panel is available in every mode and renders whenever GitHub is enabled — there is no session-tier gate; it is the default right-column face on every session (the Connect card included until connected). **Connect/disconnect are decoupled from GitHub being enabled** — they are `authMiddleware`-only, reachable by any authenticated user from Guided Setup + the Settings accordion even when the panel is not shown ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
+The GitHub panel lets a connected user browse and clone their repositories and lets the in-session agent act with the user's GitHub permissions. The repo panel is available in every mode and renders whenever GitHub is enabled — there is no session-tier gate; it is the default right-column face on every session (the Connect card included until connected). **Connect/disconnect are decoupled from GitHub being enabled** — they are `authMiddleware`-only, reachable by any authenticated user independently of panel visibility; Guided Setup retains its existing flow and GitHub is not listed in Settings → Integrations ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx::DeployKeysSection -->
 
 Connect uses the provider selected in Setup KV before deploy environment configuration ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)). A complete KV-selected **OAuth App** therefore outranks an environment **GitHub App**. Within the environment fallback, a complete **GitHub App** pair takes precedence over the **OAuth App** pair. PAT is a stored user-token source, not a Connect provider. With neither provider configured the integration is unavailable and `/api/github/connect` returns `503 GITHUB_NOT_CONFIGURED`. An unreadable Setup secret makes that Setup provider unavailable; existing environment fallback remains unchanged. `ENCRYPTION_KEY` is immutable for the deployment: changing it requires wiping and redeploying, not credential migration.
 
@@ -520,7 +520,7 @@ User-token storage discovers accessible accounts automatically. A sole account i
 <a id="github-fine-grained-pat-user"></a>
 ### GitHub OAuth Connect and Legacy PAT Guidance (User)
 
-Users connect GitHub through the dashboard; Guided Setup retains its existing OAuth flow. GitHub is not listed in Settings → Integrations. It shows Minimal, Recommended (default) and Advanced tier choices while disconnected, connecting status, and connected identity/Disconnect after authorization. The client sends only the tier; the server supplies OAuth App scopes. A GitHub App uses registration/installation permissions, not tier-derived permission changes. The tiers describe workflow choices:
+Users connect GitHub through the dashboard; Guided Setup retains its existing OAuth flow. GitHub is not listed in Settings → Integrations. It shows Minimal, Recommended (default) and Advanced tier choices while disconnected, connecting status, and connected identity/Disconnect after authorization. The client sends only the tier; the server supplies OAuth App scopes. A GitHub App uses registration/installation permissions, not tier-derived permission changes. The tiers describe workflow choices: ([REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-integrations-connection-management-ui)).
 
 - **Minimal** -- push/pull existing repositories and manage gists
 - **Recommended** -- repository/PR/CI/deploy workflow and gists

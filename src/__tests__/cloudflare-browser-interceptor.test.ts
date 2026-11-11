@@ -594,10 +594,10 @@ describe('REQ-AGENT-078: Enterprise owner API boundary', () => {
     { url: 'http://api.cloudflare.com/client/v4/accounts', status: 403 },
     { url: 'https://api.cloudflare.com:8443/client/v4/accounts', status: 403 },
     { url: 'https://foreign.example/client/v4/accounts', status: 403 },
-    { url: 'https://gateway.ai.cloudflare.com/client/v4/accounts', status: 403 },
+    { url: 'https://gateway.ai.cloudflare.com/client/v4/accounts', status: 403, code: 'PERSONAL_PI_DENIED' },
     { url: 'https://api.cloudflare.com/client/v4/accounts/acc/%62rowser-rendering/snapshot', status: 403 },
     { url: 'https://api.cloudflare.com/client/v4/accounts', status: 503 },
-  ])('validates destination and required binding before unavailable owner lookup: $url', async ({ url, status }) => {
+  ])('validates destination and required binding before unavailable owner lookup: $url', async ({ url, status, code }) => {
     mockGetValidToken.mockRejectedValue(new Error('Owner lookup must not precede validation'));
     const outgoing: Request[] = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
@@ -606,7 +606,7 @@ describe('REQ-AGENT-078: Enterprise owner API boundary', () => {
     const { interceptor } = makeInterceptor({ ownerBucket: 'bound-owner' }, { EGRESS: undefined });
     const response = await interceptor.fetch(new Request(url));
     expect(response.status).toBe(status);
-    expect(await response.json()).toMatchObject({ code: status === 503 ? 'EGRESS_UNAVAILABLE' : 'CF_API_BLOCKED' });
+    expect(await response.json()).toMatchObject({ code: code ?? (status === 503 ? 'EGRESS_UNAVAILABLE' : 'CF_API_BLOCKED') });
     expect(outgoing).toEqual([]);
   });
 

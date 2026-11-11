@@ -369,7 +369,7 @@ Enterprise disables consultation entirely: no key injection, API 403, hidden set
 <a id="push--deploy"></a>
 ## Release and Deployment Alias
 
-Settings Push & Deploy uses OAuth Connect cards for GitHub and Cloudflare, showing current connection identity/status, per-provider Disconnect and Cloudflare account selection, not raw masked token fields. Scope-tier labels are frontend presentation; actual OAuth scopes are server-owned. Connections take effect on the next session start. <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx::DeployKeysSection -->
+Settings → Integrations uses the Cloudflare OAuth card, showing connection identity/status, Disconnect and account selection, not raw masked token fields. GitHub connection controls remain on the dashboard, and Guided Setup retains its existing flow. Scope-tier labels are frontend presentation; actual OAuth scopes are server-owned. Connections take effect on the next session start. <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx::DeployKeysSection -->
 
 The retained legacy `deploy-keys.ts` API stores optional PAT/API tokens in KV `deploy-keys:{bucketName}`: GET masks, PUT validates/merges individual slots, DELETE clears both. Startup reads current credentials and set-bucket carries `GH_TOKEN`, `CLOUDFLARE_API_TOKEN` and account ID, explicitly null when absent so revocation propagates. Git credential helper is configured only when GH token exists. Historical PAT/Copilot guidance is not the current Connect UI or its scope authority: Copilot checks `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, then `GITHUB_TOKEN`, and a token lacking Copilot permission can fail silently. See [GitHub Integration](../../sdd/spec/github.md) for current connection ownership.
 

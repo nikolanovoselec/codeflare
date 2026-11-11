@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-11
 
+- Add Cloudflare-only Integrations to Settings and Administration in every deployment mode, with GitHub retained on the dashboard. Enterprise management APIs use separate Worker-held owner grants without borrowing administrator Browser credentials or changing LLM routing ([REQ-AGENT-018](agents.md#req-agent-018-integrations-connection-management-ui), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)).
+
 - Preserve header-safe opaque MCP access tokens, including provider-issued colon separators, through callback publication and renewal without imposing base64/JWT syntax. Retain encryption, owner binding, token-type/lifetime validation and rejection of unsafe header values; hosted acceptance remains separate ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)).
 
 - Preserve supported 8h/12h preferences through client validation and Advanced controls, and project canonical billing-effective SaaS mode availability into Settings. Next-start idle policy and backend authorization remain unchanged ([REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)).
