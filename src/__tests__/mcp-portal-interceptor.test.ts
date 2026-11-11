@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { forwardMcpPortal } from '../mcp-portal-interceptor';
-import { mcpPortalFixture, portal, access } from './helpers/mcp-portal-fixture';
-import { disconnectMcpPortal } from '../lib/mcp-portal-token';
+import { mcpPortalFixture, portal, instance, access, refresh } from './helpers/mcp-portal-fixture';
+import { disconnectMcpPortal, finishMcpPortalConnect } from '../lib/mcp-portal-token';
 import { setLogLevel } from '../lib/logger';
 import { getMcpPortalGrant } from '../lib/mcp-portal-token';
 import { SETUP_KEYS } from '../lib/kv-keys';
@@ -15,6 +15,52 @@ const request = (url = portal.url) => new Request(url, { method: 'POST', headers
 }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'synthetic-write' } }) });
 
 describe('MCP exact-destination Worker credential boundary', () => {
+  it.each([
+    { format: 'JWT-like', mode: 'access-only', issued: 'synthetic.jwt.signature', renewed: 'synthetic.jwt.renewed' },
+    { format: 'opaque', mode: 'access-only', issued: 'synthetic-user:grant:issued+/=', renewed: 'synthetic-user:grant:renewed+/=' },
+    { format: 'JWT-like', mode: 'Managed OAuth', issued: 'synthetic.jwt.signature', renewed: 'synthetic.jwt.renewed' },
+    { format: 'opaque', mode: 'Managed OAuth', issued: 'synthetic-user:grant:issued+/=', renewed: 'synthetic-user:grant:renewed+/=' },
+  ])('REQ-AGENT-226 AC5 / REQ-AGENT-229 AC4: $format $mode forwards the exact owner token without changing Pi credentials', async ({ mode, issued, renewed }) => {
+    const f = await mcpPortalFixture();
+    const renewable = mode === 'Managed OAuth';
+    if (!renewable) f.withoutRefreshToken();
+    f.expiry(renewable ? 30 : 3600);
+    await f.begin();
+    const grants: string[] = [];
+    const oauth: typeof fetch = async (input, init) => {
+      const wire = new Request(input, init);
+      const body = new URLSearchParams(await wire.clone().text());
+      const grantType = body.get('grant_type')!;
+      grants.push(grantType);
+      if (!renewable && grantType === 'refresh_token') throw new Error('Access-only grants must not attempt refresh');
+      const response = await f.send(wire);
+      return Response.json({ ...await response.json() as object,
+        access_token: grantType === 'refresh_token' ? renewed : issued });
+    };
+    await finishMcpPortalConnect(f.env, 'owner', instance, f.authorization.searchParams.get('state')!,
+      'synthetic-code', undefined, oauth);
+    const saved = await getMcpPortalGrant(f.env, 'owner', portal);
+    expect(saved?.tokens.access_token).toBe(issued);
+    expect(saved?.tokens.refresh_token).toBe(renewable ? refresh : undefined);
+    f.expiry(3600);
+    const send: typeof fetch = async (input, init) => {
+      const wire = new Request(input, init);
+      if (wire.url !== portal.url) return oauth(wire);
+      expect(wire.headers.get('Authorization')).toBe(`Bearer ${renewable ? renewed : issued}`);
+      expect(wire.headers.has('Cookie')).toBe(false);
+      return Response.json({ jsonrpc: '2.0', id: 1, result: { accepted: true } });
+    };
+    const original = request();
+    const response = await forwardMcpPortal(original, f.env, props, send);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ jsonrpc: '2.0', id: 1, result: { accepted: true } });
+    expect(original.headers.get('Authorization')).toBe('Bearer codeflare-mcp-portal');
+    expect(grants).toEqual(renewable ? ['authorization_code', 'refresh_token'] : ['authorization_code']);
+    const current = await getMcpPortalGrant(f.env, 'owner', portal);
+    expect(current?.tokens.access_token).toBe(renewable ? renewed : issued);
+    expect(current?.tokens.refresh_token).toBe(renewable ? refresh : undefined);
+  });
+
   it('REQ-AGENT-229 AC4: stamps the trusted owner grant and preserves functional response streams and downstream URL context', async () => {
     const f = await mcpPortalFixture(); await f.begin(); await f.finish();
     const send: typeof fetch = async input => {

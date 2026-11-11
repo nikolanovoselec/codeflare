@@ -348,7 +348,7 @@ export async function fixture(test: (f: {
     let moveAfterRelease = false;
     let expireAfterRead = false;
     let exceedDeadline = false;
-    let composeElapsed = false;
+    let composeStartedAt: number | undefined;
     const sent: Request[] = [];
     const nativeTransport = (request: Request) => {
       sent.push(request.clone());
@@ -559,7 +559,7 @@ export async function fixture(test: (f: {
             const url = new URL(request.url);
             const key = `${url.searchParams.get('ref')}:${decodeURIComponent(url.pathname.split('/contents/')[1])}`;
             const body = composeBodies[key];
-            if (composeElapsed) vi.spyOn(Date, 'now').mockReturnValue(now + 1500);
+            if (composeStartedAt !== undefined) vi.spyOn(Date, 'now').mockReturnValue(composeStartedAt + 1500);
             if (moveAfterContents) baseSha = 'c'.repeat(40);
             return body instanceof Response ? body : body ? Response.json(body)
               : Response.json({ message: 'Missing' }, { status: 404 });
@@ -773,7 +773,11 @@ export async function fixture(test: (f: {
         moveHeadAfterRelease: () => { moveAfterRelease = true; },
         expireAfterRead: () => { expireAfterRead = true; },
         moveBaseAfterContents: () => { moveAfterContents = true; },
-        exceedComposeDeadline: () => { composeElapsed = true; },
+        exceedComposeDeadline: () => {
+          // Anchor the simulated read delay after admission, not fixture setup.
+          composeStartedAt = Date.now();
+          vi.spyOn(Date, 'now').mockReturnValue(composeStartedAt);
+        },
         moveBaseAfterGuide: () => { moveBaseAfterGuide = true; },
         exceedReleaseDeadline: () => {
           // Measure the nine-second upstream delay from this read, not fixture
