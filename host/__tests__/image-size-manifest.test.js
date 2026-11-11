@@ -90,7 +90,12 @@ test('invalid registry inputs are rejected before retrieval', async () => {
   for (const change of [{ account: '' }, { account: 'A'.repeat(32) }, { repo: '../private-container' },
     { repo: 'other' }, { repo: 'https://evil/container' }, { ref: 'latest' }, { ref: '../tags/list' },
     { ref: `sha256:${'A'.repeat(64)}` }, { auth: '' }]) {
-    await assert.rejects(measureManifest({ ...input, ...change }, async () => assert.fail('invalid input reached retrieval')));
+    let retrieved = false;
+    await assert.rejects(measureManifest({ ...input, ...change }, async () => {
+      retrieved = true;
+      return response(fixture(image()));
+    }));
+    assert.equal(retrieved, false, 'invalid input must not reach the registry');
   }
 });
 
