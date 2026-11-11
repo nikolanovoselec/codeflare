@@ -143,6 +143,117 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
 
+describe('REQ-SETUP-017/018/024 and REQ-AGENT-064: Integrations configuration', () => {
+  const integrations = (mode = 'enterprise', activeRunId: string | null = null) => ({
+    mode, revision: 7, applicableSections: ['cloudflareConnection', ...(mode === 'enterprise' ? ['browserRendering'] : [])], activeRunId, latest: {},
+    sections: {
+      cloudflareConnection: { clientId: 'saved-client', clientSecretState: 'administration' },
+      ...(mode === 'enterprise' && { browserRendering: { configured: true, accountId: 'browser-account', tokenState: 'administration' } }),
+    },
+  });
+  const cloudflarePreview = (willReplace = false): ConfigurationPreview => ({
+    section: 'cloudflareConnection', baseRevision: 7, currentRevision: 7,
+    changes: [
+      { field: 'clientId', before: 'saved-client', after: 'next-client' },
+      { field: 'replacementSecret', secret: { willReplace } },
+    ],
+    tasks: [{ id: 'configure_cloudflare_connection', dependsOn: [] }], warnings: [], exclusions: [],
+  });
+
+  it.each(['default', 'onboarding', 'saas', 'enterprise'])('opens Integrations in %s using the existing section and preserves blank secrets', async mode => {
+    window.history.replaceState({}, '', '/admin/environment');
+    api.configuration.mockResolvedValue(integrations(mode));
+    api.preview.mockResolvedValue(cloudflarePreview());
+    api.start.mockResolvedValue(new Response(`${JSON.stringify({ type: 'snapshot', run: {
+      runId: 'saved-integrations', section: 'cloudflareConnection', state: 'succeeded', tasks: [], resultingRevision: 8,
+    } })}\n`));
+    mount();
+    const link = await screen.findByRole('link', { name: /Integrations/ });
+    expect(link).toHaveAttribute('href', '/admin/environment/cloudflareConnection');
+    if (mode === 'enterprise') {
+      expect(screen.getByRole('link', { name: /Browser Run/ })).toHaveAttribute('href', '/admin/environment/browserRendering');
+    } else {
+      expect(screen.queryByRole('link', { name: /Browser Run/ })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole('link', { name: /Cloudflare connection/ })).not.toBeInTheDocument();
+    await fireEvent.click(link);
+    expect(await screen.findByRole('heading', { name: 'Integrations' })).toBeVisible();
+    expect(screen.getByLabelText('Cloudflare OAuth client ID')).toHaveValue('saved-client');
+    expect(screen.getByLabelText('Replacement client secret')).toHaveAttribute('type', 'password');
+    expect(screen.getByLabelText('Replacement client secret')).toHaveValue('');
+    await fireEvent.input(screen.getByLabelText('Cloudflare OAuth client ID'), { target: { value: 'next-client' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+    expect(await screen.findByText('Preserve saved secret')).toBeVisible();
+    expect(screen.getByText('Update Cloudflare connection')).toBeVisible();
+    expect(api.preview).toHaveBeenCalledWith('cloudflareConnection', 7, { clientId: 'next-client', replacementSecret: '' });
+    expect(api.start).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply change' }));
+    expect(await screen.findByRole('heading', { name: 'Execution succeeded' })).toBeVisible();
+    expect(api.start).toHaveBeenCalledWith('cloudflareConnection', 7, { clientId: 'next-client', replacementSecret: '' }, []);
+    expect(screen.getByText('Integrations updated. Revision 8 is active.')).toBeVisible();
+  });
+
+  it('masks a replacement secret in review and sends only the reviewed values after warning confirmation', async () => {
+    window.history.replaceState({}, '', '/admin/environment/cloudflareConnection');
+    api.configuration.mockResolvedValue(integrations());
+    api.preview.mockResolvedValue({ ...cloudflarePreview(true), warnings: [warning] });
+    api.start.mockRejectedValueOnce(new ConfigurationRequestError(409, { error: 'Configuration revision changed' }));
+    mount();
+    const secret = await screen.findByLabelText('Replacement client secret');
+    await fireEvent.input(secret, { target: { value: 'replacement-test-secret' } });
+    await fireEvent.input(screen.getByLabelText('Cloudflare OAuth client ID'), { target: { value: 'next-client' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+    expect(await screen.findByText('Replace saved secret')).toBeVisible();
+    expect(screen.queryByText('replacement-test-secret')).not.toBeInTheDocument();
+    const apply = screen.getByRole('button', { name: 'Apply change' });
+    expect(apply).toBeDisabled();
+    await fireEvent.click(apply);
+    expect(api.start).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('checkbox', { name: /Confirm warning/ }));
+    await fireEvent.click(apply);
+    expect(api.start).toHaveBeenCalledWith('cloudflareConnection', 7,
+      { clientId: 'next-client', replacementSecret: 'replacement-test-secret' }, [warning.code]);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Reload current settings before applying again.');
+    expect(screen.queryByRole('heading', { name: 'Execution succeeded' })).not.toBeInTheDocument();
+  });
+
+  it('blocks review while another configuration run owns the admission fence', async () => {
+    window.history.replaceState({}, '', '/admin/environment/cloudflareConnection');
+    api.configuration.mockResolvedValue(integrations('enterprise', 'busy-run'));
+    mount();
+    expect(await screen.findByRole('heading', { name: 'Integrations' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Settings change active' })).toBeVisible();
+    const review = screen.getByRole('button', { name: 'Review changes' });
+    expect(review).toBeDisabled();
+    await fireEvent.submit(review.closest('form')!);
+    expect(api.preview).not.toHaveBeenCalled();
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it('keeps pending review and apply busy without admitting another mutation', async () => {
+    window.history.replaceState({}, '', '/admin/environment/cloudflareConnection');
+    api.configuration.mockResolvedValue(integrations());
+    let finishReview!: (value: ConfigurationPreview) => void;
+    api.preview.mockReturnValueOnce(new Promise(resolve => { finishReview = resolve; }));
+    let rejectApply!: (reason: Error) => void;
+    api.start.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectApply = reject; }));
+    mount();
+    const review = await screen.findByRole('button', { name: 'Review changes' });
+    await fireEvent.click(review);
+    expect(screen.getByRole('button', { name: 'Reviewing…' })).toBeDisabled();
+    await fireEvent.submit(review.closest('form')!);
+    expect(api.start).not.toHaveBeenCalled();
+    finishReview(cloudflarePreview());
+    const apply = await screen.findByRole('button', { name: 'Apply change' });
+    await fireEvent.click(apply);
+    expect(screen.getByRole('button', { name: 'Applying…' })).toBeDisabled();
+    rejectApply(new Error('Configuration unavailable'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Configuration unavailable');
+    expect(screen.getByRole('button', { name: 'Apply change' })).toBeEnabled();
+    expect(screen.queryByRole('heading', { name: 'Execution succeeded' })).not.toBeInTheDocument();
+  });
+});
+
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
   describe.each(['default', 'onboarding', 'saas', 'enterprise'] as const)('REQ-SETUP-019/028: %s loaded sync editor', mode => {
     it.each(['include', 'exclude'] as const)('REQ-SETUP-018: reviews human-readable sync policy %s before explicit Apply change', async syncPolicyMode => {

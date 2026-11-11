@@ -10,7 +10,7 @@ const SECTION_LABELS: Record<ConfigurationSection, string> = {
   dataGovernance: 'Data governance',
   managedEnvironment: 'Managed environment',
   github: 'GitHub',
-  cloudflareConnection: 'Cloudflare connection',
+  cloudflareConnection: 'Integrations',
   usageReports: 'Monthly usage reports',
 };
 

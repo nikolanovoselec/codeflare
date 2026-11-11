@@ -85,7 +85,7 @@ const COMMON_SECTIONS: ConfigurationSection[] = [
 
 const ENTERPRISE_SECTIONS: ConfigurationSection[] = [
   'access', 'domain', 'aiRouting', 'codingAgents', 'browserRendering', 'securityEgress',
-  'dataGovernance', 'managedEnvironment', 'github', 'usageReports',
+  'dataGovernance', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports',
 ];
 
 const email = z.string().trim().toLowerCase().email();

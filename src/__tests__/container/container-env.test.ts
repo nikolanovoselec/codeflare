@@ -4,13 +4,15 @@
 // Without this, every vault capture filename gets a +0000 suffix
 // regardless of where the user actually is.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
 import type { Env } from '../../types';
 import { ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../../lib/constants';
 import { setBucketName, type ContainerHost } from '../../container/container-config';
 import { createMockKV } from '../helpers/mock-kv';
-import { SETUP_KEYS } from '../../lib/kv-keys';
+import { SETUP_KEYS, getDeployKeysKey } from '../../lib/kv-keys';
+import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
+import { applyCloudflareOAuthToken, storeCloudflareConnection } from '../../lib/cloudflare-token';
 import { createLogger } from '../../lib/logger';
 
 function baseState(): ContainerEnvState {
@@ -759,5 +761,56 @@ describe('REQ-AGENT-031 AC1: warm credential revocation', () => {
     expect(buildEnvVars(state, baseEnv).CODEFLARE_OPENAI_API_KEY).toBe('replacement');
     await applyBucketName(state, 'codeflare-test', baseEnv, storage, { openaiApiKey: null });
     expect(buildEnvVars(state, baseEnv).CODEFLARE_OPENAI_API_KEY).toBeUndefined();
+  });
+});
+
+// Exercise the same Browser -> OAuth -> env projection used by session startup.
+// An owner connection is a Worker-held integration, not the admin Browser marker.
+describe('REQ-BROWSER-008/REQ-AGENT-078: Enterprise startup with a connected owner', () => {
+  it.each([
+    { configuredBrowser: true, expired: false },
+    { configuredBrowser: true, expired: true },
+    { configuredBrowser: false, expired: false },
+    { configuredBrowser: false, expired: true },
+  ])('keeps Browser env and owner grant separate: %j', async ({ configuredBrowser, expired }) => {
+    const kv = createMockKV();
+    const env = { KV: kv, ENTERPRISE_MODE: 'active' } as unknown as Env;
+    if (configuredBrowser) {
+      kv._set(SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: 'admin-browser-secret' });
+      kv._store.set(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, 'admin-browser-account');
+    }
+    // Configuring the OAuth client must not turn Browser startup into an owner
+    // grant refresh; refresh happens only at that integration's API boundary.
+    kv._store.set(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'configured-client');
+    kv._set(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, { secret: 'configured-client-secret' });
+    await storeCloudflareConnection(env, 'codeflare-test', {
+      accessToken: 'worker-held-owner-token', source: 'oauth', refreshToken: 'worker-held-refresh-token',
+      expiresAt: Date.now() + (expired ? -60_000 : 3_600_000), accountId: 'owner-account',
+    });
+    const stored = kv._store.get(getDeployKeysKey('codeflare-test'))!;
+    const outgoing: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      outgoing.push(input instanceof Request ? input.url : String(input));
+      return Response.json({ access_token: 'refreshed-owner-secret', refresh_token: 'rotated-owner-refresh', expires_in: 3600 });
+    });
+    try {
+      const ownerKeys = JSON.parse(stored);
+      const browserKeys = await applyEnterpriseBrowserToken(env, ownerKeys, null);
+      const effectiveKeys = await applyCloudflareOAuthToken(env, browserKeys, 'codeflare-test');
+      const state = baseState();
+      state._cloudflareApiToken = effectiveKeys?.cloudflareApiToken ?? null;
+      state._cloudflareAccountId = effectiveKeys?.cloudflareAccountId ?? null;
+      const vars = buildEnvVars(state, env);
+      expect(vars.CLOUDFLARE_API_TOKEN).toBe(configuredBrowser ? 'codeflare-enterprise' : undefined);
+      expect(vars.CLOUDFLARE_ACCOUNT_ID).toBe(configuredBrowser ? 'admin-browser-account' : undefined);
+      expect(Object.values(vars)).not.toContain('worker-held-owner-token');
+      expect(Object.values(vars)).not.toContain('worker-held-refresh-token');
+      expect(Object.values(vars)).not.toContain('admin-browser-secret');
+      expect(Object.values(vars)).not.toContain('refreshed-owner-secret');
+      expect(outgoing).toEqual([]);
+      expect(kv._store.get(getDeployKeysKey('codeflare-test'))).toBe(stored);
+      expect(ownerKeys.cloudflareApiToken).toBe('worker-held-owner-token');
+      expect(ownerKeys.cloudflareAccountId).toBe('owner-account');
+    } finally { fetchSpy.mockRestore(); }
   });
 });

@@ -18,7 +18,7 @@ const LABELS: Record<EnvironmentSection, string> = {
   dataGovernance: 'Data governance',
   managedEnvironment: 'Managed environment',
   github: 'GitHub',
-  cloudflareConnection: 'Cloudflare connection',
+  cloudflareConnection: 'Integrations',
   usageReports: 'Monthly usage reports',
   mcpPortals: 'Model Context Protocol',
 };
@@ -110,8 +110,8 @@ function describe(section: EnvironmentSection, raw: unknown, mode: Administratio
       return { summary: provider ? `${provider === 'app' ? 'GitHub App' : 'OAuth'} provider` : 'Provider not configured', status: provider ? 'Configured' : 'Not configured' };
     }
     case 'cloudflareConnection': {
-      const clientId = text(value.clientId);
-      return { summary: clientId ? 'OAuth client configured' : 'OAuth client not configured', status: clientId ? 'Configured' : 'Not configured' };
+      const configured = !!text(value.clientId) && value.clientSecretState === 'administration';
+      return { summary: configured ? 'OAuth client configured' : 'OAuth client not configured', status: configured ? 'Configured' : 'Not configured' };
     }
     case 'mcpPortals': {
       const count = list(value.portals).length;

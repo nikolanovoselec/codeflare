@@ -110,7 +110,7 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
 const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   appearance: 'Colors, tips & display preferences',
   session: 'Startup behavior & workspace sync',
-  deploy: 'Connect GitHub & Cloudflare for one-click deploy',
+  deploy: 'Connect Cloudflare for resource management & deploys',
   mcp: 'Connect portals & manage tool access',
   llm: 'Connect GPT & Gemini for second opinions (optional)',
   admin: 'Environment, analytics & initialization',
@@ -432,20 +432,16 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             />
           </AccordionSection>
 
-          {/* ── Push & Deploy (hidden in enterprise: GitHub is managed via Connect
-               GitHub and the Cloudflare Browser Rendering token is admin-configured
-               in Setup, so users never manage deploy credentials — REQ-BROWSER-007) ── */}
-          <Show when={!props.enterpriseMode}>
-            <AccordionSection
-              group="deploy"
-              title="Push & Deploy"
-              subtitle={ACCORDION_SUBTITLES.deploy}
-              isOpen={openGroup() === 'deploy'}
-              onToggle={() => handleAccordionClick('deploy')}
-            >
-              <DeployKeysSection />
-            </AccordionSection>
-          </Show>
+          {/* User-owned integrations are separate from administrator Browser Run credentials. */}
+          <AccordionSection
+            group="deploy"
+            title="Integrations"
+            subtitle={ACCORDION_SUBTITLES.deploy}
+            isOpen={openGroup() === 'deploy'}
+            onToggle={() => handleAccordionClick('deploy')}
+          >
+            <DeployKeysSection />
+          </AccordionSection>
 
           <AccordionSection
             group="mcp"

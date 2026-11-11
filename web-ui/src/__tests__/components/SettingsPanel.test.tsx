@@ -57,6 +57,18 @@ vi.mock('../../api/client', () => ({
   getUser: () => mockGetUser(),
 }));
 
+vi.mock('../../api/github', () => ({
+  getGithubStatus: vi.fn(async () => ({ enabled: true, connected: true, login: 'octocat' })),
+  disconnectGithub: vi.fn(async () => ({ success: true })),
+  githubConnectUrl: () => '/api/github/connect',
+}));
+vi.mock('../../api/cloudflare', () => ({
+  getCloudflareStatus: vi.fn(async () => ({ configured: true, connected: false })),
+  disconnectCloudflare: vi.fn(async () => ({ success: true })),
+  selectCloudflareAccount: vi.fn(async (accountId: string) => ({ success: true, accountId })),
+  cloudflareConnectUrl: () => '/api/cloudflare/connect',
+}));
+
 vi.mock('../../api/mcp-portals', () => ({
   getMcpPortalStatuses: vi.fn(async () => []),
   disconnectMcpPortal: vi.fn(async () => undefined),
@@ -166,6 +178,28 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
         cleanup();
       }
     }
+  });
+
+  describe.each([
+    { mode: 'default', saas: false, enterprise: false },
+    { mode: 'onboarding', saas: false, enterprise: false },
+    { mode: 'saas', saas: true, enterprise: false },
+    { mode: 'enterprise', saas: false, enterprise: true },
+  ])('REQ-AGENT-018/064: $mode Settings Integrations', ({ saas, enterprise }) => {
+    it.each(['default', 'advanced'] as const)('offers Cloudflare without GitHub in %s session mode', async sessionMode => {
+      sessionStoreState.saasMode = saas;
+      sessionStoreState.preferences = { sessionMode };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="user" enterpriseMode={enterprise} />);
+      const header = screen.getByRole('button', { name: /^Integrations/ });
+      expect(header).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('button', { name: /Push & Deploy/ })).not.toBeInTheDocument();
+      fireEvent.click(header);
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+      const integrations = within(screen.getByRole('region', { name: 'Integrations' }));
+      expect(await integrations.findByRole('button', { name: 'Connect Cloudflare' })).toBeInTheDocument();
+      expect(integrations.queryByTestId('github-connect-card')).not.toBeInTheDocument();
+      expect(integrations.queryByText(/GitHub|git push|gh CLI|AWS|Azure|GCP/i)).not.toBeInTheDocument();
+    });
   });
 
   describe('KittScanner', () => {

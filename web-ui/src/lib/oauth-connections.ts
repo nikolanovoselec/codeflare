@@ -13,6 +13,8 @@ export interface GithubConnectionState {
 }
 
 export interface CloudflareConnectionState {
+  /** Availability is separate from the user's OAuth connection state. */
+  availability: 'loading' | 'available' | 'unconfigured' | 'error';
   status: OAuthConnectStatus;
   identity?: string;
   accounts?: { id: string; name: string }[];
@@ -33,13 +35,13 @@ export interface Connections {
 /**
  * Composable connection state for the GitHub + Cloudflare OAuth connect surfaces,
  * shared by the Guided Setup onboarding and the Settings accordion. Owns status
- * fetching + disconnect + account selection so each surface is pure composition of
- * two <OAuthConnectCard> instances. Status reads fail soft (a failed/disabled
- * status leaves the provider disconnected) so the connect affordance still renders.
+ * fetching + disconnect + account selection. Connection status reads fail soft
+ * for existing callers; Settings additionally uses authoritative Cloudflare client
+ * availability to avoid offering Connect while configuration is unknown or absent.
  */
 export function createConnections(): Connections {
   const [github, setGithub] = createSignal<GithubConnectionState>({ status: 'disconnected' });
-  const [cloudflare, setCloudflare] = createSignal<CloudflareConnectionState>({ status: 'disconnected' });
+  const [cloudflare, setCloudflare] = createSignal<CloudflareConnectionState>({ status: 'disconnected', availability: 'loading' });
 
   async function refreshGithub(): Promise<void> {
     try {
@@ -53,13 +55,14 @@ export function createConnections(): Connections {
   async function refreshCloudflare(): Promise<void> {
     try {
       const s = await getCloudflareStatus();
-      setCloudflare(
-        s.connected
-          ? { status: 'connected', identity: s.accountId, accounts: s.accounts, accountId: s.accountId }
-          : { status: 'disconnected' },
-      );
+      setCloudflare({
+        availability: s.configured === true ? 'available' : s.configured === false ? 'unconfigured' : 'error',
+        ...(s.connected
+          ? { status: 'connected' as const, identity: s.accountId, accounts: s.accounts, accountId: s.accountId }
+          : { status: 'disconnected' as const }),
+      });
     } catch {
-      setCloudflare({ status: 'disconnected' });
+      setCloudflare({ status: 'disconnected', availability: 'error' });
     }
   }
 

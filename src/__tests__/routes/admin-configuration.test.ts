@@ -50,7 +50,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
 const commonSections = ['access', 'domain', 'dataGovernance', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports', 'mcpPortals'];
 const enterpriseSections = [
   'access', 'domain', 'aiRouting', 'codingAgents', 'browserRendering', 'securityEgress',
-  'dataGovernance', 'managedEnvironment', 'github', 'usageReports', 'mcpPortals',
+  'dataGovernance', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports', 'mcpPortals',
 ];
 
 describe('GET /admin/configuration (REQ-SETUP-017)', () => {
@@ -155,7 +155,7 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     });
     expect(body.activeRunId).toBe('run-1');
     expect(JSON.stringify(body)).not.toContain('deployment-secret-must-not-leak');
-    expect(body.sections.cloudflareConnection).toBeUndefined();
+    expect(body.sections.cloudflareConnection).toEqual({ clientId: '', clientSecretState: 'none' });
   });
 
   it('REQ-OPERATOR-026: surfaces the managed operator webhook bypass provisioning status in Access configuration', async () => {

@@ -207,8 +207,10 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(JSON.parse(await kv.get(`admin:configuration:latest:github`) as string)).toMatchObject({ runId, state: 'succeeded' });
   });
 
-  it('REQ-SETUP-024: removes explicitly cleared non-secret OAuth client IDs', async () => {
-    const { app, kv } = createApp();
+  it.each([
+    {}, { ONBOARDING_LANDING_PAGE: 'active' }, { SAAS_MODE: 'active' }, { ENTERPRISE_MODE: 'active' },
+  ])('REQ-SETUP-024: removes explicitly cleared non-secret OAuth client IDs in %j', async overrides => {
+    const { app, kv } = createApp(overrides);
     await kv.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'saved-github-app');
     await kv.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, 'saved-github-oauth');
     await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'saved-cloudflare-oauth');
@@ -237,8 +239,10 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(await kv.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID)).toBeNull();
   });
 
-  it('REQ-SETUP-024: preserves saved OAuth secrets when replacements are blank', async () => {
-    const { app, kv } = createApp();
+  it.each([
+    {}, { ONBOARDING_LANDING_PAGE: 'active' }, { SAAS_MODE: 'active' }, { ENTERPRISE_MODE: 'active' },
+  ])('REQ-SETUP-024: preserves saved OAuth secrets when replacements are blank in %j', async overrides => {
+    const { app, kv } = createApp(overrides);
     await kv.put(SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, 'saved-github-app-secret');
     await kv.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, 'saved-github-oauth-secret');
     await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, 'saved-cloudflare-oauth-secret');

@@ -3,9 +3,9 @@
  *
  * Mirrors github-token.ts. The per-user Cloudflare token lives in the EXISTING
  * deploy-keys KV entry (`DeployKeys.cloudflareApiToken` + `cloudflareAccountId`,
- * `getDeployKeysKey(bucketName)`) — no new KV key — so it already flows to the
- * container as `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`. "Connect to
- * Cloudflare" populates the same fields the (legacy) manual paste UI filled.
+ * `getDeployKeysKey(bucketName)`) — no new KV key. "Connect to Cloudflare"
+ * populates the same fields the (legacy) manual paste UI filled; OAuth access
+ * tokens remain Worker-held, with placeholders used for container credentials.
  *
  * Cloudflare's OAuth Applications feature (3-legged authorization_code, with
  * refresh_token via `offline_access`) lets a user authorize their OWN Cloudflare
@@ -13,8 +13,8 @@
  * registers ONE OAuth client per deployment in the Setup wizard (id plain,
  * secret encrypted in KV); this module reads it via getCloudflareProvider.
  *
- * Non-enterprise only: enterprise has no per-user Cloudflare deploy flow, so
- * getCloudflareProvider returns null there (the Setup keys are never set).
+ * The configured client supports user connections in every deployment mode;
+ * Enterprise admin Browser Run credentials remain separate from owner grants.
  */
 import type { DeployKeys, Env } from '../types';
 import { getDeployKeysKey, SETUP_KEYS } from './kv-keys';
@@ -268,13 +268,10 @@ interface StoredCloudflareSecret {
 /**
  * Resolve the admin-configured Cloudflare OAuth client from Setup→KV. The client
  * id is plain, the secret encrypted. Fails closed (null) when id/secret are not
- * both present or the secret cannot be decrypted (no ENCRYPTION_KEY).
- *
- * Enterprise mode has no per-user Cloudflare deploy flow, so this returns null
- * there (the Setup keys are never written in enterprise).
+ * both present or the stored secret cannot be read. The same registration is
+ * used in every deployment mode.
  */
 export async function getCloudflareProvider(env: Env): Promise<CloudflareOAuthProviderInterface | null> {
-  if (isEnterpriseMode(env)) return null;
   const clientId = (await env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID))?.trim();
   if (!clientId) return null;
   const cryptoKey = await getOrImportKey(env);
@@ -334,12 +331,15 @@ export async function getValidCloudflareToken(env: Env, bucketName: string): Pro
  * (and the enterprise admin token) pass through untouched — only `cloudflareTokenSource ===
  * 'oauth'` is swapped. The placeholder is emitted only when the connection can still mint a
  * token, else `null` so `wrangler`/browser-run stay unregistered rather than authing dead.
+ * Enterprise projection leaves the separate admin Browser Run placeholder/account
+ * intact; owner grants are resolved only at the API boundary, not during projection.
  */
 export async function applyCloudflareOAuthToken(
   env: Env,
   deployKeys: DeployKeys | null | undefined,
   bucketName: string,
 ): Promise<DeployKeys | null | undefined> {
+  if (isEnterpriseMode(env)) return deployKeys;
   if (deployKeys?.cloudflareTokenSource !== 'oauth' || !deployKeys.cloudflareApiToken) {
     return deployKeys;
   }

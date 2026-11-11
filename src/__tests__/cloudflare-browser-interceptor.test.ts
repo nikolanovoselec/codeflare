@@ -4,8 +4,8 @@
  * The container holds only the non-secret CLOUDFLARE_API_TOKEN placeholder. This interceptor,
  * wired for api.cloudflare.com, strips the placeholder and injects the real admin Browser
  * Rendering token — but ONLY for the wizard-configured browser account's /browser-rendering/*
- * path (REST + CDP WebSocket). Everything else on api.cloudflare.com goes to the Gateway
- * (env.EGRESS) when strict, else 403. The real token never enters the container.
+ * path (REST + CDP WebSocket). Management APIs use a separate parent owner grant;
+ * foreign Browser namespace routing stays unchanged. Real tokens stay Worker-side.
  *
  * Construction mirrors the DO: new CloudflareBrowserInterceptor(ctx, env) with the per-session
  * props on ctx (browserAccountId, browserToken, strict).
@@ -41,7 +41,7 @@ function makeOAuthInterceptor(bucket = 'session-bucket') {
 }
 
 function makeInterceptor(
-  props: { browserAccountId?: string; browserToken?: string; strict?: boolean; operatorPolicy?: OperatorPolicy;
+  props: { browserAccountId?: string; browserToken?: string; ownerBucket?: string; strict?: boolean; operatorPolicy?: OperatorPolicy;
     jwtStamping?: JwtStampingPolicy; jwtAuthority?: JwtStampingAuthority } = {},
   envOverrides: Partial<Env> = {},
 ) {
@@ -216,14 +216,15 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor REST path', () => {
     fetchSpy.mockRestore();
   });
 
-  it.each(['tokens/verify', 'browser-run/markdown'])('routes own-account %s through Gateway without granting administrator credentials', async path => {
+  it.each(['workers/scripts', 'browser-run/markdown'])('routes own-account %s through Gateway with only the owner grant', async path => {
+    mockGetValidToken.mockResolvedValue(FRESH_TOKEN);
     const direct: Request[] = [];
     const inspected: Request[] = [];
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       direct.push(input as Request); return new Response('unsafe direct result');
     });
     try {
-      const { interceptor } = makeInterceptor({}, { EGRESS: { fetch: async (request: Request) => {
+      const { interceptor } = makeInterceptor({ ownerBucket: 'bound-owner' }, { EGRESS: { fetch: async (request: Request) => {
         inspected.push(request); return new Response('gateway');
       } } as Fetcher });
       const url = `https://api.cloudflare.com/client/v4/accounts/acc/${path}`;
@@ -231,7 +232,7 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor REST path', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('gateway');
       expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization') }))).toEqual([
-        { url, authorization: `Bearer ${PLACEHOLDER}` },
+        { url, authorization: `Bearer ${FRESH_TOKEN}` },
       ]);
       expect(direct).toEqual([]);
     } finally { fetchSpy.mockRestore(); }
@@ -562,5 +563,106 @@ describe('REQ-AGENT-078: caller Cloudflare credential precedence', () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ code: 'CF_CREDENTIALS_INVALID' });
     expect(outgoing).toEqual([]);
+  });
+});
+
+describe('REQ-AGENT-078: Enterprise owner API boundary', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('rejects missing JWT authority before owner credential resolution', async () => {
+    mockGetValidToken.mockRejectedValue(new Error('Owner lookup must not precede authorization'));
+    const { interceptor } = makeInterceptor({ ownerBucket: 'bound-owner',
+      jwtStamping: { mode: 'all', destinations: [] }, jwtAuthority: undefined });
+    const response = await interceptor.fetch(new Request('https://api.cloudflare.com/client/v4/accounts'));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: 'JWT_STAMPING_AUTHORITY_UNAVAILABLE' });
+  });
+
+  it.each([false, true])('preserves encoded management resource keys with strict=%s', async strict => {
+    mockGetValidToken.mockResolvedValue(FRESH_TOKEN);
+    const outgoing: Request[] = [];
+    const respond = async (request: Request) => { outgoing.push(request); return new Response('stored value'); };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => respond(input as Request));
+    const { interceptor } = makeInterceptor({ ownerBucket: 'bound-owner', strict }, { EGRESS: { fetch: respond } as Fetcher });
+    const url = 'https://api.cloudflare.com/client/v4/accounts/owner-account/storage/kv/namespaces/ns/values/folder%2Fkey';
+    expect(await (await interceptor.fetch(new Request(url))).text()).toBe('stored value');
+    expect(outgoing.map(request => ({ url: request.url, authorization: request.headers.get('authorization') })))
+      .toEqual([{ url, authorization: `Bearer ${FRESH_TOKEN}` }]);
+  });
+
+  it.each([
+    { url: 'http://api.cloudflare.com/client/v4/accounts', status: 403 },
+    { url: 'https://api.cloudflare.com:8443/client/v4/accounts', status: 403 },
+    { url: 'https://foreign.example/client/v4/accounts', status: 403 },
+    { url: 'https://gateway.ai.cloudflare.com/client/v4/accounts', status: 403 },
+    { url: 'https://api.cloudflare.com/client/v4/accounts/acc/%62rowser-rendering/snapshot', status: 403 },
+    { url: 'https://api.cloudflare.com/client/v4/accounts', status: 503 },
+  ])('validates destination and required binding before unavailable owner lookup: $url', async ({ url, status }) => {
+    mockGetValidToken.mockRejectedValue(new Error('Owner lookup must not precede validation'));
+    const outgoing: Request[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      outgoing.push(input as Request); return new Response('unsafe direct');
+    });
+    const { interceptor } = makeInterceptor({ ownerBucket: 'bound-owner' }, { EGRESS: undefined });
+    const response = await interceptor.fetch(new Request(url));
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ code: status === 503 ? 'EGRESS_UNAVAILABLE' : 'CF_API_BLOCKED' });
+    expect(outgoing).toEqual([]);
+  });
+
+  it.each([false, true])('reuses JWT stamping and hop-header sanitation for owner traffic strict=%s', async strict => {
+    mockGetValidToken.mockResolvedValue(FRESH_TOKEN);
+    const outgoing: Request[] = [];
+    const respond = async (request: Request) => {
+      outgoing.push(request);
+      return new Response('owner response', { headers: { 'connection': 'close', 'x-result': 'preserved' } });
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => respond(input as Request));
+    const { interceptor } = makeInterceptor({ ownerBucket: 'bound-owner', strict,
+      jwtStamping: { mode: 'list', destinations: ['api.cloudflare.com'] }, jwtAuthority }, {
+      EGRESS: { fetch: respond } as Fetcher,
+    });
+    const response = await interceptor.fetch(new Request('https://api.cloudflare.com/client/v4/accounts', {
+      headers: { authorization: `Bearer ${PLACEHOLDER}`, 'cf-access-jwt-assertion': 'spoof', connection: 'close' },
+    }));
+    expect(await response.text()).toBe('owner response');
+    expect(response.headers.get('connection')).toBeNull();
+    expect(response.headers.get('x-result')).toBe('preserved');
+    expect(outgoing.map(request => ({ authorization: request.headers.get('authorization'),
+      access: request.headers.get('cf-access-jwt-assertion'), connection: request.headers.get('connection'),
+      redirect: request.redirect }))).toEqual([{ authorization: `Bearer ${FRESH_TOKEN}`,
+      access: 'verified.jwt', connection: null, redirect: 'manual' }]);
+  });
+});
+
+describe('REQ-AGENT-078/REQ-BROWSER-008: Enterprise caller credential precedence', () => {
+  beforeEach(() => { mockGetValidToken.mockRejectedValue(new Error('Owner grant unavailable')); });
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([false, true])('preserves caller auth refusal without owner/admin replay with strict=%s', async strict => {
+    const callerHeaders: Record<string, string>[] = [
+      { authorization: 'Bearer caller-token' },
+      { 'x-auth-key': 'caller-key', 'x-auth-email': 'caller@example.test' },
+    ];
+    for (const headers of callerHeaders) {
+      const direct: Request[] = [];
+      const inspected: Request[] = [];
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+        direct.push(input as Request); return new Response('caller refused', { status: 401 });
+      });
+      const { interceptor } = makeInterceptor({ strict }, { EGRESS: { fetch: async (request: Request) => {
+        inspected.push(request); return new Response('caller refused', { status: 401 });
+      } } as Fetcher });
+      const url = 'https://api.cloudflare.com/client/v4/accounts/foreign-account/workers/scripts';
+      const response = await interceptor.fetch(new Request(url, { method: 'POST', headers, body: 'caller payload' }));
+      expect(response.status).toBe(401);
+      expect(await response.text()).toBe('caller refused');
+      const outgoing = strict ? inspected : direct;
+      expect(outgoing.map(request => request.url)).toEqual([url]);
+      expect(outgoing[0].redirect).toBe('manual');
+      expect(await outgoing[0].text()).toBe('caller payload');
+      for (const [name, value] of Object.entries(headers)) expect(outgoing[0].headers.get(name)).toBe(value);
+      expect(strict ? direct : inspected).toEqual([]);
+    }
   });
 });

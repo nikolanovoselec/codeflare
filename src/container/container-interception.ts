@@ -354,9 +354,10 @@ const github: InterceptorSpec = {
  * the real admin Browser Rendering token worker-side, ONLY for the wizard-configured browser
  * account's /browser-rendering/* path (REST + CDP WebSocket). Wired independent of strict so
  * browser-run works in every enterprise configuration; `strict` is passed so the interceptor
- * routes managed non-Browser API calls to the Gateway (else 403), not the caller-owned lane.
- * Registration is independent of Browser credentials: caller-owned requests still work when
- * the administrator configuration is absent or unavailable; managed Browser requests fail closed.
+ * routes owner management calls through mandatory Gateway egress when strict is enabled.
+ * The separate ownerBucket reference is parent-bound, independent of OAuth client or Browser
+ * configuration; only ordinary sessions receive it. Gateway AI stays owned by LlmInterceptor.
+ * Caller-owned requests still work without Browser configuration; managed Browser fails closed.
  */
 const browserRendering: InterceptorSpec = {
   mode: 'enterprise',
@@ -373,6 +374,7 @@ const browserRendering: InterceptorSpec = {
       entrypoint: 'CloudflareBrowserInterceptor',
       props: { ...await personalPiProps(host), ...(accountId ? { browserAccountId: accountId } : {}),
         ...(token ? { browserToken: token } : {}), strict: host._strictEgress, ...await browserOwnerReference(host),
+        ...(host._bucketName && !host._operatorPolicy && !host._operatorContainerProfile ? { ownerBucket: host._bucketName } : {}),
         ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}), ...jwtProps(host) },
       hosts: INTERCEPTED_CF_BROWSER_HOSTS,
       wiredLog: 'Enterprise Browser Rendering interception wired',

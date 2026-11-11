@@ -15,6 +15,43 @@ function managedEnvironmentArea(section: unknown) {
 }
 
 describe('Environment area summaries', () => {
+  describe.each(['default', 'onboarding', 'saas', 'enterprise'] as const)('REQ-SETUP-017/024: %s Integrations', mode => {
+    it.each(['', 'client-id'])('labels the existing Cloudflare section Integrations with client ID %j', clientId => {
+      const configuration: AdminConfigurationResponse = {
+        mode, revision: 7, applicableSections: ['cloudflareConnection'], activeRunId: null, latest: {},
+        sections: { cloudflareConnection: { clientId, clientSecretState: 'administration' } },
+      };
+      const areas = environmentAreas(configuration);
+      expect(areas).toEqual([expect.objectContaining({
+        section: 'cloudflareConnection', label: 'Integrations',
+        status: clientId ? 'Configured' : 'Not configured',
+        summary: clientId ? 'OAuth client configured' : 'OAuth client not configured',
+      })]);
+      expect(filterEnvironmentAreas(areas, 'integrations').map(area => area.section)).toEqual(['cloudflareConnection']);
+      expect(filterEnvironmentAreas(areas, 'cloudflare').map(area => area.section)).toEqual(['cloudflareConnection']);
+      expect(configuration.applicableSections).toEqual(['cloudflareConnection']);
+    });
+
+    it.each(['none', undefined])('does not report a usable OAuth client without saved secret presence: %s', clientSecretState => {
+      const configuration: AdminConfigurationResponse = {
+        mode, revision: 7, applicableSections: ['cloudflareConnection'], activeRunId: null, latest: {},
+        sections: { cloudflareConnection: { clientId: 'client-id', clientSecretState } },
+      };
+      // Intentional user-copy contract: an ID alone cannot authorize OAuth exchange.
+      expect(environmentAreas(configuration)).toEqual([expect.objectContaining({
+        label: 'Integrations', status: 'Not configured', summary: 'OAuth client not configured',
+      })]);
+    });
+
+    it('does not invent an Integration area outside backend applicability', () => {
+      const configuration: AdminConfigurationResponse = {
+        mode, revision: 7, applicableSections: [], activeRunId: null, latest: {},
+        sections: { cloudflareConnection: { clientId: 'client-id' } },
+      };
+      expect(environmentAreas(configuration)).toEqual([]);
+    });
+  });
+
   describe.each(['default', 'onboarding', 'saas', 'enterprise'] as const)('REQ-SETUP-019/023/028: %s governance summary', mode => {
     it.each([undefined, 'exclude', 'include'])('makes selected persistence scope %s discoverable without inventing governance state', syncPolicyMode => {
       const configuration: AdminConfigurationResponse = {
