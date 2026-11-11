@@ -956,8 +956,8 @@ describe('Task94 explicit installation and session scoped activation', () => {
       installationId: 'install-1', sessionId: 'ownersession1', sessionGeneration: 3,
     } }]);
     gate.release();
-    await screen.findByText(acknowledged);
-    expect(screen.getByText(/original.*(?:expiry|expiration)|(?:expiry|expiration).*original/i)).toBeVisible();
+    const feedback = await screen.findByText(acknowledged);
+    expect(feedback).toHaveTextContent(/original.*(?:expiry|expiration)|(?:expiry|expiration).*original/i);
     expect(screen.queryByText(/^active$/i)).toBeNull();
     // Closing/remounting must not fabricate a durable schedule-status claim.
     await fireEvent.click(screen.getByRole('button', { name: 'Close operators' }));

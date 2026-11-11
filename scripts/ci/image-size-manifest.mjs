@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 const digest = value => /^sha256:[a-f0-9]{64}$/.test(value);
 const size = value => { if (!Number.isSafeInteger(value) || value < 0) throw Error('invalid size'); return value; };
-// Credentials are inherited only inside existing sealed CI registry steps. Never print request data.
-try {
-  const { CLOUDFLARE_ACCOUNT_ID: account, IMAGE_NAME: repo, INVENTORY_REF: ref, AUTH: auth } = process.env;
+export async function measureManifest({ account, repo, ref, auth }, fetchResponse = fetch) {
   if (!/^[a-f0-9]{32}$/.test(account) || !/^[a-z0-9][a-z0-9-]*-container$/.test(repo)
       || !(digest(ref) || /^in-[a-f0-9]{16}$/.test(ref)) || !auth) throw Error('invalid registry input');
   async function manifest(reference, expectedSize) {
-    const response = await fetch(`https://registry.cloudflare.com/v2/${account}/${repo}/manifests/${reference}`, {
+    const response = await fetchResponse(`https://registry.cloudflare.com/v2/${account}/${repo}/manifests/${reference}`, {
       headers: { Authorization: `Basic ${auth}`, Accept: 'application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json' },
       redirect: 'error', signal: AbortSignal.timeout(30000),
     });
@@ -34,9 +34,16 @@ try {
     return { digest: layer.digest, bytes: size(layer.size) };
   });
   const compressedLayerBytes = size(measured.reduce((sum, layer) => size(sum + layer.bytes), 0));
-  console.log(JSON.stringify({ manifestDigest: top.hash, platformManifestDigest: platform.hash,
+  return { manifestDigest: top.hash, platformManifestDigest: platform.hash,
     manifestBytes: platform.bytes, indexBytes: top === platform ? 0 : top.bytes,
-    configBytes: size(config.size), configDigest: config.digest, compressedLayerBytes, layers: measured }));
-} catch {
-  console.error('Image size registry measurement unavailable or invalid'); process.exitCode = 1;
+    configBytes: size(config.size), configDigest: config.digest, compressedLayerBytes, layers: measured };
+}
+// Credentials are inherited only inside existing sealed CI registry steps. Never print request data.
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  try {
+    const { CLOUDFLARE_ACCOUNT_ID: account, IMAGE_NAME: repo, INVENTORY_REF: ref, AUTH: auth } = process.env;
+    console.log(JSON.stringify(await measureManifest({ account, repo, ref, auth })));
+  } catch {
+    console.error('Image size registry measurement unavailable or invalid'); process.exitCode = 1;
+  }
 }

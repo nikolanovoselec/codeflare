@@ -19,7 +19,7 @@ export function createRunWorkspace(enabled: () => boolean = () => true) {
   };
   const [selected, setSelected] = createSignal<{ id: string; generation: number }>();
   createEffect(() => {
-    active()?.id; active()?.generation;
+    active();
     setSelected(undefined);
   });
   const [catalog, { refetch }] = createResource(() => enabled() && !active(), async () => getSessions());
