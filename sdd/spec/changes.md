@@ -14,7 +14,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - Format Operator run and diagnostic timestamps using browser-preferred regions and the saved timezone while preserving original ISO instants and native hour-cycle choices ([REQ-OPERATOR-086](operators.md#req-operator-086-dropdown-runs-and-installed-workspace), [REQ-OPERATOR-084](operators.md#req-operator-084-activity-causal-diagnosis)).
 
-- Retain owner-bound MCP return feedback, refresh Settings status and offer non-destructive reauthorization with truthful saved-authorization wording. Fixed-stage OAuth diagnostics preserve credential privacy and do not certify hosted completion or renewal ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery)).
+- Retain owner-bound MCP return feedback, refresh Settings status and offer non-destructive reauthorization with truthful saved-authorization wording. Fixed-stage OAuth diagnostics preserve credential privacy and do not certify hosted completion or renewal ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery), [REQ-AGENT-019](agents.md#req-agent-019-branded-settings-ui)).
 
 ## 2026-11-09
 

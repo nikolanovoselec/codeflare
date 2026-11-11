@@ -60,7 +60,7 @@ const AppContent: Component = () => {
   let resumeCheckInFlight = false;
   let wasHidden = document.visibilityState === 'hidden';
   let disposed = false;
-  const [mcpReturnOutcome, setMcpReturnOutcome] = createSignal<McpReturnOutcome>(undefined, { equals: false });
+  const [mcpReturnOutcome, setMcpReturnOutcome] = createSignal<McpReturnOutcome | undefined>(undefined, { equals: false });
   let recoveryOwner: string | undefined;
   let portalRecovery: ReturnType<typeof createMcpPortalRecovery> | undefined;
 

@@ -74,7 +74,7 @@ CI test results, a signed managed release, installed artifact identity, delibera
 
 ### Secret-safe OAuth diagnostics
 
-Connect, callback completion and attempted renewal emit fixed lifecycle stages with allowlisted outcomes/error or timeout categories. They do not log raw exceptions, provider bodies, codes, state, verifiers, tokens, cookies, headers or user/session identities. A grant-publication completion records the write outcome, not successful tool use or atomic KV publication. Missing-grant status polling does not create a diagnostic stream. Hosted SSO/renewal and platform-log confidentiality still require their own authorized observations; application instrumentation alone is not acceptance.
+Connect, callback completion and attempted renewal emit fixed lifecycle stages with allowlisted outcomes/error or timeout categories. They do not log raw exceptions, provider bodies, codes, state, verifiers, tokens, cookies, headers or user/session identities. A grant-publication completion records the write outcome, not successful tool use or atomic KV publication. Missing-grant status polling does not create a diagnostic stream. Hosted SSO/renewal and platform-log confidentiality still require their own authorized observations; application instrumentation alone is not acceptance. ([REQ-AGENT-226](../../sdd/spec/mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)) <!-- @impl: src/lib/mcp-portal-token.ts::oauthDiagnostic --> <!-- @impl: src/lib/mcp-portal-token.ts::getValidMcpPortalToken -->
 
 ## Acceptance procedures
 

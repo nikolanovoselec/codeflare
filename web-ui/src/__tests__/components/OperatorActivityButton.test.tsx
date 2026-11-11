@@ -4,6 +4,12 @@ import OperatorActivityButton from '../../components/OperatorActivityButton';
 import { piLoginRecoveryCopy, type OperatorActivityDetail } from '../../api/operator-activities';
 import { sessionStore } from '../../stores/session';
 
+const getPreferencesMock = vi.hoisted(() => vi.fn());
+vi.mock('../../api/client', async original => ({
+  ...await original<typeof import('../../api/client')>(),
+  getPreferences: getPreferencesMock,
+}));
+
 const { listMock, cancelMock, detailMock, readMock } = vi.hoisted(() => ({
   listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async (_through: number) => ({ unreadCount: 0 })) }));
 vi.mock('../../api/operator-activities', async original => ({
@@ -34,13 +40,9 @@ describe('REQ-OPERATOR-086: regional run timestamps', () => {
     { locale: 'de-CH', timeZone: undefined, instant: '2026-11-10T13:05:06.000Z' },
   ])('uses preferred $locale timestamps in $timeZone for overview, detail and refresh ($instant)', async ({ locale, timeZone, instant }) => {
     const previousPreferences = { ...sessionStore.preferences };
-    const originalFetch = globalThis.fetch;
-    let preferences: typeof previousPreferences = { userTimezone: timeZone };
+    getPreferencesMock.mockResolvedValue({ userTimezone: timeZone });
     const language = vi.spyOn(navigator, 'languages', 'get').mockReturnValue([locale]);
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(instant));
-    vi.stubGlobal('fetch', async () => new Response(JSON.stringify(preferences), {
-      status: 200, headers: { 'Content-Type': 'application/json' },
-    }));
     try {
       await sessionStore.loadPreferences();
       const item = { ...active, updatedAt: instant };
@@ -58,11 +60,11 @@ describe('REQ-OPERATOR-086: regional run timestamps', () => {
       expect(await screen.findByText(`Updated ${timestamp}`)).toBeVisible();
       expect(screen.getByText('Execution: running')).toBeVisible();
     } finally {
-      preferences = previousPreferences;
+      // Preserve explicit absence: JSON serialization would omit it and merge the prior zone.
+      getPreferencesMock.mockResolvedValue({ ...previousPreferences, userTimezone: previousPreferences.userTimezone });
       await sessionStore.loadPreferences();
       language.mockRestore();
       clock.mockRestore();
-      vi.stubGlobal('fetch', originalFetch);
     }
   });
 });

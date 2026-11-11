@@ -596,6 +596,11 @@ User Management and Subscription Tiers reuse established components and `/api/us
 
 Data governance exposes only `syncPolicyMode` in Default, Onboarding, and SaaS; Enterprise retains the aggregate encryption, download, and sync-policy controls. Common-mode preview and direct Apply strictly reject Enterprise-only or unknown fields and plan only `configure_sync_policy`, leaving unrelated stored settings unchanged. Omitted policy preserves the saved choice; absent storage defaults to Exclude, while malformed stored policy fails closed. Preview remains read-only; Apply revalidates values with existing revision, active-run, and Setup guards. ([REQ-SETUP-017](../../sdd/spec/setup.md#req-setup-017-mode-aware-administration-configuration-read), [REQ-SETUP-018](../../sdd/spec/setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution), [REQ-SETUP-028](../../sdd/spec/setup.md#req-setup-028-administration-persistence-policy-selection))
 
+<a id="data-governance-inspection"></a>
+### Data governance inspection
+
+Open Data governance in each available deployment mode after authoritative values load. Compare the saved persistence choice and consequence/help text with the loaded policy. Default, Onboarding, and SaaS must show only the persistence selector; Enterprise must retain encryption/download controls. Help must explain new/restarted-session effect, no automatic restart, and no deletion of stored files. Inspect only; do not apply changes.
+
 ### Administration display inspection
 
 Supplement the [timezone option](../../sdd/spec/setup.md#req-setup-020-administration-report-timezone-selection) and [managed summary](../../sdd/spec/setup.md#req-setup-021-administration-managed-environment-status) tests with user-owned read-only Integration UI inspection at its exact deployed revision. Use existing approved states; do not save settings, reconfigure curation, create a special fixture or change credentials. Missing states or denied access leave their observations unverified. Automated mappings and a historical screenshot do not establish current hosted appearance.
@@ -614,7 +619,7 @@ Methods for [Setup](../../sdd/spec/setup.md), using existing readonly UI control
 |---|---|
 | SETUP-019 navigation | Open Administration, Environment, Analytics, Reports and Activity in available deployment modes. Compare composed pages, mode-specific Users/Tiers entries and routine Environment terminology with the accepted design. Existing loading/empty/error/conflict/reconnect captures must preserve it. |
 | SETUP-019 AC6; ENTERPRISE-017 AC6 | Inspect one existing first-run capture through applicable setup stages, review, apply and result. Match executed Access/routing/Gateway/Browser/egress NDJSON steps with their friendly Configuring Codeflare labels. Inapplicable stages need not appear; final success alone proves no sequence. |
-| SETUP-028 | Open Data governance in each available deployment mode after authoritative values load. Compare the saved persistence choice and consequence/help text with the loaded policy. Default, Onboarding, and SaaS must show only the persistence selector; Enterprise must retain encryption/download controls. Help must explain new/restarted-session effect, no automatic restart, and no deletion of stored files. Inspect only; do not apply changes. |
+| SETUP-028 | Follow the [Data governance inspection](#data-governance-inspection), comparing authoritative policy, mode-specific controls and consequence/help text without applying changes. |
 | SETUP-023 | Filter loaded Environment by label, description, summary, mixed case and a no-match string, then clear. Require stable match order, case-insensitive results, visible empty state and restored catalog. |
 | SETUP-025 | At mobile/tablet/desktop widths, reach the final control on a long Administration page with pointer/touch scrolling and keyboard focus. No clipping, trapped scrolling or inaccessible content. Record dimensions; an empty page does not qualify. |
 

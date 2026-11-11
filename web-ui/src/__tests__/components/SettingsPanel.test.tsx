@@ -1167,7 +1167,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       // Appearance should be expanded again
       const appearanceHeader = screen.getByTestId('accordion-header-appearance');
       expect(appearanceHeader).toHaveAttribute('aria-expanded', 'true');
-      expect(llmHeader).toHaveAttribute('aria-expanded', 'false');
+      expect(await screen.findByTestId('accordion-header-llm')).toHaveAttribute('aria-expanded', 'false');
       sessionStoreState.preferences.sessionMode = undefined;
     });
   });

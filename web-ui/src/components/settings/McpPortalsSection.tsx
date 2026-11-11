@@ -21,7 +21,7 @@ const McpPortalsSection: Component<McpPortalsSectionProps> = (props) => {
   // Direct/manual returns also work without the global recovery helper.
   const params = new URLSearchParams(window.location.search);
   const returned = params.get('mcp');
-  const [directReturn, setDirectReturn] = createSignal<McpReturnOutcome>(
+  const [directReturn, setDirectReturn] = createSignal<McpReturnOutcome | undefined>(
     returned === 'connected' || returned === 'reconnect' ? returned : undefined);
   if (directReturn()) {
     params.delete('mcp');

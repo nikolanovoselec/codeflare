@@ -405,6 +405,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
       ...retained, renovate: { repository: 'acme/reviewed', automaticRuns: true, repetitionIntervalSeconds: 900 },
     } });
     expectInert();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
     await screen.findByRole('button', { name: 'Disable' });
     expect(activationWrites()).toEqual([]);

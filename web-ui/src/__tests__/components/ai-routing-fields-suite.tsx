@@ -19,7 +19,8 @@ const RequestError = vi.hoisted(() => class ConfigurationRequestError extends Er
   }
 });
 const api = vi.hoisted(() => ({ catalog: vi.fn(), inventory: vi.fn(), discover: vi.fn(), nativeDiscover: vi.fn(), native: vi.fn(), configuration: vi.fn(), preview: vi.fn(), start: vi.fn(), run: vi.fn() }));
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async original => ({
+  ...await original<typeof import('../../api/client')>(),
   getAdminConfiguration: (...args: unknown[]) => api.configuration(...args),
   previewConfiguration: (...args: unknown[]) => api.preview(...args),
   startConfigurationRun: (...args: unknown[]) => api.start(...args),

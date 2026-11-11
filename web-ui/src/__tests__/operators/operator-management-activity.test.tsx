@@ -564,6 +564,7 @@ describe('REQ-OPERATOR-084: regional diagnostic timestamps', () => {
       const record = within(region);
       expect(record.getByText(/Owner:/)).toHaveTextContent(expected);
       fireEvent.click(record.getByText('Record technical details', { selector: 'summary' }));
+      fireEvent.click(record.getByText('Record snapshot technical details', { selector: 'summary' }));
       expect(record.getByText(/Record metadata read/)).toHaveTextContent(expected);
       expect(record.getByText(/Record metadata read/)).toBeVisible();
       expect(record.getByText(/Owner:/).querySelector('time')).toHaveAttribute('datetime', instant);

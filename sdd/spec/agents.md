@@ -1484,9 +1484,12 @@ None.
 **Acceptance Criteria:**
 
 1. Settings panel uses accordion groups (appearance, session, deploy, LLM, admin). <!-- @impl: web-ui/src/components/SettingsPanel.tsx::ACCORDION_SUBTITLES --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) -->
-2. Provider rows with SVG brand icons and inline expansion. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (renders OpenAI and Gemini provider rows) --> <!-- @manual -->
+2. Provider rows with SVG brand icons and inline expansion. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (renders OpenAI and Gemini provider rows after saved-key loading succeeds) --> <!-- @manual -->
 3. Appearance section with accent color picker. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) --> <!-- @manual -->
 4. Session section with a session-mode toggle and a sleep-timeout select; agent type is chosen at session creation, not here. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) --> <!-- @manual -->
+5. Fixed MCP return feedback remains visible to the same owner after URL cleanup and owned-session restoration. <!-- @impl: web-ui/src/lib/mcp-portal-recovery.ts::createMcpPortalRecovery --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-AGENT-226 AC3/6 / REQ-AGENT-228 AC4: %s survives pre-mount URL cleanup into owner Settings without an authorization loop) -->
+6. Opening Settings or its MCP section, or returning from authorization, refreshes status; late responses from closed or replaced owner lifetimes cannot overwrite it. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection --> <!-- @test: web-ui/src/__tests__/components/McpSettingsRecovery.test.tsx (REQ-AGENT-228 AC4: mounted Settings MCP status recovery) -->
+7. Saved MCP authorization and successful-return feedback do not certify live tool access or override disconnected API status. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection --> <!-- @test: web-ui/src/__tests__/components/McpPortalsSection.test.tsx (REQ-AGENT-226 AC3/6 / REQ-AGENT-228 AC4: a returned outcome refreshes a mounted section but cannot certify connectivity) -->
 
 **Constraints:**
 
@@ -1496,7 +1499,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [MCP status recovery](../../web-ui/src/__tests__/components/McpSettingsRecovery.test.tsx), [MCP presentation](../../web-ui/src/__tests__/components/McpPortalsSection.test.tsx), [App return feedback](../../web-ui/src/__tests__/components/App.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
