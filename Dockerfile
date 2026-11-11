@@ -29,8 +29,8 @@ RUN curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
 WORKDIR /src/rclone
-RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.75.2 -o /tmp/rclone.tar.gz \
-    && echo "68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a  /tmp/rclone.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.76.0 -o /tmp/rclone.tar.gz \
+    && echo "NEEDS_UPDATE_SEE_PR_BODY  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
     && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.3 -require=golang.org/x/net@v0.62.0 \
     && go mod tidy
@@ -40,14 +40,14 @@ COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
 # Only the CI server binary receives S3-compatible lexical pagination.
 # Restore upstream server code before building the shipped client.
 RUN mkdir -p /out \
-    && python3 /tmp/prepare-rclone-s3-fixture.py prepare /src/rclone 1.75.2 /tmp/rclone-pager.go \
+    && python3 /tmp/prepare-rclone-s3-fixture.py prepare /src/rclone 1.76.0 /tmp/rclone-pager.go \
     && go build -trimpath -o /out/rclone-unpatched . \
-    && python3 /tmp/prepare-rclone-s3-fixture.py restore /src/rclone 1.75.2 /tmp/rclone-pager.go \
-    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.75.2 \
+    && python3 /tmp/prepare-rclone-s3-fixture.py restore /src/rclone 1.76.0 /tmp/rclone-pager.go \
+    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.76.0 \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
     && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
     && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
-    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone . \
+    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.76.0-codeflare-bisync1' -o /out/rclone . \
     && for binary in /out/rclone-unpatched /out/rclone; do \
          go version -m "$binary" | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' || exit 1; \
        done
