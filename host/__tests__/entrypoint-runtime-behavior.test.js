@@ -549,14 +549,16 @@ describe('entrypoint production helpers', () => {
     };
     try {
       mkdirSync(join(source, 'dist/utils'), { recursive: true }); mkdirSync(tools);
-      writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: '1.5.0', type: 'module' }));
       // Host CI installs the pinned preseed with scripts disabled. Copy only the
       // authentic display assets: the production patch retains its full hash guards.
       const qualifiedSdk = resolve(__dirname, '../../preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent');
-      assert.equal(JSON.parse(readFileSync(join(qualifiedSdk, 'package.json'))).version, '1.5.0', 'qualified display admission contract');
+      const version = JSON.parse(readFileSync(join(qualifiedSdk, 'package.json'))).version;
+      const displayChunks = { '1.5.0': 'chunk-44DLKSKE.js', '1.5.2': 'chunk-VEJDBY3O.js' };
+      assert.ok(Object.hasOwn(displayChunks, version), 'qualified display admission contract');
+      writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version, type: 'module' }));
       const displayPaths = ['dist/modes/interactive/components/model-selector.js',
         'dist/modes/interactive/components/settings-selector.js', 'dist/modes/interactive/interactive-mode.js',
-        'dist/bundle/chunks/chunk-44DLKSKE.js'];
+        `dist/bundle/chunks/${displayChunks[version]}`];
       for (const path of displayPaths) {
         mkdirSync(dirname(join(source, path)), { recursive: true });
         cpSync(join(qualifiedSdk, path), join(source, path));
@@ -621,7 +623,7 @@ describe('entrypoint production helpers', () => {
         .replaceAll('/opt/codeflare/scripts/prune-npm-platform-artifacts.mjs', join(scripts, 'ci/prune-npm-platform-artifacts.mjs'))
         .replaceAll('/opt/codeflare/scripts', scripts);
       // Suppress latest-version network updates; execute the production repair commands with real npm.
-      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [ "$1" = view ]; then echo 1.5.0; elif [[ " $* " == *" --save-exact "* ]]; then return 0; else command npm "$@" --offline; fi; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
+      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [ "$1" = view ]; then echo ${version}; elif [[ " $* " == *" --save-exact "* ]]; then return 0; else command npm "$@" --offline; fi; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
       rmSync(processor);
       assert.notEqual(verify().status, 0);
       const repaired = run(); assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);

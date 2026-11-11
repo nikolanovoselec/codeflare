@@ -6,7 +6,7 @@
 // without a companion extension or permanent fork. Every transformed source is calculated before
 // any package file is written so version or source-layout drift fails closed.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -17,7 +17,46 @@ export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   '0.54.8',
   '0.54.11',
   '0.54.13',
+  '0.54.15',
 ]);
+// 0.54.15 npm SHA-512 verified; all src bytes also matched authenticated
+// narumiruna/pi-extensions@980db40db9b1db3b8dc92b2b1837eb06841bfea2.
+// The only runtime delta from 0.54.13 is completionStatusTimer.unref?.().
+// Accept only pristine or our exact prepared bytes, including on repeat runs.
+const REVIEWED_05415 = {
+  'src/accounting.ts': ['31b3a5a4ddd86fd2e8370af64e5592dfa01fad88316fd7a6217790049d586bcf'],
+  'src/command-registration.ts': ['4b643682b31e99d333ceba1c117ca7ee8e08a1d3733463658f26fb7a9bbff6d8'],
+  'src/command.ts': ['756dc522b6e35bb7b35786cbb904329a02077edde2f4dc945ae36c5b9f6914e3'],
+  'src/commands.ts': ['55a838c0894bba0586088c8e781c533c99e43eb401713fbefda8da29f49e098d', 'b8d91f678b3cc5e9002266f3aa7b68bae7ade5e156d428aca33be681944d63c0'],
+  'src/errors.ts': ['afcc4d60414da733f09d0fce7acd00c8d7b961088d7ff701cd96b31eefcc608c'],
+  'src/goal-contract.ts': ['8add9c3b4715b09c79962e1aefe0279a9a83fabf3e4a998cef2fff2bc2f29d15'],
+  'src/goal.ts': ['edfc9affd3b7b9492f31fea833a67590a97b51a94a68cf39e95908424cf4db3e', '12c9c560d54c1d455ecb69547454b356d2f3386acbe5c63920668e7f6bc8fbd0'],
+  'src/index.ts': ['6ab0c01a44bf7bb78010c9d55713edbacb5a1bfbaa10d558835f906d589b6082'],
+  'src/lifecycle.ts': ['e758af48b13dd7688bbc6adb9a2881f6cc0d7c34b702eb37b894d22d79b10a23', '9c820876c4ef5dc29a0b0eedb99bbbd0e8adf844548e2846eab05f2f46edb0b2'],
+  'src/markers.ts': ['cfd25799640ac51230c7f11740cb7d8dd955d7ef7c461e0d3ca9286a7968d837'],
+  'src/menu.ts': ['5a64f4eb6c1bc1d2cc02956df30b3f5eeaf9cedafaf7265704c1c958758fede4'],
+  'src/persistence.ts': ['fc4a213f97c9396fcdfa9123266c4095d092e64bdc96f5e45322e471614bd47c'],
+  'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', '8595c4a6aee3b485504f6c0d0ab51091d669fc6bfd9ff89ba94c251934ef2231'],
+  'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
+  'src/runtime.ts': ['4dbb2be140a035241265724ebb91401a08417f4d8abed2e58973bf8baa72f706', '3c44ff728961ab627b334a32ce847cfdfefa6125763e9839680df63d2eee1ea0'],
+  'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8'],
+  'src/settings-ui.ts': ['a0482ed1fb6bf15a00a251ea576419248e9ae81fbae485145ae78a62798127d5'],
+  'src/settings.ts': ['0a16915b084ffc1ec69e3884fe29e8ab2edb3675e5d87f8ccff67e386c3bd4b9', 'e2fafa65a07b40a8c7fbd46fcf95c3177ecd16afaa961443dbdd69d312689ba4'],
+  'src/tool-policy.ts': ['c0aec081211be439d6dd8ee752240989697e6178673540d7212d1708ba15c627', '863ad95d1d4b5891fbc7b9756be89a4f366027b44e7c46b7c6929f72ef3f5ee0'],
+  'src/tools.ts': ['97a365b184c80d78444719fd90ab1ccec69ba54675b0d679feccdd36ade99feb'],
+  'src/wait.ts': ['5ab36f8be3270aa9cb34c36cb77c0b696453e4e378f756b159b5274d45711347'],
+  'src/workflow-mutex.ts': ['46b8103f49e48092d95d00b5e0877041537c7ee41453689def457c4addbc15d3'],
+};
+function validate05415(directory) {
+  for (const [path, reviewed] of Object.entries(REVIEWED_05415)) {
+    const fullPath = join(directory, path);
+    const info = lstatSync(fullPath);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Unsafe Goal source path: ${path}`);
+    const digest = createHash('sha256').update(readFileSync(fullPath)).digest('hex');
+    if (!reviewed.includes(digest)) throw new Error(`Goal source digest changed: ${path}`);
+  }
+}
+
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';
 export const TOOL_POLICY_PATCH_MARKER = 'CODEFLARE_GOAL_LAZY_TOOL_ACTIVATION';
@@ -925,6 +964,11 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     throw new Error(`${directory}: pi-goal package layout is incomplete for ${expectedVersion}`);
   }
 
+  if (expectedVersion === '0.54.15') {
+    const info = lstatSync(paths.packageJson);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error('Unsafe Goal package manifest');
+    validate05415(directory);
+  }
   let packageManifest;
   try {
     packageManifest = JSON.parse(readFileSync(paths.packageJson, 'utf8'));
@@ -935,6 +979,9 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   }
   if (packageManifest.version !== expectedVersion) {
     throw new Error(`pi-goal ${packageManifest.version ?? 'missing'} != expected ${expectedVersion}`);
+  }
+  if (expectedVersion === '0.54.15' && packageManifest.name !== '@narumitw/pi-goal') {
+    throw new Error('Goal package identity mismatch');
   }
   const declaredEntrypoints = packageManifest.pi?.extensions;
   const entrypointIsSupported = Array.isArray(declaredEntrypoints)
@@ -959,7 +1006,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   };
   // These reviewed releases use two-space indentation. Round-trip only
   // leading indentation through the existing exact, fail-closed patch anchors.
-  if (expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13') {
+  if (expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13' || expectedVersion === '0.54.15') {
     for (const name of Object.keys(originals)) {
       originals[name] = originals[name].replace(/^(?:  )+/gm, (indent) => '\t'.repeat(indent.length / 2));
     }
@@ -991,9 +1038,18 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     }
   }
 
+  if (expectedVersion === '0.54.15') {
+    for (const [name, source] of Object.entries(patched)) {
+      const bytes = source.replace(/^\t+/gm, (indent) => '  '.repeat(indent.length));
+      const reviewed = REVIEWED_05415[`src/${name === 'toolPolicy' ? 'tool-policy' : name}.ts`];
+      if (createHash('sha256').update(bytes).digest('hex') !== reviewed.at(-1)) {
+        throw new Error(`Goal prepared source digest changed: ${name}`);
+      }
+    }
+  }
   writeFileSync(paths.packageJson, patchedPackageManifest);
   for (const name of ['commands', 'goal', sessionSourceName, 'prompts', 'runtime', 'settings', 'toolPolicy']) {
-    const source = expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13'
+    const source = expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13' || expectedVersion === '0.54.15'
       ? patched[name].replace(/^\t+/gm, (indent) => '  '.repeat(indent.length))
       : patched[name];
     writeFileSync(paths[name], source);

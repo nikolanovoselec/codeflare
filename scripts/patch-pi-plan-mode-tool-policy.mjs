@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_PI_PLAN_MODE_VERSION = '0.55.3';
-const SUPPORTED_VERSIONS = [EXPECTED_PI_PLAN_MODE_VERSION, '0.56.0', '0.58.3', '0.59.2', '0.59.4'];
+const SUPPORTED_VERSIONS = [EXPECTED_PI_PLAN_MODE_VERSION, '0.56.0', '0.58.3', '0.59.2', '0.59.4', '0.59.6'];
 // Integrity-verified 0.59.4 source profile; native custom-turn boundary is
 // already correct (and covered behaviorally), so do not patch it a second time.
 const REVIEWED_0594 = {
@@ -20,8 +20,17 @@ const REVIEWED_0594 = {
   'src/tool-policy.ts': '5f807c5c9c21afa9bd15b4a028828c33a6c3c4109fd90965d55590bde7ff6a19',
   'dist/chunks/chunk-MJV6WNHK.ts': '9f9f0b598741d2d7da001fb1912d12d658e48dd21e68cd3743a213a07b810548',
 };
-function validate0594(root) {
-  for (const [path, expected] of Object.entries(REVIEWED_0594)) {
+// Registry-integrity verified 0.59.6; src matches upstream commit
+// 980db40db9b1db3b8dc92b2b1837eb06841bfea2. Native custom-turn boundary
+// and parsed policy are unchanged; passive settings timers now unref.
+const REVIEWED_0596 = {
+  'src/plan-mode.ts': '30a2c82f7c0a42ad7d236ae1b016981a915a04f16e0cb768ccb2f1c729d327ff',
+  'dist/index.ts': '53b75847606f5d96b93bf90183045a2078b986213ffcf1e6fe445beba2f20f1f',
+  'src/tool-policy.ts': '5f807c5c9c21afa9bd15b4a028828c33a6c3c4109fd90965d55590bde7ff6a19',
+  'dist/chunks/chunk-W7D6N2MI.ts': 'eef51fcdc9bd25a8cf64bfaf8a13e3011fb2aa0fb936f388fad2f167794abe8c'
+};
+function validateReviewedSources(root, profile) {
+  for (const [path, expected] of Object.entries(profile)) {
     const info = lstatSync(join(root, path));
     if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Unsafe Plan Mode source path: ${path}`);
     let source = readFileSync(join(root, path), 'utf8');
@@ -80,8 +89,8 @@ export function patchPiPlanModeSource(source, kind, version) {
     throw new Error(`Plan Mode ${kind} helper anchor count ${count(source, ACTIVE_HELPERS)}; expected 2`);
   }
   const usesTabs = kind === 'source' && source.includes(SOURCE_ACTIVE_POLICY);
-  const activePolicy = (version === '0.59.2' || version === '0.59.4') ? AVAILABLE_POLICY : usesTabs ? SOURCE_ACTIVE_POLICY : DIST_ACTIVE_POLICY;
-  const registeredPolicy = (version === '0.59.2' || version === '0.59.4') ? REGISTERED_AVAILABLE_POLICY : usesTabs ? SOURCE_REGISTERED_POLICY : DIST_REGISTERED_POLICY;
+  const activePolicy = (version === '0.59.2' || version === '0.59.4' || version === '0.59.6') ? AVAILABLE_POLICY : usesTabs ? SOURCE_ACTIVE_POLICY : DIST_ACTIVE_POLICY;
+  const registeredPolicy = (version === '0.59.2' || version === '0.59.4' || version === '0.59.6') ? REGISTERED_AVAILABLE_POLICY : usesTabs ? SOURCE_REGISTERED_POLICY : DIST_REGISTERED_POLICY;
   if (count(source, activePolicy) !== 1) {
     throw new Error(`Plan Mode ${kind} policy anchor count ${count(source, activePolicy)}; expected 1`);
   }
@@ -118,12 +127,20 @@ export function patchPiPlanModeDirectory(version, root) {
   if (!SUPPORTED_VERSIONS.includes(version)) {
     throw new Error(`Unsupported Plan Mode version ${version}; expected ${SUPPORTED_VERSIONS.join(' or ')}`);
   }
+  if (version === '0.59.6') {
+    const info = lstatSync(join(root, 'package.json'));
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error('Unsafe Plan Mode package manifest');
+  }
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   if (manifest.version !== version) throw new Error('Plan Mode package version does not match requested patch version');
+  if (version === '0.59.6' && (!Array.isArray(manifest.pi?.extensions)
+    || manifest.pi.extensions.length !== 1 || manifest.pi.extensions[0] !== './dist/index.ts')) {
+    throw new Error('Plan Mode declares an unsupported Pi extension entrypoint');
+  }
 
-  if (version === '0.59.4') {
+  if (version === '0.59.4' || version === '0.59.6') {
     if (manifest.name !== '@narumitw/pi-plan-mode') throw new Error('Plan Mode package identity mismatch');
-    validate0594(root);
+    validateReviewedSources(root, version === '0.59.6' ? REVIEWED_0596 : REVIEWED_0594);
   }
   const paths = [
     { path: join(root, 'src', 'plan-mode.ts'), kind: 'source' },
@@ -133,11 +150,11 @@ export function patchPiPlanModeDirectory(version, root) {
     const source = patchPiPlanModeSource(readFileSync(path, 'utf8'), kind, version);
     return { path, source: version === '0.59.2' ? patchUserPromptBoundary(source, kind) : source };
   });
-  if (version === '0.56.0' || version === '0.58.3' || version === '0.59.2' || version === '0.59.4') {
-    const current = version === '0.59.2' || version === '0.59.4';
+  if (version === '0.56.0' || version === '0.58.3' || version === '0.59.2' || version === '0.59.4' || version === '0.59.6') {
+    const current = version === '0.59.2' || version === '0.59.4' || version === '0.59.6';
     const path = join(root, 'src', 'tool-policy.ts');
     patched.push({ path, source: patchParsedCommandPolicy(readFileSync(path, 'utf8'), current ? 'true' : 'undefined', current ? 'segment' : 'command') });
-    const chunk = join(root, 'dist', 'chunks', current ? 'chunk-MJV6WNHK.ts' : version === '0.58.3' ? 'chunk-L2CXUWCH.ts' : 'chunk-57OBPS7P.js');
+    const chunk = join(root, 'dist', 'chunks', version === '0.59.6' ? 'chunk-W7D6N2MI.ts' : current ? 'chunk-MJV6WNHK.ts' : version === '0.58.3' ? 'chunk-L2CXUWCH.ts' : 'chunk-57OBPS7P.js');
     patched.push({ path: chunk, source: patchParsedCommandPolicy(readFileSync(chunk, 'utf8'), current ? 'true' : 'void 0', current ? 'segment' : 'command') });
   }
   for (const file of patched) writeFileSync(file.path, file.source);

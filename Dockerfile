@@ -88,14 +88,14 @@ RUN curl -fsSL https://static.rust-lang.org/dist/2026-10-15/rust-1.99.1-x86_64-u
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
     && /tmp/rust-1.99.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
     && rm -rf /tmp/rust.tar.xz /tmp/rust-1.99.1-x86_64-unknown-linux-gnu
-COPY image/impeccable-engine.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
+COPY image/impeccable-engine.json image/impeccable-engine-4.8.0.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
 RUN <<'IMPECCABLE'
 set -eu
 export CARGO_TARGET_DIR=/tmp/impeccable-target
-for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine-4.5.0.json /tmp/impeccable-engine-4.6.0.json /tmp/impeccable-engine-4.7.0.json /tmp/impeccable-engine.json; do
-  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11","0.1.15","0.1.16","0.1.18"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")' "$PIN"
+for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine-4.5.0.json /tmp/impeccable-engine-4.6.0.json /tmp/impeccable-engine-4.7.0.json /tmp/impeccable-engine-4.8.0.json /tmp/impeccable-engine.json; do
+  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11","0.1.15","0.1.16","0.1.18","0.1.21"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256) || (p.version === "0.1.21" && (p.commit !== "fe45455d36ed14c85ece25c9b868344e55713352" || p.sha256 !== "36ebd8da4a2c6117202c9816634a05de6bcc3a55e6bba84d49e247bb7f06892b"))) throw new Error("Invalid Impeccable engine pin")' "$PIN"
   VERSION=$(node -p 'require(process.argv[1]).version' "$PIN")
   COMMIT=$(node -p 'require(process.argv[1]).commit' "$PIN")
   SHA256=$(node -p 'require(process.argv[1]).sha256' "$PIN")
@@ -105,6 +105,7 @@ for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json 
   echo "$SHA256  /tmp/impeccable.tar.gz" | sha256sum -c -
   tar --strip-components=1 -xzf /tmp/impeccable.tar.gz
   rm /tmp/impeccable.tar.gz
+  python3 -c 'import sys,tomllib; actual=tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"]; sys.exit(0 if actual == sys.argv[1] else "Impeccable source version differs from image pin")' "$VERSION"
   cargo build --locked --release -p impeccable
   python3 /tmp/impeccable-engine.py "$CARGO_TARGET_DIR/release/impeccable" --expect-idle-bug "--engine-version=$VERSION"
   python3 /tmp/patch-impeccable-engine.py "/src/impeccable/$VERSION"

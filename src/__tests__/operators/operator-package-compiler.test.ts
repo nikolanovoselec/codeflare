@@ -22,8 +22,9 @@ function bytes(result: Awaited<ReturnType<typeof compileOperatorPackage>>, name:
 }
 
 describe('shared operator package compiler', () => {
-  it('REQ-OPERATOR-044: AC4 normal packaging emits exactly three immutable assets with generated deployment metadata', async () => {
-    const bundle = normalDispatcherBundle();
+  it.each(['0.30.1', '0.33.0'])('REQ-OPERATOR-044: AC4 normal packaging emits exactly three immutable assets with generated deployment metadata / Agents %s', async agents => {
+    const normal = normalDispatcherBundle();
+    const bundle = { ...normal, versions: { ...normal.versions, agents } };
     const provenance = { repositoryId: 7, sourceCommit: bundle.sourceCommit, compilerCommit: 'c'.repeat(40),
       workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 } };
     const first = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle, provenance });
@@ -39,8 +40,9 @@ describe('shared operator package compiler', () => {
       manifestDigest: sha(bytes(first, 'operator-manifest.json')), bundleDigest: sha(bytes(first, 'operator-bundle.json')) });
   });
 
-  it('REQ-OPERATOR-030: AC4/5 normal packaging refuses authority metadata rather than silently stripping it', async () => {
-    const bundle = normalDispatcherBundle();
+  it.each(['0.30.1', '0.33.0'])('REQ-OPERATOR-030: AC4/5 normal packaging refuses authority metadata rather than silently stripping it / Agents %s', async agents => {
+    const normal = normalDispatcherBundle();
+    const bundle = { ...normal, versions: { ...normal.versions, agents } };
     await expect(compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: { ...bundle,
       hosting: { ...bundle.hosting, connectionSecret: 'package-must-not-supply-authority' } } })).rejects.toThrow(/Invalid operator package/);
     await expect(compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: { ...bundle,
@@ -58,7 +60,7 @@ describe('shared operator package compiler', () => {
   });
 
   it.each([
-    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'],
+    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'], ['2.3.0', '0.33.0'],
   ])('REQ-OPERATOR-044: emits SDK %s / Agents %s with provenance over exact emitted bytes', async (version, agents) => {
     const result = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: dispatcher(version, agents), provenance: {
       repositoryId: 7, sourceCommit: 'a'.repeat(40), compilerCommit: 'b'.repeat(40), workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 },
@@ -82,6 +84,12 @@ describe('shared operator package compiler', () => {
   });
 
   it.each([
+    { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.33.0' },
+    { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.33.0' },
+    { runtime: '2.3.0', vitePlugin: '2.2.2', agents: '0.33.0' },
+    { runtime: '2.3.1', vitePlugin: '2.3.1', agents: '0.33.0' },
+    { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.1' },
+    { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.0', unapproved: true },
     { runtime: '2.1.0', vitePlugin: '2.2.2', agents: '0.20.1' },
     { runtime: '2.2.2', vitePlugin: '2.1.0', agents: '0.20.1' },
     { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.24.0' },

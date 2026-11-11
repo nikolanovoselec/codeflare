@@ -100,3 +100,62 @@ describe('shadow-pin workflow forward-only routing', () => {
     }
   });
 });
+
+describe('manual updater input and credential security contracts', () => {
+  it('rejects malformed, non-forward and missing registry versions before publishing a candidate', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'manual-pin-security-'));
+    const output = join(directory, 'output');
+    const npm = join(directory, 'npm');
+    // Registry metadata fixture only: never install or access the network.
+    writeFileSync(npm, '#!/usr/bin/env bash\nprintf \'"%s"\\n\' "$REGISTRY_VERSION"\n');
+    chmodSync(npm, 0o755);
+    try {
+      for (const [jobName, inputName] of [['agent-clis', 'PI_VERSION'], ['root-agents', 'REQUESTED_VERSION']]) {
+        const step = workflow.jobs[jobName].steps.find(step => step.id === 'ver');
+        for (const [requested, registry, accepted] of [
+          ['999.0.0', '999.0.0', true],
+          ['999.0.0', '998.0.0', false],
+          ['0.0.0', '0.0.0', false],
+          ['999.0.0-beta.1', '', false],
+          ['0999.0.0', '', false],
+          ['999.0.0\n', '', false],
+          ['999.0.0\nlatest=1.0.0', '', false],
+          ['$(exit 0)', '', false],
+        ]) {
+          writeFileSync(output, '');
+          const result = spawnSync('bash', ['-c', step.run], {
+            cwd: resolve(__dirname, '../..'), encoding: 'utf8',
+            env: {
+              ...process.env, PATH: `${directory}:${process.env.PATH}`,
+              GITHUB_OUTPUT: output, COOLDOWN_VERSION: '',
+              PKG: '@earendil-works/pi-coding-agent',
+              [inputName]: requested, REGISTRY_VERSION: registry,
+            },
+          });
+          assert.equal(result.status === 0, accepted, `${jobName}: ${JSON.stringify(requested)}: ${result.stderr}`);
+          const published = readFileSync(output, 'utf8');
+          if (accepted) assert.ok(published.includes(`latest=${requested}\n`));
+          else assert.equal(published, '', 'untrusted candidates must not reach workflow outputs');
+        }
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('does not persist checkout credentials or expose tokens to dependency execution', () => {
+    for (const jobName of ['agent-clis', 'root-agents']) {
+      const job = workflow.jobs[jobName];
+      assert.equal(job.env?.GH_TOKEN, undefined);
+      for (const step of job.steps) {
+        if (step.uses?.startsWith('actions/checkout@')) {
+          assert.equal(step.with['persist-credentials'], false);
+        }
+        if (step.env?.GH_TOKEN) {
+          assert.ok(/git push|gh pr create/.test(step.run), 'token belongs only to delivery steps');
+          assert.doesNotMatch(step.run, /\bnpm\b|\bnode\b/, 'no dependency execution with a delivery token');
+        }
+      }
+    }
+  });
+});

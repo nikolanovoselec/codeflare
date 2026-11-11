@@ -10,20 +10,29 @@ import time
 
 
 def verify_engine(binary, expect_idle_bug=False, expected_version="0.1.15"):
-    assert expected_version in ("0.1.5", "0.1.10", "0.1.11", "0.1.15", "0.1.16", "0.1.18"), expected_version
+    assert expected_version in ("0.1.5", "0.1.10", "0.1.11", "0.1.15", "0.1.16", "0.1.18", "0.1.21"), expected_version
     probe = subprocess.run([binary, "engine-probe"], capture_output=True, text=True, timeout=10, check=True)
     assert probe.stdout.strip() == f"impeccable-engine {expected_version}", probe.stdout
     with tempfile.TemporaryDirectory(prefix="impeccable-engine-") as directory:
         questions = Path(directory) / ".impeccable" / "questions"
         questions.mkdir(parents=True)
-        open_case = (20, 4, "PAGE CLOSED:") if expect_idle_bug else (20, 3, "WAITING:")
-        for age_seconds, expected_status, expected_text in [open_case, (70, 4, "PAGE CLOSED:")]:
+        # Legacy upstream closes too early (15s); 0.1.21 closes too late
+        # for grace=60 (90s). Both also ignore a longer configured grace.
+        legacy_upstream = expect_idle_bug and expected_version != "0.1.21"
+        for age_seconds, grace_seconds, closes in [
+            (20, 60, legacy_upstream),
+            (70, 60, not expect_idle_bug or legacy_upstream),
+            (110, 60, True),
+            (100, 120, expect_idle_bug),
+            (130, 120, True),
+        ]:
+            expected_status, expected_text = (4, "PAGE CLOSED:") if closes else (3, "WAITING:")
             (questions / "question.state.json").write_text(json.dumps({
                 "pid": os.getpid(), "lastBeat": time.time() * 1000 - age_seconds * 1000,
             }))
             result = subprocess.run([
                 binary, "serve-question", "--wait", "--key", "question",
-                "--poll", "0.2", "--idle-grace", "60",
+                "--poll", "0.2", "--idle-grace", str(grace_seconds),
             ], cwd=directory, capture_output=True, text=True, timeout=10)
             assert result.returncode == expected_status, (result.returncode, result.stdout, result.stderr)
             assert result.stdout.startswith(expected_text), result.stdout

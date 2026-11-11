@@ -7,7 +7,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { build } from 'esbuild';
 
 import {
   COMMANDS_PATCH_MARKER,
@@ -42,6 +41,32 @@ function restoreCandidateSources(root) {
   const records = JSON.parse(gunzipSync(Buffer.from(CANDIDATE_SOURCE_DELTA, 'base64')));
   for (const [path, beforeHash, afterHash, edits] of records) {
     let source = existsSync(join(root, path)) ? readFileSync(join(root, path)) : Buffer.alloc(0);
+    assert.equal(createHash('sha256').update(source).digest('hex'), beforeHash, path);
+    for (const [offset, length, bytes] of edits.toReversed()) {
+      source = Buffer.concat([source.subarray(0, offset), Buffer.from(bytes, 'base64'), source.subarray(offset + length)]);
+    }
+    assert.equal(createHash('sha256').update(source).digest('hex'), afterHash, path);
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), source);
+  }
+}
+
+// Registry SHA-512 verified captures; every src file matches authenticated GitHub
+// contents at 980db40db9b1db3b8dc92b2b1837eb06841bfea2.
+// Goal 0.54.15: sha512-BuV7MCvW389fBELeKlcxfFJhPvrpJIV7HceEmiKqI9dsjX0eCX6S0t7N22dYSAKg2X1R7P40nCHkRKuBw0kVIg==
+// Plan 0.59.6: sha512-c749Stq0YL0Sj3W62o8puWOUhvjbExGu4MAreepnuodI3mqDdzm10duT3broRD7J0RdRVJ0dotONH7lT5oxEGA==
+// Byte deltas retain genuine generated entrypoints/chunks; these are not tarballs.
+const TARGET_SOURCE_DELTAS = {
+  "goal": "H4sIAAAAAAACA5WSy3LaMBSG38VrT6qjiyUtuqAuJCaQNJDaEIaFpCMxNhiYAKHu01cw0/S26lJH//nO7V8skr1xa7PyN81ht03SRHjUFi1lSLixFrTQxjpkKCVRqBQ6FYBYCVSCVJl0JhgUgfPgiQ4ii4gsOJlZNNRFiqAsGGaDs0I6mjn0gXqTRY6hIv4AYkzWVgYED6iQ2SRdLBhLKU+TIu/V2Jado5s3WxdZkRfnUfOVjJo+FPX5PlmmC5axlFylqyIffp72B48TUo6fiTvZ6qke9XYfLzJNZQpUvAt7L9Wge6nE2lTnI1LdGTZ+c7fr47xa1491rx5POYya3gWwuuasP23ms+HGtpO9zYFZNnx1nT6bKTSWxljrYi5u7Pbpf/MJ/lvz2jQQKdPfmiZ+FiGt5kUToU3/9JDz7z8XASBYytSvCW076LCCPd6562R4V+5H1XGP+WWTQz/OOX2c8nOxulRbpn96IRKTw6v78HraHuvW3xwP8bZGGAQajaFDJomW8YkCnHPeBaoICxycEJYEz0KUcREsR8klzxRRQYmI4GgttR44MYQJyoFmQlLuIzPGwBDFQQaOyliP1AulZfSPssZIGiTJLvbgGiR/v/rdZGdm49Oc6qO7/bbB22iWzQOZzybgIC67KrvRtjy5tmy/dHx3/3y4v47713TL5Q95zPQPDwMAAA==",
+  "plan": "H4sIAAAAAAACA72VSXMaSRCF/wtnZNeaVXXwQSADjQBZC92AQodaUbOPaKRBv36yJVkzsh2eiDlMBAQRRXV25fdevrq9bYRyX33294fNcv/6c1KoMxixYfap2jeaDZNMIk4arQQNLKhgCaHJUUNZwA9IHYUOgdEI2geuBLeMckuU05RIobFEjEnS5IM3LjBptU8gXLJJW8ojJxTLMWtJcoZD4lonG1iioJQR1kXtG83bW8GogSZpNrL26Tzr9veOjR5mxSVkvf3cstVhdradZ5sOnU1GxBbmkJVPc1fkz551NrMb/G/ZOXgeVr5sXbpu55B16eOsO577Sb7y/GrnmHzOypYZnG6/NO6at4oLME3Bm43BUS+y3ugxTPqL2Zje+15r59YhHy+fzJTdU7feV/lz+DpaiuPNeHkIveHBFZ2n9vwLVrpr/gLxsJ9DMeqd14jxXR92lJsqPlhflY/x5FCeXHVVu1VA51UNKSFKQwDACgIqWcmdcVE5pR1JlrvkueEqRc+4CcLqKAMFFq2KIroYsQQoICm5pIFGYyEAky6GBBrXFQCVSQntKKMiKqa85MCcszZaHznVIGo1NIEmRzHSdWvt16bK2tlhwEbbUMiHQY44z2YXwyXtDzZXz9lif143yY0yqinZ74HaQpLZpH8/RUnCelyFYlmNl55fkv5ktJz+Hu4P6DqqMxypzs0HyuUmxD9fYSIWQyXxvu7aRxVkQDDeUm+SSpxITwUJzHCJpo+Re2BWGc6IYiEEMLUe3CmpBaKDJIMBtLBLhlDNiZAWd2pnNOBApOQTjkiKQiBuZ1liJNFUw6QSZJOrX9P0R7OwvfxgjxSNfcluFv3R9TUe+pipVwbNWyEMsKYRb8OB348U89zmraNjdOfZeP7tGmlPWo9+c7nNSvH4auHqeYBDFLr5cVrgAE1mq8Ek3w3yfm9ERu38edZ90bJcHqasQ6Zsvj3HvXja4/n1qflWtt5PIyUSep/U3mgVele1vM/jdY5T21nm3VU1m2QHbO84K6afB+V8d/G0/Yec7xrVqu2sX9p5/LTYbzdIPCkfaIja6sSZdeCJ4UIEJlTyjkuuIuPcgHRUBRKEkkYyr7xXDhxxAu3bECxK4QyL3IVgTCCGgg4OjLKccmUkScEKwxhgxHmOgxKSE8yRYLU1/kU0rpuMv/RYIuCjZ6tHV2aA0j0NFmM5WEzL70mCFd9xtPtn1187F1ckH94Qj06+fN+mOW1q9b7vdFZ0EI9c2uKpQhMeLR8++u6ymjKDa3IzKDDYUOdsgeG2+HoYXYsnDL3zf3s+9PLdj8/U76eUow313wdw684xFHQXev79wUFR7UK77rMfh23BLuoC8zftPihVS7d/8J93K7s5WW9DfJs5BZ46ZjTFqySx4L2LNOJq0l4HyYMWhGAoAeMYRFaCZiBA4ghyprSyWIITy7xmaARiBbNYh3GwkTpCAevWM22JwAskEu8U3kre4XXiFTN1jfQ6cwoz9D+b9Ke+vjf7xyHuq3K7Oam229Vrw4AnURgtDoBoTBtAMyZhrecUbMCzciMlkWCAJwIxxBQwNJhBszGjOKkb1phJ0roARFDHubOBU8VqKiCoAGqMdk4FzJfoqKXJ8IhmB4qxJq0ndcMYceT/uz7fGP2E4+7uL7UXcURyCAAA"
+};
+function restoreTargetSources(key, root) {
+  const records = JSON.parse(gunzipSync(Buffer.from(TARGET_SOURCE_DELTAS[key], 'base64')));
+  for (const [path, beforeHash, afterHash, edits, basePath] of records) {
+    assert.ok(path === 'package.json' || /^(src|dist)\/[a-zA-Z0-9_./-]+$/.test(path));
+    assert.ok(!path.split('/').includes('..'));
+    assert.ok(!basePath.split('/').includes('..'));
+    let source = existsSync(join(root, basePath)) ? readFileSync(join(root, basePath)) : Buffer.alloc(0);
     assert.equal(createHash('sha256').update(source).digest('hex'), beforeHash, path);
     for (const [offset, length, bytes] of edits.toReversed()) {
       source = Buffer.concat([source.subarray(0, offset), Buffer.from(bytes, 'base64'), source.subarray(offset + length)]);
@@ -563,6 +588,19 @@ const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.55
 const PINNED_PLAN_INTEGRITY = 'sha512-pBLJdDWsANbMmRkTtTUcEJO95WY3tRmbWbS57uKIHsbQ5dc5sStD20R4qpcGXSl/r5tyPVR2Gru/YqwCqpmJ3Q==';
 
 function extractPackage(archivePath, integrity, root) {
+  if (archivePath === 'candidate:goal' || archivePath === 'candidate:plan') {
+    const key = archivePath.slice('candidate:'.length);
+    if (key === 'goal') {
+      extractPackage(join(FIXTURES_DIRECTORY, 'pi-goal-0.54.13-source.json'),
+        'sha512-g770YeTpnO6MPNpldrBA+MQXNE1hXEeSPmdgBS1wqTZKAMhd3emrPFSmivg7wa3ABcfmfE24plrSvzVgfnez5w==', root);
+    } else {
+      extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
+        'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==', root);
+      restoreCandidateSources(root);
+    }
+    restoreTargetSources(key, root);
+    return;
+  }
   const archive = readFileSync(archivePath);
   assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, integrity);
   if (archivePath.endsWith('-source.json')) {
@@ -622,6 +660,7 @@ const PINNED_RUNTIME_STUBS = {
 };
 
 async function bundleFixture(entryPoint, outputPath, exportName = 'default') {
+  const { build } = await import('esbuild');
   await build({
     entryPoints: [entryPoint],
     outfile: outputPath,
@@ -736,13 +775,84 @@ function createExtensionHarness() {
   };
 }
 
+it('REQ-AGENT-111 / REQ-OPS-020: reviewed Goal target preparation is repeatable and rejects pristine or prepared source drift atomically', t => {
+  const root = mkdtempSync(join(tmpdir(), 'pi-goal-05415-identity-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  extractPackage('candidate:goal', undefined, root);
+  patchPiGoalDirectory('0.54.15', root);
+  const prepared = readFixturePackage(root);
+  patchPiGoalDirectory('0.54.15', root);
+  assert.deepEqual(readFixturePackage(root), prepared);
+  for (const phase of ['pristine', 'prepared']) {
+    for (const path of ['src/commands.ts', 'src/goal.ts', 'src/lifecycle.ts', 'src/prompts.ts',
+      'src/runtime.ts', 'src/settings.ts', 'src/tool-policy.ts', 'src/accounting.ts']) {
+      const driftRoot = mkdtempSync(join(tmpdir(), `pi-goal-${phase}-drift-`));
+      t.after(() => rmSync(driftRoot, { recursive: true, force: true }));
+      extractPackage('candidate:goal', undefined, driftRoot);
+      if (phase === 'prepared') patchPiGoalDirectory('0.54.15', driftRoot);
+      writeFileSync(join(driftRoot, path), readFileSync(join(driftRoot, path), 'utf8') + '\n// unreviewed drift\n');
+      const before = readFixturePackage(driftRoot);
+      const drift = readFileSync(join(driftRoot, path));
+      assert.throws(() => patchPiGoalDirectory('0.54.15', driftRoot), /source digest/);
+      assert.deepEqual(readFixturePackage(driftRoot), before, 'validation completes before any write');
+      assert.deepEqual(readFileSync(join(driftRoot, path)), drift);
+    }
+  }
+});
+
+it('REQ-AGENT-178: Plan 0.59.6 validates the exact chunk and all destinations before writing', t => {
+  const paths = ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-W7D6N2MI.ts'];
+  for (const phase of ['pristine', 'prepared']) {
+    for (const path of paths) {
+      const root = mkdtempSync(join(tmpdir(), 'pi-plan-0596-identity-'));
+      t.after(() => rmSync(root, { recursive: true, force: true }));
+      extractPackage('candidate:plan', undefined, root);
+      if (phase === 'prepared') {
+        patchPiPlanModeDirectory('0.59.6', root);
+        const before = paths.map(path => readFileSync(join(root, path)));
+        patchPiPlanModeDirectory('0.59.6', root);
+        assert.deepEqual(paths.map(path => readFileSync(join(root, path))), before);
+      }
+      writeFileSync(join(root, path), readFileSync(join(root, path), 'utf8') + '\n// unreviewed drift\n');
+      const before = paths.map(path => readFileSync(join(root, path)));
+      assert.throws(() => patchPiPlanModeDirectory('0.59.6', root), /source digest/);
+      assert.deepEqual(paths.map(path => readFileSync(join(root, path))), before);
+    }
+  }
+});
+
+it('REQ-AGENT-111 / REQ-AGENT-178: target manifest drift fails before preparing any artifact', t => {
+  for (const key of ['goal', 'plan']) {
+    for (const field of ['name', 'version', 'entrypoint']) {
+      const root = mkdtempSync(join(tmpdir(), `pi-${key}-manifest-`));
+      t.after(() => rmSync(root, { recursive: true, force: true }));
+      extractPackage(`candidate:${key}`, undefined, root);
+      const manifestPath = join(root, 'package.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      if (field === 'entrypoint') manifest.pi.extensions = ['./unreviewed.ts'];
+      else manifest[field] = 'unreviewed';
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const paths = key === 'goal'
+        ? ['src/commands.ts', 'src/goal.ts', 'src/lifecycle.ts', 'src/prompts.ts', 'src/runtime.ts', 'src/settings.ts', 'src/tool-policy.ts']
+        : ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-W7D6N2MI.ts'];
+      paths.push('package.json');
+      const before = paths.map(path => readFileSync(join(root, path)));
+      assert.throws(() => key === 'goal' ? patchPiGoalDirectory('0.54.15', root) : patchPiPlanModeDirectory('0.59.6', root),
+        /identity|version|expected|entrypoint/);
+      assert.deepEqual(paths.map(path => readFileSync(join(root, path))), before);
+    }
+  }
+});
+
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
-  it('REQ-AGENT-111 / REQ-OPS-020: 0.54.13 retains queued contract order and custom startup ownership', async (t) => {
+  for (const goalVersion of ['0.54.13', '0.54.15']) {
+  it(`REQ-AGENT-111 / REQ-OPS-020: ${goalVersion} retains queued contract order and custom startup ownership`, async (t) => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-contract-queue-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     extractPackage(join(FIXTURES_DIRECTORY, 'pi-goal-0.54.13-source.json'),
       'sha512-g770YeTpnO6MPNpldrBA+MQXNE1hXEeSPmdgBS1wqTZKAMhd3emrPFSmivg7wa3ABcfmfE24plrSvzVgfnez5w==', root);
-    patchPiGoalDirectory('0.54.13', root);
+    if (goalVersion === '0.54.15') restoreTargetSources('goal', root);
+    patchPiGoalDirectory(goalVersion, root);
     const { GoalRuntime } = await bundleFixture(join(root, 'src/runtime.ts'), join(root, 'runtime.mjs'), 'namespace');
     const harness = createExtensionHarness();
     const deferred = [];
@@ -773,6 +883,8 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(result, undefined, 'custom startup does not inject a Goal boundary');
     assert.deepEqual(session.entries.filter(entry => entry.customType === 'goal-contract'), before);
   });
+
+  }
 
   it('REQ-AGENT-178: unreviewed Plan command layout fails without partial writes', (t) => {
     const root = mkdtempSync(join(tmpdir(), 'pi-plan-policy-drift-'));
@@ -819,13 +931,15 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     await harness.dispatch('session_shutdown');
   });
 
-  it('REQ-AGENT-178: Plan 0.59.4 prepares both entrypoints with registered-tool policy and parsed shell authorization', async t => {
+  for (const targetVersion of ['0.59.4', '0.59.6']) {
+  it(`REQ-AGENT-178: Plan ${targetVersion} prepares both entrypoints with registered-tool policy and parsed shell authorization`, async t => {
     const root = mkdtempSync(join(tmpdir(), 'pi-plan-0594-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
       'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==', root);
     restoreCandidateSources(root);
-    const paths = ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-MJV6WNHK.ts'];
+    if (targetVersion === '0.59.6') restoreTargetSources('plan', root);
+    const paths = ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', targetVersion === '0.59.6' ? 'dist/chunks/chunk-W7D6N2MI.ts' : 'dist/chunks/chunk-MJV6WNHK.ts'];
     // Qualify the native no-op before applying any compatibility preparation.
     for (const [index, entry] of paths.slice(0, 2).entries()) {
       const native = await bundleFixture(join(root, entry), join(root, `native-${index}.mjs`));
@@ -849,9 +963,9 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       await harness.commands.get('plan').handler('exit', harness.ctx);
       await harness.dispatch('session_shutdown');
     }
-    patchPiPlanModeDirectory('0.59.4', root);
+    patchPiPlanModeDirectory(targetVersion, root);
     const prepared = paths.map(path => readFileSync(join(root, path)));
-    patchPiPlanModeDirectory('0.59.4', root);
+    patchPiPlanModeDirectory(targetVersion, root);
     assert.deepEqual(paths.map(path => readFileSync(join(root, path))), prepared,
       'repeat preparation preserves all generated artifacts');
     for (const [index, entry] of ['src/plan-mode.ts', 'dist/index.ts'].entries()) {
@@ -899,10 +1013,12 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     }
     writeFileSync(join(root, paths[0]), Buffer.concat([prepared[0], Buffer.from('\n// drift after preparation\n')]));
     const drifted = paths.map(path => readFileSync(join(root, path)));
-    assert.throws(() => patchPiPlanModeDirectory('0.59.4', root), /source digest/);
+    assert.throws(() => patchPiPlanModeDirectory(targetVersion, root), /source digest/);
     assert.deepEqual(paths.map(path => readFileSync(join(root, path))), drifted,
       'repeat preparation rejects drift before any artifact write');
   });
+
+  }
 
   for (const version of ['0.59.2', '0.59.4']) {
   it(`REQ-AGENT-152 AC5 / REQ-AGENT-178: candidate Plan ${version} retains published user intent through custom turns but invalidates it on a user prompt`, async (t) => {
@@ -976,6 +1092,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
   });
 
   for (const versions of [
+    { goal: '0.54.15', plan: '0.59.6', goalArchive: 'candidate:goal', planArchive: 'candidate:plan' },
     { goal: EXPECTED_PI_GOAL_VERSION, plan: EXPECTED_PI_PLAN_MODE_VERSION,
       goalArchive: PINNED_PACKAGE_ARCHIVE, goalIntegrity: PINNED_PACKAGE_INTEGRITY,
       planArchive: PINNED_PLAN_ARCHIVE, planIntegrity: PINNED_PLAN_INTEGRITY },
@@ -1048,7 +1165,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const runtimePath = join(root, 'src/runtime.ts');
     writeFileSync(runtimePath, readFileSync(runtimePath, 'utf8').replace('return "complete";', 'return "unknown-status-layout";'));
     const before = paths.map(path => readFileSync(join(root, path), 'utf8'));
-    assert.throws(() => patchPiGoalDirectory(versions.goal, root), /Goal status formatter/);
+    assert.throws(() => patchPiGoalDirectory(versions.goal, root), /Goal status formatter|Goal source digest/);
     assert.deepEqual(paths.map(path => readFileSync(join(root, path), 'utf8')), before);
   });
 
@@ -1070,9 +1187,9 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const goalAfter = readFixturePackage(goalRoot);
     patchPiGoalDirectory(versions.goal, goalRoot);
     assert.deepEqual(readFixturePackage(goalRoot), goalAfter);
-    if (versions.plan === '0.56.0' || versions.plan === '0.58.3' || versions.plan === '0.59.2') {
+    if (versions.plan === '0.56.0' || versions.plan === '0.58.3' || versions.plan === '0.59.2' || versions.plan === '0.59.6') {
       const configured = { git: ['status', 'diff'], gh: ['pr view'] };
-      const policyChunk = versions.plan === '0.59.2' ? 'dist/chunks/chunk-MJV6WNHK.ts'
+      const policyChunk = versions.plan === '0.59.6' ? 'dist/chunks/chunk-W7D6N2MI.ts' : versions.plan === '0.59.2' ? 'dist/chunks/chunk-MJV6WNHK.ts'
         : versions.plan === '0.58.3' ? 'dist/chunks/chunk-L2CXUWCH.ts' : 'dist/chunks/chunk-57OBPS7P.js';
       for (const [index, file] of ['src/tool-policy.ts', policyChunk].entries()) {
         const policy = await bundleFixture(join(planRoot, file), join(planRoot, `policy-${index}.mjs`), 'namespace');
@@ -1148,7 +1265,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(response?.ok, true);
     assert.equal(response?.status, 'active');
     assert.notEqual(response?.goalId, pausedGoalId);
-    if (versions.goal === '0.54.8' || versions.goal === '0.54.11' || versions.goal === '0.54.13') {
+    if (versions.goal === '0.54.8' || versions.goal === '0.54.11' || versions.goal === '0.54.13' || versions.goal === '0.54.15') {
       const complete = harness.tools.find((tool) => tool.name === 'goal_complete');
       await harness.dispatch('before_agent_start', { prompt: 'Continue the resumed objective', systemPrompt: '' });
       await harness.dispatch('agent_start');

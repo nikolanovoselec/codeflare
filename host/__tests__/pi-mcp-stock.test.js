@@ -62,7 +62,7 @@ async function fixture(t, { unavailable = false, oauth = false } = {}) {
       pendingCall?.release(); activeCall?.release();
       if (session) {
         try { await shutdown(); }
-        finally { session.dispose(); }
+        finally { await session.dispose(); }
       }
     } finally {
       globalThis.fetch = originalFetch;
@@ -109,6 +109,10 @@ async function fixture(t, { unavailable = false, oauth = false } = {}) {
     ...(oauth ? { oauthCredentialStore: 'encrypted-file' } : {}) },
     mcpServers: { [name]: server,
       ...(unavailable ? { 'codeflare-portal-unavailable': { ...server, url: 'https://unavailable.example/mcp' } } : {}) } };
+  // Script only the provider wire response. Pi still persists the assistant,
+  // validates and dispatches its tool call, and runs all permission hooks.
+  let requestedCall, callSequence = 0, callbackInput, denyTool;
+  const permissions = [];
   const requests = [];
   const sessions = new Set(), grants = [];
   let expiredIssuerAccess = false;
@@ -118,6 +122,22 @@ async function fixture(t, { unavailable = false, oauth = false } = {}) {
     code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'] };
   globalThis.fetch = async (input, init) => {
     const request = new Request(input, init), u = new URL(request.url);
+    if (u.hostname === 'assistant.example') {
+      assert.equal(u.pathname, '/v1/chat/completions');
+      const body = await request.json();
+      assert.equal(body.model, 'qualification');
+      const next = requestedCall;
+      requestedCall = undefined;
+      if (next) assert.ok(body.tools?.some(tool => tool.function.name === 'mcp'), 'proxy is declared to the assistant');
+      const delta = next ? { role: 'assistant', tool_calls: [{ index: 0, id: next.id, type: 'function',
+        function: { name: 'mcp', arguments: JSON.stringify(next.args) } }] }
+        : { role: 'assistant', content: 'Qualification turn finished.' };
+      const chunk = (delta, finish_reason) => ({ id: 'synthetic-completion', object: 'chat.completion.chunk',
+        created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason }] });
+      return new Response([chunk(delta, null), chunk({}, next ? 'tool_calls' : 'stop')]
+        .map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n',
+      { headers: { 'Content-Type': 'text/event-stream' } });
+    }
     // Only the explicitly unmanaged fixture may use Pi-owned native OAuth.
     if (oauth && u.hostname === 'local-oauth.example') {
       if (u.pathname.startsWith('/.well-known/oauth-protected-resource')) return Response.json({
@@ -206,28 +226,65 @@ async function fixture(t, { unavailable = false, oauth = false } = {}) {
   const sdk = await import(pathToFileURL(join(sdkRoot, 'dist/index.js')).href);
   sdk.initTheme();
   const { createMcpAdapter } = await import(pathToFileURL(join(home, 'extension.mjs')).href);
-  const settingsManager = sdk.SettingsManager.inMemory({ packages: [], extensions: ['-builtin:mcp'] });
+  const settingsManager = sdk.SettingsManager.inMemory({ packages: [], extensions: ['-builtin:mcp'], cacheWarming: 'off' });
   const loader = new sdk.DefaultResourceLoader({ cwd: home, agentDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    extensionFactories: [createMcpAdapter({ config })] });
+    extensionFactories: [createMcpAdapter({ config }), pi => {
+      pi.on('tool_call', event => {
+        permissions.push({ tool: event.toolName, parent: event.parentToolCallId });
+        // Headless host callback ingress: the model requests completion, but the
+        // single-use callback code remains host-owned, not transcript/model data.
+        if (event.toolName === 'mcp' && event.input.action === 'auth-complete' && callbackInput) {
+          event.input.args.redirectUrl = callbackInput;
+        }
+        if (event.toolName === denyTool) return { block: true, reason: 'Synthetic permission denial' };
+      });
+    }] });
   await loader.reload();
   assert.deepEqual(loader.getExtensions().errors, []);
   const modelRuntime = await sdk.ModelRuntime.create({ authPath: join(home, 'auth.json'), modelsPath: join(home, 'models.json') });
-  ({ session } = await sdk.createAgentSession({ cwd: home, agentDir, resourceLoader: loader,
-    settingsManager, modelRuntime, sessionManager: sdk.SessionManager.inMemory(home), noTools: true }));
+  modelRuntime.registerProvider('qualification', { baseUrl: 'https://assistant.example/v1',
+    api: 'openai-completions', apiKey: 'synthetic-fixture-only', models: [{ id: 'qualification', name: 'Qualification',
+      reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1000000, maxTokens: 128 }] });
+  const model = modelRuntime.getModel('qualification', 'qualification');
+  assert.ok(model);
+  ({ session } = await sdk.createAgentSession({ cwd: home, agentDir, resourceLoader: loader, model,
+    settingsManager, modelRuntime, sessionManager: sdk.SessionManager.inMemory(home), noTools: 'builtin' }));
   let shutdownPromise;
   shutdown = () => shutdownPromise ??= session.extensionRunner.emit({ type: 'session_shutdown' });
   const errors = [];
   await session.bindExtensions({ mode: 'print', onError: error => errors.push(error) });
   assert.deepEqual(errors, []);
   const oauthApi = oauth ? await import(pathToFileURL(join(home, 'oauth.mjs')).href) : undefined;
-  const call = (args = {}) => {
-    const tool = session.getToolDefinition('mcp');
-    assert.ok(tool, 'real Pi exposes the adapter proxy');
-    return tool.execute('qualification', args, undefined, undefined,
-      session.extensionRunner.createToolContext('qualification', undefined));
+  const call = async (args = {}) => {
+    assert.ok(!requestedCall && session.isIdle, 'qualification issues one assistant request at a time');
+    const id = `qualification-${++callSequence}`;
+    // The host supplies a callback through a public input hook, just as a UI
+    // would; do not put a one-use OAuth code into the model response/history.
+    callbackInput = args.action === 'auth-complete' ? args.args.redirectUrl : undefined;
+    const modelArgs = callbackInput ? { ...args, args: { ...args.args, redirectUrl: 'https://synthetic-callback.example/host-owned' } } : args;
+    requestedCall = { id, args: modelArgs };
+    let result;
+    const unsubscribe = session.subscribe(event => {
+      if (event.type === 'tool_execution_end' && event.toolCallId === id) result = event.result;
+    });
+    try {
+      await session.prompt('Perform the next synthetic MCP qualification operation.');
+      assert.ok(session.messages.some(message => message.role === 'assistant' && message.content.some(
+        block => block.type === 'toolCall' && block.id === id && block.name === 'mcp')),
+      'the real SDK persists the assistant-issued proxy call');
+      assert.ok(result, 'Pi dispatches and finalizes the assistant-issued call');
+      assert.ok(session.messages.some(message => message.role === 'toolResult' && message.toolCallId === id));
+      return result;
+    } finally {
+      requestedCall = undefined;
+      callbackInput = undefined;
+      unsubscribe();
+    }
   };
-  return { home, name, requests, session, call, shutdown, grants, oauthApi, serverUrl: server.url,
+  return { home, name, requests, session, call, shutdown, grants, oauthApi, permissions, serverUrl: server.url,
+    deny(tool) { denyTool = tool; },
     expireIssuerAccess() { expiredIssuerAccess = true; },
     authorization(url) { authorization = new URL(url); return authorization; },
     holdNextCall() {
@@ -296,8 +353,12 @@ test('REQ-AGENT-228: idle cleanup protects an active portal call and closes only
   const held = f.holdNextCall();
   const result = f.call({ tool, server: f.name, args: { code: 'async () => 1' } });
   await held.started;
+  await until(() => f.requests.some(row => row.method === 'GET' && !row.aborted && !row.cancelled));
   t.mock.timers.tick(11 * 60 * 1000);
-  assert.ok((await f.status()).some(row => row.name === f.name && row.status === 'connected'));
+  await delay(20); // Let the real asynchronous cleanup settle while the tool is held.
+  assert.ok(!f.requests.some(row => row.method === 'DELETE'), 'idle cleanup cannot disconnect an active assistant tool call');
+  assert.ok(f.requests.filter(row => row.method === 'GET').every(row => !row.aborted && !row.cancelled),
+    'the active call keeps its originating stream alive');
   held.release();
   assert.match(JSON.stringify(await result), /same-portal synthetic result/);
   t.mock.timers.tick(11 * 60 * 1000);
@@ -353,4 +414,27 @@ test('REQ-AGENT-228: unmanaged local OAuth retains real PKCE grant persistence, 
   await f.shutdown();
   await until(() => f.requests.filter(row => row.method === 'GET').every(row => row.aborted || row.cancelled));
   assert.equal(inspect().tokens.refreshToken, 'synthetic-local-refresh', 'shutdown releases HTTP streams without deleting the unrelated persisted grant');
+});
+
+test('REQ-AGENT-228: only assistant-issued calls reach MCP and nested permission denials prevent portal execution', { timeout: 60000 }, async t => {
+  const f = await fixture(t);
+  const calls = () => f.requests.filter(row => row.rpc?.method === 'tools/call');
+  assert.equal(calls().length, 0, 'session binding alone does not execute a remote tool');
+  await f.session.prompt('Finish without issuing any tool call.');
+  assert.equal(calls().length, 0, 'an assistant text turn does not execute MCP');
+  await f.call({ connect: f.name });
+  const discovery = await f.call({ search: 'portal_codemode_execute', server: f.name });
+  const tool = discovery.details.matches[0]?.tool;
+  assert.ok(tool);
+  await f.call({ tool, server: f.name, args: { code: 'async () => 1' } });
+  const nested = f.permissions.find(row => row.parent && row.tool.endsWith('portal_codemode_execute'));
+  // 6+ exposes proxy execution as a nested Pi call; retain qualification of the
+  // older reviewed adapter, whose permission boundary is the proxy itself.
+  const version = JSON.parse(readFileSync(join(repo, 'preseed/agents/pi/node_modules/pi-mcp-adapter/package.json'), 'utf8')).version;
+  if (Number(version.split('.')[0]) >= 6) assert.ok(nested, 'permission hooks see the genuine nested tool');
+  f.deny(nested?.tool ?? 'mcp');
+  const before = calls().length;
+  const denied = await f.call({ tool, server: f.name, args: { code: 'async () => 2' } });
+  assert.match(JSON.stringify(denied), /Synthetic permission denial/);
+  assert.equal(calls().length, before, 'permission denial never reaches the portal');
 });

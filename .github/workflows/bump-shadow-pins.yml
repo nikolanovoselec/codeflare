@@ -35,6 +35,15 @@ on:
   schedule:
     - cron: '0 6 * * 1'  # Mondays 06:00 UTC
   workflow_dispatch:
+    inputs:
+      pi-version:
+        description: 'Optional exact stable Pi version (manual cooldown authorization)'
+        type: string
+        required: false
+      agents-version:
+        description: 'Optional exact stable root agents version (manual authorization)'
+        type: string
+        required: false
 
 # Every job probes `git ls-remote` for an existing bump branch and then creates
 # it. That check is TOCTOU the moment two runs overlap — a Monday cron racing a
@@ -2143,11 +2152,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: develop
+          # Only an exact manual Pi request carries staged guidance from the dispatch ref.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.pi-version != '' && matrix.pkg == '@earendil-works/pi-coding-agent' && github.ref || 'develop' }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Resolve the newest release past the cooldown
+        if: matrix.pkg != '@earendil-works/pi-coding-agent' || github.event_name != 'workflow_dispatch' || inputs.pi-version == ''
         id: cooldown
         uses: $/.github/actions/npm-cooldown-version
         with:
@@ -2158,10 +2169,24 @@ jobs:
         env:
           COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
           PKG: ${{ matrix.pkg }}
+          PI_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.pi-version || '' }}
         run: |
           set -euo pipefail
           CURRENT=$(PKG="$PKG" node -p "require('./preseed/npm-tools/package.json').dependencies[process.env.PKG]")
           LATEST="$COOLDOWN_VERSION"
+          if [ "$PKG" = '@earendil-works/pi-coding-agent' ] && [ -n "$PI_VERSION" ]; then
+            # Bash anchors also reject trailing newlines before emitting outputs.
+            VERSION_RE='^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$'
+            [[ "$PI_VERSION" =~ $VERSION_RE ]] || { echo "::error::Expected exact stable Pi version."; exit 1; }
+            DECISION=$(node scripts/ci/semver-forward.mjs "$CURRENT" "$PI_VERSION")
+            if [ "$DECISION" != upgrade ]; then
+              echo "::error::Manual Pi version must be newer than the current pin."
+              exit 1
+            fi
+            npm view "$PKG@$PI_VERSION" version --json --registry=https://registry.npmjs.org \
+              | jq -e --arg version "$PI_VERSION" '. == $version' >/dev/null
+            LATEST="$PI_VERSION"
+          fi
           if [ -z "$LATEST" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Nothing past the cooldown."
@@ -2200,7 +2225,6 @@ jobs:
       - name: Apply bump
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PKG: ${{ matrix.pkg }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
@@ -2229,6 +2253,14 @@ jobs:
             exit 1
           fi
           git commit -m "chore(deps): bump $PKG $CUR -> $LAT"
+
+      - name: Push bump branch
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          set -euo pipefail
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
 
       - name: Open PR
@@ -2236,25 +2268,38 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PKG: ${{ matrix.pkg }}
+          PI_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.pi-version || '' }}
           CUR: ${{ steps.ver.outputs.current }}
           LAT: ${{ steps.ver.outputs.latest }}
           BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
           set -euo pipefail
+          SELECTION='Newest release past the unchanged seven-day cooldown.'
+          if [ "$PKG" = '@earendil-works/pi-coding-agent' ] && [ -n "$PI_VERSION" ]; then
+            SELECTION='Explicit manual exact-version authorization bypassed only the Pi cooldown.'
+          fi
           BODY=$(cat <<EOF
-          Auto-generated bump of \`$PKG\` from \`$CUR\` to \`$LAT\`.
+          ## Summary
+          Bump \`$PKG\` from \`$CUR\` to \`$LAT\` on base \`develop\`.
 
-          This coding-agent CLI is baked from the committed \`preseed/npm-tools/package-lock.json\`, so both its exact version and registry integrity tree are reviewable.
+          ## What ships
+          Update the shared tool manifest and integrity lock. Pi updates its runtime family, prewarm lock and embedded seed atomically.
 
-          The candidate version is the newest release published **more than 7 days ago**, matching the cooldown in \`.github/dependabot.yml\` — a version published hours ago is not eligible, because the npm compromise pattern is publish-malicious-then-wait-for-automation.
+          ## Links and traceability
+          Generated by [Bump Shadow Pins](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}).
 
-          Files updated:
-          - \`preseed/npm-tools/package.json\` + \`package-lock.json\`
-          - Pi bumps also update the prewarm manifest, lock, and embedded seed
+          ## Verification
+          Exact-head CI and runtime acceptance: Pending.
 
-          ## Test plan
-          - [ ] CI green
-          - [ ] Container image builds and the agent starts (exercised on the next deploy)
+          ## Boundaries
+          $SELECTION No deployment is requested.
+
+          ## Completion checklist
+          - [ ] Exact-head CI and compatibility acceptance pass.
+          - [ ] Owner authorizes merge.
+
+          ## Review record
+          Review pending.
           EOF
           )
           # The entrypoint injects settings Claude Code owns. A rename or a
@@ -2262,8 +2307,11 @@ jobs:
           # stops applying — so the reminder rides the bump that invalidates it.
           if [ "$PKG" = '@anthropic-ai/claude-code' ]; then
             BODY=$(cat <<EOF
-          $BODY
+          ${BODY%## Review record*}
           - [ ] \`disableAgentView\` still suppresses the full-screen agent view, and background subagents still spawn under it (REQ-AGENT-099 AC5). A test asserts both mode literals still carry the key, but nothing can assert the upstream half — that Claude Code still honours it and still spawns background subagents under it; if that second half breaks, the memory-capture and vault-extract hooks stop firing silently.
+
+          ## Review record
+          Review pending.
           EOF
           )
           fi
@@ -2272,6 +2320,127 @@ jobs:
             --head "$BRANCH" \
             --title "chore(deps): bump $PKG $CUR -> $LAT" \
             --body "$BODY"
+
+  root-agents:
+    if: github.event_name == 'workflow_dispatch' && inputs.agents-version != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Validate the exact manual agents version
+        id: ver
+        env:
+          REQUESTED_VERSION: ${{ inputs.agents-version }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(node -p "require('./package.json').devDependencies.agents")
+          VERSION_RE='^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$'
+          [[ "$REQUESTED_VERSION" =~ $VERSION_RE ]] || { echo "::error::Expected exact stable agents version."; exit 1; }
+          DECISION=$(node scripts/ci/semver-forward.mjs "$CURRENT" "$REQUESTED_VERSION")
+          if [ "$DECISION" != upgrade ]; then
+            echo "::error::Manual agents version must be newer than the current pin."
+            exit 1
+          fi
+          npm view "agents@$REQUESTED_VERSION" version --json --registry=https://registry.npmjs.org \
+            | jq -e --arg version "$REQUESTED_VERSION" '. == $version' >/dev/null
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Skip existing branch
+        id: branch
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          BRANCH="bump/root-agents-$LAT"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update only the root manifest and lock
+        if: steps.branch.outputs.skip != 'true'
+        env:
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "$BRANCH"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (manifest.devDependencies.agents !== process.env.CUR) throw new Error('agents pin changed');
+          manifest.devDependencies.agents = process.env.LAT;
+          fs.writeFileSync('package.json', `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+          node scripts/regenerate-npm-package-lock.mjs .
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "::error::No root agents update applied."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump root agents $CUR -> $LAT"
+
+      - name: Push bump branch
+        if: steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+
+      - name: Open PR
+        if: steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          BODY=$(cat <<EOF
+          ## Summary
+          Bump root \`agents\` from \`$CUR\` to \`$LAT\` on base \`develop\` by explicit manual authorization.
+
+          ## What ships
+          Only the root \`package.json\` and \`package-lock.json\` change, using the existing lock regeneration and security-pin helper.
+
+          ## Links and traceability
+          Generated by [Bump Shadow Pins](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}).
+
+          ## Verification
+          Exact-head CI and SDK compatibility acceptance: Pending.
+
+          ## Boundaries
+          No runtime source, image pins or deployment changes. Scheduled cooldown behavior is unchanged.
+
+          ## Completion checklist
+          - [ ] Exact-head CI and compatibility acceptance pass.
+          - [ ] Owner authorizes merge.
+
+          ## Review record
+          Review pending.
+          EOF
+          )
+          gh pr create --base develop --head "$BRANCH" \
+            --title "chore(deps): bump root agents $CUR -> $LAT" --body "$BODY"
 
   antigravity-cli:
     # Review the native version/URL/SHA512 together; builds never query latest.
