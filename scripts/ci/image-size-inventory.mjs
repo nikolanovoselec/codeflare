@@ -6,6 +6,7 @@ export const roots = [
   '/opt/codeflare/jiti-cache', '/root/.cache/node-compile-cache', '/root/.cache/uv',
   '/root/.local/share/uv/tools/graphifyy', '/opt/codeflare/npm-tools/node_modules',
   '/opt/codeflare/pi-agent/npm/node_modules', '/opt/codeflare/impeccable', '/opt/code-server',
+  '/opt/codeflare/openvscode',
   '/opt/codeflare/jiti-warm-tmp', '/tmp/code-server.tar.gz', '/tmp/node-tar.tgz',
   '/tmp/pacote.tgz', '/tmp/uv-x86_64-unknown-linux-gnu.tar.gz',
   '/tmp/uv-x86_64-unknown-linux-gnu', '/tmp/impeccable.tar.gz',

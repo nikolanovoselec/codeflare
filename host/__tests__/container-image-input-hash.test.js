@@ -132,6 +132,7 @@ describe('deployment container image input hash', () => {
       'scripts/ci/coding-agent-selection.mjs',
       'scripts/ci/prune-npm-platform-artifacts.mjs',
       'scripts/ci/prune-selected-npm-tools.sh',
+      'scripts/ci/share-claude-native.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
       'scripts/ci/image-size-inventory.mjs',
@@ -242,9 +243,14 @@ describe('deployment container image input hash', () => {
     const selectedPruningTag = imageHashResult().tag;
     assert.notEqual(selectedPruningTag, pruningTag);
 
+    write('scripts/ci/share-claude-native.mjs', 'native payload sharing change\n');
+    commit('native payload sharing change');
+    const sharingTag = imageHashResult().tag;
+    assert.notEqual(sharingTag, selectedPruningTag, 'native payload sharing changes invalidate image reuse');
+
     write('.github/workflows/container-image.yml', 'deployment smoke change\n');
     commit('deployment workflow change');
-    assert.notEqual(imageHashResult().tag, selectedPruningTag);
+    assert.notEqual(imageHashResult().tag, sharingTag);
 
     for (const path of ['scripts/patch-impeccable-engine.py', 'scripts/ci/impeccable-engine.py', 'scripts/prepare-rclone-s3-fixture.py']) {
       const before = imageHashResult().tag;

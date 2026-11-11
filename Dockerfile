@@ -536,7 +536,11 @@ RUN cd /opt/codeflare/oxlint && \
 # npm ci already installs the locked production tree for the full agent selection.
 # For reduced selections, remove omitted agent roots without re-resolving the
 # already integrity-checked tree; npm prune fails on the Pi-only image.
-RUN cd /opt/codeflare/npm-tools && \
+# Copy the immutable IDE inventory in this same install layer so byte-identical
+# Claude CLI/extension executables can share storage without changing either path.
+RUN --mount=from=openvscode-agent-inventories,source=/out/openvscode,target=/codeflare-openvscode,readonly \
+    --mount=type=bind,source=scripts/ci/share-claude-native.mjs,target=/codeflare-share-claude.mjs,readonly \
+    cd /opt/codeflare/npm-tools && \
     CODEFLARE_CODING_AGENTS="$(node /opt/codeflare/scripts/coding-agent-selection.mjs resolve "$CODEFLARE_CODING_AGENTS")" && \
     npm ci --omit=dev --no-audit --no-fund && \
     node /opt/codeflare/scripts/patch-chrome-devtools-timeouts.mjs node_modules/chrome-devtools-mcp && \
@@ -574,6 +578,11 @@ RUN cd /opt/codeflare/npm-tools && \
     chrome-devtools-mcp --help >/dev/null && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
+    cp -a /codeflare-openvscode /opt/codeflare/openvscode && \
+    if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" claude-code; then \
+      node /codeflare-share-claude.mjs /usr/local/bin/claude \
+        /opt/codeflare/openvscode/extensions/claude/anthropic.claude-code/resources/native-binary/claude; \
+    fi && \
     rm -rf /tmp/* /root/.npm
 
 # Antigravity native linux-x64 release. The vendor manifest authorizes updates
@@ -955,11 +964,8 @@ COPY --from=openvscode-agent-sidebar-builder /out/welcome /opt/code-server/lib/v
 RUN test -f /opt/code-server/lib/vscode/extensions/codeflare-welcome/dist/welcome-extension.cjs && \
     chmod -R a-w /opt/code-server/lib/vscode/extensions/codeflare-welcome
 
-# Fixed immutable inventories: Codeflare's native Pi participant, Anthropic's
-# exact official Claude extension, and an empty unsupported-agent inventory.
-# The assembled tree is copied once, so the 285 MiB official package is not
-# duplicated through a runtime staging layer.
-COPY --from=openvscode-agent-inventories /out/openvscode /opt/codeflare/openvscode
+# The immutable Pi/Claude/unsupported-agent inventories were copied once in the
+# shared-tool install layer, including byte-verified native executable sharing.
 
 # Official Claude sessions use an isolated config projection. Managed settings
 # and hooks remain root-owned; terminal history and runtime state are never
