@@ -767,6 +767,8 @@ uv tool install "graphifyy[mcp,sql,pdf]==$VER"
 apt-get purge -y gcc g++ python3-dev
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
+# Drop installation cache in this layer, preserving the installed tool environment.
+uv cache clean
 
 # Expose the graphify CLI on the system PATH so non-interactive bash
 # subshells (hook scripts, memory-capture sonnet, vault-extract sonnet,
