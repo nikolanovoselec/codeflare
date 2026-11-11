@@ -409,7 +409,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
     await screen.findByRole('button', { name: 'Disable' });
     expect(activationWrites()).toEqual([]);
-    expect(activationButton()).toBeEnabled();
+    await waitFor(() => expect(activationButton()).toBeEnabled());
     // Scope disclosure is an intentional user-facing contract, not a service authority promise.
     expect(screen.getByText(/current.*(?:running )?session|active.*session/i)).toBeInTheDocument();
     expect(screen.getByText(new RegExp(sourceHost.id))).toBeInTheDocument();

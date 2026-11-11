@@ -940,24 +940,29 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     await admitted(f);
     const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
     store.put(authKey, saved);
-    let started = false; let released = false; let finished = false;
+    let markStarted!: () => void; let release!: () => void; let markFinished!: () => void;
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    const released = new Promise<void>(resolve => { release = resolve; });
+    const finished = new Promise<void>(resolve => { markFinished = resolve; });
     oauthBoundary(async () => {
-      started = true;
-      while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1));
-      finished = true;
+      markStarted();
+      await released;
+      markFinished();
       return tokenReply();
     });
     const abort = new AbortController();
     const request = new Request(normalCallback(f.activityId, 'pi/credentials', { operation: 'read', providerId }), { signal: abort.signal });
     const pending = f.installationCapability.fetch(request);
     try {
-      await vi.waitFor(() => expect(started).toBe(true));
-      abort.abort(); released = true;
+      await Promise.race([started, pending.then(() => {
+        throw new Error('Credential read completed before the OAuth exchange started');
+      })]);
+      abort.abort(); release();
       await denied(await pending, [403, 409, 503]);
-      await vi.waitFor(() => expect(finished).toBe(true));
+      await finished;
       expect(store.value(authKey)).toEqual(saved);
     } finally {
-      released = true;
+      release();
       await Promise.allSettled([pending]);
     }
   }));
