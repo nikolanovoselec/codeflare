@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-11
 
+- Preserve header-safe opaque MCP access tokens, including provider-issued colon separators, through callback publication and renewal without imposing base64/JWT syntax. Retain encryption, owner binding, token-type/lifetime validation and rejection of unsafe header values; hosted acceptance remains separate ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)).
+
 - Preserve supported 8h/12h preferences through client validation and Advanced controls, and project canonical billing-effective SaaS mode availability into Settings. Next-start idle policy and backend authorization remain unchanged ([REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)).
 
 - Expose the existing persistence policy to authorized administrators in every deployment mode, with strict sync-only common-mode reads, previews and applies. Enterprise retains its aggregate encryption/download controls ([REQ-SETUP-028](setup.md#req-setup-028-administration-persistence-policy-selection)).

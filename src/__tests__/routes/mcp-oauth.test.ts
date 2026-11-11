@@ -50,6 +50,41 @@ describe('Settings MCP owner OAuth and non-secret status API', () => {
     actor = 'other'; expect(await (await f.request('/api/mcp-portals')).json()).toEqual({ portals: [{ ...portal, connected: false }] });
   });
 
+  it.each(['default', 'saas', 'enterprise'])('REQ-AGENT-226 AC1/3 / REQ-AGENT-229 AC1: %s opaque grants persist through callback, status reopen and placeholder forwarding', async mode => {
+    const f = await fixture(mode);
+    const opaque = 'synthetic-user@example.test:synthetic-grant:opaque+/=';
+    const exchange: typeof fetch = async (input, init) => {
+      const response = await f.send(input, init);
+      return Response.json({ ...await response.json() as object, access_token: opaque });
+    };
+    f.deps.finish = (env, owner, instance, state, code, issuer) =>
+      finishMcpPortalConnect(env, owner, instance, state, code, issuer, exchange);
+    await f.begin();
+    const state = f.authorization.searchParams.get('state')!;
+    const callback = await f.request(`/auth/mcp/callback?state=${state}&code=synthetic-code`);
+    expect(callback.status).toBe(303);
+    expect(callback.headers.get('Location')).toBe('/app/?mcp=connected');
+    for (let opening = 0; opening < 2; opening++) {
+      const response = await f.request('/api/mcp-portals');
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ portals: [{ ...portal, connected: true }] });
+    }
+    const upstream: typeof fetch = async input => {
+      expect((input as Request).headers.get('Authorization')).toBe(`Bearer ${opaque}`);
+      return Response.json({ jsonrpc: '2.0', id: 1, result: { tools: [] } });
+    };
+    const tools = await forwardMcpPortal(new Request(portal.url, { method: 'POST',
+      headers: { Authorization: 'Bearer codeflare-mcp-portal', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    }), f.env, { bucket: 'owner', portals: [portal] }, upstream);
+    expect(tools.status).toBe(200);
+    expect(await tools.json()).toEqual({ jsonrpc: '2.0', id: 1, result: { tools: [] } });
+    const artifacts = JSON.stringify({ retained: f.retained, headers: [...callback.headers], body: await callback.text() });
+    for (const secret of [opaque, refresh, 'synthetic-code', state]) expect(artifacts).not.toContain(secret);
+    actor = 'other';
+    expect(await (await f.request('/api/mcp-portals')).json()).toEqual({ portals: [{ ...portal, connected: false }] });
+  });
+
   it('REQ-AGENT-226 AC4: plaintext saved grants remain disconnected in the owner status API', async () => {
     const f = await fixture(); await f.begin(); await f.finish();
     const key = 'mcp-portal:owner:owner:portal:fixture';

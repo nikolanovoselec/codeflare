@@ -102,7 +102,9 @@ async function configured(env: Env, portal: McpPortal): Promise<boolean> {
   return (await getConfiguredMcpPortals(env.KV)).some(p => p.name === portal.name && p.url === portal.url);
 }
 function validTokens(tokens: OAuthTokens): void {
-  if (!tokens.access_token || tokens.token_type.toLowerCase() !== 'bearer' || !/^[A-Za-z0-9._~+/-]+=*$/.test(tokens.access_token)
+  // Access tokens are opaque: Cloudflare's OAuth provider uses colon-separated
+  // values, not base64/JWT syntax. Require a nonempty, header-safe ASCII value.
+  if (!tokens.access_token || tokens.token_type.toLowerCase() !== 'bearer' || /[^\x21-\x7e]/.test(tokens.access_token)
     || (tokens.expires_in !== undefined && (!Number.isFinite(tokens.expires_in) || tokens.expires_in <= 0))) throw new Error('Invalid MCP portal grant');
 }
 export async function beginMcpPortalConnect(env: Env, owner: string, portal: McpPortal, instance: string, send: typeof fetch = fetch,

@@ -28,6 +28,48 @@ describe('Worker-owned MCP portal OAuth', () => {
     expect(await getMcpPortalGrant(f.env, 'owner', { ...portal, url: 'https://other.example/mcp' })).toBeNull();
   });
 
+  it('REQ-AGENT-226 AC1/5: opaque provider tokens survive encrypted publication and silent renewal unchanged', async () => {
+    const f = await mcpPortalFixture(); f.expiry(30);
+    const issued = 'synthetic-user@example.test:synthetic-grant:opaque+/=';
+    const renewed = 'synthetic-user@example.test:synthetic-grant:renewed+/=';
+    const send: typeof fetch = async (input, init) => {
+      const request = new Request(input, init);
+      const body = new URLSearchParams(await request.clone().text());
+      const response = await f.send(request);
+      const tokens = await response.json() as Record<string, unknown>;
+      return Response.json({ ...tokens, access_token: body.get('grant_type') === 'refresh_token' ? renewed : issued });
+    };
+    const authorization = await f.begin();
+    await finishMcpPortalConnect(f.env, 'owner', instance, authorization.searchParams.get('state')!, 'synthetic-code', undefined, send);
+    expect((await getMcpPortalGrant(f.env, 'owner', portal))?.tokens.access_token).toBe(issued);
+    const stored = await f.connectionSnapshot();
+    expect(stored.startsWith('v1:')).toBe(true);
+    expect(stored).not.toContain(issued);
+    f.expiry(3600);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, send)).toBe(renewed);
+    expect((await getMcpPortalGrant(f.env, 'owner', portal))?.tokens.access_token).toBe(renewed);
+    expect(await getMcpPortalGrant(f.env, 'other-owner', portal)).toBeNull();
+  });
+
+  it.each([
+    { access_token: '' }, { access_token: 'not a bearer' }, { access_token: 'token\tvalue' },
+    { access_token: 'token\n' }, { access_token: 'token\r' },
+    { access_token: ' token' }, { access_token: 'token ' },
+    { access_token: 'token\r\nInjected: header' }, { access_token: 'token\u0000value' },
+    { access_token: 'token\u007fvalue' }, { access_token: 'token\u0080value' },
+    { access_token: 'token\u2028value' }, { token_type: 'Basic' },
+    { expires_in: 0 }, { expires_in: -1 }, { expires_in: 'Infinity' }, { expires_in: 'NaN' },
+  ])('REQ-AGENT-226 AC1/2: unsafe or invalid token response %# cannot publish an owner grant', async override => {
+    const f = await mcpPortalFixture(); await f.begin();
+    const send: typeof fetch = async (input, init) => {
+      const response = await f.send(input, init);
+      return Response.json({ ...await response.json() as object, ...override });
+    };
+    await expect(finishMcpPortalConnect(f.env, 'owner', instance, f.authorization.searchParams.get('state')!,
+      'synthetic-code', undefined, send)).rejects.toThrow();
+    expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+  });
+
   it('REQ-AGENT-226 AC1: public client metadata registration uses the same bound callback without a second OAuth issuer', async () => {
     const f = await mcpPortalFixture(); f.cimd();
     const authorization = await f.begin();
