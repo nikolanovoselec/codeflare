@@ -251,12 +251,15 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     ]);
   });
 
-  it('REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync use the 5000-file deletion limit', () => {
+  it('REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync preserve the 100-percent deletion policy', () => {
     for (const functionName of ['establish_bisync_baseline', 'bisync_with_r2']) {
       const args = runRcloneArgs(functionName);
       const maxDelete = args.indexOf('--max-delete');
       assert.notEqual(maxDelete, -1, `${functionName} must pass --max-delete to rclone`);
-      assert.equal(args[maxDelete + 1], '5000', `${functionName} must bound deletion at 5000 files`);
+      // Intentional argv contract: bisync interprets this as a percentage, not
+      // an absolute file cap. v1.75.2 clamped the former 5000 argument to 100.
+      assert.equal(args[maxDelete + 1], '100', `${functionName} must preserve the effective 100-percent deletion policy`);
+      assert.ok(!args.includes('--force'), `${functionName} must not bypass bisync safety checks`);
       assert.ok(args.includes('--ignore-checksum'), `${functionName} must pass --ignore-checksum to rclone`);
     }
 

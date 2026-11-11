@@ -103,13 +103,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. Conflict resolution is newest-file-wins. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 4. After a transient failure, the next automatic retry begins after two minutes. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (daemon retries two minutes after transient failure and continues the cycle (REQ-STOR-003 AC4)) -->
 5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget. Applicable recovery exclusions take precedence over positive persistence rules. <!-- @impl: entrypoint.sh::recover_vanished_files --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-003 AC5: real vanished-file parsing excludes once, preserves workspace retry, and clears stale locks) -->
-6. Baseline and subsequent bisync invocations limit each deletion set to 5,000 files. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync use the 5000-file deletion limit) -->
+6. Baseline and subsequent bisync invocations permit admitted deletions up to 100% of prior files, without an absolute file-count cap or forced bypass of other safety checks. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync preserve the 100-percent deletion policy) -->
 
 **Constraints:**
 
 - Disk-exhausted sync recovery follows [REQ-STOR-045](#req-stor-045-bisync-baseline-recovery).
 - Bisync invocations must tolerate files changing mid-transfer (no false hash-mismatch aborts).
-- Bulk workspace deletions within the fixed safety limit must propagate.
+- Bulk workspace deletions admitted by the persistence policy must propagate.
 - Post-sync listing validation must not abort the cycle when R2 changes during the sync window.
 - Empty files are excluded from sync.
 

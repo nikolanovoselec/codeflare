@@ -1106,6 +1106,8 @@ establish_bisync_baseline() {
         BASELINE_OUTPUT=$(mktemp)
         # --use-server-modtime + --checkers 64: avoid the per-file mtime HEAD storm; see
         # the steady-state bisync below + AD88.
+        # Bisync max-delete is a percentage: 100 preserves v1.75.2's clamp of 5000,
+        # not an absolute file cap; v1.76 rejects values above 100.
         local BISYNC_DEADLINE=$((SECONDS + BISYNC_TIMEOUT))
         if timeout $BISYNC_TIMEOUT rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
             --config "$RCLONE_CONFIG" \
@@ -1121,7 +1123,7 @@ establish_bisync_baseline() {
             --recover \
             --check-sync=false \
             --ignore-checksum \
-            --max-delete 5000 \
+            --max-delete 100 \
             --retries 3 --retries-sleep 10s \
             --transfers 32 --checkers 64 \
             --stats 30s --stats-one-line > "$BASELINE_OUTPUT" 2>&1; then
@@ -1266,7 +1268,7 @@ bisync_with_r2() {
         --recover \
         --check-sync=false \
         --ignore-checksum \
-        --max-delete 5000 \
+        --max-delete 100 \
         --retries 3 --retries-sleep 10s \
         --transfers 32 --checkers 64 \
         --stats 30s --stats-one-line "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then

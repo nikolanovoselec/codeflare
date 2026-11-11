@@ -405,14 +405,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The container image declares a graceful-stop signal that the entrypoint trap can catch. <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC1: the container image declares STOPSIGNAL SIGINT) --> <!-- @manual -->
 2. The container entrypoint's trap handler catches the graceful-stop signal. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC2: the container entrypoint trap handler catches SIGINT/SIGTERM signals) -->
 3. The trap handler terminates the background sync daemon using a durable PID record as the sole mechanism. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files) -->
-4. For ordinary sessions, a final bidirectional sync to R2 runs before exit with a 5,000-file deletion limit; restricted operator sessions drain only accepted explicit uploads and never start bisync. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync use the 5000-file deletion limit) -->
+4. For ordinary sessions, final bidirectional sync to R2 runs before exit, allowing admitted deletions up to 100% without an absolute file-count cap; restricted operator sessions drain only accepted explicit uploads and never start bisync. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync preserve the 100-percent deletion policy) -->
 5. The shutdown sync runs even when the initial sync timed out. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC5: bisync-initialized flag is touched on the timeout path to ensure final bisync runs) -->
 6. The terminal server is terminated after the final sync completes. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC6: terminal server is killed after the final sync completes) -->
 
 **Constraints:**
 
 - The sync daemon's PID record is the sole mechanism for shutdown; no in-memory fallback exists.
-- The shutdown sync is bounded so a deletion storm cannot wipe R2.
+- Final sync retains persistence filters and recovery exclusions; it has no absolute file-count deletion cap.
 - Shutdown kills the background init subshell before the pidfile sweep, then waits (capped, with the watchdog shortened to match) for the daemon's rclone to exit before the final sync, so the stale-lock guard never races a live process. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC5: the final sync waits for the daemon rclone to exit before it starts) -->
 
 **Priority:** P0
