@@ -1081,6 +1081,55 @@ jobs:
           key-prefix: host-pi-inference
           ignore-scripts: 'true'
 
+      - name: Diagnose hosted package transport without exposing configuration secrets
+        if: matrix.slug == 'shard-1'
+        run: |
+          python3 - <<'PY'
+          import ipaddress, os, pathlib, re, subprocess, urllib.parse
+          for name in ('ImageOS', 'ImageVersion'):
+              value = os.environ.get(name, '')
+              print(name, value if re.fullmatch(r'[A-Za-z0-9._-]{1,80}', value) else 'unavailable')
+          for path in ('/usr/bin/bwrap', '/usr/sbin/apparmor_parser'):
+              print('executable', path, os.access(path, os.X_OK))
+          for path in ('/etc/apt/sources.list.d/ubuntu.sources', '/etc/apt/sources.list', '/etc/apt/apt-mirrors.txt'):
+              source = pathlib.Path(path)
+              print('source', path, 'present', source.is_file())
+              if not source.is_file():
+                  continue
+              text = source.read_text()
+              for uri in re.findall(r'(?:https?|mirror\+file):[^\s]+', text):
+                  parsed = urllib.parse.urlsplit(uri)
+                  host = parsed.hostname
+                  known = host in ('archive.ubuntu.com', 'azure.archive.ubuntu.com', 'security.ubuntu.com')
+                  print('source-route', parsed.scheme, host if known else 'other-or-local')
+              print('source-signing-key-declared', bool(re.search(r'Signed-By:|signed-by=', text, re.I)))
+          resolver = pathlib.Path('/etc/resolv.conf')
+          if resolver.is_file():
+              for address in re.findall(r'(?m)^\s*nameserver\s+(\S+)', resolver.read_text()):
+                  try:
+                      print('resolver', ipaddress.ip_address(address))
+                  except ValueError:
+                      print('resolver', 'invalid-address')
+          config = subprocess.run(['apt-config', 'dump'], capture_output=True, text=True, timeout=3)
+          print('apt-config-status', config.returncode)
+          print('apt-proxy-setting-present', bool(re.search(r'(?im)^.*proxy[^\s]*\s', config.stdout)))
+          PY
+          dpkg-query -W -f='${binary:Package} ${db:Status-Status} ${Version}\n' bubblewrap apparmor || echo 'package-query-incomplete'
+          for user in root _apt; do
+            sudo -u "$user" python3 - <<'PY'
+          import os
+          for name in ('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'APT_CONFIG'):
+              print('proxy-variable-present', os.geteuid(), name, bool(os.environ.get(name)))
+          PY
+            for host in azure.archive.ubuntu.com archive.ubuntu.com; do
+              if timeout 3 sudo -u "$user" getent ahosts "$host"; then
+                echo "resolver-result $user $host success"
+              else
+                echo "resolver-result $user $host unavailable"
+              fi
+            done
+          done
+
       - name: Install and verify Graphify runtime and approved-packet sandbox in parallel
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
