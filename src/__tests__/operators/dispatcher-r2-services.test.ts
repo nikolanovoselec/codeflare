@@ -940,29 +940,30 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     await admitted(f);
     const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
     store.put(authKey, saved);
-    let markStarted!: () => void; let release!: () => void; let markFinished!: () => void;
-    const started = new Promise<void>(resolve => { markStarted = resolve; });
-    const released = new Promise<void>(resolve => { release = resolve; });
-    const finished = new Promise<void>(resolve => { markFinished = resolve; });
+    // As in concurrent renewal, share only data across Activity/metadata DOs;
+    // each waiter owns its timer I/O instead of fulfilling another DO's promise.
+    let started = false; let released = false; let finished = false;
     oauthBoundary(async () => {
-      markStarted();
-      await released;
-      markFinished();
+      started = true;
+      while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1));
+      finished = true;
       return tokenReply();
     });
     const abort = new AbortController();
     const request = new Request(normalCallback(f.activityId, 'pi/credentials', { operation: 'read', providerId }), { signal: abort.signal });
     const pending = f.installationCapability.fetch(request);
     try {
-      await Promise.race([started, pending.then(() => {
+      await Promise.race([(async () => {
+        while (!started && !released) await new Promise<void>(resolve => setTimeout(resolve, 1));
+      })(), pending.then(() => {
         throw new Error('Credential read completed before the OAuth exchange started');
       })]);
-      abort.abort(); release();
+      abort.abort(); released = true;
       await denied(await pending, [403, 409, 503]);
-      await finished;
+      while (!finished) await new Promise<void>(resolve => setTimeout(resolve, 1));
       expect(store.value(authKey)).toEqual(saved);
     } finally {
-      release();
+      released = true;
       await Promise.allSettled([pending]);
     }
   }));
