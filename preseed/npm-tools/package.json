@@ -19,15 +19,15 @@
   "name": "codeflare-image-npm-tools",
   "overrides": {
     "@hono/node-server": "2.1.6",
-    "brace-expansion": "5.0.12",
-    "protobufjs": "7.6.6",
-    "undici": "8.12.3",
-    "ip-address": "10.7.5",
-    "ws": "8.22.1",
     "@modelcontextprotocol/sdk": "1.32.2",
     "body-parser": "2.4.0",
+    "brace-expansion": "5.0.12",
     "fast-uri": "3.1.9",
-    "hono": "^4.13.16"
+    "hono": "^4.13.16",
+    "ip-address": "10.7.6",
+    "protobufjs": "7.6.6",
+    "undici": "8.12.3",
+    "ws": "8.22.1"
   },
   "private": true
 }

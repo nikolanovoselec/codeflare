@@ -1,6 +1,4 @@
 {
-  "name": "codeflare-pi-preseed",
-  "private": true,
   "//pi-coding-agent-override": "Must match preseed/npm-tools/package.json. The Docker build consumes this committed lockfile with npm ci and fails if the runtime and prewarm Pi versions drift.",
   "dependencies": {
     "@calesennett/pi-codex-fast": "0.1.13",
@@ -23,20 +21,22 @@
     "@earendil-works/pi-ai": "1.5.0",
     "@earendil-works/pi-tui": "1.5.0"
   },
+  "name": "codeflare-pi-preseed",
   "overrides": {
     "@earendil-works/pi-coding-agent": "1.5.0",
     "@hono/node-server": "2.1.6",
-    "@mozilla/readability": "0.6.0",
-    "brace-expansion": "5.0.12",
-    "hono": "^4.13.16",
-    "protobufjs": "7.6.6",
-    "undici": "8.12.3",
-    "ip-address": "10.7.5",
-    "ws": "8.22.1",
-    "@modelcontextprotocol/sdk": "1.32.2",
     "@modelcontextprotocol/client": "2.3.1",
     "@modelcontextprotocol/core": "2.3.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@mozilla/readability": "0.6.0",
     "body-parser": "2.4.0",
-    "fast-uri": "3.1.9"
-  }
+    "brace-expansion": "5.0.12",
+    "fast-uri": "3.1.9",
+    "hono": "^4.13.16",
+    "ip-address": "10.7.6",
+    "protobufjs": "7.6.6",
+    "undici": "8.12.3",
+    "ws": "8.22.1"
+  },
+  "private": true
 }

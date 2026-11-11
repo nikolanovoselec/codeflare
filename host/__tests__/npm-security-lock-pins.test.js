@@ -88,9 +88,9 @@ describe('REQ-OPS-003 AC5: bounded npm security lock pins', () => {
         dev: true,
       });
       assert.deepEqual(lock.packages['node_modules/vendor/node_modules/ip-address'], {
-        version: '10.7.5',
-        resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.5.tgz',
-        integrity: 'sha512-t2v0rkILYv9WXmSL7TpAaU3HXgaFYOPUcH3QHgwQ++gpJuH3bqyMy4Fvt/DJCTKwzH3Cf+bAp5W/mFL39KPLzA==',
+        version: '10.7.6',
+        resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.6.tgz',
+        integrity: 'sha512-00LYkM6byILa9eQIx6qoaXCM40xTLd56AZ4vyaPW3YTyb49VZYPo5xsiAq4tuQ54GH4R7gVdYScJ1B7B77PuTg==',
         license: 'MIT',
         engines: { node: '>= 12' },
       });

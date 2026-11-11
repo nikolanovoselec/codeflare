@@ -28,12 +28,14 @@ const UNDICI_8_12_3 = Object.freeze({
   engines: { node: '>=22.19.0' },
 });
 
-const IP_ADDRESS_10_7_5 = Object.freeze({
-  version: '10.7.5',
-  resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.5.tgz',
-  integrity: 'sha512-t2v0rkILYv9WXmSL7TpAaU3HXgaFYOPUcH3QHgwQ++gpJuH3bqyMy4Fvt/DJCTKwzH3Cf+bAp5W/mFL39KPLzA==',
-  license: 'MIT',
-  engines: { node: '>= 12' },
+const IP_ADDRESS_10_7_6 = Object.freeze({
+  version: "10.7.6",
+  resolved: "https://registry.npmjs.org/ip-address/-/ip-address-10.7.6.tgz",
+  integrity: "sha512-00LYkM6byILa9eQIx6qoaXCM40xTLd56AZ4vyaPW3YTyb49VZYPo5xsiAq4tuQ54GH4R7gVdYScJ1B7B77PuTg==",
+  license: "MIT",
+  engines: {
+    node: ">= 12"
+  }
 });
 
 // Pi's published shrinkwrap omits these nested registry integrities. Keep the
@@ -72,7 +74,7 @@ function main() {
       if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_30_1;
       if (metadata.version.startsWith('8.')) securityPin = UNDICI_8_12_3;
     } else if (packagePath === 'node_modules/ip-address' || packagePath.endsWith('/node_modules/ip-address')) {
-      if (metadata.version.startsWith('10.')) securityPin = IP_ADDRESS_10_7_5;
+      if (metadata.version.startsWith('10.')) securityPin = IP_ADDRESS_10_7_6;
     }
 
     if (!securityPin || compareVersions(metadata.version, securityPin.version) >= 0) continue;
