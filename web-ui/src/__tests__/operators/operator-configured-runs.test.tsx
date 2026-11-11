@@ -57,6 +57,7 @@ let reads: string[];
 let hosts: Array<typeof sourceHost>;
 let hostError: boolean;
 let canInvoke: boolean;
+let automaticStatus: 'inactive' | 'active' | 'expired' | 'unconfirmed';
 let activate: (body: unknown) => Promise<Response>;
 const activationPath = '/api/operator-activities/renovate/activation';
 const cutoff = '2026-11-11T00:00:00.000Z';
@@ -65,7 +66,8 @@ beforeEach(() => {
   hosts = [sourceHost]; hostError = false; canInvoke = true;
   state = fixture(); writes = []; reads = []; conflict = false;
   activeSession.list(undefined); activeSession.set(undefined);
-  activate = async () => json({ activatedAt: cutoff, repositoryId: 424242 }, 202);
+  automaticStatus = 'inactive';
+  activate = async () => { automaticStatus = 'active'; return json({ activatedAt: cutoff, repositoryId: 424242 }, 202); };
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, window.location.origin);
     const path = url.pathname;
@@ -96,7 +98,7 @@ beforeEach(() => {
     if (path === '/api/operator-activities/installations') return json({ items: state.installations.map(item => ({
       id: item.id, operatorId: item.operatorId, name: 'Renovate Dispatcher', installationName: item.name,
       revision: item.revision, enabled: item.enabled, approved: state.releases[0].approved, version: 'v0.1.3',
-      profile: 'dispatcher', canManage: true, canInvoke: canInvoke, canActivateAutomaticRuns: canInvoke,
+      profile: 'dispatcher', canManage: true, canInvoke: canInvoke, canActivateAutomaticRuns: canInvoke, automaticRunStatus: automaticStatus,
       guidedMode: 'repository', repository: (item.configuration?.renovate as any)?.repository ?? null,
       automaticRuns: (item.configuration?.renovate as any)?.automaticRuns ?? false,
       repetitionIntervalSeconds: (item.configuration?.renovate as any)?.repetitionIntervalSeconds ?? 3600,
@@ -166,7 +168,7 @@ describe('configured Renovate run settings', () => {
     const installed = await open();
     const group = await settings();
     const before = structuredClone(state);
-    expect(within(installed).getByRole('button', { name: 'Disable installation' })).toBeEnabled();
+    expect(within(installed).getByRole('button', { name: 'Deactivate' })).toBeEnabled();
     fireEvent.click(automatic());
     expect(automatic()).toBeChecked();
     expect(interval(group)).toHaveValue(1);
@@ -214,7 +216,7 @@ describe('configured Renovate run settings', () => {
     const installed = screen.getByRole('region', { name: 'Installed version' });
     await waitFor(() => expect(within(installed).getAllByRole('status').some(element =>
       /saved/i.test(element.textContent ?? '') && /disable|enable/i.test(element.textContent ?? ''))).toBe(true));
-    await screen.findByRole('button', { name: 'Enable installation' });
+    await screen.findByRole('button', { name: 'Activate' });
     expect(state.installations[0]).toMatchObject({ enabled: false, revision: 5, configuration });
     expect(state.installations[1]).toEqual(before.installations[1]);
     expect(state.operator).toEqual(before.operator);
@@ -229,10 +231,6 @@ describe('configured Renovate run settings', () => {
     expect(repository(await settings())).toHaveValue('other/project');
     expect(interval(await settings())).toHaveValue(2);
     fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Enable installation' }));
-    await screen.findByRole('button', { name: 'Disable installation' });
-    expect(writes).toContainEqual({ path: '/api/operator-management/installations/installation-1/enable', body: { revision: 5, enabled: true } });
-    expect(state.installations[0].configuration).toEqual(configuration);
   });
 
   it('REQ-OPERATOR-061: configured Renovate run settings retain the interval when automatic runs are switched off and leave manual runs available', async () => {
@@ -251,8 +249,8 @@ describe('configured Renovate run settings', () => {
     expect(interval(await settings())).toHaveValue(30);
     fireEvent.click(automatic());
     expect(automatic(await settings())).not.toBeChecked();
-    fireEvent.click(screen.getByRole('button', { name: 'Enable installation' }));
-    await screen.findByRole('button', { name: 'Disable installation' });
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }));
+    await screen.findByRole('button', { name: 'Deactivate' });
     const installed = screen.getByRole('region', { name: 'Installed version' });
     expect(within(installed).queryByRole('textbox', { name: 'Repository to assess' })).not.toBeInTheDocument();
     expect(within(installed).queryByRole('spinbutton', { name: 'Pull request to assess' })).not.toBeInTheDocument();
@@ -396,231 +394,73 @@ describe('configured Renovate run settings', () => {
 });
 
 
-describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
-  const activationButton = () => screen.getByRole('button', { name: /^Start automatic runs$/i });
-  const activationWrites = () => writes.filter(write => write.path === activationPath);
-  const expectInert = () => {
-    const button = screen.queryByRole('button', { name: /^Start automatic runs$/i });
-    if (button) { expect(button).toBeDisabled(); fireEvent.click(button); }
-    expect(activationWrites()).toEqual([]);
-  };
-
-  it('Save and Enable do not Activate, and only an explicit click submits the current active running generation', async () => {
-    activeSession.set(sourceHost);
-    setRunSettings('acme/automation', true, 900);
-    await open(true);
-    await waitFor(() => expect(activationButton()).toBeEnabled());
-    expect(activationWrites()).toEqual([]);
-    fireEvent.input(repository(await settings()), { target: { value: 'acme/reviewed' } });
-    fireEvent.click(save());
-    await screen.findByRole('button', { name: 'Enable installation' });
-    expect(state.installations[0]).toMatchObject({ enabled: false, configuration: {
-      ...retained, renovate: { repository: 'acme/reviewed', automaticRuns: true, repetitionIntervalSeconds: 900 },
-    } });
-    expectInert();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable installation' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Enable installation' }));
-    await screen.findByRole('button', { name: 'Disable installation' });
-    expect(activationWrites()).toEqual([]);
-    await waitFor(() => expect(activationButton()).toBeEnabled());
-    // Scope disclosure is an intentional user-facing contract, not a service authority promise.
-    expect(screen.getByText(/your selected running workspace session/i)).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(sourceHost.name))).toBeInTheDocument();
-    fireEvent.click(activationButton());
-    await waitFor(() => expect(activationWrites()).toEqual([{ path: activationPath, body: {
-      installationId: 'installation-1', sessionId: sourceHost.id, sessionGeneration: sourceHost.generation,
-    } }]));
-    await waitFor(() => expect(screen.getAllByRole('status').some(element => /activated/i.test(element.textContent ?? ''))).toBe(true));
-    expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]);
-    expect(writes.every(write => write.path === activationPath || /\/(configure|enable)$/.test(write.path))).toBe(true);
-    cleanup(); await open(true);
-    expect(activationWrites()).toHaveLength(1); // remount/login/read never reactivates
-  });
-
-  it('direct load without an active session offers explicit owned selection without starting another host', async () => {
-    setRunSettings('acme/automation', true, 900);
-    await open(true);
-    expect(activationButton()).toBeDisabled();
-    expect(screen.getByText(/your selected running workspace session/i)).toBeInTheDocument();
-    fireEvent.click(activationButton());
-    expect(writes).toEqual([]); expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]);
-    expect(await screen.findByRole('combobox', { name: 'Running workspace' })).toHaveValue('');
-  });
-
-  it.each([
-    { status: 'stopped', lifecycle: 'stopped', generation: 3 },
-    { status: 'starting', lifecycle: 'starting', generation: 3 },
-    { status: 'running', lifecycle: 'stopping', generation: 3 },
-    { status: 'running', lifecycle: 'unreachable', generation: 3 },
-    { status: 'running', lifecycle: 'running', generation: undefined },
-    { status: 'running', lifecycle: 'running', generation: 0 },
-    { status: 'running', lifecycle: 'running', generation: -1 },
-    { status: 'running', lifecycle: 'running', generation: 1.5 },
-    { status: 'running', lifecycle: 'running', generation: Number.MAX_SAFE_INTEGER + 1 },
-  ])('a non-current running projection %j cannot activate', async projection => {
-    activeSession.set({ ...sourceHost, ...projection });
-    setRunSettings('acme/automation', true, 900);
-    await open(true); expectInert();
-    expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]); expect(writes).toEqual([]);
-  });
-
-  it.each(['non-admin', 'disabled', 'automatic-off', 'unset', 'unsupported'] as const)(
-    '%s never offers a usable activation command', async fault => {
-      activeSession.set(sourceHost); setRunSettings('acme/automation', true, 900);
-      if (fault === 'disabled') state.installations[0].enabled = false;
-      if (fault === 'automatic-off') setRunSettings('acme/automation', false, 900);
-      if (fault === 'unset') state.installations[0].configuration = { ...retained };
-      if (fault === 'unsupported') state.releases[0].intentVersion = '99';
-      await open(fault !== 'non-admin'); expectInert();
-      expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]); expect(writes).toEqual([]);
-    });
-
-  it.each([
-    {},
-    { activatedAt: 'not-an-instant', repositoryId: 424242 },
-    { activatedAt: cutoff, repositoryId: -1 },
-    { activatedAt: cutoff, repositoryId: 424242, accessJwt: 'must-not-be-browser-authority' },
-  ])('an invalid activation response %j is unconfirmed, not success or a replay instruction', async response => {
-    activate = async () => json(response, 202);
-    activeSession.set(sourceHost); setRunSettings('acme/automation', true, 900);
-    await open(true); await waitFor(() => expect(activationButton()).toBeEnabled()); fireEvent.click(activationButton());
-    expect(await screen.findByRole('alert')).toHaveTextContent(/not confirmed|unavailable|failed/i);
-    expect(screen.queryByText(/successfully activated|automatic runs activated/i)).not.toBeInTheDocument();
-    expect(activationWrites()).toEqual([{ path: activationPath, body: {
-      installationId: 'installation-1', sessionId: sourceHost.id, sessionGeneration: sourceHost.generation,
-    } }]);
-    expect(document.body).not.toHaveTextContent('must-not-be-browser-authority');
-  });
-
-  it('pending is visible and cannot submit twice; failed acknowledgement is not activation success or automatically replayed', async () => {
-    let finish!: (response: Response) => void;
-    activate = () => new Promise<Response>(resolve => { finish = resolve; });
-    activeSession.set(sourceHost); setRunSettings('acme/automation', true, 900);
-    await open(true);
-    await waitFor(() => expect(activationButton()).toBeEnabled());
-    fireEvent.click(activationButton());
-    await waitFor(() => expect(activationWrites()).toHaveLength(1));
-    expect(activationButton()).toBeDisabled();
-    expect(screen.getAllByRole('status').some(element => /activat.*…|activat.*\.\.\.|activating/i.test(element.textContent ?? ''))).toBe(true);
-    fireEvent.click(activationButton());
-    expect(activationWrites()).toHaveLength(1);
-    finish(json({ error: 'Unconfirmed schedule' }, 503));
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(/not confirmed|unavailable|failed/i);
-    expect(screen.queryByText(/successfully activated|automatic runs activated/i)).not.toBeInTheDocument();
-    expect(activationWrites()).toHaveLength(1);
-    activate = async () => json({ activatedAt: cutoff, repositoryId: 424242 }, 202);
-    const refresh = screen.queryByRole('button', { name: /Refresh current state/i });
-    if (refresh) fireEvent.click(refresh);
-    await waitFor(() => expect(activationButton()).toBeEnabled());
-    expect(activationWrites()).toHaveLength(1);
-    fireEvent.click(activationButton());
-    await waitFor(() => expect(activationWrites()).toHaveLength(2));
-    expect(activationWrites()[1].body).toEqual(activationWrites()[0].body);
-  });
-
-  it.each(['session', 'installation'] as const)('late activation success cannot attach to a changed %s scope', async changed => {
-    let finish!: (response: Response) => void;
-    activate = () => new Promise<Response>(resolve => { finish = resolve; });
-    activeSession.set(sourceHost); setRunSettings('acme/automation', true, 900);
-    await open(true); await waitFor(() => expect(activationButton()).toBeEnabled()); fireEvent.click(activationButton());
-    await waitFor(() => expect(activationWrites()).toHaveLength(1));
-    if (changed === 'session') activeSession.set({ ...sourceHost, id: 'newsession01', generation: 4 });
-    else fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
-    finish(json({ activatedAt: cutoff, repositoryId: 424242 }, 202));
-    await waitFor(() => expect(screen.queryByText(/activating/i)).not.toBeInTheDocument());
-    expect(screen.queryByText(/successfully activated|automatic runs activated/i)).not.toBeInTheDocument();
-    expect(activationWrites()).toEqual([{ path: activationPath, body: {
-      installationId: 'installation-1', sessionId: sourceHost.id, sessionGeneration: sourceHost.generation,
-    } }]);
-    if (changed === 'session') {
-      fireEvent.click(activationButton());
-      await waitFor(() => expect(activationWrites()).toHaveLength(2));
-      expect(activationWrites()[1].body).toEqual({ installationId: 'installation-1', sessionId: 'newsession01', sessionGeneration: 4 });
-    } else {
-      const button = screen.queryByRole('button', { name: /^Start automatic runs$/i });
-      if (button) expect(button).toBeDisabled();
-      expect(activationWrites()).toHaveLength(1);
-    }
-    expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]);
-  });
-});
-
-
-describe('Task101 Administration unification', () => {
-  it.each([[3600, 1, 'hours'], [5400, 90, 'minutes'], [3661, 3661, 'seconds']] as const)(
-    'REQ-OPERATOR-099 AC5: %i seconds retain exact %i %s with a shared unit control', async (seconds, quantity, unit) => {
-      setRunSettings('acme/automation', true, seconds); await open(true);
-      const group = await settings();
-      expect(interval(group)).toHaveValue(quantity);
-      expect(within(group).getByRole('combobox', { name: 'Interval unit' })).toHaveValue(unit);
-      fireEvent.click(automatic()); fireEvent.click(save());
-      await waitFor(() => expect(state.installations[0].enabled).toBe(false));
-      expect(state.installations[0].configuration?.renovate).toEqual({ repository: 'acme/automation',
-        automaticRuns: false, repetitionIntervalSeconds: seconds });
-      expect(writes.filter(write => write.path === activationPath)).toEqual([]);
-    });
-
-  it.each(['9007199254740991', '2400000000'])('REQ-OPERATOR-099 AC5: hours overflow or Date bounds %s block saving and starting', async value => {
-    activeSession.set(sourceHost); setRunSettings('acme/automation', true, 3600); await open(true);
-    fireEvent.input(interval(await settings()), { target: { value } });
-    expect(save()).toBeDisabled(); expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeDisabled();
-    submit(); expect(writes).toEqual([]);
-  });
-
-  it('REQ-OPERATOR-209 AC5/6: explicit owned running selection permits only explicit Start without waking a workspace', async () => {
-    hosts = [sourceHost, { ...sourceHost, id: 'stoppedhost1', name: 'Stopped workspace', status: 'stopped', lifecycle: 'stopped' }];
-    setRunSettings('acme/automation', true, 3600); await open(true);
-    const selector = await screen.findByRole('combobox', { name: 'Running workspace' });
-    await within(selector).findByRole('option', { name: sourceHost.name });
-    expect(selector).toHaveValue(''); expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeDisabled();
-    expect(within(selector).queryByRole('option', { name: 'Stopped workspace' })).toBeNull();
-    fireEvent.change(selector, { target: { value: sourceHost.id } });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeEnabled());
+describe('REQ-OPERATOR-061 AC1/3/5: explicit installation Activate', () => {
+  const activateButton = () => screen.getByRole('button', { name: /^Activate$/ });
+  it('zero sessions: one explicit Activate enables the saved installation then arms automatic observation', async () => {
+    hosts = []; activeSession.set(undefined); setRunSettings('acme/automation', true, 900);
+    state.installations[0].enabled = false;
+    await open(true); await waitFor(() => expect(activateButton()).toBeEnabled());
+    expect(screen.queryByRole('combobox', { name: 'Running workspace' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Start automatic runs' })).toBeNull();
     expect(writes).toEqual([]);
-    fireEvent.click(screen.getByRole('button', { name: 'Start automatic runs' }));
-    await waitFor(() => expect(writes).toEqual([{ path: activationPath, body: {
-      installationId: 'installation-1', sessionId: sourceHost.id, sessionGeneration: 3,
-    } }]));
+    fireEvent.click(activateButton());
+    await waitFor(() => expect(writes).toEqual([
+      { path: '/api/operator-management/installations/installation-1/enable', body: { enabled: true, revision: 4 } },
+      { path: activationPath, body: { installationId: 'installation-1', revision: 5 } },
+    ]));
+    expect(reads).not.toContain('/api/sessions');
+    expect(await screen.findByRole('button', { name: 'Deactivate' })).toBeEnabled();
   });
-
-  it.each(['unavailable', 'stopped', 'generation', 'removed', 'selection', 'store'] as const)(
-    'REQ-OPERATOR-209 AC6: explicit selected workspace %s fences a late acknowledgement', async change => {
-      hosts = [sourceHost, { ...sourceHost, id: 'ownersession2', name: 'Second workspace' }];
-      let finish!: (response: Response) => void;
-      activate = () => new Promise<Response>(resolve => { finish = resolve; });
-      setRunSettings('acme/automation', true, 3600); await open(true);
-      const selector = await screen.findByRole('combobox', { name: 'Running workspace' });
-      await within(selector).findByRole('option', { name: sourceHost.name });
-      fireEvent.change(selector, { target: { value: sourceHost.id } });
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeEnabled());
-      fireEvent.click(screen.getByRole('button', { name: 'Start automatic runs' }));
-      await waitFor(() => expect(writes.filter(write => write.path === activationPath)).toHaveLength(1));
-      if (change === 'selection') fireEvent.change(selector, { target: { value: 'ownersession2' } });
-      else if (change === 'store') activeSession.list([{ ...sourceHost, status: 'stopped', lifecycle: 'stopped' }]);
-      else {
-        hostError = change === 'unavailable';
-        hosts = change === 'removed' ? [] : [{ ...sourceHost,
-          ...(change === 'stopped' ? { status: 'stopped', lifecycle: 'stopped' } : {}),
-          ...(change === 'generation' ? { generation: 4 } : {}) }];
-        fireEvent.click(screen.getByRole('button', { name: 'Refresh workspaces' }));
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeDisabled());
-      }
-      finish(json({ activatedAt: cutoff, repositoryId: 424242 }, 202)); await Promise.resolve();
-      await waitFor(() => expect(screen.queryByText(/activating/i)).not.toBeInTheDocument());
-      expect(screen.queryByText(/Automatic runs activated/)).not.toBeInTheDocument();
+  it('an expired installation rearms from the same single Activate without toggling availability or requiring a workspace', async () => {
+    hosts = []; setRunSettings('acme/automation', true, 900); automaticStatus = 'expired';
+    await open(true); await waitFor(() => expect(activateButton()).toBeEnabled());
+    expect(screen.getByText(/Automatic runs: expired/)).toBeVisible();
+    fireEvent.click(activateButton());
+    await waitFor(() => expect(writes).toEqual([{ path: activationPath, body: { installationId: 'installation-1', revision: 4 } }]));
+    expect(await screen.findByRole('button', { name: 'Deactivate' })).toBeEnabled();
+    expect(reads).not.toContain('/api/sessions');
+  });
+  it('manual-only Activate enables availability without scheduling, Deactivate disables it', async () => {
+    setRunSettings('acme/manual', false, 900); state.installations[0].enabled = false;
+    await open(true); fireEvent.click(await screen.findByRole('button', { name: 'Activate' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Deactivate' }));
+    await screen.findByRole('button', { name: 'Activate' });
+    expect(writes.map(write => write.path)).toEqual([
+      '/api/operator-management/installations/installation-1/enable',
+      '/api/operator-management/installations/installation-1/enable']);
+    expect(state.installations[0].enabled).toBe(false);
+  });
+  it.each([{}, { activatedAt: 'invalid', repositoryId: 424242 }, { activatedAt: cutoff, repositoryId: 424242, accessJwt: 'private' }])(
+    'unknown activation response %j is fenced until explicit refresh, never replayed', async response => {
+      activate = async () => json(response, 202); setRunSettings('acme/automation', true, 900);
+      await open(true); await waitFor(() => expect(activateButton()).toBeEnabled()); fireEvent.click(activateButton());
+      expect(await screen.findByRole('alert')).toHaveTextContent(/not confirmed/i);
+      expect(activateButton()).toBeDisabled(); window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('online'));
       expect(writes.filter(write => write.path === activationPath)).toHaveLength(1);
+      expect(document.body).not.toHaveTextContent('private');
     });
-
-  it('REQ-OPERATOR-061 AC3/5: administration never infers invocation from management or admin access', async () => {
-    canInvoke = false; activeSession.set(sourceHost); setRunSettings('acme/automation', true, 3600);
-    await open(true); await settings();
-    await screen.findByText(/Invocation permission and admin activation eligibility must be verified separately/i);
-    expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeDisabled();
+  it('pending activation cannot duplicate consent; a changed installation cannot receive its late success', async () => {
+    let finish!: (response: Response) => void;
+    activate = () => new Promise<Response>(resolve => { finish = resolve; });
+    setRunSettings('acme/automation', true, 900); await open(true);
+    await waitFor(() => expect(activateButton()).toBeEnabled()); fireEvent.click(activateButton());
+    await waitFor(() => expect(writes.filter(write => write.path === activationPath)).toHaveLength(1));
+    expect(activateButton()).toBeDisabled(); fireEvent.click(activateButton());
+    fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
+    finish(json({ activatedAt: cutoff, repositoryId: 424242 }, 202));
+    await waitFor(() => expect(screen.queryByText(/Automatic runs activated/i)).toBeNull());
+    expect(writes.filter(write => write.path === activationPath)).toHaveLength(1);
+  });
+  it.each(['non-admin', 'no-invoker', 'dirty'] as const)('%s cannot authorize automatic activation', async fault => {
+    canInvoke = fault !== 'no-invoker'; setRunSettings('acme/automation', true, 900);
+    await open(fault !== 'non-admin'); await settings();
+    if (fault === 'dirty') fireEvent.input(repository(await settings()), { target: { value: 'acme/changed' } });
+    const button = screen.queryByRole('button', { name: /^Activate$/ });
+    if (button) { expect(button).toBeDisabled(); fireEvent.click(button); }
+    else expect(screen.getByRole('button', { name: 'Deactivate' })).toBeEnabled();
     expect(writes).toEqual([]);
   });
 });
-
 
 describe('Task101 Administration automatic-off parity', () => {
   it('REQ-OPERATOR-209 AC2: automatic off hides interval and default help until explicitly switched on', async () => {

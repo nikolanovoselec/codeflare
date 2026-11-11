@@ -151,10 +151,11 @@ export const getOperatorActivityDiagnosticRecord = (activityId: string, recordId
 export const exportOperatorActivityDiagnostics = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot, signal?: AbortSignal) =>
   diagnosticRead(activityId, `/export${diagnosticCursorQuery(cursor)}`, diagnosticExportSchema, snapshot, cursor !== null, signal);
 
-const renovateActivationCommand = z.strictObject({
-  installationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
-  sessionId: z.string().regex(/^[a-z0-9]{8,24}$/), sessionGeneration: z.number().int().positive().safe(),
-});
+const renovateActivationCommand = z.union([
+  z.strictObject({ installationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), revision: z.number().int().positive().safe() }),
+  z.strictObject({ installationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+    sessionId: z.string().regex(/^[a-z0-9]{8,24}$/), sessionGeneration: z.number().int().positive().safe() }),
+]);
 const renovateActivationResponse = z.strictObject({ activatedAt: z.string().datetime(),
   repositoryId: z.number().int().positive().safe() });
 /** Only explicit user activation; no assertion or cached authority enters browser state. */

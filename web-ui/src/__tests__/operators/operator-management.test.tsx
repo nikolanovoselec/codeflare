@@ -161,11 +161,11 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(within(sections).getByRole('button', { name: 'Installed version' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(sections).getByRole('button', { name: 'Versions & updates' })).toBeInTheDocument();
     expect(screen.getByText('GitHub release #17', { selector: 'strong' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Disable installation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
     const configurationChoice = screen.getByRole('combobox', { name: 'Installed configuration' });
     fireEvent.change(configurationChoice, { target: { value: 'installation-2' } });
     expect(screen.getByText('GitHub release #15', { selector: 'strong' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Enable installation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
     fireEvent.change(configurationChoice, { target: { value: 'installation-1' } });
     expect(screen.queryByRole('button', { name: 'Create disabled installation' })).not.toBeInTheDocument();
     expect(within(overview).getByText('Checks repository changes under an approved Review policy.')).toBeInTheDocument();

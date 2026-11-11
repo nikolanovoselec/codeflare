@@ -19,8 +19,8 @@ export function createRunInterval(seconds = 3600) {
   return { quantity, setQuantity, unit, setUnit, seconds: value, setSeconds,
     valid: () => Number.isSafeInteger(quantity()) && quantity() > 0 && validRunSeconds(value()) };
 }
-export const runSettingsSaved = 'Run settings saved. Installation is disabled; Enable installation when ready. Start automatic runs is separate.';
-export const runSettingsHelp = 'Saving run settings disables this installation. It does not start a run. Enable installation and Start automatic runs are separate actions.';
+export const runSettingsSaved = 'Run settings saved. Installation is disabled; Activate in Administration when ready.';
+export const runSettingsHelp = 'Saving run settings disables this installation. It does not start a run and stops future automatic observations. Activate in Administration to use the saved settings.';
 
 export const AutomaticRunsField: Component<{ checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }> = props =>
   <label class="operator-automatic-field"><input type="checkbox" checked={props.checked} disabled={props.disabled}

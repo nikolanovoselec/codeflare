@@ -483,7 +483,7 @@ if (partition === 'controls') describe('Dispatcher source response allowance', (
     expect(installation.releaseId).toBe(release.id);
     expect(operator.managers).toEqual(grant);
     expect(operator.invokers).toEqual(grant);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable installation' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled());
   });
 
   it.each(['', '0', '-1', '1.5', String(Number.MAX_SAFE_INTEGER + 1)])('REQ-OPERATOR-045: invalid inference bytes %s prevent saving', async value => {
@@ -584,7 +584,7 @@ if (partition === 'controls') describe('Dispatcher source response allowance', (
     await screen.findByText('Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.');
     expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 200000 });
     expect(screen.getByRole('spinbutton', { name: 'Operator source-response ceiling (bytes)' })).toHaveValue(200000);
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Enable installation$/ })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Activate$/ })).toBeEnabled());
     expect(screen.getByText(/v1\.0\.0/, { selector: 'strong' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeEnabled());
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Operator source-response ceiling (bytes)' }), { target: { value: '65536' } });
@@ -592,7 +592,7 @@ if (partition === 'controls') describe('Dispatcher source response allowance', (
     await waitFor(() => expect(saved).toEqual({ revision: 2, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 65536 }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeEnabled());
     expect(screen.getByRole('spinbutton', { name: 'Operator source-response ceiling (bytes)' })).toHaveValue(65536);
-    expect(screen.getByRole('button', { name: 'Enable installation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
     expect(screen.getByText(/v1\.0\.0/, { selector: 'strong' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Permissions' }));
     expect(within(screen.getByRole('group', { name: 'Managers' })).getByRole('checkbox', { name: grant.users[0] })).toBeChecked();

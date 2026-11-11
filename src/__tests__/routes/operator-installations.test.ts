@@ -37,6 +37,7 @@ function fixture() {
   const effects: string[] = [];
   const forbiddenEffect = (name: string) => { effects.push(name); throw new Error(`Installed read attempted ${name}`); };
   const registry = {
+    prospectiveRenovateStatus: async () => 'inactive',
     activateProspectiveRenovate: async () => forbiddenEffect('activation'),
     listManagementOperators: async ({ limit }: { limit: number }) => ({ ...catalog, items: catalog.items.slice(0, limit) }),
     listManagementInstallationPage: async () => ({ items: [{ ...installed },
@@ -176,7 +177,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
       const value = await response.json() as { items: Array<Record<string, unknown>>; cursor: string | null };
       expect(value.items.find(item => item.id === f.installed.id)).toEqual({ id: f.installed.id, operatorId: f.operator.id, profile: 'dispatcher',
         name: 'Renovate Dispatcher', installationName: 'Updates', version: 'v0.1.27', revision: 7,
-        enabled: true, approved: true, canInvoke: true, canManage: true, canActivateAutomaticRuns: true,
+        enabled: true, approved: true, canInvoke: true, canManage: true, canActivateAutomaticRuns: true, automaticRunStatus: 'inactive',
         guidedMode: 'repository', repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3719 });
       for (const secret of ['PRIVATE_CONFIGURATION', 'PRIVATE_ACCESS_JWT']) expect(JSON.stringify(value)).not.toContain(secret);
     }
@@ -197,7 +198,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     expect(f.effects).toEqual([]);
   });
 
-  it.each(['nonadmin', 'manager-only', 'admin-without-invoke', 'disabled', 'operator-disabled', 'unapproved',
+  it.each(['nonadmin', 'manager-only', 'admin-without-invoke', 'operator-disabled', 'unapproved',
     'unsupported', 'conductor', 'automatic-off', 'missing-settings', 'invalid-settings', 'invalid-json', 'invalid-automatic', 'invalid-repository', 'resource-profile',
     'missing-pin', 'resolved-release', 'resolved-revision', 'resolved-operator', 'resolved-installation',
     'resolved-operator-revision', 'resolved-controls', 'resolved-configuration', 'resolved-digest']) (
@@ -210,7 +211,6 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
         f.operator.managers = grant([identity.email]); f.controls.managers = grant([identity.email]);
       }
       if (fault === 'admin-without-invoke') f.operator.invokers = grant();
-      if (fault === 'disabled') f.installed.enabled = false;
       if (fault === 'operator-disabled') f.operator.enabled = false;
       if (fault === 'unapproved') f.release.approved = false;
       if (fault === 'unsupported') f.manifests.value = JSON.stringify({ ...JSON.parse(f.manifests.value), intentVersion: '2' });
@@ -237,6 +237,13 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
       expect(f.effects).toEqual([]);
     });
 
+  it('REQ-OPERATOR-061 AC1: a disabled approved installation retains advisory eligibility for explicit automatic activation, never implicit scheduling', async () => {
+    const f = fixture(); identity.role = 'admin'; f.installed.enabled = false;
+    f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true } });
+    expect(await (await f.request()).json()).toMatchObject({ items: [{ id: f.installed.id,
+      enabled: false, canActivateAutomaticRuns: true, automaticRunStatus: 'inactive' }] });
+    expect(f.effects).toEqual([]);
+  });
   it('retains enterprise and authenticated-human gates for installed reads', async () => {
     const f = fixture();
     expect((await f.request('', f.env, false)).status).toBe(401);

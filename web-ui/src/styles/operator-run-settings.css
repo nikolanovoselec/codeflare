@@ -1,9 +1,8 @@
-.operator-run-interval, .operator-run-workspace { display: grid; min-width: 0; gap: var(--space-2); }
+.operator-run-interval { display: grid; min-width: 0; gap: var(--space-2); }
 .operator-interval { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: var(--space-2); }
-.operator-interval :is(label, input, select), .operator-run-workspace :is(label, select) { min-width: 0; max-width: 100%; }
-.operator-interval :is(input, select), .operator-run-workspace select { width: 100%; box-sizing: border-box; }
-.operator-run-interval > button, .operator-run-workspace > button { justify-self: start; }
+.operator-interval :is(label, input, select) { min-width: 0; max-width: 100%; }
+.operator-interval :is(input, select) { width: 100%; box-sizing: border-box; }
+.operator-run-interval > button { justify-self: start; }
 .operator-automatic-field { display: flex; align-items: center; gap: var(--space-2); }
 .operator-automatic-field input { flex: none; margin: 0; }
 .operator-management .operator-run-interval { margin-block: var(--space-3); }
-.operator-management .operator-run-workspace { margin-block: var(--space-4); }

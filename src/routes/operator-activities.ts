@@ -34,9 +34,9 @@ const startBody = z.strictObject({ capability: z.string().regex(/^[A-Za-z0-9_-]{
 const readBody = z.strictObject({ through: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) });
 const publicationBody = z.strictObject({ sessionId: identifier,
   sessionGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) });
-const prospectiveBody = z.strictObject({ installationId: identifier,
-  sessionId: z.string().regex(/^[a-z0-9]{8,24}$/),
-  sessionGeneration: z.number().int().positive().safe() });
+const prospectiveBody = z.union([z.strictObject({ installationId: identifier, revision: z.number().int().positive().safe() }),
+  z.strictObject({ installationId: identifier, sessionId: z.string().regex(/^[a-z0-9]{8,24}$/),
+    sessionGeneration: z.number().int().positive().safe() })]);
 type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown; effectReceipts?: RetiredEffectReceipts };
 type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
@@ -191,17 +191,18 @@ app.get('/installations', async c => {
     }
     const supportedAutomatic = selection !== null && operator.profile === 'dispatcher'
       && selection.operator.profile === 'dispatcher' && prospectiveRenovatePackageSupported(selection.manifestJson);
-    const canActivateAutomaticRuns = platformAdmin && invoke && operator.enabled && operator.profile === 'dispatcher'
-      && installation.enabled && installation.policy.resourceProfileId === null && approved
+    const canActivateAutomaticRuns = platformAdmin && invoke && operator.enabled && operator.profile === 'dispatcher' && installation.policy.resourceProfileId === null && approved
       && selection !== null && selection.operator.enabled && selection.operator.profile === 'dispatcher'
-      && selection.installation.enabled && selection.installation.policy.resourceProfileId === null
+      && selection.installation.policy.resourceProfileId === null
       && supportedAutomatic && settings?.automaticRuns === true;
     const guidedSettings = preview?.guidedMode === 'repository' || supportedAutomatic ? settings : null;
     items.push({ id: installation.id, operatorId: operator.id, profile: operator.profile,
       name: preview?.name ?? release?.name ?? operator.name ?? operator.id,
       installationName: installation.name, revision: installation.revision, enabled: installation.enabled, approved,
       version: release ? release.tagName ?? `GitHub release #${release.githubReleaseId}` : null,
-      canInvoke: invoke, canManage: manage, canActivateAutomaticRuns, guidedMode: preview?.guidedMode ?? null,
+      canInvoke: invoke, canManage: manage, canActivateAutomaticRuns,
+      automaticRunStatus: supportedAutomatic && installation.enabled
+        ? await registry.prospectiveRenovateStatus(installation.id, c.get('ownerKey')) : 'inactive', guidedMode: preview?.guidedMode ?? null,
       repository: guidedSettings?.repository ?? null, automaticRuns: guidedSettings?.automaticRuns ?? null,
       repetitionIntervalSeconds: guidedSettings?.repetitionIntervalSeconds ?? null });
   }
@@ -234,15 +235,21 @@ app.post('/renovate/activation', async c => {
     || !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
     throw new AppError('FORBIDDEN', 403, 'Administrator session unavailable');
   }
-  const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(authenticated.bucketName, command.sessionId);
-  if (session?.lifecycleState !== 'running' || session.lifecycleGeneration !== command.sessionGeneration) {
-    throw new AppError('FORBIDDEN', 403, 'Administrator session unavailable');
+  const installationScope = 'revision' in command;
+  if (!installationScope) {
+    const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(authenticated.bucketName, command.sessionId);
+    if (session?.lifecycleState !== 'running' || session.lifecycleGeneration !== command.sessionGeneration) {
+      throw new AppError('FORBIDDEN', 403, 'Administrator session unavailable');
+    }
   }
   const selected = await c.get('registry').resolveManagementExecution(command.installationId);
   if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
     || selected.value.installation.policy.resourceProfileId !== null
     || !canInvokeOperator(authority.human, selected.value.operator)) {
     throw new AppError('FORBIDDEN', 403, 'Dispatcher installation unavailable');
+  }
+  if (installationScope && selected.value.installation.revision !== command.revision) {
+    throw new AppError('CONFLICT', 409, 'Installation revision changed');
   }
   if (!prospectiveRenovatePackageSupported(selected.value.manifestJson)) throw new AppError('FORBIDDEN', 403, 'Prospective package unavailable');
   const configured = parseRenovateRunSettings(selected.value.installation.configurationJson);
@@ -253,13 +260,14 @@ app.post('/renovate/activation', async c => {
   const current = async () => {
     const [fresh, liveSession, liveAccess, liveUser] = await Promise.all([
       c.get('registry').resolveManagementExecution(command.installationId),
-      new D1SessionRepository(c.env.USAGE_DB).getSession(authenticated.bucketName, command.sessionId),
+      installationScope ? Promise.resolve(null)
+        : new D1SessionRepository(c.env.USAGE_DB).getSession(authenticated.bucketName, command.sessionId),
       operatorAccessSessionCurrent(authority.human, authority.accessJwt), authenticateRequest(c.req.raw, c.env),
     ]);
     if (!fresh.ok || !liveAccess || liveUser.user.role !== 'admin'
       || liveUser.user.email.toLowerCase() !== authority.human.email.toLowerCase()
-      || liveUser.bucketName !== authenticated.bucketName || liveSession?.lifecycleState !== 'running'
-      || liveSession.lifecycleGeneration !== command.sessionGeneration
+      || liveUser.bucketName !== authenticated.bucketName
+      || !installationScope && (liveSession?.lifecycleState !== 'running' || liveSession.lifecycleGeneration !== command.sessionGeneration)
       || fresh.value.controlsRevision !== expectedManagement.controlsRevision
       || fresh.value.installation.revision !== expectedManagement.installationRevision
       || fresh.value.operator.revision !== expectedManagement.operatorRevision
@@ -277,8 +285,10 @@ app.post('/renovate/activation', async c => {
     repository: configured.repository, human: authority.human, bucket: authenticated.bucketName, current });
   if (!await current()) throw new AppError('FORBIDDEN', 403, 'Prospective authority changed');
   const registration = await c.get('registry').activateProspectiveRenovate({ ...command,
+    ...(installationScope ? { scope: 'installation' as const, sessionId: '', sessionGeneration: 0 } : command),
     bucket: authenticated.bucketName, ...authority, repository, expectedManagement });
   if (!registration.ok) throw new AppError('FORBIDDEN', 403, 'Prospective activation unavailable');
+  if (installationScope) return c.json({ activatedAt: registration.activatedAt, repositoryId: registration.repositoryId }, 202);
   if (!c.env.CONTAINER) throw new AppError('UNAVAILABLE', 503, 'Admin session container unavailable');
   const container = getContainer(c.env.CONTAINER,
     getContainerId(authenticated.bucketName, command.sessionId)) as unknown as SessionContainer;

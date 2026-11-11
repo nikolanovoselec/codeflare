@@ -1,10 +1,13 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { OperatorRegistry, type CurrentProspectiveRegistration } from '../../operators/registry';
+import { OperatorRegistry, type CurrentProspectiveRegistration, type ManagementExecutionSelection } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
+import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
-import { authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
+import { connectionSecret, createNormalDispatcherTransport, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
+import { sealOperatorSecret } from '../../operators/protected-secrets';
+import { OperatorRuntimeCapability, authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
 import { createMockKV } from '../helpers/mock-kv';
 import { Hono } from 'hono';
 import * as access from '../../lib/access';
@@ -23,8 +26,10 @@ type Reservation = { ok: true; activityId: string; actor: { registrationId: stri
   sessionId: string; sessionGeneration: number } } | { ok: false; reason: string };
 type Prospective = {
   activateProspectiveRenovate(input: { installationId: string; bucket: string; sessionId: string;
-    sessionGeneration: number; human: ReturnType<typeof claims>; accessJwt: string;
+    sessionGeneration: number; scope?: 'installation'; human: ReturnType<typeof claims>; accessJwt: string;
     repository?: { repository: string; repositoryId: number; baseBranch: string } }): Promise<Registration>;
+  alarm(): Promise<void>;
+  prospectiveRenovateStatus(installationId: string, ownerKey: string): Promise<string>;
   currentProspectiveRenovateRegistration(registrationId: string): Promise<unknown | null>;
   observeProspectiveRenovateRegistration(registrationId: string): Promise<
     { status: 'current'; registration: CurrentProspectiveRegistration }
@@ -649,4 +654,224 @@ describe('REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry', () => {
         expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([]);
       } finally { clock.mockRestore(); }
     }));
+});
+
+
+describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
+  const activate = (registry: Prospective) => registry.activateProspectiveRenovate({ installationId: 'dispatcher-install',
+    scope: 'installation', bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
+    human: claims('a@example.test', 3600), accessJwt: 'a-jwt',
+    repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } });
+  it('zero sessions: explicit activation persists an alarm and admits only post-cutoff work; duplicate consent retains cutoff and identity', () => fixture(async ({ registry, restart, native, state }) => {
+    state.sessions.clear();
+    const first = await activate(registry); expect(first).toMatchObject({ ok: true });
+    if (!first.ok) throw Error('No activation');
+    expect(await native.storage.getAlarm()).toBeGreaterThan(Date.now());
+    expect(await activate(registry)).toEqual(first);
+    expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toMatchObject({ scope: 'installation' });
+    expect(await registry.prospectiveRenovateStatus('dispatcher-install', await operatorOwnerKey(claims('a@example.test')))).toBe('active');
+    expect(await registry.prospectiveRenovateStatus('dispatcher-install', 'f'.repeat(64))).toBe('inactive');
+    expect(await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt, { createdAt: first.activatedAt })))
+      .toMatchObject({ ok: false, reason: 'pre-activation' });
+    const reserved = await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt));
+    expect(reserved).toMatchObject({ ok: true });
+    expect(await restart().reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt, { activityId: 'duplicate' }))).toEqual(reserved);
+    expect(await registry.readProspectiveRenovateAdmission('duplicate')).toBeNull();
+  }));
+  it('due Registry alarm observes the configured repository and binds one durable admission with zero sessions or container access', () => fixture(async ({ registry, native, environment, selection, state }) => {
+    state.sessions.clear(); const first = await activate(registry); if (!first.ok) throw Error('No activation');
+    const bound = new Set<string>();
+    environment.CONTAINER = { getByName: () => { throw Error('Must not wake a container'); } } as never;
+    environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
+      bindProspectiveRenovateAdmission: async () => { bound.add(id); return true; },
+      getRuntimePlan: async () => null,
+      getBrowserDetail: async () => ({ executionStatus: 'unknown' }),
+    }) } as never;
+    const createdAt = new Date(Date.parse(first.activatedAt) + 1).toISOString();
+    const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?')
+      ? Response.json([{ number: 1300, state: 'open', draft: false, created_at: createdAt,
+        user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
+        base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } }])
+      : Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' }) }) };
+    const ctx = new Proxy(native, { get: (target, key) => key === 'exports' ? exports
+      : typeof Reflect.get(target, key) === 'function' ? Reflect.get(target, key).bind(target) : Reflect.get(target, key) });
+    const observer = new OperatorRegistry(ctx, environment);
+    vi.spyOn(observer, 'resolveManagementExecution').mockImplementation(async () => state.enabled
+      ? { ok: true, value: selection } as never : { ok: false, reason: 'disabled' });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+    try {
+      await observer.alarm();
+      expect(bound.size).toBe(1);
+      const id = [...bound][0]; expect(await registry.readProspectiveRenovateAdmission(id)).toMatchObject({
+        pullRequest: 1300, head, createdAt, activatedAt: first.activatedAt, actor: { registrationId: first.registrationId } });
+      const due = await native.storage.getAlarm(); expect(due).toBeGreaterThan(Date.now());
+      await observer.alarm(); expect([...bound]).toEqual([id]); // early/duplicate delivery admits no replacement
+      expect(await native.storage.getAlarm()).toBe(due);
+      state.enabled = false; clock.mockReturnValue(due! + 1); await observer.alarm();
+      expect(await native.storage.getAlarm()).toBeNull(); expect([...bound]).toEqual([id]);
+    } finally { clock.mockRestore(); }
+  }));
+  it('zero-session due alarm prepares and starts the original Activity through normal Dispatcher control, collects its result and deduplicates its identity', () => fixture(async ({ native, environment, selection, state }) => {
+    // Reuse the normal installed-Worker wire fixture: real Registry/Activity/orchestrator,
+    // controlled external App HTTP. This proves parent execution, not execution of Flue SDK code.
+    const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
+    const inRegistry = <T>(action: () => Promise<T>) => runInDurableObject(registryNamespace.get(native.id), () => action());
+    const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
+    const activityStub = activityNamespace.getByName(`alarm-normal-${crypto.randomUUID()}`);
+    const inActivity = <T>(action: () => Promise<T>) => runInDurableObject(activityStub, () => action());
+    await runInDurableObject(activityStub, async (_instance, activityNative) => {
+      state.sessions.clear();
+      const approved = normalDispatcherBundle();
+      const bytes = new TextEncoder().encode(JSON.stringify(approved));
+      const bundleDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+      const selected = selection as ManagementExecutionSelection;
+      const inference = { allowedSources: ['managed'] as Array<'managed'>, routeIds: ['approved'], defaultRouteId: 'approved',
+        reasoningLevels: ['off'] as Array<'off'>, defaultReasoningLevel: 'off' as const, inheritUserDefaults: false };
+      selected.installation.policy = { capabilities: ['fetch', 'inference'], resourceProfileId: null, inference };
+      selected.operator.policy = selected.installation.policy;
+      Object.assign(selected.release, { bundleDigest, sourceCommit: approved.sourceCommit, manifestDigest: 'd'.repeat(64),
+        intentVersion: '3', coreVersion: '1', provenance: { compilerCommit: normalDeployment.compilerCommit } });
+      const transport = createNormalDispatcherTransport();
+      const connection = { installationId: 'dispatcher-install', releaseId: 'release', connectionRevision: 1,
+        ...normalDeployment, bundleDigest, manifestDigest: selected.release.manifestDigest,
+        connectionSecretCiphertext: await sealOperatorSecret(connectionSecret, environment,
+          { purpose: 'connection', recordId: 'dispatcher-install' }) };
+      const pending: Promise<unknown>[] = [];
+      let drained = 0;
+      const drain = async () => {
+        while (drained < pending.length) { const batch = pending.slice(drained); drained = pending.length; await Promise.all(batch); }
+      };
+      Object.defineProperty(activityNative, 'waitUntil', { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } });
+      let activity: OperatorActivity;
+      let activityId: string | undefined;
+      environment.CONTAINER = { getByName: () => { throw Error('No user Host may be opened'); },
+        idFromName: () => { throw Error('No user Host may be selected'); } } as never;
+      environment.LOADER = { get: () => { throw Error('Normal Dispatcher must use its installed App'); } } as never;
+      environment.OPERATOR_ACTIVITY = { idFromName: () => activityNative.id, getByName: (id: string) => {
+        if (activityId && activityId !== id) throw Error('Unexpected replacement Activity');
+        activityId = id;
+        // Use the fixture's existing inOwnContext pattern for each real DO boundary.
+        return new Proxy(activity, { get: (target, key) => {
+          const value = Reflect.get(target, key);
+          return typeof value === 'function' ? (...args: unknown[]) => inActivity(() => Reflect.apply(value, target, args)) : value;
+        } });
+      } } as never;
+      const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?')
+        ? Response.json([{ number: 1300, state: 'open', draft: false, created_at: createdAt,
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
+          base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } }])
+        : Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' }) }),
+        OperatorRuntimeCapability: ({ props }: { props: Record<string, unknown> }) =>
+          new OperatorRuntimeCapability({ props } as unknown as ExecutionContext, environment) };
+      const context = new Proxy(native, { get: (target, key) => key === 'exports' ? exports
+        : key === 'waitUntil' ? (promise: Promise<unknown>) => { pending.push(promise); }
+          : typeof Reflect.get(target, key) === 'function' ? Reflect.get(target, key).bind(target) : Reflect.get(target, key) });
+      const owner = new OperatorRegistry(context, environment);
+      vi.spyOn(owner, 'resolveManagementExecution').mockResolvedValue({ ok: true, value: selected });
+      // Same Registry admission/deployment authority seams used by dispatcher-production.ts.
+      vi.spyOn(owner, 'admitManagement').mockImplementation(async input => ({ ok: true, value: {
+        ...input, admittedAt: Date.now(), selection: selected } }));
+      vi.spyOn(owner, 'getManagementBundle').mockResolvedValue(bytes);
+      vi.spyOn(owner, 'getManagementDispatcherConnection').mockResolvedValue(connection);
+      environment.OPERATOR_REGISTRY = { getByName: () => new Proxy(owner, { get: (target, key) => {
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? (...args: unknown[]) => inRegistry(() => Reflect.apply(value, target, args)) : value;
+      } }) } as never;
+      const bucket = vi.spyOn(access, 'resolveBucketName').mockResolvedValue('owner-bucket');
+      const groups = vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue([]);
+      const routing = vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: ['approved'],
+        defaultRoute: 'approved', defaultReasoning: 'off', routeContextWindows: {} } as never);
+      const identityFetch = globalThis.fetch;
+      globalThis.fetch = (input, init) => new URL(new Request(input, init).url).origin === normalDeployment.controlOrigin
+        ? transport.fetcher(input, init) : identityFetch(input, init);
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+      let createdAt = '';
+      try {
+        activity = new OperatorActivity(activityNative, environment);
+        await drain();
+        const registration = await inRegistry(() => activate(owner as unknown as Prospective));
+        if (!registration.ok) throw Error('No installation activation');
+        createdAt = new Date(Date.parse(registration.activatedAt) + 1).toISOString();
+        clock.mockReturnValue(Date.now() + 2000);
+        await inRegistry(() => owner.alarm()); await drain();
+        if (!activityId) throw Error('No Activity admitted by alarm');
+        expect(await activity.getAdmission()).toMatchObject({ phase: 'queued', receipt: { activityId } });
+        expect(await activity.getBrowserDetail()).toMatchObject({ activityId, executionStatus: 'running', result: null });
+        const plan = await activity.getRuntimePlan();
+        expect(plan).toMatchObject({ activityId, prospectiveAdmissionId: activityId,
+          invocationJson: JSON.stringify({ repository: 'acme/updates' }), executionContext: { owner: { email: 'a@example.test' } } });
+        const result = { repository: 'acme/updates', results: [{ pullRequest: 1300, headSha: head,
+          decision: 'DO_NOT_MERGE', comment: 'Controlled normal App result; no merge authorized.', outcome: 'NOT_MERGED' }] };
+        transport.settle('completed', [{ name: 'assessment', data: result }]);
+        await activity.reconcileDispatcherLease(); await drain();
+        expect(await activity.collectBrowserResult()).toMatchObject({ ok: true,
+          detail: { activityId, executionStatus: 'completed', collectionStatus: 'consumed', result } });
+        const retained = await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!));
+        const accepted = structuredClone([...transport.admissions.values()]);
+        expect(retained).toMatchObject({ activityId, activatedAt: registration.activatedAt, createdAt,
+          actor: { registrationId: registration.registrationId, sessionId: '', sessionGeneration: 0 } });
+        expect(await inRegistry(() => owner.reserveProspectiveRenovateActivity(pr(registration.registrationId, registration.activatedAt,
+          { activityId: 'must-not-replace-normal' })))).toMatchObject({ ok: true, activityId });
+        await inRegistry(() => owner.alarm()); await drain();
+        expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('must-not-replace-normal'))).toBeNull();
+        expect(await activity.getBrowserDetail()).toMatchObject({ activityId, executionStatus: 'completed', result });
+        expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
+        expect([...transport.admissions.values()]).toEqual(accepted);
+      } finally {
+        await drain(); clock.mockRestore(); globalThis.fetch = identityFetch;
+        routing.mockRestore(); groups.mockRestore(); bucket.mockRestore();
+      }
+    });
+  }));
+  it.each(['expiry', 'role', 'invoker', 'installation', 'revision', 'configuration', 'release', 'controls', 'identity'] as const)(
+    '%s fences session-independent callbacks and new admissions', fault => fixture(async ({ registry, restart, selection, state }) => {
+      state.sessions.clear(); const first = await activate(registry); if (!first.ok) throw Error('No activation');
+      const selected = selection as { installation: { revision: number; configurationJson: string };
+        operator: { invokers: { users: string[] } }; release: { id: string }; controlsRevision: number };
+      const now = Date.now(); const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        if (fault === 'expiry') clock.mockReturnValue(now + 3601_000);
+        if (fault === 'role') state.roles.set('a@example.test', 'user');
+        if (fault === 'invoker') selected.operator.invokers.users = [];
+        if (fault === 'installation') state.enabled = false;
+        if (fault === 'revision') selected.installation.revision++;
+        if (fault === 'configuration') selected.installation.configurationJson = JSON.stringify({ renovate: {
+          repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } });
+        if (fault === 'release') selected.release.id = 'other';
+        if (fault === 'controls') selected.controlsRevision++;
+        if (fault === 'identity') state.revoked.add('a-jwt');
+        expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
+        expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt))).ok).toBe(false);
+        expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
+      } finally { clock.mockRestore(); }
+    }));
+  it('manual-only saved settings cannot register or arm an alarm', () => fixture(async ({ registry, native, selection, state }) => {
+    state.sessions.clear(); (selection as { installation: { configurationJson: string } }).installation.configurationJson = JSON.stringify({ renovate: {
+      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } });
+    expect(await activate(registry)).toMatchObject({ ok: false }); expect(await native.storage.getAlarm()).toBeNull();
+  }));
+  it('fresh explicit activation supersedes legacy session callbacks without reinterpreting their pins', () => fixture(async ({ registry, restart }) => {
+    const old = await enroll(registry, 'a'); if (!old.ok) throw Error('No legacy registration');
+    const next = await activate(registry); if (!next.ok) throw Error('No installation registration');
+    expect(next.activatedAt).toBe(old.activatedAt);
+    expect(await restart().currentProspectiveRenovateRegistration(old.registrationId)).toBeNull();
+    expect(await restart().currentProspectiveRenovateRegistration(next.registrationId)).toMatchObject({ scope: 'installation' });
+  }));
+  it('expiry is truthful and a fresh explicit human activation rearms while retaining immutable cutoff', () => fixture(async ({ registry, native }) => {
+    const first = await activate(registry); if (!first.ok) throw Error('No activation');
+    const owner = await operatorOwnerKey(claims('a@example.test'));
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3601_000);
+    try {
+      expect(await registry.prospectiveRenovateStatus('dispatcher-install', owner)).toBe('expired');
+      const next = await activate(registry); if (!next.ok) throw Error('No reactivation');
+      expect(next.activatedAt).toBe(first.activatedAt); expect(next.registrationId).not.toBe(first.registrationId);
+      expect(await registry.prospectiveRenovateStatus('dispatcher-install', owner)).toBe('active');
+      expect(await native.storage.getAlarm()).toBeGreaterThan(Date.now());
+    } finally { clock.mockRestore(); }
+  }));
+  it('temporary identity loss projects unconfirmed and supplies no admission authority', () => fixture(async ({ registry, state }) => {
+    const first = await activate(registry); if (!first.ok) throw Error('No activation'); state.identityFault = 'unavailable';
+    expect(await registry.prospectiveRenovateStatus('dispatcher-install', await operatorOwnerKey(claims('a@example.test')))).toBe('unconfirmed');
+    expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt))).ok).toBe(false);
+  }));
 });

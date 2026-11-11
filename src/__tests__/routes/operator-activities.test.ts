@@ -569,6 +569,21 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     return { ...f, selected, session, admitted, armed, reads, command: {
       installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 } };
   }
+  it('REQ-OPERATOR-061 AC1/3: explicit installation revision activates with no sessions and never arms a Container', async () => {
+    const f = activationFixture(); f.session.available = false; f.session.readError = true;
+    const response = await f.request('/renovate/activation', 'POST', { installationId: 'dispatcher-install', revision: 2 });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z', repositoryId: 424242 });
+    expect(f.admitted).toMatchObject([{ scope: 'installation', installationId: 'dispatcher-install',
+      bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
+      expectedManagement: { installationRevision: 2, releaseId: 'release' } }]);
+    expect(f.armed).toEqual([]);
+  });
+  it('REQ-OPERATOR-061 AC3: stale explicit installation activation cannot observe protected metadata or register', async () => {
+    const f = activationFixture();
+    expect((await f.request('/renovate/activation', 'POST', { installationId: 'dispatcher-install', revision: 1 })).status).toBe(409);
+    expect(f.reads).toEqual([]); expect(f.admitted).toEqual([]); expect(f.armed).toEqual([]);
+  });
   it.each(['missing', 'foreign-session', 'starting', 'stopping', 'unreachable', 'stopped', 'stale-generation', 'lookup-outage'] as const)(
     'REQ-OPERATOR-061 AC1/3: %s session cannot activate, discover repository metadata or arm work', async fault => {
       const f = activationFixture();
