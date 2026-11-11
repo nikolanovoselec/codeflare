@@ -27,6 +27,7 @@ const DeployKeysSection: Component = () => {
       </p>
 
       <OAuthConnectCard
+        compact
         provider="github"
         icon={mdiGithub}
         name="GitHub"
@@ -38,6 +39,7 @@ const DeployKeysSection: Component = () => {
       />
 
       <OAuthConnectCard
+        compact
         provider="cloudflare"
         icon={mdiCloud}
         name="Cloudflare"
