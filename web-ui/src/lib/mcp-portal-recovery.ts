@@ -3,11 +3,13 @@ import { ApiError } from '../api/fetch-helper';
 import { dashboardPath, parseSessionPath } from './session-path';
 
 const STORAGE_KEY = 'codeflare-mcp-recovery';
-type RecoveryState = { owner: string; attempted: string[]; returnPath: string; pending?: string };
+export type McpReturnOutcome = 'connected' | 'reconnect';
+type RecoveryState = { owner: string; attempted: string[]; returnPath: string; pending?: string; outcome?: McpReturnOutcome };
 const canonicalPath = (path: string) => path === dashboardPath() || parseSessionPath(path) !== undefined;
 
 /** Browser-only retry guard and canonical view intent; never stores OAuth credentials. */
-export function createMcpPortalRecovery(owner: string, navigate: (url: string) => void, onAuthError: (error: unknown) => void) {
+export function createMcpPortalRecovery(owner: string, navigate: (url: string) => void, onAuthError: (error: unknown) => void,
+  onReturn?: (outcome: McpReturnOutcome | undefined) => void) {
   let state: RecoveryState = { owner, attempted: [], returnPath: dashboardPath() };
   try {
     const stored: unknown = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? 'null');
@@ -15,7 +17,8 @@ export function createMcpPortalRecovery(owner: string, navigate: (url: string) =
       && 'attempted' in stored && Array.isArray(stored.attempted)
       && stored.attempted.every(item => typeof item === 'string' && item.length <= 2048)
       && 'returnPath' in stored && typeof stored.returnPath === 'string' && canonicalPath(stored.returnPath)
-      && (!('pending' in stored) || typeof stored.pending === 'string' && stored.attempted.includes(stored.pending))) {
+      && (!('pending' in stored) || typeof stored.pending === 'string' && stored.attempted.includes(stored.pending))
+      && (!('outcome' in stored) || stored.outcome === 'connected' || stored.outcome === 'reconnect')) {
       state = stored as RecoveryState;
     }
   } catch { /* No trustworthy recovery intent: do not restore a stored location. */ }
@@ -24,12 +27,21 @@ export function createMcpPortalRecovery(owner: string, navigate: (url: string) =
     catch { return false; }
   };
   const returned = new URLSearchParams(window.location.search).get('mcp');
-  if (state.pending && (returned === 'connected' || returned === 'reconnect')) {
-    // Fixed callback landing is cleaned before Layout performs owned-session reconciliation.
-    window.history.replaceState({}, '', state.returnPath);
-    delete state.pending;
+  if (returned === 'connected' || returned === 'reconnect') {
+    state.outcome = returned;
+    if (state.pending) {
+      // Fixed callback landing is cleaned before Layout performs owned-session reconciliation.
+      window.history.replaceState({}, '', state.returnPath);
+      delete state.pending;
+    } else {
+      const params = new URLSearchParams(window.location.search);
+      params.delete('mcp');
+      const query = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    }
     save();
   }
+  onReturn?.(state.outcome);
 
   let disposed = false;
   let navigating = false;
@@ -56,6 +68,7 @@ export function createMcpPortalRecovery(owner: string, navigate: (url: string) =
           const url = new URL(result.url);
           if (url.protocol !== 'https:' || url.username || url.password) continue;
           state.attempted.push(key);
+          delete state.outcome;
           state.pending = key;
           state.returnPath = canonicalPath(window.location.pathname) ? window.location.pathname : dashboardPath();
           // Without a durable per-tab guard, an OAuth return could loop. Fail closed.

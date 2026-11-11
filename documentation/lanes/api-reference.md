@@ -396,6 +396,8 @@ POST `/api/auth/subscribe` and `/api/auth/request-access` likewise return 403 be
 | DELETE | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) AC3/AC4 | Remove allowed user (admin only) |
 | PATCH | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) AC1/AC2 | Update `subscriptionTier`/legacy `accessTier` and `subscribedMode` (admin only); preserve stored `role` |
 
+In SaaS mode, `GET /api/user` also projects optional `allowedModes` (`default` and/or `advanced`) from the canonical billing-effective configured tier. Settings uses this list rather than `subscribedMode`; an older response omitting availability does not grant non-admin Pro access. Preference-save and Start authorization remain server-side ([REQ-SUB-014](../../sdd/spec/subscription.md#req-sub-014-session-mode-gating-by-tier) AC6).
+
 `GET /api/user` also exposes `downloadsDisabled`; Storage Panel controls remain visible and tappable in their blocked styling, and interactions show the administrator-disabled notice instead of fetching ([REQ-ENTERPRISE-019](../../sdd/spec/storage.md#req-enterprise-019-view-only-storage-download-disable) AC4).
 
 For `GET /api/user`, current workers return `allowedAgents`. During a rolling upgrade, a successful response from an older worker may omit this optional field; the UI then hydrates the deployment-mode legacy catalog rather than remaining in its pre-hydration state ([REQ-AGENT-124](../../sdd/spec/agents.md#req-agent-124-agent-choice-profile-hydration)).

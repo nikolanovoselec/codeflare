@@ -15,14 +15,27 @@ function managedEnvironmentArea(section: unknown) {
 }
 
 describe('Environment area summaries', () => {
-  it.each([undefined, 'exclude', 'include'])('Data governance summary makes selected persistence scope %s discoverable', syncPolicyMode => {
-    const configuration: AdminConfigurationResponse = {
-      mode: 'enterprise', revision: 1, applicableSections: ['dataGovernance'], activeRunId: null, latest: {},
-      sections: { dataGovernance: { governedMode: false, viewOnlyStorage: false, syncPolicyMode } },
-    };
-    const areas = environmentAreas(configuration);
-    expect(areas[0].summary).toContain(syncPolicyMode === 'include' ? 'approved locations only' : 'save unless excluded');
-    expect(filterEnvironmentAreas(areas, 'persistence').map(area => area.section)).toEqual(['dataGovernance']);
+  describe.each(['default', 'onboarding', 'saas', 'enterprise'] as const)('REQ-SETUP-019/023/028: %s governance summary', mode => {
+    it.each([undefined, 'exclude', 'include'])('makes selected persistence scope %s discoverable without inventing governance state', syncPolicyMode => {
+      const configuration: AdminConfigurationResponse = {
+        mode, revision: 1, applicableSections: ['dataGovernance'], activeRunId: null, latest: {},
+        sections: { dataGovernance: {
+          ...(mode === 'enterprise' && { governedMode: false, viewOnlyStorage: false }), syncPolicyMode,
+        } },
+      };
+      const areas = environmentAreas(configuration);
+      expect(areas[0].label).toBe('Data governance');
+      expect(areas[0].summary).toContain(syncPolicyMode === 'include' ? 'approved locations only' : 'save unless excluded');
+      expect(filterEnvironmentAreas(areas, 'persistence').map(area => area.section)).toEqual(['dataGovernance']);
+      if (mode === 'enterprise') {
+        expect(areas[0].summary).toContain('Encrypted');
+        expect(areas[0].summary).toContain('downloads allowed');
+      } else {
+        expect(areas[0].summary).not.toMatch(/encrypted|governed|download|view-only/i);
+        expect(areas[0].description).not.toMatch(/encryption|download/i);
+        expect(filterEnvironmentAreas(areas, 'encryption')).toEqual([]);
+      }
+    });
   });
 
   it('REQ-SETUP-023 AC3: orders areas by displayed label without changing their summaries or authoritative input', () => {

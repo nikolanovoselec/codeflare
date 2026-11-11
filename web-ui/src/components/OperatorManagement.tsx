@@ -3,6 +3,8 @@ import { mdiAutorenew, mdiLayersSearch, mdiRepeat } from '@mdi/js';
 import * as api from '../api/operator-management';
 import { ApiError, apiErrorMessage } from '../api/fetch-helper';
 import OperatorManagementActivity from './OperatorManagementActivity';
+import { activateRenovateRuns } from '../api/operator-activities';
+import { sessionStore } from '../stores/session';
 import '../styles/administration.css';
 import '../styles/ai-routing-workspace.css';
 import '../styles/settings-panel.css';
@@ -561,6 +563,51 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     setRunAutomatic(settings.automaticRuns === true);
     setRunInterval(typeof settings.repetitionIntervalSeconds === 'number' ? settings.repetitionIntervalSeconds : 3600);
   });
+  const [activationPending, setActivationPending] = createSignal(false);
+  const [activationMessage, setActivationMessage] = createSignal('');
+  let activationEpoch = 0;
+  const activationScope = () => {
+    const session = sessionStore.getActiveSession();
+    return JSON.stringify([installation()?.id, installation()?.revision, installation()?.releaseId,
+      operator().revision, session?.id, session?.generation, session?.status, session?.lifecycle]);
+  };
+  createEffect(() => {
+    activationScope();
+    activationEpoch++;
+    setActivationPending(false); setActivationMessage('');
+  });
+  onCleanup(() => { activationEpoch++; });
+  const activationSession = () => {
+    const session = sessionStore.getActiveSession();
+    return session?.status === 'running' && (session.lifecycle === undefined || session.lifecycle === 'running')
+      && Number.isSafeInteger(session.generation) && session.generation! > 0
+      && /^[a-z0-9]{8,24}$/.test(session.id) ? session : undefined;
+  };
+  const canActivate = () => {
+    const saved = installation()?.configuration?.renovate;
+    return !!props.isAdmin && !props.locked && !activationPending() && !!installation()?.enabled
+      && configuredRuns() && currentRelease()?.approved === true && !!activationSession()
+      && !!saved && typeof saved === 'object' && !Array.isArray(saved) && saved.automaticRuns === true
+      && typeof saved.repository === 'string' && saved.repository.length <= 201
+      && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(saved.repository)
+      && saved.repository.split('/').every(part => part !== '.' && part !== '..')
+      && typeof saved.repetitionIntervalSeconds === 'number'
+      && Number.isSafeInteger(saved.repetitionIntervalSeconds) && saved.repetitionIntervalSeconds > 0;
+  };
+  const activate = async () => {
+    if (!canActivate()) return;
+    const session = activationSession()!;
+    const scope = activationScope(), epoch = ++activationEpoch;
+    setActivationPending(true); setActivationMessage('');
+    const current = () => epoch === activationEpoch && scope === activationScope();
+    try {
+      const result = await activateRenovateRuns({ installationId: installation()!.id,
+        sessionId: session.id, sessionGeneration: session.generation! });
+      if (current()) setActivationMessage(`Automatic runs activated. Original activation cutoff: ${result.activatedAt}. Authority remains limited to this session and its original Access expiry.`);
+    } catch {
+      if (current()) setActivationMessage('Activation not confirmed. Refresh and check this session and installation before explicitly trying again. No automatic retry occurs.');
+    } finally { if (current()) setActivationPending(false); }
+  };
   const purpose = () => installation()?.releaseId
     ? currentRelease()?.description || 'Purpose unavailable for the selected installed version.'
     : props.detail.installations.length > 1 && !installation() ? 'Select an installed configuration to see its verified purpose.'
@@ -689,6 +736,15 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <Show when={installation()?.enabled && configuredRuns()}><p class="admin-help-text">Run the configured repository using your invocation grant. Opening the form creates no activity.</p>
           <div class="operator-actions"><a href={assessmentUrl()} onClick={event => props.onInvoke(event, installation()!.id)}>Assess recent Renovate pull requests</a></div></Show>
         <Show when={operator().profile === 'conductor' && operator().name === 'Conductor Review'}><p class="admin-help-text">Review preparation requires a protected pull request boundary. This package cannot start an ad hoc Review here; inspect your own work in My activity.</p></Show>
+        <Show when={configuredRuns() && props.isAdmin}>
+          <p class="admin-help-text">Activate automatic runs only for the current active running session. Saving and enabling never activate a schedule; authority ends at the original Access expiry.</p>
+          <Show when={activationSession()} fallback={<p class="admin-help-text">Open a running workspace with a verified generation before activating.</p>}>{session =>
+            <p class="admin-help-text">Session: {session().id}</p>
+          }</Show>
+          <button class="admin-secondary-button" type="button" disabled={!canActivate()} onClick={() => void activate()}>Activate</button>
+          <Show when={activationPending()}><p class="admin-status-text" role="status">Activating…</p></Show>
+          <Show when={activationMessage()}><p class="admin-status-text" role={activationMessage().startsWith('Activation not confirmed') ? 'alert' : 'status'}>{activationMessage()}</p></Show>
+        </Show>
         {props.feedback('installed-enable')}
       </>}</Show>
       <Show when={!installation()?.releaseId && (!props.detail.installations.length || !!installation())}><button type="button" class="admin-primary-button" disabled={props.locked || !props.detail.releases.length} onClick={() => setInstallOpen(true)}>Install operator</button></Show>

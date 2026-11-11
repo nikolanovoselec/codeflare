@@ -6,6 +6,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 import preferencesRoutes from '../../routes/preferences';
 
 vi.mock('../../middleware/auth', () => ({
@@ -64,6 +65,7 @@ describe('Preferences Routes', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
+    resetTierConfigCache();
     mockReconcileAgentConfigs.mockClear();
     mockManagedExtensionsDocumentDigest.mockReset();
     mockManagedExtensionsDocumentDigest.mockResolvedValue('e'.repeat(64));
@@ -644,6 +646,30 @@ describe('Preferences Routes', () => {
   // ---------------------------------------------------------------------------
   // REQ-MEM-011 AC3-AC4 (mode change triggers reconcileAgentConfigs to seed/delete mode-appropriate preseed files)
   describe('preseed reconciliation on sessionMode change / REQ-AGENT-016 (advanced-mode preseed reconciliation)', () => {
+    it.each([
+      { subscribedMode: 'default', modes: ['default', 'advanced'], status: 200, savedMode: 'advanced' },
+      { subscribedMode: 'advanced', modes: ['default'], status: 400, savedMode: 'default' },
+    ])('REQ-SUB-014 AC4: preference save uses configured modes rather than $subscribedMode metadata', async ({ subscribedMode, modes, status, savedMode }) => {
+      mockKV._set('tiers:config', getDefaultTiers().map(tier => tier.id === 'advanced'
+        ? { ...tier, sessionModes: modes } : tier));
+      mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default', sleepAfter: '8h' });
+      const { authMiddleware } = await import('../../middleware/auth');
+      vi.mocked(authMiddleware).mockImplementationOnce(async (c: any, next: any) => {
+        c.set('user', { email: 'test@example.com', authenticated: true, role: 'user',
+          subscriptionTier: 'advanced', billingStatus: 'active', subscribedMode });
+        c.set('bucketName', 'codeflare-test-user');
+        return next();
+      });
+      const response = await createTestApp({ SAAS_MODE: 'active' }).request('/preferences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      expect(response.status).toBe(status);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({ sessionMode: savedMode, sleepAfter: '8h' });
+      if (status === 400) expect(await response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+      else expect(await response.json()).toMatchObject({ sessionMode: 'advanced', sleepAfter: '8h' });
+    });
+
     it('REQ-SEC-015 AC4: saves advanced mode only for current active billing despite a legacy paid mode', async () => {
       const app = createTestApp({ SAAS_MODE: 'active' });
       const prefsKey = 'user-prefs:codeflare-test-user';

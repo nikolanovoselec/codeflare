@@ -45,7 +45,7 @@ Codeflare uses eight stable tier IDs. Deployments may edit commercial values, bu
 
 ### Effective entitlement
 
-The effective tier is not a frontend label. Source resolves current `subscriptionTier`, compatible legacy `accessTier`, billing status, configured tier existence/default, deployment mode, paid `subscribedMode`, and requested/stored session mode. Billing downgrade rules can reduce effective entitlement even when a stale user record names a higher tier. Provider truth is authoritative for paid subscription state; KV is its serving projection.
+The effective tier is not a frontend label. Source resolves current `subscriptionTier`, compatible legacy `accessTier`, billing status, configured tier existence/default and deployment mode. Its configured allowed modes constrain the requested/stored session mode; `subscribedMode` remains subscription metadata, not an independent Pro entitlement. Billing downgrade rules can reduce entitlement despite stale higher-tier metadata. Provider truth is authoritative for paid subscription state; KV is its serving projection.
 
 Legacy records without `subscriptionTier` retain their documented fallback. Non-SaaS deployments use their non-commercial access path; Enterprise applies its explicit override. [Authentication](authentication.md) owns identity and initial durable record creation.
 
@@ -108,7 +108,7 @@ Timekeeper checks quota on pings. A confirmed exceeded quota asks the Container 
 
 Concurrent-session admission counts other D1 sessions in `starting`, `running`, `unreachable`, or `stopping`. SaaS uses effective-tier limits; non-SaaS retains role-based limits. The count and later generation claim are not atomic, so simultaneous starts can exceed the nominal limit. This remains best-effort resource protection, not a security boundary or hard billing reservation. D1 query failure fails Start closed; deployment `max_instances` is a separate platform ceiling.
 
-Advanced session authorization combines configured allowed modes, effective tier, paid `subscribedMode`, stored preference, billing downgrade, and Enterprise override. Settings cannot manufacture paid entitlement.
+SaaS `GET /api/user` projects billing-effective `allowedModes`, which Settings uses for non-admin Pro availability. Missing or failed availability does not enable Pro from saved preferences or `subscribedMode`; reopening Settings refreshes the projection. Backend preference-save and Start checks retain canonical tier/configuration enforcement, with existing admin and Enterprise behavior. Settings cannot manufacture paid entitlement.
 
 ### User consequence and observability
 

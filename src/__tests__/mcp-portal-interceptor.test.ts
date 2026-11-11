@@ -122,8 +122,13 @@ describe('MCP exact-destination Worker credential boundary', () => {
       expect(response.status).toBe(401);
       expect(response.headers.get('Cache-Control')).toBe('no-store');
       expect(await response.json()).toEqual({ code: 'MCP_RECONNECT_REQUIRED', error: 'MCP portal unavailable. Connect or reconnect this portal in Settings.' });
-      expect(records.map(line => {
-        const record = JSON.parse(line);
+      const parsed = records.map(line => JSON.parse(line));
+      for (const secret of [access, 'SYNTHETIC-SECRET', 'owner@example.test', 'https://private.example']) {
+        expect(JSON.stringify(parsed)).not.toContain(secret);
+      }
+      // The resolver now has separate closed-stage diagnostics; the interceptor's
+      // existing reason/detail envelope is intentionally unchanged.
+      expect(parsed.filter(record => record.module === 'mcp-portal-interceptor').map(record => {
         expect(record.timestamp).toEqual(expect.any(String));
         return { ...record, timestamp: undefined };
       })).toEqual([{ timestamp: undefined, level: 'warn', module: 'mcp-portal-interceptor',

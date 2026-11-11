@@ -130,6 +130,35 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(Array.from(staleRevision.kv._store.entries())).toEqual(before);
   });
 
+  describe.each([
+    ['default', {}], ['onboarding', { ONBOARDING_LANDING_PAGE: 'active' }],
+    ['saas', { SAAS_MODE: 'active' }], ['enterprise', { ENTERPRISE_MODE: 'active' }],
+  ] as const)('REQ-SETUP-018: %s sync Apply admission', (mode, overrides) => {
+    it.each(['revision', 'run', 'setup'] as const)('preserves stored bytes when %s guard rejects before streaming', async guard => {
+      const { app, kv } = createApp(overrides);
+      await kv.put(SETUP_KEYS.SYNC_POLICY_MODE, 'include');
+      await kv.put(SETUP_KEYS.R2_SSE_DISABLED, 'active');
+      await kv.put(SETUP_KEYS.DOWNLOADS_DISABLED, 'active');
+      const current = await app.request('/admin/configuration');
+      expect(current.status).toBe(200);
+      expect((await current.json() as any).applicableSections).toContain('dataGovernance');
+      if (guard === 'revision') await kv.put(ADMIN_CONFIGURATION_KEYS.REVISION, '2');
+      if (guard === 'run') await kv.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({
+        runId: 'active-sync', updatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }));
+      if (guard === 'setup') await kv.put(SETUP_KEYS.CONFIGURING, String(Date.now()));
+      const before = Array.from(kv._store.entries());
+      const response = await post(app, { section: 'dataGovernance', baseRevision: 0, values: {
+        ...(mode === 'enterprise' && { governedMode: false, viewOnlyStorage: false }), syncPolicyMode: 'exclude',
+      } });
+      expect(response.status).toBe(409);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      expect(await response.json()).toMatchObject({ code: guard === 'revision' ? 'configuration_revision_conflict'
+        : guard === 'run' ? 'configuration_run_active' : 'setup_configuration_active' });
+      expect(Array.from(kv._store.entries())).toEqual(before);
+    });
+  });
+
   it('streams sanitized snapshots, applies one section, increments revision once, and releases admission', async () => {
     const { app, kv } = createApp({ ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') });
     const secretMarker = 'must-never-enter-run-record';

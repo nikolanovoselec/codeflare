@@ -23,7 +23,7 @@ import { dispatcherCapacities, dispatcherCapacityKeys, pickDispatcherCapacities,
 import { dispatcherCapacityPolicySchema } from './dispatcher-capacity-schema';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
-import { canInvokeOperator, operatorAccessSessionCurrent, resolveOperatorGroupIdentity } from '../lib/access';
+import { canInvokeOperator, observeOperatorAccessIdentity } from '../lib/access';
 import { D1SessionRepository } from '../lib/session-repository';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { createOperatorExecutionContext, openOperatorExecutionAccess,
@@ -207,6 +207,22 @@ export interface ProspectiveAdmission extends RenovateRepositoryIdentity, Prospe
 export interface CurrentProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
   registrationId: string; installationId: string; activatedAt: string; bucket: string;
   sessionId: string; sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string; repetitionIntervalSeconds: number;
+}
+export type ProspectiveRegistrationObservation =
+  | { status: 'current'; registration: CurrentProspectiveRegistration }
+  | { status: 'unavailable' } | { status: 'denied' };
+type ProspectiveAuthorityObservation =
+  | { status: 'current'; authority: { human: VerifiedHumanAccessClaims; accessJwt: string } }
+  | { status: 'unavailable' } | { status: 'denied' };
+class ProspectiveDependencyUnavailable extends Error {}
+/** Only failures of dependency I/O, never malformed data or denied selections. */
+async function observeDependency<T>(read: () => Promise<T>): Promise<T> {
+  try { return await read(); } catch (error) {
+    if (error instanceof ValidationError || error instanceof SyntaxError || error instanceof TypeError
+      || error instanceof RangeError || error instanceof ReferenceError
+      || error instanceof Error && ['ForbiddenError', 'ZodError'].includes(error.name)) throw error;
+    throw new ProspectiveDependencyUnavailable();
+  }
 }
 export interface ManagementCatalogQuery {
   email: string; issuer: string; groups: string[]; platformAdmin: boolean; limit: number; cursor: string | null;
@@ -1812,44 +1828,59 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       unreadCount: Math.max(0, latestSequence - lastRead), latestSequence };
   }
 
-  private async prospectiveAuthority(registration: ProspectiveRegistration): Promise<{
-    human: VerifiedHumanAccessClaims; accessJwt: string;
-  } | null> {
+  private async observeProspectiveAuthority(registration: ProspectiveRegistration): Promise<ProspectiveAuthorityObservation> {
     const app = this.env as Env;
-    if (!app.USAGE_DB || !app.KV) return null;
+    const expiresAt = registration.context?.expiresAt;
+    if (!Number.isSafeInteger(expiresAt) || expiresAt * 1000 <= Date.now()
+      || !app.USAGE_DB || !app.KV) return { status: 'denied' };
     try {
       const authority = await openOperatorExecutionAccess(registration.context, this.env);
-      const [session, rawUser, selected, accessCurrent] = await Promise.all([
-        new D1SessionRepository(app.USAGE_DB).getSession(registration.bucket, registration.sessionId),
-        app.KV.get(`user:${authority.human.email.toLowerCase()}`),
-        this.resolveManagementExecution(registration.installationId),
-        operatorAccessSessionCurrent(authority.human, authority.accessJwt),
+      const [session, rawUser, selected, identity] = await Promise.all([
+        observeDependency(() => new D1SessionRepository(app.USAGE_DB!).getSession(registration.bucket, registration.sessionId)),
+        observeDependency(() => app.KV!.get(`user:${authority.human.email.toLowerCase()}`)),
+        observeDependency(() => this.resolveManagementExecution(registration.installationId)),
+        observeOperatorAccessIdentity(authority.human, authority.accessJwt),
       ]);
       const user: unknown = rawUser ? JSON.parse(rawUser) : null;
       if (!user || typeof user !== 'object' || (user as { role?: unknown }).role !== 'admin'
         || session?.lifecycleState !== 'running' || session.lifecycleGeneration !== registration.sessionGeneration
-        || !accessCurrent || !selected.ok || selected.value.operator.profile !== 'dispatcher'
+        || identity.status === 'denied' || !selected.ok || selected.value.operator.profile !== 'dispatcher'
         || selected.value.controlsRevision !== registration.controlsRevision
         || selected.value.installation.revision !== registration.installationRevision
         || selected.value.operator.revision !== registration.operatorRevision
         || selected.value.release.id !== registration.releaseId
         || selected.value.release.bundleDigest !== registration.bundleDigest
         || selected.value.installation.policy.resourceProfileId !== null
-        || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return null;
+        || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return { status: 'denied' };
       const configured = parseRenovateRunSettings(selected.value.installation.configurationJson);
       if (!configured?.automaticRuns || configured.repository !== registration.repository
         || configured.repetitionIntervalSeconds !== registration.repetitionIntervalSeconds
         || !renovateRepositoryIdentity.safeParse({ repository: registration.repository,
-          repositoryId: registration.repositoryId, baseBranch: registration.baseBranch }).success) return null;
-      const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
-      const final = await this.resolveManagementExecution(registration.installationId);
+          repositoryId: registration.repositoryId, baseBranch: registration.baseBranch }).success) return { status: 'denied' };
+      if (identity.status !== 'current') return identity;
+      const refreshed = await observeOperatorAccessIdentity(authority.human, authority.accessJwt);
+      if (refreshed.status !== 'current') return refreshed;
+      const human = { ...authority.human, groups: refreshed.groups };
+      const final = await observeDependency(() => this.resolveManagementExecution(registration.installationId));
       if (!final.ok || final.value.controlsRevision !== registration.controlsRevision
         || final.value.installation.revision !== registration.installationRevision
         || final.value.operator.revision !== registration.operatorRevision
         || final.value.release.id !== registration.releaseId
-        || final.value.release.bundleDigest !== registration.bundleDigest) return null;
-      return canInvokeOperator(human, final.value.operator) ? { human, accessJwt: authority.accessJwt } : null;
-    } catch { return null; }
+        || final.value.release.bundleDigest !== registration.bundleDigest) return { status: 'denied' };
+      return canInvokeOperator(human, final.value.operator)
+        ? { status: 'current', authority: { human, accessJwt: authority.accessJwt } } : { status: 'denied' };
+    } catch (error) {
+      return { status: expiresAt * 1000 > Date.now()
+        && error instanceof ProspectiveDependencyUnavailable ? 'unavailable' : 'denied' };
+    }
+  }
+
+
+  private async prospectiveAuthority(registration: ProspectiveRegistration): Promise<{
+    human: VerifiedHumanAccessClaims; accessJwt: string;
+  } | null> {
+    const observed = await this.observeProspectiveAuthority(registration);
+    return observed.status === 'current' ? observed.authority : null;
   }
 
 
@@ -1925,23 +1956,35 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     });
   }
 
+  async observeProspectiveRenovateRegistration(registrationId: string): Promise<ProspectiveRegistrationObservation> {
+    if (!scanId.test(registrationId)) return { status: 'denied' };
+    try {
+      const [activation, record] = await Promise.all([
+        observeDependency(() => this.ctx.storage.get<ProspectiveActivation>('renovate-activation')),
+        observeDependency(() => this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`)),
+      ]);
+      if (!activation || !record || activation.installationId !== record.installationId
+        || activation.repository !== record.repository || activation.repositoryId !== record.repositoryId
+        || activation.baseBranch !== record.baseBranch) return { status: 'denied' };
+      const observed = await this.observeProspectiveAuthority(record);
+      if (record.context.expiresAt * 1000 <= Date.now()) return { status: 'denied' };
+      if (observed.status !== 'current') return observed;
+      const current = observed.authority;
+      return { status: 'current', registration: { registrationId, installationId: record.installationId,
+        repository: record.repository, repositoryId: record.repositoryId, baseBranch: record.baseBranch,
+        repetitionIntervalSeconds: record.repetitionIntervalSeconds, activatedAt: activation.activatedAt,
+        bucket: record.bucket, sessionId: record.sessionId, sessionGeneration: record.sessionGeneration,
+        controlsRevision: record.controlsRevision, installationRevision: record.installationRevision,
+        operatorRevision: record.operatorRevision, releaseId: record.releaseId, bundleDigest: record.bundleDigest,
+        ...current } };
+    } catch (error) {
+      return { status: error instanceof ProspectiveDependencyUnavailable ? 'unavailable' : 'denied' };
+    }
+  }
+
   async currentProspectiveRenovateRegistration(registrationId: string): Promise<CurrentProspectiveRegistration | null> {
-    if (!scanId.test(registrationId)) return null;
-    const [activation, record] = await Promise.all([
-      this.ctx.storage.get<ProspectiveActivation>('renovate-activation'),
-      this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`),
-    ]);
-    if (!activation || !record || activation.installationId !== record.installationId
-      || activation.repository !== record.repository || activation.repositoryId !== record.repositoryId
-      || activation.baseBranch !== record.baseBranch) return null;
-    const current = await this.prospectiveAuthority(record);
-    return current ? { registrationId, installationId: record.installationId,
-      repository: record.repository, repositoryId: record.repositoryId, baseBranch: record.baseBranch,
-      repetitionIntervalSeconds: record.repetitionIntervalSeconds, activatedAt: activation.activatedAt,
-      bucket: record.bucket, sessionId: record.sessionId, sessionGeneration: record.sessionGeneration,
-      controlsRevision: record.controlsRevision, installationRevision: record.installationRevision,
-      operatorRevision: record.operatorRevision, releaseId: record.releaseId, bundleDigest: record.bundleDigest,
-      ...current } : null;
+    const observed = await this.observeProspectiveRenovateRegistration(registrationId);
+    return observed.status === 'current' ? observed.registration : null;
   }
 
   /** Trusted parent passes its authenticated GitHub observation, not route/child data. */

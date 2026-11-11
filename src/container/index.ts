@@ -119,6 +119,12 @@ type RenovateScanPin = { registrationId: string; installationId: string; bucket:
 const sameScanPin = (a: RenovateScanPin | undefined, b: RenovateScanPin | undefined) => !!a && !!b
   && a.registrationId === b.registrationId && a.installationId === b.installationId && a.bucket === b.bucket
   && a.sessionId === b.sessionId && a.sessionGeneration === b.sessionGeneration;
+type RenovateObservationPin = RenovateScanPin & { expiresAt: number; repetitionIntervalSeconds: number };
+const liveScanBounds = (pin: RenovateObservationPin | undefined): pin is RenovateObservationPin => !!pin
+  && Number.isSafeInteger(pin.expiresAt) && pin.expiresAt * 1000 > Date.now()
+  && Number.isSafeInteger(pin.repetitionIntervalSeconds) && pin.repetitionIntervalSeconds > 0;
+const boundedScan = (pin: RenovateObservationPin | undefined): pin is RenovateObservationPin => liveScanBounds(pin)
+  && pin.repetitionIntervalSeconds <= Math.floor((pin.expiresAt * 1000 - Date.now()) / 1000);
 type ExitEvidence = { owner: string; session: string; generation: number };
 
 export class container extends Container<Env> implements ContainerEnvState {
@@ -134,19 +140,44 @@ export class container extends Container<Env> implements ContainerEnvState {
     this.renovateScheduling = new Promise<void>(resolve => { release = resolve; });
     await previous;
     try {
-      const current = await this.env.OPERATOR_REGISTRY?.getByName('registry').currentProspectiveRenovateRegistration(pin.registrationId);
-      if (!current || current.installationId !== pin.installationId || current.bucket !== pin.bucket
-        || current.sessionId !== pin.sessionId || current.sessionGeneration !== pin.sessionGeneration) return false;
-      const stored = await this.ctx.storage.get<RenovateScanPin>('renovate:scan');
-      if (!activate && !sameScanPin(stored, pin)) return false;
-      if (!sameScanPin(stored, pin)) {
+      const stored = await this.ctx.storage.get<RenovateObservationPin>('renovate:scan');
+      if (!activate && (!sameScanPin(stored, pin) || !boundedScan(stored))) return false;
+      const observed = await this.observeRenovateScan(pin);
+      if (observed.status === 'denied' || (activate && observed.status !== 'current')) return false;
+      const current = observed.status === 'current' ? observed.registration : undefined;
+      // Only verified arm authority supplies bounds. Caller extras and later reads cannot renew them.
+      const retained = sameScanPin(stored, pin) && liveScanBounds(stored) ? stored : undefined;
+      const trusted: RenovateObservationPin | undefined = retained ?? (current ? {
+        registrationId: pin.registrationId, installationId: pin.installationId, bucket: pin.bucket,
+        sessionId: pin.sessionId, sessionGeneration: pin.sessionGeneration,
+        expiresAt: current.human.expiresAt, repetitionIntervalSeconds: current.repetitionIntervalSeconds,
+      } : undefined);
+      if (!boundedScan(trusted)) return false;
+      if (!retained) {
         await this.deleteSchedules('scanRenovate');
-        await this.ctx.storage.put('renovate:scan', pin);
+        await this.ctx.storage.put('renovate:scan', trusted);
       }
       const schedules = await this.listSchedules('scanRenovate');
-      if (rearm || schedules.length === 0) await this.schedule(current.repetitionIntervalSeconds, 'scanRenovate', pin);
+      if (!boundedScan(trusted)) return false;
+      if (rearm || schedules.length === 0) await this.schedule(trusted.repetitionIntervalSeconds, 'scanRenovate', pin);
       return true;
     } finally { release(); }
+  }
+
+  private async observeRenovateScan(pin: RenovateScanPin): Promise<import('../operators/registry').ProspectiveRegistrationObservation> {
+    if (!this.env.OPERATOR_REGISTRY) return { status: 'denied' };
+    let observed: import('../operators/registry').ProspectiveRegistrationObservation;
+    try {
+      observed = await this.env.OPERATOR_REGISTRY.getByName('registry')
+        .observeProspectiveRenovateRegistration(pin.registrationId);
+    } catch (error) {
+      // RPC transport loss permits observation only; no cached authority is returned.
+      const denied = error instanceof Error && ['ForbiddenError', 'ValidationError', 'SyntaxError', 'ZodError'].includes(error.name);
+      return { status: denied ? 'denied' : 'unavailable' };
+    }
+    if (observed?.status === 'unavailable' || observed?.status === 'denied') return observed;
+    if (observed?.status !== 'current' || !sameScanPin(observed.registration, pin)) return { status: 'denied' };
+    return observed;
   }
 
   // Port where the container's HTTP server listens
@@ -750,16 +781,20 @@ export class container extends Container<Env> implements ContainerEnvState {
 
   /** Scheduled callback is only a trigger; Registry and live session authority decide every operation. */
   async scanRenovate(delivered?: RenovateScanPin): Promise<void> {
-    const pin = await this.ctx.storage.get<RenovateScanPin>('renovate:scan');
-    if (!sameScanPin(pin, delivered)) return;
+    const pin = await this.ctx.storage.get<RenovateObservationPin>('renovate:scan');
+    if (!sameScanPin(pin, delivered) || !liveScanBounds(pin)) return;
     if (!pin || !this.env.OPERATOR_REGISTRY || !this.env.OPERATOR_ACTIVITY || !this.env.CONTAINER
       || this.env.CONTAINER.idFromName(`${pin.bucket}-${pin.sessionId}`).toString() !== this.ctx.id.toString()) return;
     const registry = this.env.OPERATOR_REGISTRY.getByName('registry');
+    let denied = false;
     const registration = async (id = pin.registrationId) => {
-      if (!sameScanPin(await this.ctx.storage.get<RenovateScanPin>('renovate:scan'), pin)) return null;
-      const current = await registry.currentProspectiveRenovateRegistration(id);
-      return current && current.installationId === pin.installationId && current.bucket === pin.bucket
-        && current.sessionId === pin.sessionId && current.sessionGeneration === pin.sessionGeneration ? current : null;
+      if (denied || id !== pin.registrationId
+        || !sameScanPin(await this.ctx.storage.get<RenovateScanPin>('renovate:scan'), pin)) {
+        denied = true; return null;
+      }
+      const observed = await this.observeRenovateScan(pin);
+      if (observed.status === 'denied') denied = true;
+      return observed.status === 'current' ? observed.registration : null;
     };
     try {
       const initial = await registration();
@@ -781,7 +816,7 @@ export class container extends Container<Env> implements ContainerEnvState {
         const actor = reserved.actor;
         if (actor.bucket !== pin.bucket || actor.sessionId !== pin.sessionId
           || actor.sessionGeneration !== pin.sessionGeneration || actor.registrationId !== pin.registrationId) continue;
-        const winner = await registry.currentProspectiveRenovateRegistration(actor.registrationId);
+        const winner = await registration(actor.registrationId);
         if (!winner || winner.installationId !== pin.installationId || winner.bucket !== actor.bucket
           || winner.sessionId !== actor.sessionId || winner.sessionGeneration !== actor.sessionGeneration) continue;
         const proof = await registry.readProspectiveRenovateAdmission(reserved.activityId);
@@ -803,18 +838,18 @@ export class container extends Container<Env> implements ContainerEnvState {
               installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
               releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
           } catch { continue; }
-          if (!await registry.currentProspectiveRenovateRegistration(actor.registrationId)) continue;
+          if (!await registration(actor.registrationId)) continue;
           try { await activity.start(prepared.startCapability); } catch { /* Reconcile accepted start below. */ }
           plan = await activity.getRuntimePlan();
         }
         if (!plan || plan.activityId !== reserved.activityId) continue;
         let detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         if (detail?.executionStatus === 'waiting'
-          && await registry.currentProspectiveRenovateRegistration(actor.registrationId)) {
+          && await registration(actor.registrationId)) {
           await activity.collectBrowserResult();
           detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         }
-        if (detail?.executionStatus === 'queued' && await registry.currentProspectiveRenovateRegistration(actor.registrationId)) {
+        if (detail?.executionStatus === 'queued' && await registration(actor.registrationId)) {
           this.ctx.waitUntil(runOperatorActivity(reserved.activityId, this.env,
             bindOperatorRuntimeCapability(this.ctx)).catch(error => {
             this.logger.warn('Prospective Renovate drive unavailable', { error: toErrorMessage(error) });
@@ -826,7 +861,12 @@ export class container extends Container<Env> implements ContainerEnvState {
         }
       }
     } finally {
-      if (await registration()) await this.ensureRenovateSchedule(pin, false, true);
+      // Both this observation and the serialized ensure lookup can lose transport.
+      // Neither unavailable result supplies authority for protected work.
+      if (!denied) {
+        await registration();
+        if (!denied) await this.ensureRenovateSchedule(pin, false, true);
+      }
     }
   }
 

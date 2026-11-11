@@ -4,7 +4,7 @@ import type { Env } from '../types';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { isOnboardingLandingPageActive, isSaasModeActive } from '../lib/onboarding';
-import { isEnterpriseMode } from '../lib/subscription';
+import { getEffectiveTierForUser, getTierConfig, isEnterpriseMode } from '../lib/subscription';
 import { getOrCreateScopedR2Token } from '../lib/r2-admin';
 import { getOrImportKey } from '../lib/kv-crypto';
 import { SETUP_KEYS } from '../lib/kv-keys';
@@ -45,6 +45,12 @@ app.get('/', async (c) => {
 
   const subscriptionTier = user.subscriptionTier ?? user.accessTier;
   const hasSubscribed = subscriptionTier !== 'pending' && subscriptionTier !== 'blocked';
+  const saasMode = isSaasModeActive(c.env.SAAS_MODE);
+  // REQ-SUB-014 / REQ-AUTH-019: project the same billing-effective modes
+  // used by preference saves, not the legacy subscribedMode metadata.
+  const allowedModes = saasMode
+    ? getEffectiveTierForUser(user, await getTierConfig(c.env.KV), c.env).allowedModes
+    : undefined;
   let operatorManagementEligible = false;
   if (isEnterpriseMode(c.env) && c.env.OPERATOR_REGISTRY) {
     if (user.role === 'admin') operatorManagementEligible = true;
@@ -68,7 +74,8 @@ app.get('/', async (c) => {
     bucketName,
     workerName: c.env.CLOUDFLARE_WORKER_NAME || 'codeflare',
     onboardingActive: isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE),
-    saasMode: isSaasModeActive(c.env.SAAS_MODE),
+    saasMode,
+    ...(saasMode ? { allowedModes } : {}),
     onboardingComplete,
     hasSubscribed,
     subscribedMode,

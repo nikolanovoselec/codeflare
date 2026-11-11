@@ -80,7 +80,7 @@ export interface ConfigurationPreview {
 }
 
 const COMMON_SECTIONS: ConfigurationSection[] = [
-  'access', 'domain', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports',
+  'access', 'domain', 'dataGovernance', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports',
 ];
 
 const ENTERPRISE_SECTIONS: ConfigurationSection[] = [
@@ -154,6 +154,8 @@ const aiRoutingSchema = z.object({
     }
   }
 });
+
+const syncOnlyGovernanceSchema = z.object({ syncPolicyMode: syncPolicyModeSchema.optional() }).strict();
 
 const sectionSchemas: Record<ConfigurationSection, z.ZodType<ConfigurationValues>> = {
   access: accessSchema,
@@ -552,8 +554,10 @@ async function readCurrentConfigurationValues(
     }
     case 'dataGovernance':
       return {
-        governedMode: (await env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active',
-        viewOnlyStorage: (await env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED)) === 'active',
+        ...(mode === 'enterprise' && {
+          governedMode: (await env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active',
+          viewOnlyStorage: (await env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED)) === 'active',
+        }),
         syncPolicyMode: await readSyncPolicyMode(env.KV),
       };
     case 'managedEnvironment':
@@ -583,7 +587,9 @@ export async function validateConfigurationValues(
   rawValues: unknown,
   initiatedBy?: string,
 ): Promise<PreviewValidationResult> {
-  const parsed = sectionSchemas[section].safeParse(rawValues);
+  const schema = section === 'dataGovernance' && mode !== 'enterprise'
+    ? syncOnlyGovernanceSchema : sectionSchemas[section];
+  const parsed = schema.safeParse(rawValues);
   if (!parsed.success) return { fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> };
   let values: ConfigurationValues;
   try {
@@ -822,7 +828,9 @@ export async function buildConfigurationPreview(
       : mode === 'onboarding' || mode === 'saas'
         ? TASKS.access.slice(0, 1)
         : TASKS.access
-    : TASKS[section];
+    : section === 'dataGovernance' && mode !== 'enterprise'
+      ? [{ id: 'configure_sync_policy', dependsOn: [] }]
+      : TASKS[section];
   const warnings = section === 'aiRouting'
     ? reasoningConfigurationWarnings(values.reasoningConfiguration as ReasoningConfiguration, values.dynamicRoutes as string[])
     : section === 'securityEgress' && (values.jwtStamping as { mode?: string }).mode === 'all'

@@ -10,7 +10,7 @@ import { storageStore } from './stores/storage';
 import { terminalStore } from './stores/terminal';
 import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from './lib/agent-catalog';
 import { logger } from './lib/logger';
-import { createMcpPortalRecovery } from './lib/mcp-portal-recovery';
+import { createMcpPortalRecovery, type McpReturnOutcome } from './lib/mcp-portal-recovery';
 import './styles/app.css';
 
 // Lazy-load the onboarding landing page (only needed when onboarding mode is active)
@@ -60,6 +60,7 @@ const AppContent: Component = () => {
   let resumeCheckInFlight = false;
   let wasHidden = document.visibilityState === 'hidden';
   let disposed = false;
+  const [mcpReturnOutcome, setMcpReturnOutcome] = createSignal<McpReturnOutcome>(undefined, { equals: false });
   let recoveryOwner: string | undefined;
   let portalRecovery: ReturnType<typeof createMcpPortalRecovery> | undefined;
 
@@ -77,8 +78,9 @@ const AppContent: Component = () => {
     if (disposed || redirecting()) return;
     if (!portalRecovery || owner !== recoveryOwner) {
       portalRecovery?.dispose();
+      if (owner !== recoveryOwner) setMcpReturnOutcome(undefined);
       recoveryOwner = owner;
-      portalRecovery = createMcpPortalRecovery(owner, url => window.location.assign(url), markAuthRedirect);
+      portalRecovery = createMcpPortalRecovery(owner, url => window.location.assign(url), markAuthRedirect, setMcpReturnOutcome);
     }
     void portalRecovery.check();
   };
@@ -234,7 +236,7 @@ const AppContent: Component = () => {
             </div>
           }
         >
-          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} />
+          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} mcpReturnOutcome={mcpReturnOutcome()} />
         </Show>
       </Show>
     </Show>

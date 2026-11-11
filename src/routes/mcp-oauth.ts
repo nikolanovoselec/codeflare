@@ -9,6 +9,9 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { authenticateRequest } from '../lib/access';
 import { isSessionOidcMode } from '../lib/onboarding';
 import { isActiveTier, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
+import { createLogger } from '../lib/logger';
+
+const logger = createLogger('mcp-portal-oauth');
 
 const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
 export interface McpOAuthDependencies {
@@ -66,14 +69,23 @@ export function createMcpOAuthRoutes(deps: McpOAuthDependencies = defaults) {
     catch { return c.json({ error: 'MCP portal connection unavailable. Return to Settings and reconnect.', code: 'MCP_CONNECT_FAILED' }, 502); }
   });
   app.get('/callback', async c => {
+    let validating = true;
     try {
       const url = new URL(c.req.url), q = url.searchParams;
       const base = new URL(await getBaseUrl(c.env.KV, c.req.url)).origin;
       if (url.protocol !== 'https:' || url.origin !== base || [...q.keys()].some(k => !['state', 'code', 'iss', 'error', 'error_description'].includes(k))
         || [...new Set(q.keys())].some(k => q.getAll(k).length !== 1) || !q.get('state') || (q.has('code') === q.has('error'))) throw new Error('Invalid callback');
+      validating = false;
       await deps.finish(c.env, c.get('bucketName'), base, q.get('state')!, q.has('error') ? null : q.get('code'), q.get('iss') ?? undefined);
       return c.redirect('/app/?mcp=connected', 303);
-    } catch { return c.redirect('/app/?mcp=reconnect', 303); }
+    } catch {
+      if (validating) {
+        try {
+          logger.warn('MCP OAuth outcome', { operation: 'callback', stage: 'callback-validation', outcome: 'rejected', detail: 'other' });
+        } catch { /* Logging cannot replace the fixed callback outcome. */ }
+      }
+      return c.redirect('/app/?mcp=reconnect', 303);
+    }
   });
   return app;
 }

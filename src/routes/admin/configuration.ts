@@ -119,6 +119,7 @@ app.get('/', requireAdmin, async (c) => {
   };
 
   if (mode !== 'enterprise') {
+    sections.dataGovernance = { syncPolicyMode: await readSyncPolicyMode(c.env.KV) };
     sections.cloudflareConnection = {
       clientId: cloudflareOauthClientId ?? '',
       clientSecretState: secretState(cloudflareOauthClientSecret),

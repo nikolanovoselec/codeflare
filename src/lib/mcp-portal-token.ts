@@ -7,6 +7,28 @@ import { getConfiguredMcpPortals, publicHttps, type McpPortal } from './mcp-port
 export { publicHttps } from './mcp-portals';
 import { claimOauthNonce } from './oauth-state';
 import { SETUP_KEYS, isValidCustomDomain } from './kv-keys';
+import { createLogger } from './logger';
+
+const logger = createLogger('mcp-portal-oauth');
+type OAuthStage = 'configuration' | 'discovery' | 'discovery-validation' | 'registration' | 'authorization'
+  | 'pending-publication' | 'state-lookup' | 'state-binding' | 'nonce-claim' | 'pending-consume'
+  | 'authorization-response' | 'connection-check' | 'code-exchange' | 'token-validation'
+  | 'publication-check' | 'grant-publication' | 'refresh' | 'readback' | 'winner-lookup';
+
+/** Closed metadata only; logging failures must never change an OAuth outcome. */
+function oauthDiagnostic(operation: 'connect' | 'callback' | 'renewal', stage: OAuthStage,
+  outcome: 'completed' | 'rejected' | 'reused-current', error?: unknown): void {
+  try {
+    let detail: McpPortalTokenFailure['detail'] | 'invalid_client_metadata' = undefined;
+    if (outcome === 'rejected') {
+      detail = error && typeof error === 'object' && 'errorCode' in error && error.errorCode === 'invalid_client_metadata'
+        ? 'invalid_client_metadata' : refreshErrorDetail(error);
+    }
+    const data = { operation, stage, outcome, ...(detail ? { detail } : {}) };
+    if (outcome === 'rejected') logger.warn('MCP OAuth outcome', data);
+    else logger.info('MCP OAuth outcome', data);
+  } catch { /* Observability is best effort, never an authorization dependency. */ }
+}
 
 const MCP_CALLBACK_PATH = '/auth/mcp/callback';
 export const MCP_CLIENT_METADATA_PATH = '/auth/mcp/client-metadata';
@@ -85,69 +107,99 @@ function validTokens(tokens: OAuthTokens): void {
 }
 export async function beginMcpPortalConnect(env: Env, owner: string, portal: McpPortal, instance: string, send: typeof fetch = fetch,
   expectedGrantId?: string): Promise<string> {
-  await encryption(env); publicHttps(instance); publicHttps(portal.url);
-  if (!await configured(env, portal)) throw new Error('MCP portal configuration changed');
-  // An in-flight Connect may not adopt a later Disconnect as its starting generation.
-  const previous = await read<Connection>(env, connectionKey(owner, portal.name));
-  if (expectedGrantId !== undefined) {
-    const bound = await getMcpPortalGrant(env, owner, portal);
-    if (!bound || bound.id !== expectedGrantId || previous?.id !== expectedGrantId || bound.instance !== instance) {
-      throw new Error('MCP connection changed');
+  let stage: OAuthStage = 'configuration';
+  try {
+    await encryption(env); publicHttps(instance); publicHttps(portal.url);
+    if (!await configured(env, portal)) throw new Error('MCP portal configuration changed');
+    // An in-flight Connect may not adopt a later Disconnect as its starting generation.
+    const previous = await read<Connection>(env, connectionKey(owner, portal.name));
+    if (expectedGrantId !== undefined) {
+      const bound = await getMcpPortalGrant(env, owner, portal);
+      if (!bound || bound.id !== expectedGrantId || previous?.id !== expectedGrantId || bound.instance !== instance) {
+        throw new Error('MCP connection changed');
+      }
     }
+    const fetchFn = portalOAuthFetch(send);
+    // Learn the portal's standard protected-resource metadata challenge, without credentials.
+    stage = 'discovery';
+    const probe = await fetchFn(portal.url, { headers: { Accept: 'application/json, text/event-stream' } });
+    const resourceMetadataUrl = extractWWWAuthenticateParams(probe).resourceMetadataUrl;
+    await probe.body?.cancel();
+    if (resourceMetadataUrl && publicHttps(resourceMetadataUrl.href).origin !== new URL(portal.url).origin) throw new Error('MCP metadata destination mismatch');
+    const discovery = await discoverOAuthServerInfo(portal.url, { fetchFn, resourceMetadataUrl });
+    stage = 'discovery-validation';
+    const resource = validateDiscovery(discovery, portal);
+    const redirect = `${instance}${MCP_CALLBACK_PATH}`;
+    // Prefer DCR when offered: the instance's public metadata handler can still sit
+    // behind deployment-wide Access, where an authorization server cannot fetch it.
+    stage = 'registration';
+    const client: OAuthClientInformationMixed = discovery.authorizationServerMetadata?.registration_endpoint
+      ? await registerClient(discovery.authorizationServerUrl, { metadata: discovery.authorizationServerMetadata,
+        clientMetadata: mcpPortalClientMetadata(instance), scope: discovery.resourceMetadata?.scopes_supported?.join(' '), fetchFn })
+      : { client_id: `${instance}${MCP_CLIENT_METADATA_PATH}` };
+    stage = 'authorization';
+    const state = random();
+    const { authorizationUrl, codeVerifier } = await startAuthorization(discovery.authorizationServerUrl, {
+      metadata: discovery.authorizationServerMetadata, clientInformation: client, redirectUrl: redirect, state, resource,
+      scope: discovery.resourceMetadata?.scopes_supported?.join(' '),
+    });
+    if (authorizationUrl.origin !== publicHttps(discovery.authorizationServerMetadata!.authorization_endpoint!).origin) throw new Error('MCP authorization destination mismatch');
+    stage = 'connection-check';
+    if (expectedGrantId !== undefined) {
+      const bound = await getMcpPortalGrant(env, owner, portal);
+      if (!bound || bound.id !== expectedGrantId || bound.instance !== instance) throw new Error('MCP connection changed');
+    }
+    stage = 'pending-publication';
+    const pending: Pending = { owner, portal, instance, id: random(), discovery, client, resource, state, verifier: codeVerifier,
+      expiresAt: Date.now() + 300_000, previous: previous?.id ?? null };
+    await env.KV.put(pendingKey(state), await encryptForKV(JSON.stringify(pending), await encryption(env), pendingKey(state)), { expirationTtl: 300 });
+    oauthDiagnostic('connect', stage, 'completed');
+    return authorizationUrl.href;
+  } catch (error) {
+    oauthDiagnostic('connect', stage, 'rejected', error);
+    throw error;
   }
-  const fetchFn = portalOAuthFetch(send);
-  // Learn the portal's standard protected-resource metadata challenge, without credentials.
-  const probe = await fetchFn(portal.url, { headers: { Accept: 'application/json, text/event-stream' } });
-  const resourceMetadataUrl = extractWWWAuthenticateParams(probe).resourceMetadataUrl;
-  await probe.body?.cancel();
-  if (resourceMetadataUrl && publicHttps(resourceMetadataUrl.href).origin !== new URL(portal.url).origin) throw new Error('MCP metadata destination mismatch');
-  const discovery = await discoverOAuthServerInfo(portal.url, { fetchFn, resourceMetadataUrl });
-  const resource = validateDiscovery(discovery, portal);
-  const redirect = `${instance}${MCP_CALLBACK_PATH}`;
-  // Prefer DCR when offered: the instance's public metadata handler can still sit
-  // behind deployment-wide Access, where an authorization server cannot fetch it.
-  const client: OAuthClientInformationMixed = discovery.authorizationServerMetadata?.registration_endpoint
-    ? await registerClient(discovery.authorizationServerUrl, { metadata: discovery.authorizationServerMetadata,
-      clientMetadata: mcpPortalClientMetadata(instance), scope: discovery.resourceMetadata?.scopes_supported?.join(' '), fetchFn })
-    : { client_id: `${instance}${MCP_CLIENT_METADATA_PATH}` };
-  const state = random();
-  const { authorizationUrl, codeVerifier } = await startAuthorization(discovery.authorizationServerUrl, {
-    metadata: discovery.authorizationServerMetadata, clientInformation: client, redirectUrl: redirect, state, resource,
-    scope: discovery.resourceMetadata?.scopes_supported?.join(' '),
-  });
-  if (authorizationUrl.origin !== publicHttps(discovery.authorizationServerMetadata!.authorization_endpoint!).origin) throw new Error('MCP authorization destination mismatch');
-  if (expectedGrantId !== undefined) {
-    const bound = await getMcpPortalGrant(env, owner, portal);
-    if (!bound || bound.id !== expectedGrantId || bound.instance !== instance) throw new Error('MCP connection changed');
-  }
-  const pending: Pending = { owner, portal, instance, id: random(), discovery, client, resource, state, verifier: codeVerifier,
-    expiresAt: Date.now() + 300_000, previous: previous?.id ?? null };
-  await env.KV.put(pendingKey(state), await encryptForKV(JSON.stringify(pending), await encryption(env), pendingKey(state)), { expirationTtl: 300 });
-  return authorizationUrl.href;
 }
 export async function finishMcpPortalConnect(env: Env, owner: string, instance: string, state: string, code: string | null,
   issuer?: string, send: typeof fetch = fetch): Promise<void> {
-  if (!/^[a-f0-9]{64}$/.test(state)) throw new Error('Invalid MCP state');
-  const pending = await read<Pending>(env, pendingKey(state));
-  if (!pending || pending.owner !== owner || pending.instance !== instance || pending.state !== state || pending.expiresAt <= Date.now()
-    || !await configured(env, pending.portal) || (issuer && issuer !== pending.discovery.authorizationServerUrl)) throw new Error('MCP state binding mismatch');
-  // Existing nonce mechanism has KV eventual-consistency limits; the provider also enforces single-use codes.
-  if (!await claimOauthNonce(env.KV, `mcp-${state}`, 600)) throw new Error('MCP state already used');
-  await env.KV.delete(pendingKey(state));
-  if (!code || code.length > 8192 || /[\s\x00-\x1f\x7f]/.test(code)) throw new Error('MCP authorization cancelled');
-  validateDiscovery(pending.discovery, pending.portal);
-  const beforeExchange = await read<Connection>(env, connectionKey(owner, pending.portal.name));
-  if ((beforeExchange?.id ?? null) !== pending.previous) throw new Error('MCP connection changed');
-  const tokens = await exchangeAuthorization(pending.discovery.authorizationServerUrl, {
-    metadata: pending.discovery.authorizationServerMetadata, clientInformation: pending.client, authorizationCode: code,
-    codeVerifier: pending.verifier, redirectUri: `${instance}${MCP_CALLBACK_PATH}`, resource: pending.resource, fetchFn: portalOAuthFetch(send),
-  });
-  validTokens(tokens);
-  const current = await read<Connection>(env, connectionKey(owner, pending.portal.name));
-  if ((current?.id ?? null) !== pending.previous || !await configured(env, pending.portal)) throw new Error('MCP connection changed');
-  const grant: PortalGrant = { owner, portal: pending.portal, instance, id: pending.id, discovery: pending.discovery,
-    client: pending.client, resource: pending.resource, tokens, ...(tokens.expires_in ? { expiresAt: Date.now() + tokens.expires_in * 1000 } : {}) };
-  await write(env, connectionKey(owner, pending.portal.name), { id: grant.id, grant });
+  let stage: OAuthStage = 'state-lookup';
+  try {
+    if (!/^[a-f0-9]{64}$/.test(state)) throw new Error('Invalid MCP state');
+    const pending = await read<Pending>(env, pendingKey(state));
+    stage = 'state-binding';
+    if (!pending || pending.owner !== owner || pending.instance !== instance || pending.state !== state || pending.expiresAt <= Date.now()
+      || !await configured(env, pending.portal) || (issuer && issuer !== pending.discovery.authorizationServerUrl)) throw new Error('MCP state binding mismatch');
+    // Existing nonce mechanism has KV eventual-consistency limits; the provider also enforces single-use codes.
+    stage = 'nonce-claim';
+    if (!await claimOauthNonce(env.KV, `mcp-${state}`, 600)) throw new Error('MCP state already used');
+    stage = 'pending-consume';
+    await env.KV.delete(pendingKey(state));
+    stage = 'authorization-response';
+    if (!code || code.length > 8192 || /[\s\x00-\x1f\x7f]/.test(code)) throw new Error('MCP authorization cancelled');
+    stage = 'discovery-validation';
+    validateDiscovery(pending.discovery, pending.portal);
+    stage = 'connection-check';
+    const beforeExchange = await read<Connection>(env, connectionKey(owner, pending.portal.name));
+    if ((beforeExchange?.id ?? null) !== pending.previous) throw new Error('MCP connection changed');
+    stage = 'code-exchange';
+    const tokens = await exchangeAuthorization(pending.discovery.authorizationServerUrl, {
+      metadata: pending.discovery.authorizationServerMetadata, clientInformation: pending.client, authorizationCode: code,
+      codeVerifier: pending.verifier, redirectUri: `${instance}${MCP_CALLBACK_PATH}`, resource: pending.resource, fetchFn: portalOAuthFetch(send),
+    });
+    stage = 'token-validation';
+    validTokens(tokens);
+    stage = 'publication-check';
+    const current = await read<Connection>(env, connectionKey(owner, pending.portal.name));
+    if ((current?.id ?? null) !== pending.previous || !await configured(env, pending.portal)) throw new Error('MCP connection changed');
+    const grant: PortalGrant = { owner, portal: pending.portal, instance, id: pending.id, discovery: pending.discovery,
+      client: pending.client, resource: pending.resource, tokens, ...(tokens.expires_in ? { expiresAt: Date.now() + tokens.expires_in * 1000 } : {}) };
+    stage = 'grant-publication';
+    await write(env, connectionKey(owner, pending.portal.name), { id: grant.id, grant });
+    oauthDiagnostic('callback', stage, 'completed');
+  } catch (error) {
+    oauthDiagnostic('callback', stage, 'rejected', error);
+    throw error;
+  }
 }
 export async function getMcpPortalGrant(env: Env, owner: string, portal: McpPortal): Promise<PortalGrant | null> {
   const record = await read<Connection>(env, connectionKey(owner, portal.name));
@@ -183,8 +235,15 @@ function renewedGrant(current: PortalGrant | null, original: PortalGrant): curre
 }
 export async function getValidMcpPortalToken(env: Env, owner: string, portal: McpPortal, send: typeof fetch = fetch,
   report?: (failure: McpPortalTokenFailure) => void): Promise<string | null> {
+  let diagnosticStage: OAuthStage | undefined;
+  let renewalError: unknown;
   const fail = (reason: McpPortalTokenFailure['reason'], detail?: McpPortalTokenFailure['detail']) => {
+    if (diagnosticStage) oauthDiagnostic('renewal', diagnosticStage, 'rejected', renewalError);
     report?.({ reason, ...(detail ? { detail } : {}) }); return null;
+  };
+  const renewed = (token: string, outcome: 'completed' | 'reused-current' = 'completed') => {
+    oauthDiagnostic('renewal', diagnosticStage!, outcome);
+    return token;
   };
   let grant: PortalGrant | null;
   try { grant = await getMcpPortalGrant(env, owner, portal); }
@@ -193,33 +252,42 @@ export async function getValidMcpPortalToken(env: Env, owner: string, portal: Mc
   if (!grant.expiresAt || grant.expiresAt > Date.now() + 60_000) return grant.tokens.access_token;
   if (!grant.tokens.refresh_token) return fail('no-refresh-token');
   let stage: 'refresh' | 'publication' = 'refresh';
+  diagnosticStage = 'refresh';
   try {
     const tokens = await refreshAuthorization(grant.discovery.authorizationServerUrl, {
       metadata: grant.discovery.authorizationServerMetadata, clientInformation: grant.client, refreshToken: grant.tokens.refresh_token,
       resource: grant.resource, fetchFn: portalOAuthFetch(send),
     });
+    diagnosticStage = 'token-validation';
     validTokens(tokens);
     stage = 'publication';
+    diagnosticStage = 'publication-check';
     const current = await getMcpPortalGrant(env, owner, portal);
     if (!current || current.id !== grant.id) return fail('concurrent-change');
     if (changedTokens(current, grant)) {
-      return renewedGrant(current, grant) ? current.tokens.access_token : fail('concurrent-change');
+      return renewedGrant(current, grant) ? renewed(current.tokens.access_token, 'reused-current') : fail('concurrent-change');
     }
     const updated: PortalGrant = { ...grant, tokens, expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined };
+    diagnosticStage = 'grant-publication';
     await write(env, connectionKey(owner, portal.name), { id: grant.id, grant: updated });
+    diagnosticStage = 'readback';
     // Reject observed disconnect/config changes; KV is not an atomic CAS store.
     const after = await getMcpPortalGrant(env, owner, portal);
     if (!after || after.id !== grant.id) return fail('readback-rejected');
-    if (renewedGrant(after, grant)) return after.tokens.access_token;
+    if (renewedGrant(after, grant)) return renewed(after.tokens.access_token);
     // An unchanged same-generation read may lag our completed write. Never send
     // its old access token instead of the successful refresh result.
-    return !changedTokens(after, grant) ? updated.tokens.access_token : fail('readback-rejected');
+    return !changedTokens(after, grant) ? renewed(updated.tokens.access_token) : fail('readback-rejected');
   } catch (error) {
     // A losing rotating refresh before winner publication remains fail-closed.
     // Only an observed renewed same-generation grant is safe; never retry writes.
+    renewalError = error;
     try {
       const current = await getMcpPortalGrant(env, owner, portal);
-      if (renewedGrant(current, grant)) return current.tokens.access_token;
+      if (renewedGrant(current, grant)) {
+        diagnosticStage = 'winner-lookup';
+        return renewed(current.tokens.access_token, 'reused-current');
+      }
     } catch { /* No usable observed renewal. */ }
     return stage === 'refresh' ? fail('refresh-error', refreshErrorDetail(error)) : fail('readback-rejected');
   }

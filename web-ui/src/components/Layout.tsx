@@ -57,6 +57,7 @@ interface LayoutProps {
   onboardingActive?: boolean;
   enterpriseMode?: boolean;
   operatorManagementEligible?: boolean;
+  mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
 }
 
 /**
@@ -882,7 +883,7 @@ const Layout: Component<LayoutProps> = (props) => {
       </div>
 
       {/* Settings Panel - slides in from right */}
-      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} currentUserAccessTier={props.userAccessTier} enterpriseMode={props.enterpriseMode} />
+      <SettingsPanel isOpen={isSettingsOpen()} onClose={handleSettingsClose} currentUserEmail={props.userName} currentUserRole={props.userRole} currentUserAccessTier={props.userAccessTier} enterpriseMode={props.enterpriseMode} mcpReturnOutcome={props.mcpReturnOutcome} />
 
       {/* Storage Panel - slides in from right */}
       <StoragePanel isOpen={isStoragePanelOpen()} onClose={handleStoragePanelClose} />

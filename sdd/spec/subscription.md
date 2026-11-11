@@ -428,6 +428,7 @@ Tiers, billing, usage tracking, and quotas.
 3. By default, standard, advanced, max, and unlimited tiers allow both Standard and Pro modes. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
 4. Explicit preference mode changes that the tier does not allow are rejected. <!-- @manual -->
 5. Container startup clamps an unsupported stored mode to the tier's allowed default so stale preferences cannot retain advanced entitlement. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @manual -->
+6. SaaS profiles project billing-effective configured modes, and non-admin Settings uses that list for Pro availability rather than subscription metadata; missing or failed availability stays unavailable. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::canUseAdvanced --> <!-- @test: src/__tests__/routes/user-profile.test.ts (REQ-SUB-014 / REQ-AUTH-019: projects billing-effective configured modes ($billingStatus, $subscribedMode)) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SUB-014: Pro availability follows allowedModes, not $metadata metadata ($enabled)) --> <!-- @test: web-ui/src/__tests__/components/preferences-hydration.test.tsx (REQ-SUB-014: real user parsing enables entitled default metadata, then denies revoked stale Advanced on reopen) -->
 
 **Constraints:**
 
@@ -438,7 +439,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-009](#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
+**Verification:** Automated: [user-profile.test.ts](../../src/__tests__/routes/user-profile.test.ts), [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [preferences-hydration.test.tsx](../../web-ui/src/__tests__/components/preferences-hydration.test.tsx); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 

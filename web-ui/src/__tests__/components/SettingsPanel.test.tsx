@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import { within } from '@testing-library/dom';
 import { createSignal } from 'solid-js';
 import SettingsPanel from '../../components/SettingsPanel';
@@ -42,7 +42,7 @@ const mockSetAgentNotificationsEnabled = vi.hoisted(() => vi.fn(
 ));
 
 // Defaults
-mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true });
+mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', allowedModes: ['default', 'advanced'], hasSubscribed: true });
 mockGetLlmKeys.mockResolvedValue({});
 mockUpdateLlmKeys.mockResolvedValue({});
 mockGetDeployKeys.mockResolvedValue({});
@@ -138,7 +138,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     sessionStoreState.preseedUpgrading = false;
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
     sessionStoreState.runPreseedUpdate.mockImplementation(async (operation) => operation());
-    mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true });
+    mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', allowedModes: ['default', 'advanced'], hasSubscribed: true });
     mockGetLlmKeys.mockResolvedValue({});
     mockUpdateLlmKeys.mockResolvedValue({});
     mockAgentNotificationPermission.mockReturnValue('default');
@@ -418,11 +418,12 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.getByTestId('session-mode-advanced')).toHaveAttribute('aria-checked', 'true');
     });
 
-    it('clicking "Advanced" calls updatePreferences with sessionMode "advanced"', () => {
+    it('clicking "Advanced" calls updatePreferences with sessionMode "advanced"', async () => {
       sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
+      await waitFor(() => expect(screen.getByTestId('session-mode-advanced')).not.toBeDisabled());
       fireEvent.click(screen.getByTestId('session-mode-advanced'));
       expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ sessionMode: 'advanced' });
     });
@@ -493,24 +494,68 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(hint.textContent).toContain('automatically');
     });
 
-    it('Pro mode radio is disabled when subscribedMode is default', async () => {
-      mockGetUser.mockResolvedValueOnce({
-        email: 'test@example.com',
-        authenticated: true,
-        bucketName: 'test',
-        subscribedMode: 'default',
-        hasSubscribed: true,
-      });
-
-      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+    it.each([
+      { metadata: 'default', allowedModes: ['default', 'advanced'], enabled: true },
+      { metadata: 'advanced', allowedModes: ['default'], enabled: false },
+      { metadata: 'advanced', allowedModes: undefined, enabled: false },
+    ])('REQ-SUB-014: Pro availability follows allowedModes, not $metadata metadata ($enabled)', async ({ metadata, allowedModes, enabled }) => {
+      sessionStoreState.preferences = { sessionMode: 'advanced' };
+      mockGetUser.mockResolvedValueOnce({ email: 'test@example.com', authenticated: true,
+        bucketName: 'test', subscribedMode: metadata, allowedModes, hasSubscribed: true });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="user" />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
-
-      // Wait for the async getUser() call to resolve and update the signal
-      await new Promise((r) => setTimeout(r, 50));
-
-      const advancedRadio = screen.getByTestId('session-mode-advanced');
-      expect(advancedRadio).toHaveAttribute('disabled');
+      await waitFor(() => expect(screen.getByTestId('session-mode-advanced').hasAttribute('disabled')).toBe(!enabled));
+      if (!enabled) expect(screen.queryByTestId('accordion-header-llm')).not.toBeInTheDocument();
     });
+
+    it('REQ-SUB-014: unavailable entitlement never enables SaaS Pro from saved Advanced', async () => {
+      sessionStoreState.preferences = { sessionMode: 'advanced' };
+      let reject!: (error: Error) => void;
+      mockGetUser.mockReturnValueOnce(new Promise((_resolve, rejectResponse) => { reject = rejectResponse; }));
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="user" />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      expect(screen.getByTestId('session-mode-advanced')).toBeDisabled();
+      reject(new Error('User response unavailable'));
+      await Promise.resolve();
+      await waitFor(() => expect(screen.getByTestId('session-mode-advanced')).toBeDisabled());
+      expect(screen.queryByTestId('accordion-header-llm')).not.toBeInTheDocument();
+    });
+
+    it('REQ-SUB-014: reopening uses revoked allowedModes despite unchanged paid metadata', async () => {
+      mockGetUser.mockResolvedValueOnce({ email: 'test@example.com', authenticated: true,
+        bucketName: 'test', subscribedMode: 'advanced', allowedModes: ['default', 'advanced'] });
+      const [isOpen, setIsOpen] = createSignal(true);
+      render(() => <SettingsPanel isOpen={isOpen()} onClose={() => setIsOpen(false)} currentUserRole="user" />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      await waitFor(() => expect(screen.getByTestId('session-mode-advanced')).not.toBeDisabled());
+      setIsOpen(false);
+      mockGetUser.mockResolvedValueOnce({ email: 'test@example.com', authenticated: true,
+        bucketName: 'test', subscribedMode: 'advanced', allowedModes: ['default'] });
+      setIsOpen(true);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      await waitFor(() => expect(screen.getByTestId('session-mode-advanced')).toBeDisabled());
+    });
+
+    it.each([false, true])('REQ-ENTERPRISE-008 AC2: non-SaaS selector remains absent (enterprise=%s)', async enterprise => {
+      sessionStoreState.saasMode = false;
+      sessionStoreState.preferences = { sessionMode: 'advanced' };
+      mockGetUser.mockResolvedValueOnce({ email: 'test@example.com', authenticated: true,
+        bucketName: 'test', subscribedMode: 'advanced' });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} enterpriseMode={enterprise} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
+      expect(screen.getByTestId('default-workspace-control')).toBeInTheDocument();
+      if (enterprise) expect(screen.queryByTestId('accordion-header-llm')).not.toBeInTheDocument();
+      else expect(await screen.findByTestId('accordion-header-llm')).toBeInTheDocument();
+    });
+
+    it('REQ-SUB-014: admin retains Pro access without entitlement metadata', () => {
+      mockGetUser.mockResolvedValueOnce({ email: 'test@example.com', authenticated: true, bucketName: 'test' });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="admin" />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      expect(screen.getByTestId('session-mode-advanced')).not.toBeDisabled();
+    });
+
   });
 
   describe('Default Workspace', () => {
@@ -940,10 +985,10 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       sessionStoreState.preferences.sessionMode = undefined;
     });
 
-    it('renders LLM API Keys group heading', () => {
+    it('renders LLM API Keys group heading', async () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
-      const header = screen.getByTestId('accordion-header-llm');
+      const header = await screen.findByTestId('accordion-header-llm');
       expect(header).toBeInTheDocument();
       const titleSpan = header.querySelector('.settings-group-title');
       expect(titleSpan).toHaveTextContent('LLM API Keys');
@@ -957,24 +1002,24 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
     it('renders OpenAI and Gemini provider rows after saved-key loading succeeds', async () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
+      fireEvent.click(await screen.findByTestId('accordion-header-llm'));
 
       expect(await screen.findByTestId('llm-openai-row')).toBeInTheDocument();
       expect(screen.getByTestId('llm-gemini-row')).toBeInTheDocument();
     });
 
-    it('shows explanation text', () => {
+    it('shows explanation text', async () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
+      fireEvent.click(await screen.findByTestId('accordion-header-llm'));
 
       expect(screen.getByTestId('llm-keys-explanation')).toBeInTheDocument();
     });
 
-    it('renders the LLM keys hint', () => {
+    it('renders the LLM keys hint', async () => {
       // Assert the element, not its wording — copy is free to change. Matches
       // the sibling llm-keys-explanation assertion above.
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
+      fireEvent.click(await screen.findByTestId('accordion-header-llm'));
 
       // Content, not wording: getByTestId already throws on absence, so
       // asserting presence alone would pass on an empty hint.
@@ -1021,12 +1066,12 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(header).toHaveAttribute('aria-expanded', 'true');
     });
 
-    it('collapses other groups by default', () => {
+    it('collapses other groups by default', async () => {
       sessionStoreState.preferences.sessionMode = 'advanced';
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
       const sessionHeader = screen.getByTestId('accordion-header-session');
-      const llmHeader = screen.getByTestId('accordion-header-llm');
+      const llmHeader = await screen.findByTestId('accordion-header-llm');
       expect(sessionHeader).toHaveAttribute('aria-expanded', 'false');
       expect(llmHeader).toHaveAttribute('aria-expanded', 'false');
       sessionStoreState.preferences.sessionMode = undefined;
@@ -1105,13 +1150,13 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
   });
 
   describe('Accordion reset on reopen', () => {
-    it('resets to Appearance when panel is closed and reopened', () => {
+    it('resets to Appearance when panel is closed and reopened', async () => {
       sessionStoreState.preferences.sessionMode = 'advanced';
       const [isOpen, setIsOpen] = createSignal(true);
       render(() => <SettingsPanel isOpen={isOpen()} onClose={() => setIsOpen(false)} />);
 
       // Switch to LLM group (only visible in advanced mode)
-      const llmHeader = screen.getByTestId('accordion-header-llm');
+      const llmHeader = await screen.findByTestId('accordion-header-llm');
       fireEvent.click(llmHeader);
       expect(llmHeader).toHaveAttribute('aria-expanded', 'true');
 
@@ -1135,11 +1180,11 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       sessionStoreState.preferences.sessionMode = undefined;
     });
 
-    it('shows explanation text with "Optional"', () => {
+    it('shows explanation text with "Optional"', async () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
       // Open LLM group first
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
+      fireEvent.click(await screen.findByTestId('accordion-header-llm'));
 
       const explanation = screen.getByTestId('llm-keys-explanation');
       expect(explanation.textContent).toContain('Optional');

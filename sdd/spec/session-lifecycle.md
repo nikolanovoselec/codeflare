@@ -796,7 +796,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Acceptance Criteria:**
 
-1. Settings offers exactly five selectable idle presets: 1h, 2h, 4h, 8h and 12h. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
+1. Settings offers exactly five selectable idle presets: 1h, 2h, 4h, 8h and 12h; response validation accepts each without discarding other preferences. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @impl: web-ui/src/lib/schemas.ts::UserPreferencesSchema --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) --> <!-- @test: web-ui/src/__tests__/components/preferences-hydration.test.tsx (REQ-SESSION-014 / REQ-VAULT-033 / REQ-IDE-003: HTTP preference hydration) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-SESSION-014: supported preference response wire) -->
 2. Free tier locked to 15m with upgrade hint. <!-- @impl: src/routes/container/lifecycle.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC2: free tier locked to 15m idle timeout) -->
 3. Admins can change the timeout regardless of subscription tier; non-admin paying users can change it while free users remain locked. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::canChangeSleepAfter --> <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC3: admins and paying users can change sleepAfter) -->
 4. Value saved to KV preferences and applied on next session start. <!-- @impl: src/routes/container/lifecycle-validation.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) --> <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer -->
@@ -811,7 +811,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** Automated: [session-sleep-timeout.test.ts](../../src/__tests__/routes/session-sleep-timeout.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx)
+**Verification:** Automated: [session-sleep-timeout.test.ts](../../src/__tests__/routes/session-sleep-timeout.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx), [preferences-hydration.test.tsx](../../web-ui/src/__tests__/components/preferences-hydration.test.tsx), [client.test.ts](../../web-ui/src/__tests__/api/client.test.ts)
 
 **Status:** Implemented
 

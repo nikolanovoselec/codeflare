@@ -1,36 +1,79 @@
-import { Component, For, Show, createSignal, onMount } from 'solid-js';
+import { Component, For, Show, createSignal, createEffect, onCleanup } from 'solid-js';
 import '../../styles/connect.css';
 import { getMcpPortalStatuses, disconnectMcpPortal, mcpPortalConnectUrl, type McpPortalStatus } from '../../api/mcp-portals';
 
+import type { McpReturnOutcome } from '../../lib/mcp-portal-recovery';
+
+interface McpPortalsSectionProps {
+  currentUserEmail?: string;
+  isActive?: boolean;
+  returnOutcome?: McpReturnOutcome;
+}
+
 /** One shared connection surface using the existing Push & Deploy row styles. */
-const McpPortalsSection: Component = () => {
+const McpPortalsSection: Component<McpPortalsSectionProps> = (props) => {
   const [portals, setPortals] = createSignal<McpPortalStatus[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal('');
   const [returnStatus, setReturnStatus] = createSignal('');
   const [needsReconnect, setNeedsReconnect] = createSignal(false);
   const [busy, setBusy] = createSignal<string[]>([]);
-  const refresh = async () => { setPortals(await getMcpPortalStatuses()); };
-  onMount(async () => {
-    // Same clean-query completion pattern as the existing GitHub connection surface.
-    const params = new URLSearchParams(window.location.search);
-    const returned = params.get('mcp');
-    if (returned === 'connected' || returned === 'reconnect') {
-      params.delete('mcp');
-      const query = params.toString();
-      window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
-      setNeedsReconnect(returned === 'reconnect');
-      setReturnStatus(returned === 'connected' ? 'Authorization returned. Check the connection status below.' : 'Portal authorization could not be completed. Ask your administrator to check the portal, then try Connect again.');
+  // Direct/manual returns also work without the global recovery helper.
+  const params = new URLSearchParams(window.location.search);
+  const returned = params.get('mcp');
+  const [directReturn, setDirectReturn] = createSignal<McpReturnOutcome>(
+    returned === 'connected' || returned === 'reconnect' ? returned : undefined);
+  if (directReturn()) {
+    params.delete('mcp');
+    const query = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+  }
+  let revision = 0;
+  let disposed = false;
+  let owner = props.currentUserEmail;
+  const current = (request: number, requestOwner: string | undefined) =>
+    !disposed && revision === request && props.currentUserEmail === requestOwner && props.isActive !== false;
+  const refresh = async (request: number, requestOwner: string | undefined) => {
+    const rows = await getMcpPortalStatuses();
+    if (current(request, requestOwner)) setPortals(rows);
+  };
+  createEffect(() => {
+    const requestOwner = props.currentUserEmail;
+    const active = props.isActive !== false;
+    if (owner !== requestOwner) {
+      owner = requestOwner;
+      setDirectReturn(undefined);
+      setPortals([]);
     }
-    try { await refresh(); } catch { setError('Portals could not be loaded. Try reopening Settings.'); }
-    finally { setLoading(false); }
+    const outcome = props.returnOutcome ?? directReturn();
+    setNeedsReconnect(outcome === 'reconnect');
+    setReturnStatus(outcome === 'connected' ? 'Authorization returned. Check the connection status below.'
+      : outcome === 'reconnect' ? 'Portal authorization could not be completed. Ask your administrator to check the portal, then try Connect again.' : '');
+    const request = ++revision;
+    setBusy([]);
+    setError('');
+    setLoading(active);
+    if (!active) return;
+    void refresh(request, requestOwner).catch(() => {
+      if (current(request, requestOwner)) {
+        setPortals([]);
+        setError('Portals could not be loaded. Try reopening Settings.');
+      }
+    }).finally(() => { if (current(request, requestOwner)) setLoading(false); });
   });
+  onCleanup(() => { disposed = true; revision++; });
   const disconnect = async (name: string) => {
     if (busy().includes(name)) return;
+    const request = revision, requestOwner = props.currentUserEmail;
     setBusy(rows => [...rows, name]); setError('');
-    try { await disconnectMcpPortal(name); await refresh(); }
-    catch { setError('Portal could not be disconnected. Try again.'); }
-    finally { setBusy(rows => rows.filter(row => row !== name)); }
+    try {
+      await disconnectMcpPortal(name);
+      if (current(request, requestOwner)) await refresh(request, requestOwner);
+    } catch {
+      if (current(request, requestOwner)) setError('Portal could not be disconnected. Try again.');
+    } finally {
+      if (current(request, requestOwner)) setBusy(rows => rows.filter(row => row !== name));
+    }
   };
   return <>
     <p class="settings-hint type-hint" style={{ 'margin-bottom': 'var(--space-2)' }}>Connect MCP portals to use their tools in your sessions.</p>
@@ -47,8 +90,15 @@ const McpPortalsSection: Component = () => {
           <Show when={portal.connected}>
             <span class="oauth-connect-badge" role="status" aria-live="polite"
               data-testid={`mcp-${portal.name}-connected-badge`}>
-              {busy().includes(portal.name) ? 'Disconnecting…' : 'Connected'}
+              {busy().includes(portal.name) ? 'Disconnecting…' : 'Authorization saved'}
             </span>
+          </Show>
+          <Show when={portal.connected}>
+            <button type="button" class="oauth-connect-btn oauth-connect-btn--connect settings-action settings-action--accent"
+              disabled={busy().includes(portal.name)}
+              aria-label={`Authorize again Model Context Protocol portal ${portal.name}`}
+              data-href={mcpPortalConnectUrl(portal.name)}
+              onClick={() => { window.location.href = mcpPortalConnectUrl(portal.name); }}>Authorize again</button>
           </Show>
           <button type="button" class={portal.connected ? 'oauth-connect-disconnect' : 'oauth-connect-btn oauth-connect-btn--connect settings-action settings-action--accent'}
             disabled={busy().includes(portal.name)} aria-busy={busy().includes(portal.name)}
@@ -61,7 +111,7 @@ const McpPortalsSection: Component = () => {
         </div>}</For>
       </div>
     </Show>
-    <p class="settings-hint type-hint">Portal connections renew automatically using your browser session. No Pi restart is needed for renewal.</p>
+    <p class="settings-hint type-hint">Saved authorization does not verify tool access. Renewal may require browser authorization. No Pi restart is needed.</p>
   </>;
 };
 export default McpPortalsSection;

@@ -15,7 +15,7 @@ vi.mock('../../api/client', () => ({
 }));
 vi.mock('../../components/Layout', () => ({ default: () => <div data-testid="workspace" /> }));
 vi.mock('../../components/setup/SetupWizard', () => ({ default: () => <div /> }));
-vi.mock('../../stores/session', () => ({ sessionStore: { stopAllPolling: vi.fn(), setEnterpriseMode: vi.fn(), setSaasMode: vi.fn(), setAllowedAgents: vi.fn() } }));
+vi.mock('../../stores/session', () => ({ sessionStore: { preferences: {}, stopAllPolling: vi.fn(), setEnterpriseMode: vi.fn(), setSaasMode: vi.fn(), setAllowedAgents: vi.fn() } }));
 vi.mock('../../stores/storage', () => ({ storageStore: { setWorkerName: vi.fn(), setDownloadsDisabled: vi.fn() } }));
 vi.mock('../../stores/terminal', () => ({ terminalStore: { disposeAll: vi.fn() } }));
 

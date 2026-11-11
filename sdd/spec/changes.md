@@ -4,6 +4,18 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-11
+
+- Preserve supported 8h/12h preferences through client validation and Advanced controls, and project canonical billing-effective SaaS mode availability into Settings. Next-start idle policy and backend authorization remain unchanged ([REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)).
+
+- Expose the existing persistence policy to authorized administrators in every deployment mode, with strict sync-only common-mode reads, previews and applies. Enterprise retains its aggregate encryption/download controls ([REQ-SETUP-028](setup.md#req-setup-028-administration-persistence-policy-selection)).
+
+- Add explicit current-session Activate and retain bounded Dispatcher observations through temporary authority unavailability without protected work, shortened intervals or renewed expiry. Save and Enable remain separate ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)).
+
+- Format Operator run and diagnostic timestamps using browser-preferred regions and the saved timezone while preserving original ISO instants and native hour-cycle choices ([REQ-OPERATOR-086](operators.md#req-operator-086-dropdown-runs-and-installed-workspace), [REQ-OPERATOR-084](operators.md#req-operator-084-activity-causal-diagnosis)).
+
+- Retain owner-bound MCP return feedback, refresh Settings status and offer non-destructive reauthorization with truthful saved-authorization wording. Fixed-stage OAuth diagnostics preserve credential privacy and do not certify hosted completion or renewal ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery)).
+
 ## 2026-11-09
 
 - Keep existing fixed latency thresholds when a stress run enables a concurrency override; no load-test behavior change ([REQ-OPS-008](operations.md#req-ops-008-stress-testing-validates-rate-limits-and-concurrency)).

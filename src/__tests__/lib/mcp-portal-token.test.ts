@@ -4,6 +4,7 @@ import { beginMcpPortalConnect, finishMcpPortalConnect, getMcpPortalGrant, getVa
   portalOAuthFetch, publicHttps } from '../../lib/mcp-portal-token';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
+import { setLogLevel } from '../../lib/logger';
 
 describe('Worker-owned MCP portal OAuth', () => {
   it('REQ-AGENT-226 AC1: standard OAuth PKCE exchange stores only encrypted owner/portal grants', async () => {
@@ -347,4 +348,149 @@ describe('Generation-fenced MCP recovery entry', () => {
       if (change === 'generation') expect(current?.id).not.toBe(original.id);
       else expect(current).toBeNull();
     });
+});
+
+// Intentional observability contracts, not a functional RED gate. All provider
+// traffic stays inside the existing synthetic OAuth fixture.
+describe('MCP OAuth fixed-stage confidentiality contract', () => {
+  const secret = 'SYNTHETIC-PRIVATE owner-private@example.test https://private.example/token?code=PRIVATE';
+  async function capture(action: () => Promise<void>) {
+    const lines: string[] = [];
+    const spies = (['log', 'warn', 'error'] as const).map(level => vi.spyOn(console, level)
+      .mockImplementation(line => { lines.push(String(line)); }));
+    setLogLevel('info');
+    try {
+      await action();
+      const records = lines.map(line => JSON.parse(line));
+      const text = JSON.stringify(records);
+      for (const forbidden of [secret, access, refresh, 'synthetic-code', 'owner-private@example.test', 'https://private.example']) {
+        expect(text).not.toContain(forbidden);
+      }
+      for (const record of records) {
+        expect(Object.keys(record).sort()).toEqual(['data', 'level', 'message', 'module', 'timestamp']);
+        expect(record.module).toBe('mcp-portal-oauth');
+        expect(record.message).toBe('MCP OAuth outcome');
+        expect(Object.keys(record.data).sort()).toEqual(record.data.detail === undefined
+          ? ['operation', 'outcome', 'stage'] : ['detail', 'operation', 'outcome', 'stage']);
+      }
+      return records.map(record => record.data);
+    } finally { spies.forEach(spy => spy.mockRestore()); setLogLevel('silent'); }
+  }
+  const path = (input: RequestInfo | URL) => new URL(input instanceof Request ? input.url : String(input)).pathname;
+
+  it('emits completed callback publication and renewal outcomes without credentials or state', async () => {
+    const f = await mcpPortalFixture(); f.expiry(30);
+    const records = await capture(async () => {
+      await f.begin(); await f.finish(); f.expiry(3600);
+      expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+    });
+    expect(records).toEqual([
+      { operation: 'connect', stage: 'pending-publication', outcome: 'completed' },
+      { operation: 'callback', stage: 'grant-publication', outcome: 'completed' },
+      { operation: 'renewal', stage: 'readback', outcome: 'completed' },
+    ]);
+    expect(JSON.stringify(records)).not.toContain(f.authorization.searchParams.get('state')!);
+  });
+
+  it.each(['invalid_client_metadata', 'timeout', 'untrusted'] as const)(
+    'classifies DCR %s without serializing provider error material', async failure => {
+      const f = await mcpPortalFixture();
+      const injected = failure === 'timeout' ? new DOMException(secret, 'TimeoutError')
+        : { errorCode: secret, message: secret, stack: secret, headers: { Cookie: secret } };
+      const send: typeof fetch = async (input, init) => {
+        if (path(input) !== '/register') return f.send(input, init);
+        if (failure !== 'invalid_client_metadata') throw injected;
+        return Response.json({ error: failure, error_description: secret, error_uri: secret }, { status: 400 });
+      };
+      const records = await capture(async () => {
+        await expect(beginMcpPortalConnect(f.env, 'owner', portal, instance, send)).rejects.toBeDefined();
+        expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+      });
+      expect(records).toEqual([{ operation: 'connect', stage: 'registration', outcome: 'rejected',
+        detail: failure === 'untrusted' ? 'other' : failure }]);
+    });
+
+  it.each(['exchange', 'timeout', 'invalid-token', 'publication', 'cancelled', 'binding'] as const)(
+    'retains the actual callback failure stage for %s and saves no usable grant', async failure => {
+      const f = await mcpPortalFixture(); await f.begin();
+      const state = f.authorization.searchParams.get('state')!;
+      if (failure === 'publication') {
+        const put = f.kv.put.getMockImplementation()!;
+        f.kv.put.mockImplementation(async (key, value, options) => {
+          if (key.startsWith('mcp-portal:owner:')) throw Error(secret);
+          return put(key, value, options);
+        });
+      }
+      const send: typeof fetch = async (input, init) => {
+        if (path(input) !== '/token') return f.send(input, init);
+        if (failure === 'exchange') return Response.json({ error: 'invalid_grant', error_description: secret }, { status: 400 });
+        if (failure === 'timeout') throw new DOMException(secret, 'TimeoutError');
+        if (failure === 'invalid-token') return Response.json({ access_token: 'not a bearer', token_type: 'Bearer' });
+        return f.send(input, init);
+      };
+      const records = await capture(async () => {
+        await expect(finishMcpPortalConnect(f.env, failure === 'binding' ? 'other-owner' : 'owner', instance, state,
+          failure === 'cancelled' ? null : 'synthetic-code', undefined, send)).rejects.toBeDefined();
+        expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+      });
+      const stages = { exchange: 'code-exchange', timeout: 'code-exchange', 'invalid-token': 'token-validation',
+        publication: 'grant-publication', cancelled: 'authorization-response', binding: 'state-binding' };
+      expect(records).toEqual([{ operation: 'callback', stage: stages[failure], outcome: 'rejected',
+        detail: failure === 'exchange' ? 'invalid_grant' : failure === 'timeout' ? 'timeout' : 'other' }]);
+      expect(JSON.stringify(records)).not.toContain(state);
+    });
+
+  it.each(['invalid_grant', 'timeout', 'untrusted'] as const)(
+    'classifies attempted silent renewal %s while preserving fail-closed token outcome', async failure => {
+      const f = await mcpPortalFixture(); f.expiry(30); await f.begin(); await f.finish();
+      const send: typeof fetch = async () => {
+        if (failure === 'timeout') throw new DOMException(secret, 'TimeoutError');
+        if (failure === 'untrusted') throw { errorCode: secret, message: secret, body: { refresh_token: refresh } };
+        return Response.json({ error: failure, error_description: secret }, { status: 400 });
+      };
+      const records = await capture(async () => {
+        expect(await getValidMcpPortalToken(f.env, 'owner', portal, send)).toBeNull();
+      });
+      expect(records).toEqual([{ operation: 'renewal', stage: 'refresh', outcome: 'rejected',
+        detail: failure === 'untrusted' ? 'other' : failure }]);
+    });
+
+  it('records observed same-generation renewal reuse without replaying provider effects', async () => {
+    const f = await mcpPortalFixture(); f.expiry(30); await f.begin(); await f.finish();
+    const old = await f.connectionSnapshot(); f.expiry(3600); f.rotateRefresh();
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+    const winner = await f.connectionSnapshot(); f.readConnection(old);
+    const records = await capture(async () => {
+      expect(await getValidMcpPortalToken(f.env, 'owner', portal, async (input, init) => {
+        const response = await f.send(input, init); f.readConnection(winner); return response;
+      })).toBe(`${access}-ROTATED`);
+    });
+    expect(records).toEqual([{ operation: 'renewal', stage: 'winner-lookup', outcome: 'reused-current' }]);
+  });
+
+  it('keeps absent-grant polling quiet and logger failures cannot replace original OAuth results or errors', async () => {
+    const f = await mcpPortalFixture();
+    expect(await capture(async () => {
+      expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+      expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBeNull();
+    })).toEqual([]);
+    setLogLevel('info');
+    const spies = (['log', 'warn', 'error'] as const).map(level => vi.spyOn(console, level)
+      .mockImplementation(() => { throw Error('synthetic logger unavailable'); }));
+    try {
+      f.expiry(30); await f.begin(); await f.finish(); f.expiry(3600);
+      expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+      const thrown = new Error(secret);
+      const send: typeof fetch = async (input, init) => {
+        if (path(input) === '/register') throw thrown;
+        return f.send(input, init);
+      };
+      await expect(beginMcpPortalConnect(f.env, 'owner', portal, instance, send)).rejects.toBe(thrown);
+      await f.begin();
+      const failedExchange: typeof fetch = async () => { throw thrown; };
+      await expect(finishMcpPortalConnect(f.env, 'owner', instance, f.authorization.searchParams.get('state')!,
+        'synthetic-code', undefined, failedExchange)).rejects.toBe(thrown);
+      expect((await getMcpPortalGrant(f.env, 'owner', portal))?.tokens.access_token).toBe(`${access}-ROTATED`);
+    } finally { spies.forEach(spy => spy.mockRestore()); setLogLevel('silent'); }
+  });
 });

@@ -26,6 +26,10 @@ type Prospective = {
     sessionGeneration: number; human: ReturnType<typeof claims>; accessJwt: string;
     repository?: { repository: string; repositoryId: number; baseBranch: string } }): Promise<Registration>;
   currentProspectiveRenovateRegistration(registrationId: string): Promise<unknown | null>;
+  observeProspectiveRenovateRegistration(registrationId: string): Promise<
+    { status: 'current'; registration: CurrentProspectiveRegistration }
+    | { status: 'unavailable' } | { status: 'denied' }>;
+
   reserveProspectiveRenovateActivity(input: { registrationId: string; repositoryId: number;
     pullRequest: number; head: string; createdAt: string; activityId: string }): Promise<Reservation>;
   readProspectiveRenovateAdmission(activityId: string): Promise<unknown | null>;
@@ -36,14 +40,14 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
   native: DurableObjectState; environment: Env; selection: object; proofs: Map<string, unknown>;
   state: { sessions: Map<string, { generation: number; status: string }>;
     roles: Map<string, string>; revoked: Set<string>; enabled: boolean;
-    identityFault: 'valid' | 'revoked' | 'unavailable' | 'malformed' | 'transport-error' } }) => Promise<void>) {
+    identityFault: 'valid' | 'revoked' | 'forbidden' | 'unavailable' | 'malformed' | 'transport-error' } }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.getByName(`prospective-registry-${crypto.randomUUID()}`), async (_instance, native) => {
     const state = { sessions: new Map([['asession01', { generation: 3, status: 'running' }],
       ['zsession01', { generation: 4, status: 'running' }]]),
       roles: new Map([['a@example.test', 'admin'], ['z@example.test', 'admin']]),
       revoked: new Set<string>(), enabled: true,
-      identityFault: 'valid' as 'valid' | 'revoked' | 'unavailable' | 'malformed' | 'transport-error' };
+      identityFault: 'valid' as 'valid' | 'revoked' | 'forbidden' | 'unavailable' | 'malformed' | 'transport-error' };
     const kv = createMockKV();
     const database = { prepare: () => ({ bind: (...args: unknown[]) => ({ first: async () => {
       const session = state.sessions.get(String(args[1]));
@@ -83,6 +87,7 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
       const cookie = new Headers(init?.headers).get('Cookie') ?? '';
       const token = cookie.replace(/^CF_Authorization=/, '');
       if (state.revoked.has(token) || state.identityFault === 'revoked') return new Response(null, { status: 401 });
+      if (state.identityFault === 'forbidden') return new Response(null, { status: 403 });
       if (state.identityFault === 'unavailable') return new Response(null, { status: 503 });
       if (state.identityFault === 'transport-error') throw new Error('Identity transport unavailable');
       return Response.json({ id: `${token.slice(0, 1)}@example.test`,
@@ -104,6 +109,72 @@ function pr(registrationId: string, activatedAt: string, patch: Record<string, u
 }
 
 describe('REQ-OPERATOR-061: durable prospective activation and admission', () => {
+  it.each([
+    ['unavailable', 'unavailable'], ['transport-error', 'unavailable'],
+    ['revoked', 'denied'], ['forbidden', 'denied'], ['malformed', 'denied'],
+  ] as const)('REQ-OPERATOR-061 AC3 /047 AC3: Access %s is %s observation, never effect authority', (fault, status) => fixture(async ({ registry, restart, state }) => {
+    const activation = await enroll(registry, 'a', 3, undefined, 3600);
+    if (!activation.ok) throw Error('Activation unavailable');
+    const original = await registry.currentProspectiveRenovateRegistration(activation.registrationId);
+    state.identityFault = fault;
+    const restarted = restart();
+    // Closed public observation contract; unavailable must not contain cached credentials/identity.
+    expect(await restarted.observeProspectiveRenovateRegistration(activation.registrationId)).toEqual({ status });
+    expect(await restarted.currentProspectiveRenovateRegistration(activation.registrationId)).toBeNull();
+    expect((await restarted.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt))).ok).toBe(false);
+    expect(await restarted.readProspectiveRenovateAdmission('activity-1')).toBeNull();
+    state.identityFault = 'valid';
+    expect(await restart().observeProspectiveRenovateRegistration(activation.registrationId)).toEqual({ status: 'current', registration: original });
+    expect(await restart().currentProspectiveRenovateRegistration(activation.registrationId)).toEqual(original);
+    const elected = await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt));
+    expect(elected).toMatchObject({ ok: true, activityId: 'activity-1' });
+    expect(await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt,
+      { activityId: 'must-not-replace' }))).toEqual(elected);
+    expect(await registry.readProspectiveRenovateAdmission('must-not-replace')).toBeNull();
+  }));
+
+  it.each(['d1', 'kv'] as const)('REQ-OPERATOR-061 AC3: temporary %s observation failure retains no admission authority', dependency => fixture(async ({ registry, restart, environment }) => {
+    const activation = await enroll(registry, 'a');
+    if (!activation.ok) throw Error('Activation unavailable');
+    const original = await registry.currentProspectiveRenovateRegistration(activation.registrationId);
+    const outage = dependency === 'd1'
+      ? vi.spyOn(environment.USAGE_DB, 'prepare').mockImplementation(() => { throw Error('Temporary database outage'); })
+      : vi.spyOn(environment.KV, 'get').mockRejectedValue(Error('Temporary role lookup outage'));
+    try {
+      expect(await restart().observeProspectiveRenovateRegistration(activation.registrationId)).toEqual({ status: 'unavailable' });
+      expect(await restart().currentProspectiveRenovateRegistration(activation.registrationId)).toBeNull();
+      expect((await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt))).ok).toBe(false);
+      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
+    } finally { outage.mockRestore(); }
+    expect(await restart().currentProspectiveRenovateRegistration(activation.registrationId)).toEqual(original);
+  }));
+
+  it.each(['expired-during-outage', 'generation', 'stopped', 'disabled', 'config-revision', 'config-off', 'role'] as const)(
+    'REQ-OPERATOR-061 AC3: %s denies future observation and protected admission', fault => fixture(async ({ registry, restart, state, selection }) => {
+      const lifetime = 300, started = Date.now();
+      const activation = await enroll(registry, 'a', 3, undefined, lifetime);
+      if (!activation.ok) throw Error('Activation unavailable');
+      const selected = selection as { installation: { revision: number; configurationJson: string } };
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(started);
+      try {
+        if (fault === 'expired-during-outage') {
+          state.identityFault = 'transport-error';
+          clock.mockReturnValue(started + (lifetime + 1) * 1000);
+        }
+        if (fault === 'generation') state.sessions.set('asession01', { generation: 4, status: 'running' });
+        if (fault === 'stopped') state.sessions.set('asession01', { generation: 3, status: 'stopped' });
+        if (fault === 'disabled') state.enabled = false;
+        if (fault === 'config-revision') selected.installation.revision++;
+        if (fault === 'config-off') selected.installation.configurationJson = JSON.stringify({ renovate: {
+          repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } });
+        if (fault === 'role') state.roles.set('a@example.test', 'user');
+        expect(await restart().observeProspectiveRenovateRegistration(activation.registrationId)).toEqual({ status: 'denied' });
+        expect(await restart().currentProspectiveRenovateRegistration(activation.registrationId)).toBeNull();
+        expect((await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt))).ok).toBe(false);
+        expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
+      } finally { clock.mockRestore(); }
+    }));
+
   it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
     'REQ-OPERATOR-047: prospective Registry authority with %s live identity denies email-granted reservations without retiring verified no-group registration', fault => fixture(async ({ registry, restart, state }) => {
       const enrolled = await enroll(registry, 'a');

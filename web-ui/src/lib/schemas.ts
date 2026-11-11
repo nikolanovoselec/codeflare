@@ -215,7 +215,7 @@ export const UserPreferencesSchema = z.object({
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
   defaultWorkspace: SessionWorkspaceSchema.optional(),
-  sleepAfter: z.enum(['15m', '30m', '1h', '2h', '4h']).optional(),
+  sleepAfter: z.enum(['15m', '30m', '1h', '2h', '4h', '8h', '12h']).optional(),
   userTimezone: z.string().optional(),
   managedEnvironmentApplied: z.object({
     digest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -262,6 +262,7 @@ export const UserResponseSchema = z.object({
   hasSubscribed: z.boolean().optional(),
   subscribedMode: z.enum(['default', 'advanced']).optional(),
   enterpriseMode: z.boolean().optional(),
+  allowedModes: z.array(SessionModeSchema).optional(),
   operatorManagementEligible: z.boolean().optional(),
   // REQ-ENTERPRISE-019: view-only storage. Without this field the strict schema
   // strips the server's `downloadsDisabled` on parse, leaving the client flag

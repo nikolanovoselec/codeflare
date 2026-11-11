@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import { ApiError } from '../api/fetch-helper';
+import { formatOperatorTimestamp } from '../lib/operator-time';
 import { exportOperatorActivityDiagnostics, getOperatorActivityDiagnosticHistory,
   getOperatorActivityDiagnosticRecord, getOperatorActivityDiagnostics } from '../api/operator-activities';
 import type { DiagnosticDetail, DiagnosticExport, DiagnosticHistory, DiagnosticRecord, DiagnosticSummary } from '../api/operator-diagnostics-wire';
@@ -247,9 +248,9 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
           <p>Last confirmed evidence: {value().diagnosis.lastConfirmedId ?? 'Unavailable; no last success is inferred.'}</p>
           <p>{value().diagnosis.failedId ? `Retained failed / unfulfilled handoff: ${value().diagnosis.failedId}`
             : 'Failed transition: unconfirmed.'}</p>
-          <p>Snapshot captured <time datetime={new Date(value().capturedAt).toISOString()}>{new Date(value().capturedAt).toLocaleString()}</time>. No automatic refresh or polling.</p>
+          <p>Snapshot captured <time datetime={new Date(value().capturedAt).toISOString()}>{formatOperatorTimestamp(value().capturedAt)}</time>. No automatic refresh or polling.</p>
           <p>Current original-lease binding generation: {value().binding.generation}</p>
-          <Show when={value().fence}>{fence => <p>Essential fence: {diagnosticWords(fence().boundary)} · {fence().code === value().diagnosis.code ? 'Reason shown above' : reasons[fence().code]} · Fence generation: {fence().generation} · {new Date(fence().timestamp).toLocaleString()}{fence().uncertain ? ' · Prior effects uncertain.' : ''}</p>}</Show>
+          <Show when={value().fence}>{fence => <p>Essential fence: {diagnosticWords(fence().boundary)} · {fence().code === value().diagnosis.code ? 'Reason shown above' : reasons[fence().code]} · Fence generation: {fence().generation} · {formatOperatorTimestamp(fence().timestamp)}{fence().uncertain ? ' · Prior effects uncertain.' : ''}</p>}</Show>
           <p>SDK import: {diagnosticWords(value().health.sdkImport)}</p>
           <Show when={value().health.sdkImport === 'pending' || value().health.gaps.includes('sdk-import-incomplete')}>
             <p>Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.</p>
@@ -277,7 +278,7 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
           <details><summary>Timeline technical details</summary>
           <p>Diagnostic event sequence is host-persistence order, not SDK source time. Legacy operations follow in operation storage-key order, not logical ordinal order or a total chronology.</p>
           <p>History page: {page().pageStatus} · Retained history: {page().retainedStatus} · Event high-water: {quantity(page().highWater.events)} · Operation high-water: {quantity(page().highWater.operations)}. Counts do not prove enumeration exhaustion.</p>
-          <p>History metadata read <time datetime={new Date(page().capturedAt).toISOString()}>{new Date(page().capturedAt).toLocaleString()}</time>; resumed pages preserve the history snapshot’s high-water and retention epoch.</p>
+          <p>History metadata read <time datetime={new Date(page().capturedAt).toISOString()}>{formatOperatorTimestamp(page().capturedAt)}</time>; resumed pages preserve the history snapshot’s high-water and retention epoch.</p>
           <Show when={page().health.status !== value().health.status || page().retainedStatus !== 'complete'}>
             <p>Page evidence gaps: {page().health.gaps.filter(gap => !value().health.gaps.includes(gap)).map(diagnosticWords).join(', ') || 'Already described in the snapshot above'}.</p>
           </Show>

@@ -4,6 +4,7 @@ import OperatorManagement from '../../components/OperatorManagement';
 import OperatorActivityDiagnostics from '../../components/OperatorActivityDiagnostics';
 import OperatorManagementActivity from '../../components/OperatorManagementActivity';
 import type { Session } from '../../types';
+import { sessionStore } from '../../stores/session';
 const summary = { activityId: 'activity-1', operatorId: 'operator-1', executionStatus: 'running', cleanupStatus: 'pending', collectionStatus: 'unavailable',
   attention: false, sessionId: null, source: null, updatedAt: Date.now() };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
@@ -515,6 +516,68 @@ async function openDiagnostics(expandTimeline = true) {
   }
   return panel;
 }
+describe('REQ-OPERATOR-084: regional diagnostic timestamps', () => {
+  it.each([
+    ['de-CH', 'Europe/Zurich', '2026-11-10T23:05:06.000Z'],
+    ['en-US', 'America/New_York', '2026-11-10T13:05:06.000Z'],
+  ])('uses preferred %s timestamps in %s while preserving evidence instants (%s)', async (locale, timeZone, instant) => {
+    const { state } = ownedDiagnosticFixture();
+    const previousPreferences = { ...sessionStore.preferences };
+    const originalFetch = globalThis.fetch;
+    let preferences: typeof previousPreferences = { userTimezone: timeZone };
+    const language = vi.spyOn(navigator, 'languages', 'get').mockReturnValue([locale]);
+    const timestamp = Date.parse(instant);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(timestamp);
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof Request ? input.url : input.href, window.location.origin);
+      return url.pathname === '/api/preferences' ? json(preferences) : originalFetch(input, init);
+    });
+    try {
+      await sessionStore.loadPreferences();
+      state.activities[0].updatedAt = timestamp;
+      state.summary.capturedAt = timestamp;
+      state.summary.fence = { generation: 3, timestamp, boundary: 'canonical-commit', code: 'canonical-append-failed', uncertain: false };
+      state.history.capturedAt = timestamp;
+      state.history.records = [
+        { ...diagnosticEvent(1, 'inference-response', 'completed'), timestamp: timestamp - 1 },
+        { ...diagnosticEvent(2, 'canonical-commit', 'failed', 'canonical-append-failed'), timestamp },
+        diagnosticOperation(),
+      ];
+      state.detail.capturedAt = timestamp;
+      state.detail.record.timestamp = timestamp;
+      render(() => <OperatorManagement />);
+      // Region, zone and ISO values are intentional presentation/evidence contracts.
+      const expected = new Date(timestamp).toLocaleString(locale, { timeZone });
+      expect(await screen.findByText(`Updated ${expected}`)).toBeVisible();
+      await selectDiagnosticActivity();
+      const panel = await openDiagnostics();
+      fireEvent.click(panel.getByText('Summary technical details', { selector: 'summary' }));
+      expect(panel.getByText(/Snapshot captured/)).toHaveTextContent(expected);
+      expect(panel.getByText(/Snapshot captured/)).toBeVisible();
+      expect(panel.getByText(/^Essential fence:/)).toHaveTextContent(expected);
+      fireEvent.click(panel.getByText('Timeline technical details', { selector: 'summary' }));
+      expect(panel.getByText(/History metadata read/)).toHaveTextContent(expected);
+      expect(panel.getByText(/History metadata read/)).toBeVisible();
+      const event = within(panel.getByRole('list', { name: 'Diagnostic timeline' })).getAllByRole('listitem')[1];
+      fireEvent.click(within(event).getByRole('button', { name: 'View record e-2' }));
+      const region = await within(event).findByRole('region', { name: /record.*e-2|e-2.*record/i });
+      const record = within(region);
+      expect(record.getByText(/Owner:/)).toHaveTextContent(expected);
+      fireEvent.click(record.getByText('Record technical details', { selector: 'summary' }));
+      expect(record.getByText(/Record metadata read/)).toHaveTextContent(expected);
+      expect(record.getByText(/Record metadata read/)).toBeVisible();
+      expect(record.getByText(/Owner:/).querySelector('time')).toHaveAttribute('datetime', instant);
+      expect(record.getByText(/Record metadata read/).querySelector('time')).toHaveAttribute('datetime', instant);
+      expect(state.mutations).toEqual([]);
+    } finally {
+      preferences = previousPreferences;
+      await sessionStore.loadPreferences();
+      language.mockRestore();
+      clock.mockRestore();
+    }
+  });
+});
+
 function deferredDiagnosticResponse() {
   let resolve!: (response: Response) => void;
   const promise = new Promise<Response>(done => { resolve = done; });

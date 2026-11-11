@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@solidjs/testing-library';
 import McpPortalsSection from '../../components/settings/McpPortalsSection';
 import type { McpPortalStatus } from '../../api/mcp-portals';
+import { createSignal } from 'solid-js';
 
 vi.mock('../../api/mcp-portals', () => ({ getMcpPortalStatuses: vi.fn(), disconnectMcpPortal: vi.fn(),
   mcpPortalConnectUrl: (name: string) => `/auth/mcp/connect/${encodeURIComponent(name)}` }));
@@ -18,11 +19,79 @@ beforeEach(() => {
 afterEach(() => { cleanup(); window.history.replaceState({}, '', window.location.pathname); });
 
 describe('Settings MCP connections', () => {
+  it('REQ-AGENT-228 AC4 / REQ-AGENT-226 AC7: saved authorization offers a non-destructive Authorize again separately from Disconnect', async () => {
+    render(() => <McpPortalsSection {...{ currentUserEmail: 'owner@example.test', isActive: true, returnOutcome: 'reconnect' as const }} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
+    const retry = await screen.findByRole('button', { name: 'Authorize again Model Context Protocol portal alpha' });
+    expect(screen.getByTestId('mcp-alpha-connected-badge')).toHaveTextContent('Authorization saved');
+    expect(screen.queryByText('Connected', { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByText(/Saved authorization does not verify tool access/)).toBeVisible();
+    expect(screen.getByText(/browser authorization/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Disconnect Model Context Protocol portal alpha' })).toBeEnabled();
+    const originalLocation = window.location;
+    const destination = { href: '' };
+    try {
+      Object.defineProperty(window, 'location', { value: destination, writable: true });
+      fireEvent.click(retry);
+      expect(destination.href).toBe('/auth/mcp/connect/alpha');
+    } finally {
+      Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
+    }
+    // This mock models the persisted grant at the API boundary: Disconnect would
+    // make alpha false. Explicit Connect navigation must leave both grants alone.
+    expect(stored.map(portal => ({ name: portal.name, connected: portal.connected }))).toEqual([
+      { name: 'alpha', connected: true }, { name: 'beta', connected: false },
+    ]);
+    expect(screen.getByRole('button', { name: 'Disconnect Model Context Protocol portal alpha' })).toBeEnabled();
+  });
+
+  it('REQ-AGENT-226 AC3/6 / REQ-AGENT-228 AC4: a returned outcome refreshes a mounted section but cannot certify connectivity', async () => {
+    const [outcome, setOutcome] = createSignal<'connected' | 'reconnect'>();
+    render(() => <McpPortalsSection {...{ currentUserEmail: 'owner@example.test', isActive: true, returnOutcome: outcome() }} />);
+    await screen.findByTestId('mcp-alpha-connected-badge');
+    stored = stored.map(portal => ({ ...portal, connected: false }));
+    setOutcome('connected');
+    expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal alpha' })).toBeEnabled();
+    expect(screen.queryByTestId('mcp-alpha-connected-badge')).not.toBeInTheDocument();
+    expect(screen.queryByText('Connected', { exact: true })).not.toBeInTheDocument();
+  });
+
+  it('REQ-AGENT-226 AC6 / REQ-AGENT-228 AC4: late old-owner status and return outcome cannot replace the current owner surface', async () => {
+    let finishOld!: (value: McpPortalStatus[]) => void;
+    get.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }));
+    const [owner, setOwner] = createSignal('alice@example.test');
+    const [outcome, setOutcome] = createSignal<'reconnect' | undefined>('reconnect');
+    render(() => <McpPortalsSection {...{ currentUserEmail: owner(), isActive: true, returnOutcome: outcome() }} />);
+    setOutcome(undefined);
+    stored = [{ name: 'bob-portal', url: 'https://bob.example/mcp', connected: false }];
+    setOwner('bob@example.test');
+    expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal bob-portal' })).toBeEnabled();
+    finishOld([{ name: 'alice-private-portal', url: 'https://alice.example/mcp', connected: true }]);
+    await Promise.resolve(); await Promise.resolve();
+    expect(screen.queryByText('alice-private-portal')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect Model Context Protocol portal bob-portal' })).toBeEnabled();
+  });
+
+  it('REQ-AGENT-228 AC4: a disposed request cannot publish into a newly mounted owner surface', async () => {
+    let rejectOld!: (reason: unknown) => void;
+    get.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject; }));
+    const first = render(() => <McpPortalsSection {...{ currentUserEmail: 'alice@example.test', isActive: true }} />);
+    first.unmount();
+    stored = [{ name: 'bob-portal', url: 'https://bob.example/mcp', connected: false }];
+    render(() => <McpPortalsSection {...{ currentUserEmail: 'bob@example.test', isActive: true }} />);
+    expect(await screen.findByText('bob-portal')).toBeVisible();
+    rejectOld(new Error('old-owner unavailable'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect Model Context Protocol portal bob-portal' })).toBeEnabled();
+  });
   it('REQ-AGENT-228 AC4: multiple portal identities connect through existing browser navigation and disconnect independently', async () => {
     render(() => <McpPortalsSection />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading portals');
     await screen.findByText('alpha');
-    expect(screen.getByText('Portal connections renew automatically using your browser session. No Pi restart is needed for renewal.')).toBeVisible();
+    expect(screen.getByText(/No Pi restart is needed/i)).toBeVisible();
     const connections = screen.getByRole('group', { name: 'MCP portals' });
     expect(within(connections).getByText('alpha')).toBeVisible();
     expect(within(connections).getByText('beta')).toBeVisible();
@@ -74,7 +143,7 @@ describe('Settings MCP connections', () => {
   it('REQ-AGENT-228 AC4: concise permission guidance keeps connection actions available without a troubleshooting disclosure', async () => {
     render(() => <McpPortalsSection />);
     const connect = await screen.findByRole('button', { name: 'Connect Model Context Protocol portal beta' });
-    expect(screen.getByText('Portal connections renew automatically using your browser session. No Pi restart is needed for renewal.')).toBeVisible();
+    expect(screen.getByText(/No Pi restart is needed/i)).toBeVisible();
     expect(screen.queryByText('Portal setup and connection help')).not.toBeInTheDocument();
     expect(connect).toBeEnabled();
     expect(connect).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
@@ -89,7 +158,7 @@ describe('Settings MCP connections', () => {
     expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
     expect(await screen.findByTestId('mcp-alpha-connected-badge')).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByText('Portal connections renew automatically using your browser session. No Pi restart is needed for renewal.')).toBeVisible();
+    expect(screen.getByText(/No Pi restart is needed/i)).toBeVisible();
   });
 
   it('REQ-AGENT-228 AC4: a return marker cannot override disconnected status or remove unrelated navigation state', async () => {

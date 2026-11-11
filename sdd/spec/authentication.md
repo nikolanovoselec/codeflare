@@ -574,7 +574,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The authenticated user response returns persisted identity and account status without creating resources. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) -->
+1. The authenticated user response returns identity, account status and SaaS billing-effective allowed session modes without creating resources. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @test: src/__tests__/routes/user-profile.test.ts (REQ-SUB-014 / REQ-AUTH-019: projects billing-effective configured modes ($billingStatus, $subscribedMode)) -->
 2. Completing onboarding marks the user's stored record onboarding-complete so later logins skip the onboarding redirect; it is a no-op when the user has no stored record yet. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
 3. Token-status inspection reports whether a scoped R2 token already exists for the current user. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
 4. Ensuring storage readiness creates the user's scoped R2 token when absent, returning ready on success, 503 when account setup is incomplete and 500 on provisioning failure. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->

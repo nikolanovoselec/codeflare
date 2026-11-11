@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 import { createMcpOAuthRoutes, createMcpPortalApiRoutes, type McpOAuthDependencies } from '../../routes/mcp-oauth';
 import { beginMcpPortalConnect, finishMcpPortalConnect, getMcpPortalGrant, getValidMcpPortalToken, disconnectMcpPortal } from '../../lib/mcp-portal-token';
@@ -8,6 +8,7 @@ import type { Env } from '../../types';
 import { forwardMcpPortal } from '../../mcp-portal-interceptor';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
+import { setLogLevel } from '../../lib/logger';
 
 let actor = 'owner';
 async function fixture(mode = '') {
@@ -92,6 +93,28 @@ describe('Settings MCP owner OAuth and non-secret status API', () => {
       expect((await f.request('/api/mcp-portals', { headers: { [header]: 'synthetic-service-credential' } })).status).toBe(401);
     }
     expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+  });
+
+  it('REQ-AGENT-226 AC1/2/7 / REQ-AGENT-228 AC4: explicit authorization again preserves the saved grant until successful replacement', async () => {
+    const f = await fixture(); await f.begin(); await f.finish();
+    const original = (await getMcpPortalGrant(f.env, 'owner', portal))!;
+    const connect = await f.request('/auth/mcp/connect/fixture');
+    expect(connect.status).toBe(302);
+    const cancelled = new URL(connect.headers.get('Location')!);
+    expect(cancelled.origin).toBe('https://portal.example');
+    expect((await getMcpPortalGrant(f.env, 'owner', portal))?.id).toBe(original.id);
+    const returned = await f.request(`/auth/mcp/callback?state=${cancelled.searchParams.get('state')}&error=access_denied`);
+    expect(returned.headers.get('Location')).toBe('/app/?mcp=reconnect');
+    expect((await getMcpPortalGrant(f.env, 'owner', portal))?.id).toBe(original.id);
+    expect((await getMcpPortalGrant(f.env, 'owner', portal))?.tokens.access_token).toBe(original.tokens.access_token);
+    expect(await (await f.request('/api/mcp-portals')).json()).toEqual({ portals: [{ ...portal, connected: true }] });
+    const retry = await f.request('/auth/mcp/connect/fixture');
+    expect(retry.status).toBe(302);
+    f.visitAuthorization(retry.headers.get('Location')!);
+    const completed = await f.request(`/auth/mcp/callback?state=${f.authorization.searchParams.get('state')}&code=synthetic-code`);
+    expect(completed.headers.get('Location')).toBe('/app/?mcp=connected');
+    expect((await getMcpPortalGrant(f.env, 'owner', portal))?.id).not.toBe(original.id);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(access);
   });
 
   it('REQ-AGENT-226 AC7: same-origin disconnect clears only the authenticated owner portal', async () => {
@@ -245,4 +268,69 @@ describe('Explicit owner MCP recovery', () => {
     expect((await f.kv.list({ prefix: 'mcp-portal:pending:' })).keys).toHaveLength(0);
   });
 
+});
+
+// Fixed stage and confidentiality are intentional diagnostics contracts. Route
+// status, callback outcome and grant publication remain the observable behavior.
+describe('MCP route diagnostics preserve clean outcomes', () => {
+  it.each(['validation', 'registration', 'exchange', 'cancelled'] as const)(
+    '%s reports only a fixed stage/error classification and keeps the existing route outcome', async failure => {
+      const f = await fixture();
+      const secret = 'SYNTHETIC-ROUTE-SECRET owner-private@example.test https://private.example/callback';
+      let callbackState = '';
+      if (failure === 'exchange' || failure === 'cancelled') {
+        await f.begin(); callbackState = f.authorization.searchParams.get('state')!;
+      }
+      const send: typeof fetch = async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        if ((failure === 'registration' && url.pathname === '/register') || (failure === 'exchange' && url.pathname === '/token')) {
+          return Response.json({ error: failure === 'registration' ? 'invalid_client_metadata' : 'invalid_grant',
+            error_description: secret, error_uri: secret, access_token: access, refresh_token: refresh }, { status: 400 });
+        }
+        return f.send(input, init);
+      };
+      f.deps.begin = (env, owner, configured, instance, _send, expected) => beginMcpPortalConnect(env, owner, configured, instance, send, expected);
+      f.deps.finish = (env, owner, instance, state, code, issuer) => finishMcpPortalConnect(env, owner, instance, state, code, issuer, send);
+      const records: string[] = [];
+      const spies = (['log', 'warn', 'error'] as const).map(level => vi.spyOn(console, level)
+        .mockImplementation(line => { records.push(String(line)); }));
+      setLogLevel('info');
+      try {
+        const response = await f.request(failure === 'registration' ? '/auth/mcp/connect/fixture'
+          : failure === 'validation' ? `/auth/mcp/callback?state=${encodeURIComponent(secret)}&code=${encodeURIComponent(secret)}&unexpected=1`
+            : `/auth/mcp/callback?state=${callbackState}&${failure === 'cancelled' ? 'error=access_denied' : 'code=synthetic-code'}&error_description=${encodeURIComponent(secret)}`);
+        expect(response.status).toBe(failure === 'registration' ? 502 : 303);
+        if (failure === 'registration') expect(await response.clone().json()).toEqual({
+          error: 'MCP portal connection unavailable. Return to Settings and reconnect.', code: 'MCP_CONNECT_FAILED',
+        });
+        else expect(response.headers.get('Location')).toBe('/app/?mcp=reconnect');
+        expect(response.headers.get('Cache-Control')).toBe('no-store');
+        expect(response.headers.get('Referrer-Policy')).toBe('no-referrer');
+        expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+        const stages = { validation: 'callback-validation', registration: 'registration', exchange: 'code-exchange', cancelled: 'authorization-response' };
+        expect(records.map(line => {
+          const record = JSON.parse(line);
+          expect(Object.keys(record).sort()).toEqual(['data', 'level', 'message', 'module', 'timestamp']);
+          return { ...record, timestamp: undefined };
+        })).toEqual([{ timestamp: undefined, level: 'warn', module: 'mcp-portal-oauth', message: 'MCP OAuth outcome', data: {
+          operation: failure === 'registration' ? 'connect' : 'callback', stage: stages[failure], outcome: 'rejected',
+          detail: failure === 'registration' ? 'invalid_client_metadata' : failure === 'exchange' ? 'invalid_grant' : 'other',
+        } }]);
+        const artifacts = JSON.stringify({ records, headers: [...response.headers], body: await response.text(), retained: f.retained });
+        for (const forbidden of [secret, access, refresh, 'synthetic-code', ...(callbackState ? [callbackState] : [])]) {
+          expect(artifacts).not.toContain(forbidden);
+        }
+      } finally { spies.forEach(spy => spy.mockRestore()); setLogLevel('silent'); }
+    });
+
+  it('a logging transport failure cannot replace callback validation redirect', async () => {
+    const f = await fixture(); setLogLevel('warn');
+    const output = vi.spyOn(console, 'warn').mockImplementation(() => { throw Error('synthetic log transport unavailable'); });
+    try {
+      const response = await f.request('/auth/mcp/callback?state=invalid&code=synthetic-code&unexpected=1');
+      expect(response.status).toBe(303);
+      expect(response.headers.get('Location')).toBe('/app/?mcp=reconnect');
+      expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+    } finally { output.mockRestore(); setLogLevel('silent'); }
+  });
 });

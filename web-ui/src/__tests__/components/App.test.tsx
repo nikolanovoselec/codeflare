@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup, fireEvent } from '@solidjs/testing-library';
-import type { JSX } from 'solid-js';
+import { createSignal, Show, type JSX } from 'solid-js';
 import { ApiError } from '../../api/fetch-helper';
 import type { DiagnosticHistory } from '../../api/operator-diagnostics-wire';
 
@@ -34,6 +34,8 @@ vi.mock('../../api/operator-activities', async importOriginal => ({
 vi.mock('../../api/mcp-portals', () => ({
   getMcpPortalStatuses: (...args: unknown[]) => getPortalsMock(...args),
   recoverMcpPortal: (...args: unknown[]) => recoverPortalMock(...args),
+  disconnectMcpPortal: vi.fn(),
+  mcpPortalConnectUrl: (name: string) => `/auth/mcp/connect/${encodeURIComponent(name)}`,
 }));
 
 vi.mock('../../api/client', () => ({
@@ -43,10 +45,17 @@ vi.mock('../../api/client', () => ({
 }));
 
 vi.mock('../../components/Layout', () => ({
-  default: (props: { userName?: string; userRole?: string; enterpriseMode?: boolean }) => <div data-testid="layout">
-    <span>{props.userName}</span><span>{props.userRole}</span>
-    <OperatorActivityButton enabled={props.enterpriseMode === true} />
-  </div>,
+  default: (props: { userName?: string; userRole?: string; enterpriseMode?: boolean; mcpReturnOutcome?: 'connected' | 'reconnect' }) => {
+    const [settingsOpen, setSettingsOpen] = createSignal(false);
+    return <div data-testid="layout">
+      <span>{props.userName}</span><span>{props.userRole}</span>
+      <OperatorActivityButton enabled={props.enterpriseMode === true} />
+      <button onClick={() => setSettingsOpen(true)}>Open MCP Settings</button>
+      <Show when={settingsOpen()}>
+        <McpPortalsSection {...{ currentUserEmail: props.userName, isActive: true, returnOutcome: props.mcpReturnOutcome }} />
+      </Show>
+    </div>;
+  },
 }));
 
 vi.mock('../../components/setup/SetupWizard', () => ({
@@ -92,6 +101,7 @@ vi.mock('../../components/admin/SubscriptionManagement', () => ({
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
+    preferences: {},
     stopAllPolling: vi.fn(),
     setEnterpriseMode: vi.fn(),
     setSaasMode: vi.fn(),
@@ -107,6 +117,7 @@ vi.mock('../../stores/terminal', () => ({
 
 import App from '../../App';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
+import McpPortalsSection from '../../components/settings/McpPortalsSection';
 
 // REQ-SETUP-003: three deployment modes — App routes to the setup wizard when the
 // deployment is not yet configured.
@@ -292,6 +303,66 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
     await waitFor(() => expect(grantReady).toBe(true));
     expect(window.location.pathname).toBe('/app/session/abcdef0123456789');
     expect(screen.queryByText('Authentication Error')).not.toBeInTheDocument();
+  });
+
+  it.each(['reconnect', 'connected'] as const)(
+    'REQ-AGENT-226 AC3/6 / REQ-AGENT-228 AC4: %s survives pre-mount URL cleanup into owner Settings without an authorization loop', async returned => {
+      const portalKey = 'alpha\nhttps://alpha.example/mcp';
+      sessionStorage.setItem('codeflare-mcp-recovery', JSON.stringify({
+        owner: owner.email, attempted: [portalKey], pending: portalKey,
+        returnPath: '/app/session/abcdef0123456789',
+      }));
+      window.history.replaceState({}, '', `/app/?mcp=${returned}`);
+      // Keep the failed grant unavailable, but allow the server's genuine ready
+      // outcome to clear its guard only in the successful branch.
+      recoverPortalMock.mockImplementation(async (_name: string, authorize: boolean) => returned === 'connected'
+        ? { state: 'ready' }
+        : authorize ? { state: 'authorization', url: providerUrl } : { state: 'unavailable' });
+      getPortalsMock.mockResolvedValue([{ name: 'alpha', url: 'https://alpha.example/mcp', connected: false }]);
+      const mounted = render(() => <App />);
+      await screen.findByTestId('layout');
+      expect(window.location.pathname).toBe('/app/session/abcdef0123456789');
+      expect(window.location.search).toBe('');
+      await fireEvent.click(screen.getByRole('button', { name: 'Open MCP Settings' }));
+      if (returned === 'reconnect') {
+        expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
+      } else {
+        expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      }
+      expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal alpha' })).toBeEnabled();
+      expect(screen.queryByText('Connected', { exact: true })).not.toBeInTheDocument();
+      expect(providerNavigation).toEqual([]);
+      mounted.unmount();
+      render(() => <App />);
+      await screen.findByTestId('layout');
+      const resumed = new Event('pageshow');
+      Object.defineProperty(resumed, 'persisted', { value: true });
+      window.dispatchEvent(resumed);
+      await Promise.resolve(); await Promise.resolve();
+      expect(providerNavigation).toEqual([]);
+      expect(window.location.pathname).toBe('/app/session/abcdef0123456789');
+      await fireEvent.click(screen.getByRole('button', { name: 'Open MCP Settings' }));
+      if (returned === 'reconnect') expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
+      else expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+    });
+
+  it('REQ-AGENT-226 AC6 / REQ-AGENT-228 AC4: another owner cannot inherit the previous owner callback outcome or return path', async () => {
+    sessionStorage.setItem('codeflare-mcp-recovery', JSON.stringify({
+      owner: owner.email, attempted: ['alpha\nhttps://alpha.example/mcp'],
+      returnPath: '/app/session/abcdef0123456789', outcome: 'reconnect',
+    }));
+    window.history.replaceState({}, '', '/app/');
+    getUserMock.mockResolvedValue({ ...owner, email: 'bob@example.com' });
+    getPortalsMock.mockResolvedValue([{ name: 'bob-portal', url: 'https://bob.example/mcp', connected: false }]);
+    recoverPortalMock.mockResolvedValue({ state: 'ineligible' });
+    render(() => <App />);
+    await screen.findByTestId('layout');
+    await fireEvent.click(screen.getByRole('button', { name: 'Open MCP Settings' }));
+    expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal bob-portal' })).toBeEnabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/');
+    expect(providerNavigation).toEqual([]);
   });
 
   it('does not renew portal grants when browser owner authentication fails', async () => {

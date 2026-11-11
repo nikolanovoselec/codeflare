@@ -1,4 +1,5 @@
 import { For, Show, type Component } from 'solid-js';
+import { formatOperatorTimestamp } from '../lib/operator-time';
 import { verifiedDiagnosticSourceUrl, type DiagnosticDetail, type DiagnosticErrorMetadata,
   type DiagnosticEvent, type DiagnosticRecord, type SdkServiceFailure } from '../api/operator-diagnostics-wire';
 
@@ -99,7 +100,7 @@ export const DiagnosticRecordMetadata: Component<{ record: DiagnosticRecord; sou
       : event().error?.transportReason ? diagnosticWords(event().error!.transportReason!) : 'No further reason was retained.'}</p></Show>
     <details><summary>Record technical details</summary>
     <p class="operator-diagnostic-event-heading"><strong>{event().id}</strong><span>{event().boundary === 'inference-response' ? 'Host inference response' : diagnosticWords(event().boundary)}</span><span>{event().outcome}</span></p>
-    <p><time datetime={new Date(event().timestamp).toISOString()}>{new Date(event().timestamp).toLocaleString()}</time> · Owner: {event().owner} · Evidence: {event().evidence} · Record generation: {event().generation}</p>
+    <p><time datetime={new Date(event().timestamp).toISOString()}>{formatOperatorTimestamp(event().timestamp)}</time> · Owner: {event().owner} · Evidence: {event().evidence} · Record generation: {event().generation}</p>
     <Correlation event={event()} />
     <Show when={props.source}>
       <p>Observed reason: {diagnosticWords(event().code)}</p>
@@ -121,7 +122,7 @@ const OperatorDiagnosticRecord: Component<{ detail: DiagnosticDetail }> = props 
   aria-label={`Record ${props.detail.record.id}`}>
   <h4>Record {props.detail.record.id}</h4>
   <details><summary>Record snapshot technical details</summary>
-  <p>Record metadata read <time datetime={new Date(props.detail.capturedAt).toISOString()}>{new Date(props.detail.capturedAt).toLocaleString()}</time>; current original-lease binding generation {props.detail.binding.generation}.</p></details>
+  <p>Record metadata read <time datetime={new Date(props.detail.capturedAt).toISOString()}>{formatOperatorTimestamp(props.detail.capturedAt)}</time>; current original-lease binding generation {props.detail.binding.generation}.</p></details>
   <DiagnosticRecordMetadata record={props.detail.record} source />
   <Show when={props.detail.capsule}>{capsule => <div class="operator-diagnostic-capsule">
     <h5>{capsule().kind === 'failure' ? 'Retained failure information' : 'Retained completion information'}</h5>

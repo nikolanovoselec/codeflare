@@ -215,53 +215,71 @@ function operatorHumanDenied(
  * This is deliberately separate from legacy display-name based enterprise gates.
  * Only the verified issuer receives the credential; redirects are never followed.
  */
-async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<string[] | null> {
+export type OperatorAccessIdentityObservation =
+  | { status: 'current'; groups: string[] } | { status: 'unavailable' } | { status: 'denied' };
+
+export async function observeOperatorAccessIdentity(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<OperatorAccessIdentityObservation> {
+  const denied = (...args: Parameters<typeof operatorHumanDenied>): OperatorAccessIdentityObservation => {
+    operatorHumanDenied(...args); return { status: 'denied' };
+  };
   if (!/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(human.issuer)
-    || !accessJwt) return operatorHumanDenied('identity', 'invalid');
-  if (human.expiresAt * 1000 <= Date.now()) return operatorHumanDenied('identity', 'expired');
+    || !accessJwt) return denied('identity', 'invalid');
+  if (human.expiresAt * 1000 <= Date.now()) return denied('identity', 'expired');
   let failure: 'transport' | 'response' = 'transport';
   try {
     const response = await fetch(`${human.issuer}/cdn-cgi/access/get-identity`, {
       method: 'GET', headers: { Cookie: `CF_Authorization=${accessJwt}` },
       redirect: 'manual', signal: AbortSignal.timeout(5000),
     });
-    if (!response.ok) return operatorHumanDenied('identity', 'http', response.status);
+    if (!response.ok) {
+      denied('identity', 'http', response.status);
+      return { status: [408, 429, 500, 502, 503, 504].includes(response.status) ? 'unavailable' : 'denied' };
+    }
     failure = 'response';
-    if (!response.body) return operatorHumanDenied('identity', 'response');
+    if (!response.body) return denied('identity', 'response');
     const bytes = await readBoundedResponse(response, 65536, 'Access identity');
     const identity: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return operatorHumanDenied('identity', 'response');
+    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return denied('identity', 'response');
     const record = identity as Record<string, unknown>;
     const subject = record.user_uuid ?? record.id;
-    if (subject !== human.subject) return operatorHumanDenied('identity', 'subject');
+    if (subject !== human.subject) return denied('identity', 'subject');
     if (typeof record.email !== 'string' || normalizeEmail(record.email) !== normalizeEmail(human.email)) {
-      return operatorHumanDenied('identity', 'email');
+      return denied('identity', 'email');
     }
     // Cloudflare's documented identity has no required groups field. A verified
     // session without it asserts no memberships; malformed supplied groups still deny.
-    if (!Object.hasOwn(record, 'groups')) return [];
-    if (!Array.isArray(record.groups) || record.groups.length > 1024) return operatorHumanDenied('identity', 'groups');
+    if (!Object.hasOwn(record, 'groups')) return { status: 'current', groups: [] };
+    if (!Array.isArray(record.groups) || record.groups.length > 1024) return denied('identity', 'groups');
     const groups: string[] = [];
     const validLabel = (value: unknown): value is string =>
       typeof value === 'string' && value.length <= 256 && value.trim().length > 0;
     for (const value of record.groups) {
       // Supported IdP labels describe a valid live session but confer no stable-ID grant.
       if (typeof value === 'string') {
-        if (!validLabel(value)) return operatorHumanDenied('identity', 'groups');
+        if (!validLabel(value)) return denied('identity', 'groups');
         continue;
       }
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return operatorHumanDenied('identity', 'groups');
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return denied('identity', 'groups');
       const member = value as Record<string, unknown>;
       if (!Object.hasOwn(member, 'id')) {
-        if (!validLabel(member.name) && !validLabel(member.email)) return operatorHumanDenied('identity', 'groups');
+        if (!validLabel(member.name) && !validLabel(member.email)) return denied('identity', 'groups');
         continue;
       }
       const id = member.id;
-      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return operatorHumanDenied('identity', 'groups');
+      if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return denied('identity', 'groups');
       groups.push(id);
     }
-    return [...new Set(groups)];
-  } catch { return operatorHumanDenied('identity', failure); }
+    return { status: 'current', groups: [...new Set(groups)] };
+  } catch (error) {
+    denied('identity', failure);
+    const timeout = error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name);
+    return { status: failure === 'transport' || timeout ? 'unavailable' : 'denied' };
+  }
+}
+
+async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<string[] | null> {
+  const observed = await observeOperatorAccessIdentity(human, accessJwt);
+  return observed.status === 'current' ? observed.groups : null;
 }
 
 /** An absent/revoked Access session cannot be treated as empty groups. */

@@ -1,4 +1,4 @@
-import type { AdminConfigurationResponse, EnvironmentSection } from '../../types';
+import type { AdminConfigurationResponse, AdministrationMode, EnvironmentSection } from '../../types';
 
 export interface EnvironmentArea {
   section: EnvironmentSection;
@@ -56,7 +56,7 @@ function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function describe(section: EnvironmentSection, raw: unknown): Pick<EnvironmentArea, 'summary' | 'status'> {
+function describe(section: EnvironmentSection, raw: unknown, mode: AdministrationMode): Pick<EnvironmentArea, 'summary' | 'status'> {
   const value = record(raw);
   switch (section) {
     case 'access': {
@@ -89,6 +89,10 @@ function describe(section: EnvironmentSection, raw: unknown): Pick<EnvironmentAr
         status: enabled || stamping === 'all' || stamping === 'list' ? 'Enabled' : 'Disabled' };
     }
     case 'dataGovernance': {
+      if (mode !== 'enterprise') return {
+        summary: value.syncPolicyMode === 'include' ? 'approved locations only' : 'save unless excluded',
+        status: value.syncPolicyMode === 'include' ? 'Enabled' : 'Disabled',
+      };
       const governed = value.governedMode === true;
       const viewOnly = value.viewOnlyStorage === true;
       return { summary: `${governed ? 'Governed' : 'Encrypted'} · ${viewOnly ? 'view-only storage' : 'downloads allowed'} · ${value.syncPolicyMode === 'include' ? 'approved locations only' : 'save unless excluded'}`, status: governed || viewOnly || value.syncPolicyMode === 'include' ? 'Enabled' : 'Disabled' };
@@ -124,8 +128,9 @@ export function environmentAreas(configuration: AdminConfigurationResponse): Env
   return configuration.applicableSections.map((section) => ({
     section,
     label: LABELS[section],
-    description: DESCRIPTIONS[section],
-    ...describe(section, configuration.sections[section]),
+    description: section === 'dataGovernance' && configuration.mode !== 'enterprise'
+      ? 'Persistence scope for saved-file locations' : DESCRIPTIONS[section],
+    ...describe(section, configuration.sections[section], configuration.mode),
   })).sort((left, right) => left.label.localeCompare(right.label, 'en'));
 }
 

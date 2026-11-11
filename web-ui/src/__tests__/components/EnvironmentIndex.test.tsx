@@ -23,7 +23,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 import AdministrationLayout from '../../components/admin/AdministrationLayout';
-import { EnvironmentAreaDetail } from '../../components/admin/EnvironmentIndex';
+import EnvironmentIndex, { EnvironmentAreaDetail } from '../../components/admin/EnvironmentIndex';
 import { getBuiltInProfile, getBuiltInProfileRef, normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
 
 const ref = { id: 'workers-ai-glm-thinking', revision: 1, hash: 'a'.repeat(64) };
@@ -92,7 +92,7 @@ const preview = (section: ConfigurationPreview['section'], baseRevision: number,
   tasks: [{ id: 'configure_model_routing', dependsOn: [] }], warnings: [], exclusions: [],
 });
 const stream = () => new Response(`${JSON.stringify({ type: 'snapshot', run: { runId: 'saved-routing', section: 'aiRouting', state: 'succeeded', tasks: [], resultingRevision: 8 } })}\n`);
-const mount = () => render(() => <Router><Route path="/admin" component={AdministrationLayout}><Route path="/environment/:section" component={EnvironmentAreaDetail} /></Route></Router>);
+const mount = () => render(() => <Router><Route path="/admin" component={AdministrationLayout}><Route path="/environment" component={EnvironmentIndex} /><Route path="/environment/:section" component={EnvironmentAreaDetail} /></Route></Router>);
 async function section(name: string) {
   const navigation = await screen.findByRole('navigation', { name: 'AI Gateway configuration sections' });
   await fireEvent.click(within(navigation).getByRole('button', { name }));
@@ -143,31 +143,83 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
-  it.each(['include', 'exclude'] as const)('REQ-SETUP-018: reviews human-readable sync policy %s before explicit Apply change', async syncPolicyMode => {
+  describe.each(['default', 'onboarding', 'saas', 'enterprise'] as const)('REQ-SETUP-019/028: %s loaded sync editor', mode => {
+    it.each(['include', 'exclude'] as const)('REQ-SETUP-018: reviews human-readable sync policy %s before explicit Apply change', async syncPolicyMode => {
+      // Exercise both catalog navigation and direct detail loading in the incumbent Router.
+      window.history.replaceState({}, '', syncPolicyMode === 'include' ? '/admin/environment' : '/admin/environment/dataGovernance');
+      const projection = (policy: string, revision: number) => ({ mode, revision, applicableSections: ['dataGovernance'],
+        sections: { dataGovernance: {
+          ...(mode === 'enterprise' && { governedMode: false, viewOnlyStorage: false }), syncPolicyMode: policy,
+        } }, activeRunId: null, latest: {} });
+      api.configuration.mockResolvedValue(projection(syncPolicyMode === 'include' ? 'exclude' : 'include', 7));
+      api.preview.mockImplementation(async (section, baseRevision, values) => ({ section, baseRevision,
+        currentRevision: baseRevision, changes: [{ field: 'syncPolicyMode', after: values.syncPolicyMode }],
+        tasks: [{ id: 'configure_sync_policy', dependsOn: [] }], warnings: [], exclusions: [] }));
+      api.start.mockImplementation(async () => new Response(`${JSON.stringify({ type: 'snapshot', run: {
+        runId: 'saved-policy', section: 'dataGovernance', state: 'succeeded', tasks: [], resultingRevision: 8,
+      } })}\n`));
+      const view = mount();
+      if (syncPolicyMode === 'include') {
+        const link = await screen.findByRole('link', { name: /Data governance/ });
+        expect(link).toHaveAttribute('href', '/admin/environment/dataGovernance');
+        expect(link).toHaveTextContent('save unless excluded');
+        await fireEvent.click(link);
+      }
+      const toggle = await screen.findByRole('checkbox', { name: 'Save only approved locations' });
+      expect(toggle).toHaveProperty('checked', syncPolicyMode !== 'include');
+      if (mode !== 'enterprise') {
+        expect(screen.queryByRole('checkbox', { name: 'Enable governed storage encryption' })).toBeNull();
+        expect(screen.queryByRole('checkbox', { name: 'Disable storage downloads' })).toBeNull();
+        expect(screen.getByText('Operation').parentElement).not.toHaveTextContent(/encryption|download/i);
+      }
+      await fireEvent.click(toggle);
+      const values = { ...(mode === 'enterprise' && { governedMode: false, viewOnlyStorage: false }), syncPolicyMode };
+      await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+      expect(await screen.findByText(syncPolicyMode === 'include'
+        ? 'Include: save only approved locations' : 'Exclude (default): save unless excluded')).toBeVisible();
+      expect(screen.getByText('Nothing is saved until Apply change. Only the tasks listed below will run.')).toBeVisible();
+      expect(screen.getByText('Update saved-file locations')).toBeVisible();
+      expect(screen.queryByRole('heading', { name: 'Execution succeeded' })).not.toBeInTheDocument();
+      expect(api.preview).toHaveBeenCalledWith('dataGovernance', 7, values);
+      expect(api.start).not.toHaveBeenCalled();
+      await fireEvent.click(screen.getByRole('button', { name: 'Apply change' }));
+      expect(await screen.findByRole('heading', { name: 'Execution succeeded' })).toBeVisible();
+      expect(api.start).toHaveBeenCalledWith('dataGovernance', 7, values, []);
+      view.unmount();
+      api.configuration.mockResolvedValue(projection(syncPolicyMode, 8));
+      window.history.replaceState({}, '', '/admin/environment/dataGovernance');
+      mount();
+      expect(await screen.findByRole('checkbox', { name: 'Save only approved locations' }))
+        .toHaveProperty('checked', syncPolicyMode === 'include');
+    });
+  });
+
+  it('REQ-SETUP-019/028: loading and failed authoritative sync reads never show an Exclude-default editor', async () => {
     window.history.replaceState({}, '', '/admin/environment/dataGovernance');
-    api.configuration.mockResolvedValue({ mode: 'enterprise', revision: 7, applicableSections: ['dataGovernance'],
-      sections: { dataGovernance: { governedMode: false, viewOnlyStorage: false,
-        syncPolicyMode: syncPolicyMode === 'include' ? 'exclude' : 'include' } }, activeRunId: null, latest: {} });
-    api.preview.mockImplementation(async (section, baseRevision, values) => ({ section, baseRevision,
-      currentRevision: baseRevision, changes: [{ field: 'syncPolicyMode', after: values.syncPolicyMode }],
-      tasks: [{ id: 'configure_sync_policy', dependsOn: [] }], warnings: [], exclusions: [] }));
-    api.start.mockImplementation(async () => new Response(`${JSON.stringify({ type: 'snapshot', run: {
-      runId: 'saved-policy', section: 'dataGovernance', state: 'succeeded', tasks: [], resultingRevision: 8,
-    } })}\n`));
+    let rejectRead!: (reason: Error) => void;
+    api.configuration.mockReturnValue(new Promise((_resolve, reject) => { rejectRead = reject; }));
     mount();
-    const toggle = await screen.findByRole('checkbox', { name: 'Save only approved locations' });
-    await fireEvent.click(toggle);
-    const values = { governedMode: false, viewOnlyStorage: false, syncPolicyMode };
-    await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
-    expect(await screen.findByText(syncPolicyMode === 'include'
-      ? 'Include: save only approved locations' : 'Exclude (default): save unless excluded')).toBeVisible();
-    expect(screen.getByText('Nothing is saved until Apply change. Only the tasks listed below will run.')).toBeVisible();
-    expect(screen.getByText('Update saved-file locations')).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'Execution succeeded' })).not.toBeInTheDocument();
-    expect(api.preview).toHaveBeenCalledWith('dataGovernance', 7, values);
-    await fireEvent.click(screen.getByRole('button', { name: 'Apply change' }));
-    expect(await screen.findByRole('heading', { name: 'Execution succeeded' })).toBeVisible();
-    expect(api.start).toHaveBeenCalledWith('dataGovernance', 7, values, []);
+    expect(await screen.findByText('Loading Administration…')).toBeVisible();
+    expect(screen.queryByRole('checkbox', { name: 'Save only approved locations' })).toBeNull();
+    rejectRead(new Error('read unavailable'));
+    expect(await screen.findByRole('heading', { name: 'Administration unavailable' })).toBeVisible();
+    expect(screen.queryByRole('checkbox', { name: 'Save only approved locations' })).toBeNull();
+    expect(api.preview).not.toHaveBeenCalled();
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it('REQ-SETUP-019/018: an active configuration run blocks sync review through the actual loaded route', async () => {
+    window.history.replaceState({}, '', '/admin/environment/dataGovernance');
+    api.configuration.mockResolvedValue({ mode: 'default', revision: 7, applicableSections: ['dataGovernance'],
+      sections: { dataGovernance: { syncPolicyMode: 'include' } }, activeRunId: 'busy-run', latest: {} });
+    mount();
+    expect(await screen.findByRole('heading', { name: 'Settings change active' })).toBeVisible();
+    const reviewButton = screen.getByRole('button', { name: 'Review changes' });
+    expect(reviewButton).toBeDisabled();
+    await fireEvent.submit(reviewButton.closest('form')!);
+    expect(api.preview).not.toHaveBeenCalled();
+    expect(api.start).not.toHaveBeenCalled();
+    expect(screen.getByRole('checkbox', { name: 'Save only approved locations' })).toBeChecked();
   });
 
   it('REQ-ENTERPRISE-093 AC1/AC2: saved connection failures show safe recovery guidance and preserve the connection for retry', async () => {
