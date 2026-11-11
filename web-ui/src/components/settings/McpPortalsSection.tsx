@@ -1,4 +1,6 @@
 import { Component, For, Show, createSignal, createEffect, onCleanup } from 'solid-js';
+import { mdiCheck } from '@mdi/js';
+import Icon from '../Icon';
 import '../../styles/connect.css';
 import { getMcpPortalStatuses, disconnectMcpPortal, mcpPortalConnectUrl, type McpPortalStatus } from '../../api/mcp-portals';
 
@@ -47,7 +49,7 @@ const McpPortalsSection: Component<McpPortalsSectionProps> = (props) => {
     }
     const outcome = props.returnOutcome ?? directReturn();
     setNeedsReconnect(outcome === 'reconnect');
-    setReturnStatus(outcome === 'connected' ? 'Authorization returned. Check the connection status below.'
+    setReturnStatus(outcome === 'connected' ? 'Authorization response received.'
       : outcome === 'reconnect' ? 'Portal authorization could not be completed. Ask your administrator to check the portal, then try Connect again.' : '');
     const request = ++revision;
     setBusy([]);
@@ -85,33 +87,38 @@ const McpPortalsSection: Component<McpPortalsSectionProps> = (props) => {
     </Show>
     <Show when={portals().length > 0}>
       <div class="oauth-connect-card mcp-portals-surface" role="group" aria-label="MCP portals">
-        <For each={portals()}>{portal => <div class="oauth-connect-head mcp-portal-row">
-          <span class="oauth-connect-name" data-testid={`mcp-${portal.name}-identity`}>{portal.name}</span>
-          <Show when={portal.connected}>
-            <span class="oauth-connect-badge" role="status" aria-live="polite"
-              data-testid={`mcp-${portal.name}-connected-badge`}>
-              {busy().includes(portal.name) ? 'Disconnecting…' : 'Authorization saved'}
-            </span>
-          </Show>
-          <Show when={portal.connected}>
-            <button type="button" class="oauth-connect-btn oauth-connect-btn--connect settings-action settings-action--accent"
-              disabled={busy().includes(portal.name)}
-              aria-label={`Authorize again Model Context Protocol portal ${portal.name}`}
-              data-href={mcpPortalConnectUrl(portal.name)}
-              onClick={() => { window.location.href = mcpPortalConnectUrl(portal.name); }}>Authorize again</button>
-          </Show>
-          <button type="button" class={portal.connected ? 'oauth-connect-disconnect' : 'oauth-connect-btn oauth-connect-btn--connect settings-action settings-action--accent'}
-            disabled={busy().includes(portal.name)} aria-busy={busy().includes(portal.name)}
-            aria-label={`${portal.connected ? 'Disconnect' : 'Connect'} Model Context Protocol portal ${portal.name}`}
-            data-testid={`mcp-${portal.name}-${portal.connected ? 'disconnect' : 'connect'}-btn`}
-            data-href={portal.connected ? undefined : mcpPortalConnectUrl(portal.name)}
-            onClick={() => { if (portal.connected) void disconnect(portal.name); else window.location.href = mcpPortalConnectUrl(portal.name); }}>
-            {portal.connected ? 'Disconnect' : 'Connect'}
-          </button>
+        <For each={portals()}>{portal => <div class="mcp-portal-row" role="group" aria-label={portal.name}>
+          <div class="mcp-portal-identity">
+            <span class="oauth-connect-name" data-testid={`mcp-${portal.name}-identity`}>{portal.name}</span>
+            <Show when={portal.connected}>
+              <span class="mcp-portal-status" role="status" aria-live="polite" aria-busy={busy().includes(portal.name)}
+                data-testid={`mcp-${portal.name}-connected-badge`}>
+                <Show when={!busy().includes(portal.name)}><Icon path={mdiCheck} size={14} aria-hidden="true" /></Show>
+                {busy().includes(portal.name) ? 'Disconnecting…' : 'Authorization saved'}
+              </span>
+            </Show>
+          </div>
+          <div class="mcp-portal-actions">
+            <Show when={portal.connected}>
+              <button type="button" class="oauth-connect-btn settings-action"
+                disabled={busy().includes(portal.name)}
+                aria-label={`Authorize again Model Context Protocol portal ${portal.name}`}
+                data-href={mcpPortalConnectUrl(portal.name)}
+                onClick={() => { window.location.href = mcpPortalConnectUrl(portal.name); }}>Authorize again</button>
+            </Show>
+            <button type="button" class={portal.connected ? 'oauth-connect-disconnect' : 'oauth-connect-btn oauth-connect-btn--connect settings-action settings-action--accent'}
+              disabled={busy().includes(portal.name)} aria-busy={busy().includes(portal.name)}
+              aria-label={`${portal.connected ? 'Disconnect' : 'Connect'} Model Context Protocol portal ${portal.name}`}
+              data-testid={`mcp-${portal.name}-${portal.connected ? 'disconnect' : 'connect'}-btn`}
+              data-href={portal.connected ? undefined : mcpPortalConnectUrl(portal.name)}
+              onClick={() => { if (portal.connected) void disconnect(portal.name); else window.location.href = mcpPortalConnectUrl(portal.name); }}>
+              {portal.connected ? 'Disconnect' : 'Connect'}
+            </button>
+          </div>
         </div>}</For>
       </div>
     </Show>
-    <p class="settings-hint type-hint">Saved authorization does not verify tool access. Renewal may require browser authorization. No Pi restart is needed.</p>
+    <p class="settings-hint type-hint">Tool access isn’t verified here. Reauthorization may be needed; no Pi restart required.</p>
   </>;
 };
 export default McpPortalsSection;

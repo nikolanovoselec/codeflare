@@ -25,8 +25,8 @@ describe('Settings MCP connections', () => {
     const retry = await screen.findByRole('button', { name: 'Authorize again Model Context Protocol portal alpha' });
     expect(screen.getByTestId('mcp-alpha-connected-badge')).toHaveTextContent('Authorization saved');
     expect(screen.queryByText('Connected', { exact: true })).not.toBeInTheDocument();
-    expect(screen.getByText(/Saved authorization does not verify tool access/)).toBeVisible();
-    expect(screen.getByText(/browser authorization/i)).toBeVisible();
+    // Intentional user-copy contract: saved authorization never certifies tools or requires a Pi restart.
+    expect(screen.getByText('Tool access isn’t verified here. Reauthorization may be needed; no Pi restart required.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Disconnect Model Context Protocol portal alpha' })).toBeEnabled();
     const originalLocation = window.location;
     const destination = { href: '' };
@@ -51,7 +51,7 @@ describe('Settings MCP connections', () => {
     await screen.findByTestId('mcp-alpha-connected-badge');
     stored = stored.map(portal => ({ ...portal, connected: false }));
     setOutcome('connected');
-    expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+    expect(await screen.findByText('Authorization response received.')).toBeVisible();
     expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal alpha' })).toBeEnabled();
     expect(screen.queryByTestId('mcp-alpha-connected-badge')).not.toBeInTheDocument();
     expect(screen.queryByText('Connected', { exact: true })).not.toBeInTheDocument();
@@ -91,10 +91,15 @@ describe('Settings MCP connections', () => {
     render(() => <McpPortalsSection />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading portals');
     await screen.findByText('alpha');
-    expect(screen.getByText(/No Pi restart is needed/i)).toBeVisible();
+    expect(screen.getByText(/no Pi restart required/i)).toBeVisible();
     const connections = screen.getByRole('group', { name: 'MCP portals' });
     expect(within(connections).getByText('alpha')).toBeVisible();
     expect(within(connections).getByText('beta')).toBeVisible();
+    const alpha = within(screen.getByRole('group', { name: 'alpha' }));
+    const beta = within(screen.getByRole('group', { name: 'beta' }));
+    expect(alpha.getByRole('button', { name: 'Authorize again Model Context Protocol portal alpha' })).toBeEnabled();
+    expect(alpha.getByRole('button', { name: 'Disconnect Model Context Protocol portal alpha' })).toBeEnabled();
+    expect(beta.getByRole('button', { name: 'Connect Model Context Protocol portal beta' })).toBeEnabled();
     expect(screen.getByText('Connect MCP portals to use their tools in your sessions.')).toBeVisible();
     expect(screen.getByTestId('mcp-alpha-identity')).toHaveTextContent('alpha');
     expect(screen.getByTestId('mcp-alpha-connected-badge')).toBeInTheDocument();
@@ -143,7 +148,7 @@ describe('Settings MCP connections', () => {
   it('REQ-AGENT-228 AC4: concise permission guidance keeps connection actions available without a troubleshooting disclosure', async () => {
     render(() => <McpPortalsSection />);
     const connect = await screen.findByRole('button', { name: 'Connect Model Context Protocol portal beta' });
-    expect(screen.getByText(/No Pi restart is needed/i)).toBeVisible();
+    expect(screen.getByText(/no Pi restart required/i)).toBeVisible();
     expect(screen.queryByText('Portal setup and connection help')).not.toBeInTheDocument();
     expect(connect).toBeEnabled();
     expect(connect).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
@@ -155,17 +160,17 @@ describe('Settings MCP connections', () => {
   it('REQ-AGENT-228 AC4: successful authorization is not presented as a tool-discovery failure', async () => {
     window.history.replaceState({}, '', '?mcp=connected');
     render(() => <McpPortalsSection />);
-    expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+    expect(await screen.findByText('Authorization response received.')).toBeVisible();
     expect(await screen.findByTestId('mcp-alpha-connected-badge')).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByText(/No Pi restart is needed/i)).toBeVisible();
+    expect(screen.getByText(/no Pi restart required/i)).toBeVisible();
   });
 
   it('REQ-AGENT-228 AC4: a return marker cannot override disconnected status or remove unrelated navigation state', async () => {
     stored = stored.map(portal => ({ ...portal, connected: false }));
     window.history.replaceState({}, '', '?view=settings&mcp=connected#connections');
     render(() => <McpPortalsSection />);
-    expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+    expect(await screen.findByText('Authorization response received.')).toBeVisible();
     expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal alpha' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Connect Model Context Protocol portal beta' })).toBeEnabled();
     expect(screen.queryByTestId('mcp-alpha-connected-badge')).not.toBeInTheDocument();

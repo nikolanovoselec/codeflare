@@ -327,7 +327,7 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
       if (returned === 'reconnect') {
         expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
       } else {
-        expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+        expect(await screen.findByText('Authorization response received.')).toBeVisible();
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       }
       expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal alpha' })).toBeEnabled();
@@ -344,7 +344,7 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
       expect(window.location.pathname).toBe('/app/session/abcdef0123456789');
       await fireEvent.click(screen.getByRole('button', { name: 'Open MCP Settings' }));
       if (returned === 'reconnect') expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
-      else expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+      else expect(await screen.findByText('Authorization response received.')).toBeVisible();
     });
 
   it('REQ-AGENT-226 AC6 / REQ-AGENT-228 AC4: another owner cannot inherit the previous owner callback outcome or return path', async () => {
