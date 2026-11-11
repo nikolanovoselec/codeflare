@@ -353,16 +353,25 @@ test('REQ-AGENT-228: idle cleanup protects an active portal call and closes only
   const held = f.holdNextCall();
   const result = f.call({ tool, server: f.name, args: { code: 'async () => 1' } });
   await held.started;
-  await until(() => f.requests.some(row => row.method === 'GET' && !row.aborted && !row.cancelled));
+  const originatingSession = f.requests.findLast(row => row.rpc?.method === 'tools/call').session;
+  assert.ok(originatingSession);
+  let originatingStream;
+  await until(() => {
+    originatingStream = f.requests.findLast(row => row.method === 'GET' && row.session === originatingSession
+      && !row.aborted && !row.cancelled);
+    return originatingStream;
+  });
   t.mock.timers.tick(11 * 60 * 1000);
   await delay(20); // Let the real asynchronous cleanup settle while the tool is held.
-  assert.ok(!f.requests.some(row => row.method === 'DELETE'), 'idle cleanup cannot disconnect an active assistant tool call');
-  assert.ok(f.requests.filter(row => row.method === 'GET').every(row => !row.aborted && !row.cancelled),
-    'the active call keeps its originating stream alive');
+  assert.ok(!f.requests.some(row => row.method === 'DELETE' && row.session === originatingSession),
+    'idle cleanup cannot disconnect the active call’s originating session');
+  assert.ok(!originatingStream.aborted && !originatingStream.cancelled,
+    'the active call keeps its originating stream alive, independently of historical discovery streams');
   held.release();
   assert.match(JSON.stringify(await result), /same-portal synthetic result/);
   t.mock.timers.tick(11 * 60 * 1000);
   await until(async () => (await f.status()).some(row => row.name === f.name && row.status !== 'connected'));
+  await until(() => originatingStream.aborted || originatingStream.cancelled);
 });
 
 test('REQ-AGENT-228: unmanaged local OAuth retains real PKCE grant persistence, refresh and shutdown lifecycle', { timeout: 60000 }, async t => {
