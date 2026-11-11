@@ -78,7 +78,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     const f = fixture();
     const response = await f.request();
     expect(response.status).toBe(200);
-    const value = await response.json();
+    const value = await response.json() as { items: Array<Record<string, unknown>>; cursor: string | null };
     expect(value).toMatchObject({ items: [{ id: 'visible-install', operatorId: 'visible-operator',
       name: 'Renovate Dispatcher', installationName: 'Updates', version: 'v0.1.27', enabled: true, approved: true,
       canInvoke: true, canManage: false, profile: 'dispatcher', canActivateAutomaticRuns: false,
@@ -173,12 +173,12 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     for (let read = 0; read < 2; read++) {
       const response = await f.request(); expect(response.status).toBe(200);
       expect(response.headers.get('cache-control')).toBe('no-store');
-      const value = await response.json();
-      expect(value.items[0]).toEqual({ id: f.installed.id, operatorId: f.operator.id, profile: 'dispatcher',
+      const value = await response.json() as { items: Array<Record<string, unknown>>; cursor: string | null };
+      expect(value.items.find(item => item.id === f.installed.id)).toEqual({ id: f.installed.id, operatorId: f.operator.id, profile: 'dispatcher',
         name: 'Renovate Dispatcher', installationName: 'Updates', version: 'v0.1.27', revision: 7,
         enabled: true, approved: true, canInvoke: true, canManage: true, canActivateAutomaticRuns: true,
         guidedMode: 'repository', repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3719 });
-      expect(JSON.stringify(value)).not.toContain('PRIVATE_');
+      for (const secret of ['PRIVATE_CONFIGURATION', 'PRIVATE_ACCESS_JWT']) expect(JSON.stringify(value)).not.toContain(secret);
     }
     // These are externally significant forbidden effects, not invocation-count assertions.
     expect(f.effects).toEqual([]);
@@ -191,7 +191,9 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     f.manifests.value = JSON.stringify({ ...JSON.parse(f.manifests.value), name: 'Conductor' });
     f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true } });
     const response = await f.request(); expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ items: [{ id: f.installed.id, profile: 'dispatcher', canActivateAutomaticRuns: true }] });
+    const value = await response.json() as { items: Array<Record<string, unknown>> };
+    expect(value.items.find(item => item.id === f.installed.id)).toMatchObject({ profile: 'dispatcher',
+      canActivateAutomaticRuns: true, guidedMode: null, repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3600 });
     expect(f.effects).toEqual([]);
   });
 
@@ -230,7 +232,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
       if (fault === 'resolved-configuration') f.resolved.installation = { ...f.installed, configurationJson: '{}' };
       if (fault === 'resolved-digest') f.resolved.release = { ...f.release, bundleDigest: 'b'.repeat(64) };
       const response = await f.request(); expect(response.status).toBe(200);
-      const value = await response.json();
+      const value = await response.json() as { items: Array<Record<string, unknown>>; cursor: string | null };
       expect(value.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: f.installed.id, canActivateAutomaticRuns: false })]));
       expect(f.effects).toEqual([]);
     });

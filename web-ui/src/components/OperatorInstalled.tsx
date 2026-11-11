@@ -113,7 +113,7 @@ const Scheduling: Component<{ item: InstalledOperator; saved: (message: string) 
     if (!props.item.canInvoke) return 'Invocation permission required. Management access does not grant invocation.';
     if (props.item.automaticRuns !== true) return 'Automatic runs are off. Configure and save them before activation.';
     if (!props.item.canActivateAutomaticRuns) return 'Admin activation eligibility could not be confirmed for this installation.';
-    if (props.item.profile !== 'dispatcher' || props.item.guidedMode !== 'repository' || !validInterval()
+    if (props.item.profile !== 'dispatcher' || !validInterval()
       || !props.item.repository || !repositoryPattern.test(props.item.repository)
       || props.item.repository.split('/').some(part => part === '.' || part === '..')) return 'Saved automatic configuration is unavailable. Review it in management.';
     if (!activationSession()) return 'Open an available running workspace session with a verified generation before activating.';
@@ -128,7 +128,7 @@ const Scheduling: Component<{ item: InstalledOperator; saved: (message: string) 
     try {
       const result = await activateRenovateRuns({ installationId: props.item.id,
         sessionId: currentSession.id, sessionGeneration: currentSession.generation! });
-      if (current()) setActivationMessage(`Activation acknowledged for this installation revision and session. Original activation cutoff: ${result.activatedAt}. Authority ends at the original Access expiry; this is not proof of future execution.`);
+      if (current()) setActivationMessage(`Activation acknowledged for this session. This does not verify the displayed settings. Original activation cutoff: ${result.activatedAt}. Authority ends at the original Access expiry; this is not proof of future execution.`);
     } catch {
       if (current()) setActivationMessage('Activation not confirmed. Check this session and installation before explicitly trying again. No automatic retry occurs.');
     } finally { if (current()) setActivationPending(false); }

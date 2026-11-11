@@ -189,12 +189,14 @@ app.get('/installations', async c => {
       if (!(error instanceof ValidationError)) throw error;
       // Invalid saved settings remain visible but grant no automatic-run eligibility.
     }
+    const supportedAutomatic = selection !== null && operator.profile === 'dispatcher'
+      && selection.operator.profile === 'dispatcher' && prospectiveRenovatePackageSupported(selection.manifestJson);
     const canActivateAutomaticRuns = platformAdmin && invoke && operator.enabled && operator.profile === 'dispatcher'
       && installation.enabled && installation.policy.resourceProfileId === null && approved
       && selection !== null && selection.operator.enabled && selection.operator.profile === 'dispatcher'
       && selection.installation.enabled && selection.installation.policy.resourceProfileId === null
-      && prospectiveRenovatePackageSupported(selection.manifestJson) && settings?.automaticRuns === true;
-    const guidedSettings = preview?.guidedMode === 'repository' ? settings : null;
+      && supportedAutomatic && settings?.automaticRuns === true;
+    const guidedSettings = preview?.guidedMode === 'repository' || supportedAutomatic ? settings : null;
     items.push({ id: installation.id, operatorId: operator.id, profile: operator.profile,
       name: preview?.name ?? release?.name ?? operator.name ?? operator.id,
       installationName: installation.name, revision: installation.revision, enabled: installation.enabled, approved,

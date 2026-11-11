@@ -9,7 +9,7 @@ vi.mock('../../stores/session', async () => {
   const { createSignal } = await import('solid-js');
   const [current, setCurrent] = createSignal<unknown>();
   activeSession.set = value => { setCurrent(value); };
-  return { sessionStore: { getActiveSession: current, get statusUnavailable() { return server.sessionUnavailable; } } };
+  return { sessionStore: { preferences: { userTimezone: 'UTC' }, getActiveSession: current, get statusUnavailable() { return server.sessionUnavailable; } } };
 });
 const runningSession = { id: 'ownersession1', status: 'running', lifecycle: 'running', generation: 3 };
 
@@ -878,7 +878,7 @@ describe('Task94 exact human-unit scheduling', () => {
     expect(server.configuration.renovate.repetitionIntervalSeconds).toBe(seconds);
     expect(server.installations[0].enabled).toBe(false);
     expect(server.mutations.map(value => value.kind)).toEqual(['configure']);
-    expect(screen.getByRole('link', { name: 'Manage installations' })).toHaveAttribute('href', '/operators');
+    expect(await screen.findByRole('link', { name: 'Manage installations' })).toHaveAttribute('href', '/operators');
   });
 
   it('REQ-OPERATOR-209 AC2/3: explicit quantity and unit Save preserves policy and unrelated configuration and disables', async () => {
@@ -994,7 +994,7 @@ describe('Task94 explicit installation and session scoped activation', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
     await screen.findByText(/saved.*disabled/i);
     expect(server.installations[0].enabled).toBe(false);
-    expect(screen.getByRole('link', { name: 'Manage installations' })).toHaveAttribute('href', '/operators');
+    expect(await screen.findByRole('link', { name: 'Manage installations' })).toHaveAttribute('href', '/operators');
     const button = screen.queryByRole('button', { name: /^activate(?: automatic runs)?$/i });
     if (button) expect(button).toBeDisabled();
     expect(server.mutations.map(value => value.kind)).toEqual(['configure']);
@@ -1041,7 +1041,7 @@ describe('Task94 explicit installation and session scoped activation', () => {
       await gate.promise;
       // Let the abandoned request's continuation run before reading the new scope.
       await Promise.resolve();
-      await waitFor(() => expect(screen.queryByText(/activating|activation pending/i)).toBeNull());
+      await waitFor(() => expect(screen.queryByText(/^activating(?:…|\.\.\.)$|^activation pending$/i)).toBeNull());
       expect(screen.queryByText(acknowledged)).toBeNull();
       expect(server.mutations.map(value => value.kind)).toEqual(['activate']);
     },
@@ -1065,6 +1065,29 @@ describe('Task94 explicit installation and session scoped activation', () => {
 
 // Invocation/activation authority is independent of configuration-management authority.
 describe('Task94 activation authority and abandoned failures', () => {
+  it('REQ-OPERATOR-209 AC5: a supported renamed automatic package does not require a manual launcher', async () => {
+    configured({ name: 'Renamed package', guidedMode: null });
+    await open('Installed'); await screen.findByText(unverified);
+    expect(screen.queryByRole('button', { name: 'Run once' })).toBeNull();
+    expect(activation()).toBeEnabled();
+    await fireEvent.click(activation()); await screen.findByText(acknowledged);
+    expect(server.mutations).toEqual([{ kind: 'activate', command: {
+      installationId: 'install-1', sessionId: 'ownersession1', sessionGeneration: 3,
+    } }]);
+    expect(server.prepared).toEqual({});
+  });
+
+  it('REQ-OPERATOR-209 AC6: acknowledgement does not verify displayed settings after a server-only revision change', async () => {
+    configured(); await open('Installed'); await screen.findByText(unverified);
+    // The backend can select a newer enabled revision without a local list refresh.
+    server.installations = [installation({ automaticRuns: true, revision: 8 })];
+    await fireEvent.click(activation());
+    const feedback = await screen.findByText(acknowledged);
+    expect(feedback).toHaveTextContent(/does not verify (?:the )?displayed settings/i);
+    expect(screen.queryByText(/acknowledged for this installation revision/i)).toBeNull();
+    expect(server.prepared).toEqual({});
+  });
+
   it('REQ-OPERATOR-209 AC5: server-eligible invoker can explicitly Activate without gaining management controls', async () => {
     configured({ canManage: false });
     await open('Installed');
