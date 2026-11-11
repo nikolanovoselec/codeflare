@@ -316,7 +316,7 @@ describe('REQ-AGENT-224: managed Fast/Ultrafast startup', () => {
 it('REQ-AGENT-069 / REQ-AGENT-217: restored managed MCP registrations converge to one replacement owner', () => {
   const custom = { source: 'npm:owner-mcp-tools@1.0.0', extensions: ['keep.ts'], ownerSetting: true };
   const initial = {
-    packages: ['npm:pi-mcp-adapter', 'npm:pi-mcp-adapter@5.3.1',
+    packages: ['npm:pi-mcp-adapter', 'npm:pi-mcp-adapter@7.0.1',
       { source: 'npm:pi-mcp-adapter@5.2.0', extensions: ['index.ts'], skills: [] },
       'npm:pi-mcp-extension@1.0.0', { source: 'npm:pi-mcp-extension@1.12.1', extensions: [] },
       'npm:pi-mcp-adapter-extra@1.0.0', './custom/pi-mcp-adapter', custom],
