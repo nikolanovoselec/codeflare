@@ -10,7 +10,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const patch = join(root, 'scripts/patch-rclone-bisync.py');
 
 describe('rclone bookkeeping compatibility gate', () => {
-  for (const version of ['1.73.5', '1.75.2']) {
+  for (const version of ['1.73.5', '1.75.2', '1.76.0']) {
     it(`rejects an upstream version bump when the caller supplies approved ${version}`, () => {
       const directory = mkdtempSync(join(tmpdir(), 'rclone-version-'));
       try {
@@ -35,7 +35,7 @@ describe('rclone bookkeeping compatibility gate', () => {
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
-  for (const version of ['1.73.5', '1.75.2']) {
+  for (const version of ['1.73.5', '1.75.2', '1.76.0']) {
     it(`leaves ${version} source untouched when a later anchor is incompatible`, () => {
       const directory = mkdtempSync(join(tmpdir(), 'rclone-source-'));
       try {

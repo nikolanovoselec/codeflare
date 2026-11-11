@@ -42,7 +42,7 @@ Interactive/runtime and prewarm Pi 1.5 are independent of the Worker and immutab
 
 ### Native terminal UI
 
-[REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) owns the native UI and session-status contract. Open TUI is exact-pinned and integrity-locked in the image's Pi extension inventory. Startup selects `{source: "npm:pi-open-tui@0.3.13", extensions: []}`: package auto-discovery is suppressed because managed `startup-header.ts` delegates the installed native entrypoint once. Open TUI owns header, footer and editor in both modes; the adapter gates terminal handlers and `/open-tui` to TUI contexts and bounds header/footer lines by real terminal column width. RPC, print and background execution do not acquire its settings overlay or project probes.
+[REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) owns the native UI and session-status contract. Open TUI is exact-pinned and integrity-locked in the image's Pi extension inventory. Startup selects the exact `pi-open-tui` pin owned by the [Pi manifest](../../preseed/agents/pi/package.json), with `extensions: []`: package auto-discovery is suppressed because managed `startup-header.ts` delegates the installed native entrypoint once. Open TUI owns header, footer and editor in both modes; the adapter gates terminal handlers and `/open-tui` to TUI contexts and bounds header/footer lines by real terminal column width. RPC, print and background execution do not acquire its settings overlay or project probes.
 
 `local-statusline.ts` publishes only repository and branch through the native status area, without installing a competing footer or duplicating context, model or effort. Parent-workspace sessions retain remembered nested repositories and the guarded display-only sentinel. Other extensions keep their statuses and colors; native context/model rendering remains upstream-owned. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel -->
 
@@ -56,7 +56,7 @@ After home restore, entrypoint enforces the following `open-tui.json` preference
 | Footer off | CWD, hostname, Git branch/status/detached commit, runtime, tokens, cost, live TPS, provider capitalization |
 | Telemetry | Master disabled; subordinate TPS, TTFT, duration, token counts, stall details and cost switches on but inactive |
 
-Open TUI 0.3.13's live-TPS footer segment is independent of the telemetry master; startup explicitly disables it to preserve the quiet presentation.
+The manifest-pinned Open TUI's live-TPS footer segment is independent of the telemetry master; startup explicitly disables it to preserve the quiet presentation.
 
 Entrypoint uses a private atomic replacement for safe configuration. Malformed, symlink or nonregular files stay unchanged and produce a content-free warning. The terminal adapter performs read-only validation before native activation and falls back to Pi's built-in UI on unsafe configuration without blocking execution. `/open-tui` remains the upstream settings UI; later container startups restore the enforced fields. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::validateConfig -->
 

@@ -1089,6 +1089,8 @@ jobs:
           for name in ('ImageOS', 'ImageVersion'):
               value = os.environ.get(name, '')
               print(name, value if re.fullmatch(r'[A-Za-z0-9._-]{1,80}', value) else 'unavailable')
+          for name in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'APT_CONFIG'):
+              print('proxy-variable-present', os.geteuid(), name, bool(os.environ.get(name)))
           for path in ('/usr/bin/bwrap', '/usr/sbin/apparmor_parser'):
               print('executable', path, os.access(path, os.X_OK))
           for path in ('/etc/apt/sources.list.d/ubuntu.sources', '/etc/apt/sources.list', '/etc/apt/apt-mirrors.txt'):
@@ -1110,18 +1112,36 @@ jobs:
                       print('resolver', ipaddress.ip_address(address))
                   except ValueError:
                       print('resolver', 'invalid-address')
-          config = subprocess.run(['apt-config', 'dump'], capture_output=True, text=True, timeout=3)
-          print('apt-config-status', config.returncode)
-          print('apt-proxy-setting-present', bool(re.search(r'(?im)^.*proxy[^\s]*\s', config.stdout)))
+          config = subprocess.run(['sudo', 'apt-config', 'dump'], capture_output=True, text=True, timeout=3)
+          print('apt-root-config-status', config.returncode)
+          entries = dict(re.findall(r'^([^\s]+)\s+"(.*)";$', config.stdout, re.M))
+          for scheme in ('http', 'https'):
+              for suffix in ('Proxy', 'Proxy-Auto-Detect', 'ProxyAutoDetect',
+                             'Proxy::azure.archive.ubuntu.com', 'Proxy::archive.ubuntu.com',
+                             'Proxy::security.ubuntu.com'):
+                  key = 'Acquire::' + scheme + '::' + suffix
+                  value = entries.get(key)
+                  if value is None:
+                      kind = 'absent'
+                  elif not value:
+                      kind = 'empty'
+                  elif suffix in ('Proxy-Auto-Detect', 'ProxyAutoDetect'):
+                      kind = 'command-configured'
+                  elif value == 'DIRECT':
+                      kind = 'direct'
+                  else:
+                      kind = 'configured-redacted'
+                  print('apt-route-key-type', key, kind)
+          print('apt-compat-key-present', 'Acquire::BrokenProxy', 'Acquire::BrokenProxy' in entries)
           PY
           dpkg-query -W -f='${binary:Package} ${db:Status-Status} ${Version}\n' bubblewrap apparmor || echo 'package-query-incomplete'
           for user in root _apt; do
             sudo -u "$user" python3 - <<'PY'
           import os
-          for name in ('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'APT_CONFIG'):
+          for name in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'APT_CONFIG'):
               print('proxy-variable-present', os.geteuid(), name, bool(os.environ.get(name)))
           PY
-            for host in azure.archive.ubuntu.com archive.ubuntu.com; do
+            for host in azure.archive.ubuntu.com archive.ubuntu.com registry.npmjs.org; do
               if timeout 3 sudo -u "$user" getent ahosts "$host"; then
                 echo "resolver-result $user $host success"
               else

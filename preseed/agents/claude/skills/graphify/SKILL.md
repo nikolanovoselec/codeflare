@@ -182,16 +182,17 @@ Follow these steps in order. Do not skip steps.
 ### Step 1 - Detect files
 
 ```bash
-/root/.local/share/uv/tools/graphifyy/bin/python -c "
+/root/.local/share/uv/tools/graphifyy/bin/python - '<scan-root>' > .graphify_detect.json <<'PY'
 import json
+import sys
 from graphify.detect import detect
 from pathlib import Path
-result = detect(Path('INPUT_PATH'))
+result = detect(Path(sys.argv[1]).resolve())
 print(json.dumps(result))
-" > .graphify_detect.json
+PY
 ```
 
-Replace INPUT_PATH with the actual path the user provided. Do NOT cat or print the JSON - read it silently and present a clean summary instead:
+Replace `'<scan-root>'` with the selected path as one shell-quoted literal argument (use POSIX shell quoting, including escaping embedded single quotes). Keep the quoted heredoc delimiter; never substitute paths into Python source or evaluate path text as shell code. Pass the same selected root to the build/update reference commands. Do NOT cat or print the JSON - read it silently and present a clean summary instead:
 
 ```
 Corpus: X files ~ ~Y words

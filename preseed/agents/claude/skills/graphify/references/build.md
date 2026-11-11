@@ -1,13 +1,14 @@
 # Steps 3-7 - Build, cluster, optionally label, visualize, report
 
-Load this after extraction (Step 2 / `references/extraction-spec.md`) produces `.graphify_extract.json`. These steps build the graph, cluster it, optionally label communities, generate the Obsidian vault + HTML, benchmark, save the manifest, and report.
+Load this after extraction (Step 2 / `references/extraction-spec.md`) produces `.graphify_extract.json`. For each `'<scan-root>'` argument, use the same shell-quoted literal selected root as Step 1; never insert it into Python source. These steps build the graph, cluster it, optionally label communities, generate the Obsidian vault + HTML, benchmark, save the manifest, and report.
 
 ## Step 3 - Build graph, cluster, analyze, generate outputs
 
 ```bash
 mkdir -p graphify-out
-/root/.local/share/uv/tools/graphifyy/bin/python -c "
+/root/.local/share/uv/tools/graphifyy/bin/python - '<scan-root>' <<'PY'
 import json
+import sys
 from graphify.build import build_from_json
 from graphify.cluster import cluster, score_all
 from graphify.analyze import god_nodes, surprising_connections, suggest_questions
@@ -28,7 +29,7 @@ labels = {cid: 'Community ' + str(cid) for cid in communities}
 # Placeholder questions - regenerated with real labels in Step 4
 questions = suggest_questions(G, communities, labels)
 
-report = generate(G, communities, cohesion, labels, gods, surprises, detection, tokens, 'INPUT_PATH', suggested_questions=questions)
+report = generate(G, communities, cohesion, labels, gods, surprises, detection, tokens, str(Path(sys.argv[1]).resolve()), suggested_questions=questions)
 Path('graphify-out/GRAPH_REPORT.md').write_text(report)
 to_json(G, communities, 'graphify-out/graph.json')
 
@@ -45,12 +46,11 @@ if G.number_of_nodes() == 0:
  print('Possible causes: all files were skipped, binary-only corpus, or extraction failed.')
  raise SystemExit(1)
 print(f'Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities')
-"
+PY
 ```
 
 If this step prints `ERROR: Graph is empty`, stop and tell the user what happened - do not proceed to labeling or visualization.
 
-Replace INPUT_PATH with the actual path.
 
 ## Step 4 - Optionally label communities
 
@@ -59,8 +59,9 @@ Skip this step when the user does not request community naming. The graph remain
 When labels are requested, read `.graphify_analysis.json`. For each community key, look at its node labels and write a 2-5 word plain-language name (e.g. "Attention Mechanism", "Training Pipeline", "Data Loading"). Then regenerate the report and save the labels for the visualizer:
 
 ```bash
-/root/.local/share/uv/tools/graphifyy/bin/python -c "
+/root/.local/share/uv/tools/graphifyy/bin/python - '<scan-root>' <<'PY'
 import json
+import sys
 from graphify.build import build_from_json
 from graphify.cluster import score_all
 from graphify.analyze import god_nodes, surprising_connections, suggest_questions
@@ -82,15 +83,14 @@ labels = LABELS_DICT
 # Regenerate questions with real community labels (labels affect question phrasing)
 questions = suggest_questions(G, communities, labels)
 
-report = generate(G, communities, cohesion, labels, analysis['gods'], analysis['surprises'], detection, tokens, 'INPUT_PATH', suggested_questions=questions)
+report = generate(G, communities, cohesion, labels, analysis['gods'], analysis['surprises'], detection, tokens, str(Path(sys.argv[1]).resolve()), suggested_questions=questions)
 Path('graphify-out/GRAPH_REPORT.md').write_text(report)
 Path('.graphify_labels.json').write_text(json.dumps({str(k): v for k, v in labels.items()}))
 print('Report updated with community labels')
-"
+PY
 ```
 
 Replace `LABELS_DICT` with the actual dict you constructed (e.g. `{0: "Attention Mechanism", 1: "Training Pipeline"}`).
-Replace INPUT_PATH with the actual path.
 
 ## Step 5 - Generate Obsidian vault + HTML
 
@@ -169,14 +169,15 @@ Print the output directly in chat. If `total_words <= 5000`, skip silently - the
 ## Step 7 - Save manifest, update cost tracker, clean up, and report
 
 ```bash
-/root/.local/share/uv/tools/graphifyy/bin/python -c "
+/root/.local/share/uv/tools/graphifyy/bin/python - '<scan-root>' <<'PY'
 import json
+import sys
 from pathlib import Path
 from datetime import datetime, timezone
 from graphify.detect import save_manifest
 
 # Save manifest for --update
-root = Path('.').resolve()
+root = Path(sys.argv[1]).resolve()
 detect = json.loads(Path('.graphify_detect.json').read_text())
 save_manifest(detect.get('files', {}), manifest_path='graphify-out/manifest.json', kind='both', root=root)
 
@@ -202,8 +203,8 @@ cost['total_output_tokens'] += output_tok
 cost_path.write_text(json.dumps(cost, indent=2))
 
 print(f'This run: {input_tok:,} input tokens, {output_tok:,} output tokens')
-print(f'All time: {cost[\"total_input_tokens\"]:,} input, {cost[\"total_output_tokens\"]:,} output ({len(cost[\"runs\"])} runs)')
-"
+print(f'All time: {cost["total_input_tokens"]:,} input, {cost["total_output_tokens"]:,} output ({len(cost["runs"])} runs)')
+PY
 rm -f .graphify_detect.json .graphify_extract.json .graphify_ast.json .graphify_semantic.json .graphify_semantic_new.json .graphify_analysis.json .graphify_labels.json
 rm -f .graphify_cached.json .graphify_uncached.txt .graphify_old.json .graphify_chunk_*.txt
 rm -f graphify-out/.needs_update 2>/dev/null || true

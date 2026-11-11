@@ -30,7 +30,7 @@ RUN curl -fsSL https://go.dev/dl/go1.27.4.linux-amd64.tar.gz -o /tmp/go.tar.gz \
 ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
 WORKDIR /src/rclone
 RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.76.0 -o /tmp/rclone.tar.gz \
-    && echo "NEEDS_UPDATE_SEE_PR_BODY  /tmp/rclone.tar.gz" | sha256sum -c - \
+    && echo "8cb7e5d576fe9a3aef8b1a0785e2ffc6c1953f8ed109f42000b0b86718f6628b  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
     && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.4 -require=golang.org/x/net@v0.62.0 \
     && go mod tidy
@@ -61,7 +61,7 @@ RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/63837fb778d6a39f02be0
     go mod edit -require=golang.org/x/net@v0.62.0 && go mod tidy && \
     GH_VERSION=2.103.3-codeflare-xnet1 SOURCE_DATE_EPOCH=1793037767 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
     cp bin/gh /out/gh && \
-    go version -m /out/gh | grep -E '^/out/gh: go1\.27\.3$' && \
+    go version -m /out/gh | grep -E '^/out/gh: go1\.27\.4$' && \
     go version -m /out/gh | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' && \
     /out/gh --version
 
@@ -69,15 +69,15 @@ RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/63837fb778d6a39f02be0
 FROM rclone-builder AS lazygit-builder
 WORKDIR /src/lazygit
 RUN LAZYGIT_VERSION="0.66.3" && \
-    LAZYGIT_COMMIT="63ab89fff478854deb4a35ef8902676b3cc5ca72" && \
-    LAZYGIT_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    LAZYGIT_COMMIT="e0fbfd50c36e1ef88c52297ca34750e640b4f5f4" && \
+    LAZYGIT_SHA256="5022fc94de328f1361216a7ac29454020056a6bd3666966fc27e21bd473db89a" && \
     curl -fsSL "https://codeload.github.com/jesseduffield/lazygit/tar.gz/${LAZYGIT_COMMIT}" -o /tmp/lazygit-src.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit-src.tar.gz" | sha256sum -c - && \
     tar --strip-components=1 -xzf /tmp/lazygit-src.tar.gz && rm /tmp/lazygit-src.tar.gz && \
     go build -mod=vendor -trimpath \
       -ldflags "-s -w -X main.version=${LAZYGIT_VERSION} -X main.commit=${LAZYGIT_COMMIT} -X main.buildSource=codeflare" \
       -o /out/lazygit . && \
-    go version -m /out/lazygit | grep -E '^/out/lazygit: go1\.27\.3$' && \
+    go version -m /out/lazygit | grep -E '^/out/lazygit: go1\.27\.4$' && \
     /out/lazygit --version
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
@@ -315,7 +315,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
 RUN CODE_SERVER_VERSION="4.145.2" && \
-    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_SHA256="2f6db6c3e8b733dd6b3aeee83532e148b2bae2e392353ba85452d03572348962" && \
     CODE_SERVER_COMMIT="302bc77436721f5a474e06d1fe34cf8f86195d5e" && \
     CODE_SERVER_CODE_VERSION="1.145.2" && \
     CODE_SERVER_VSCODE_COMMIT="c4453f8ea430795f941c1b2ff6c9321135a74a02" && \
