@@ -7,7 +7,7 @@
     "@juicesharp/rpiv-advisor": "2.15.0",
     "@juicesharp/rpiv-ask-user-question": "2.15.0",
     "@juicesharp/rpiv-todo": "2.15.0",
-    "@narumitw/pi-goal": "0.54.13",
+    "@narumitw/pi-goal": "0.54.15",
     "@narumitw/pi-plan-mode": "0.59.4",
     "context-mode": "2.1.4",
     "pi-evaluate": "0.1.5",
