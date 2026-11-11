@@ -134,6 +134,8 @@ describe('deployment container image input hash', () => {
       'scripts/ci/prune-selected-npm-tools.sh',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
+      'scripts/ci/image-size-inventory.mjs',
+      'scripts/ci/image-size-manifest.mjs',
       'src/lib/agent-seed.generated.ts',
     ]) write(path);
     for (const file of ['coding-agent-selection-core.mjs', 'coding-agent-selection.mjs']) {

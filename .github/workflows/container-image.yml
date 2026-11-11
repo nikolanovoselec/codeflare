@@ -113,7 +113,7 @@ jobs:
           # hashed, so deleting a suppression left the tag identical, the reuse
           # probe hit, and build+scan+push were skipped — the image shipped with
           # the CVE and the scan that would now fail never ran.
-          HASHED_PATHS=".github/workflows/container-image.yml .github/workflow-tool-pins.json scripts/ci/workflow-tool-pins.mjs Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs scripts/compact-session-captures.mjs scripts/rclone-conflict-cleanup.sh scripts/merge-pi-mcp-portals.mjs scripts/qualify-pi-mcp.mjs host/__tests__/pi-mcp-stock.test.js host/__fixtures__/pi-mcp-extension-server.mjs host/package.json host/package-lock.json host/tsconfig.json host/src image openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py scripts/patch-rclone-bisync.py scripts/prepare-rclone-s3-fixture.py scripts/ci/rclone-bookkeeping_test.go scripts/patch-context-mode-bundles.mjs scripts/qualify-context-mode.mjs scripts/patch-chrome-devtools-timeouts.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs scripts/verify-pi-lockstep.mjs scripts/verify-pi-prompt.mjs scripts/pi-prompt-contract.mjs scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
+          HASHED_PATHS=".github/workflows/container-image.yml .github/workflow-tool-pins.json scripts/ci/workflow-tool-pins.mjs Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs scripts/compact-session-captures.mjs scripts/rclone-conflict-cleanup.sh scripts/merge-pi-mcp-portals.mjs scripts/qualify-pi-mcp.mjs host/__tests__/pi-mcp-stock.test.js host/__fixtures__/pi-mcp-extension-server.mjs host/package.json host/package-lock.json host/tsconfig.json host/src image openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py scripts/patch-rclone-bisync.py scripts/prepare-rclone-s3-fixture.py scripts/ci/rclone-bookkeeping_test.go scripts/patch-context-mode-bundles.mjs scripts/qualify-context-mode.mjs scripts/patch-chrome-devtools-timeouts.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs scripts/verify-pi-lockstep.mjs scripts/verify-pi-prompt.mjs scripts/pi-prompt-contract.mjs scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs scripts/ci/image-size-inventory.mjs scripts/ci/image-size-manifest.mjs src/lib/agent-seed.generated.ts"
           CODING_AGENTS=$(node scripts/ci/coding-agent-selection.mjs resolve "$RAW_CODING_AGENTS")
 
           # Guard: every COPY source in the Dockerfile must be covered by
@@ -186,16 +186,24 @@ jobs:
 
       - name: Resolve existing identical-input image digest
         id: candidate
-        if: inputs.cache-bust == '' && steps.hash.outputs.no_reuse == '0'
         env:
           TAG: ${{ steps.hash.outputs.tag }}
           REGISTRY: ${{ inputs.registry }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          WORKER_NAME: ${{ inputs.worker-name }}
+          PROBE_REUSE: ${{ inputs.cache-bust == '' && steps.hash.outputs.no_reuse == '0' }}
         run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/image-size"
+          mkdir -p "$evidence"
+          printf '%s\n' '{"status":"unavailable","reason":"measurement-not-completed"}' > "$evidence/baseline-status.json"
+          printf '%s\n' '{"status":"unavailable","reason":"measurement-not-completed"}' > "$evidence/rollout-target-status.json"
           DIGEST=''
           if [ "${REGISTRY}" = "dockerhub" ]; then
+            printf '%s\n' '{"status":"unavailable","reason":"deployed-baseline-requires-cloudflare-registry"}' > "$evidence/baseline-status.json"
+            [ "$PROBE_REUSE" = true ] || exit 0
             IMAGE_REPO="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}"
             URI="${IMAGE_REPO}:${TAG}"
             MANIFEST=$(docker manifest inspect --verbose "$URI" 2>/dev/null) || MANIFEST=''
@@ -219,6 +227,81 @@ jobs:
             echo "::add-mask::${PASSWORD}"
             AUTH=$(printf '%s:%s' "$USERNAME" "$PASSWORD" | base64 -w0)
             echo "::add-mask::${AUTH}"
+            # Join only this Worker's owned application, then read its explicit active rollout.
+            [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-f0-9]{32}$ && "$WORKER_NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || exit 1
+            private=$(mktemp -d)
+            inventory_local=''
+            cleanup_inventory() {
+              rm -rf "$private"
+              if [ -n "$inventory_local" ]; then docker image rm "$inventory_local" >/dev/null 2>&1 || true; fi
+            }
+            trap cleanup_inventory EXIT
+            inventory_image() {
+              local role="$1" image="$2" inventory_ref immutable image_id prefix
+              case "$role" in baseline|rollout-target) ;; *) return 1 ;; esac
+              prefix="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${IMAGE_NAME}"
+              if [[ "$image" == "$prefix@"* ]]; then inventory_ref=${image#"$prefix@"};
+              elif [[ "$image" == "$prefix:"* ]]; then inventory_ref=${image#"$prefix:"};
+              else exit 1; fi
+              # Helper validates the fixed repo/ref and resolves a tag or index to exact immutable metadata.
+              AUTH="$AUTH" INVENTORY_REF="$inventory_ref" node scripts/ci/image-size-manifest.mjs > "$evidence/$role-registry.json"
+              immutable="$prefix@$(jq -er .platformManifestDigest "$evidence/$role-registry.json")"
+              if ! docker image inspect "$immutable" >/dev/null 2>&1; then inventory_local="$immutable"; fi
+              docker --config "$private/docker" pull --platform linux/amd64 "$immutable" >/dev/null 2>&1
+              docker run --rm --network none --read-only --env NODE_COMPILE_CACHE= --cap-drop ALL --security-opt no-new-privileges \
+                --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci/image-size-inventory.mjs,dst=/inventory.mjs,readonly" \
+                --entrypoint /usr/local/bin/node "$immutable" /inventory.mjs > "$evidence/$role-paths.json"
+              docker image inspect "$immutable" --format '{{json .}}' | jq -e '{imageBytes:.Size,configID:.Id,rootfsLayerIDs:.RootFS.Layers} | if (.imageBytes | type == "number" and . >= 0 and . <= 9007199254740991 and floor == .) and (.configID | test("^sha256:[a-f0-9]{64}$")) and (.rootfsLayerIDs | type == "array" and length <= 256 and all(.[]; test("^sha256:[a-f0-9]{64}$"))) then . else error("invalid image metadata") end' > "$evidence/$role-image.json"
+              image_id=$(jq -er .configID "$evidence/$role-image.json")
+              curl -fsS --unix-socket /var/run/docker.sock "http://localhost/images/$image_id/history" | \
+                jq -e 'if type == "array" and length <= 512 and all(.[]; .Size | type == "number" and . >= 0 and . <= 9007199254740991 and floor == .) then to_entries | map({historyIndex:.key,uncompressedBytes:.value.Size}) else error("invalid layer sizes") end' > "$evidence/$role-history.json"
+              if [ -n "$inventory_local" ]; then
+                docker image rm "$inventory_local" >/dev/null 2>&1
+                inventory_local=''
+              fi
+            }
+            code=$(curl -sS --connect-timeout 10 --max-time 30 --max-filesize 1048576 -o "$private/settings" -w '%{http_code}' \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}/settings")
+            if [ "$code" = 404 ]; then
+              printf '%s\n' '{"status":"absent","reason":"worker-not-deployed"}' > "$evidence/baseline-status.json"
+              printf '%s\n' '{"status":"absent","reason":"worker-not-deployed"}' > "$evidence/rollout-target-status.json"
+            else
+              [ "$code" = 200 ] || exit 1
+              namespace=$(jq -er '.success == true and (.result.bindings | type == "array") | select(.)' "$private/settings" >/dev/null && \
+                jq -er '[.result.bindings[] | select(.type == "durable_object_namespace" and .name == "CONTAINER" and .class_name == "container")] | select(length == 1) | .[0].namespace_id | select(test("^[a-fA-F0-9]{32}$"))' "$private/settings")
+              curl -fsS --connect-timeout 10 --max-time 30 --max-filesize 1048576 \
+                -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/containers/applications" > "$private/apps"
+              jq -e --arg ns "$namespace" '.success as $ok | [.result[] | select(.durable_objects.namespace_id == $ns)] | select($ok == true and length == 1) | .[0] | {id,active_rollout_id,configuration}' "$private/apps" > "$private/app"
+              baseline=$(jq -er '.configuration.image | select(type == "string")' "$private/app")
+              mkdir -m 700 "$private/docker"
+              printf '%s' "$PASSWORD" | docker --config "$private/docker" login registry.cloudflare.com --username "$USERNAME" --password-stdin >/dev/null 2>&1
+              inventory_image baseline "$baseline"
+              printf '%s\n' '{"status":"measured","identity":"owned-worker-current-configuration"}' > "$evidence/baseline-status.json"
+              if jq -e 'has("active_rollout_id") and .active_rollout_id == null' "$private/app" >/dev/null; then
+                printf '%s\n' '{"status":"absent","reason":"no-active-rollout"}' > "$evidence/rollout-target-status.json"
+              else
+                # Ownership was established above; validate both path components before rollout I/O.
+                uuid='^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'
+                app_id=$(jq -er --arg uuid "$uuid" '.id | select(type == "string" and test($uuid))' "$private/app")
+                rollout_id=$(jq -er --arg uuid "$uuid" '.active_rollout_id | select(type == "string" and test($uuid))' "$private/app")
+                curl -fsS --connect-timeout 10 --max-time 30 --max-filesize 1048576 \
+                  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                  "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/containers/applications/${app_id}/rollouts/${rollout_id}" > "$private/rollout"
+                target=$(jq -er '. | select(.success == true) | .result.target_configuration.image | select(type == "string")' "$private/rollout")
+                jq -e '.result | {rolloutStatus:.status,currentVersion:.current_version,targetVersion:.target_version} |
+                  if (.rolloutStatus | type == "string" and test("^[a-z_-]{1,64}$")) and
+                    ([.currentVersion,.targetVersion] | all(.[]; type == "number" and . >= 0 and . <= 9007199254740991 and floor == .))
+                  then . + {status:"unavailable",identity:"owned-worker-active-rollout-target"} else error("invalid rollout metadata") end' "$private/rollout" > "$evidence/rollout-target-status.json"
+                inventory_image rollout-target "$target"
+                jq '.status = "measured"' "$evidence/rollout-target-status.json" > "$private/status"
+                mv "$private/status" "$evidence/rollout-target-status.json"
+              fi
+            fi
+            cleanup_inventory
+            trap - EXIT
+            [ "$PROBE_REUSE" = true ] || exit 0
             ACCEPT='application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
             HEADERS=$(mktemp)
             CODE=$(curl -sS -o /dev/null -D "$HEADERS" -w '%{http_code}' -H "Authorization: Basic ${AUTH}" -H "Accept: ${ACCEPT}" \
@@ -318,6 +401,21 @@ jobs:
             --label "org.opencontainers.image.revision=${REF}" \
             -t "${IMAGE_NAME}:${TAG}" . 2>&1 | tee /tmp/buildkit.log
           echo "local_ref=${IMAGE_NAME}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Inventory candidate image without running package code
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/image-size"
+          docker run --rm --network none --read-only --env NODE_COMPILE_CACHE= --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/ci/image-size-inventory.mjs,dst=/inventory.mjs,readonly" \
+            --entrypoint /usr/local/bin/node "$IMAGE" /inventory.mjs > "$evidence/candidate-paths.json"
+          docker image inspect "$IMAGE" --format '{{json .}}' | jq -e '{imageBytes:.Size,configID:.Id,rootfsLayerIDs:.RootFS.Layers} | if (.imageBytes | type == "number" and . >= 0 and . <= 9007199254740991 and floor == .) and (.configID | test("^sha256:[a-f0-9]{64}$")) and (.rootfsLayerIDs | type == "array" and length <= 256 and all(.[]; test("^sha256:[a-f0-9]{64}$"))) then . else error("invalid image metadata") end' > "$evidence/candidate-image.json"
+          image_id=$(jq -er .configID "$evidence/candidate-image.json")
+          curl -fsS --unix-socket /var/run/docker.sock "http://localhost/images/$image_id/history" | \
+            jq -e 'if type == "array" and length <= 512 and all(.[]; .Size | type == "number" and . >= 0 and . <= 9007199254740991 and floor == .) then to_entries | map({historyIndex:.key,uncompressedBytes:.value.Size}) else error("invalid layer sizes") end' > "$evidence/candidate-history.json"
 
       - name: Upload BuildKit timing evidence
         if: always() && steps.reuse.outputs.reused != 'true'
@@ -983,8 +1081,52 @@ jobs:
               exit 1
               ;;
           esac
+          if [ "$REGISTRY" = cloudflare ]; then
+            AUTH="$AUTH" INVENTORY_REF="$DIGEST" node scripts/ci/image-size-manifest.mjs > "$RUNNER_TEMP/image-size/candidate-registry.json"
+          fi
           echo "Manifest digest: ${DIGEST}"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize measured compressed and uncompressed image bytes
+        if: always()
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/image-size"
+          for role in baseline rollout-target candidate; do
+            if [ -s "$evidence/$role-registry.json" ] && [ -s "$evidence/$role-image.json" ]; then
+              jq -en --slurpfile registry "$evidence/$role-registry.json" --slurpfile image "$evidence/$role-image.json" '
+                $registry[0] as $r | $image[0] as $i |
+                ($r.compressedLayerBytes + $r.configBytes + $r.manifestBytes + $r.indexBytes + $i.imageBytes) as $combined |
+                if $r.configDigest != $i.configID or $combined > 9007199254740991 then error("invalid image comparison identity or bytes") else
+                {schema:1,manifestDigest:$r.manifestDigest,platformManifestDigest:$r.platformManifestDigest,
+                 compressedLayerBytes:$r.compressedLayerBytes,imageBytes:$i.imageBytes,
+                 configBytes:$r.configBytes,manifestBytes:$r.manifestBytes,indexBytes:$r.indexBytes,
+                 compressedPlusUncompressedLowerBoundBytes:$combined,
+                 qualification:"declared download plus Docker.Size lower bound only; not measured Cloudflare peak unpack or overhead; path inventory covers selected baked roots only"} end' > "$evidence/$role-summary.json"
+            fi
+          done
+          for pair in baseline:rollout-target rollout-target:candidate; do
+            before=${pair%:*}; after=${pair#*:}
+            if [ -s "$evidence/$before-summary.json" ] && [ -s "$evidence/$after-summary.json" ]; then
+              jq -n --arg beforeRole "$before" --arg afterRole "$after" \
+                --slurpfile before "$evidence/$before-summary.json" --slurpfile after "$evidence/$after-summary.json" '
+                {beforeRole:$beforeRole,afterRole:$afterRole,
+                 beforeManifest:$before[0].manifestDigest,afterManifest:$after[0].manifestDigest,
+                 imageBytesDelta:($after[0].imageBytes - $before[0].imageBytes),
+                 compressedLayerBytesDelta:($after[0].compressedLayerBytes - $before[0].compressedLayerBytes),
+                 compressedPlusUncompressedLowerBoundBytesDelta:($after[0].compressedPlusUncompressedLowerBoundBytes - $before[0].compressedPlusUncompressedLowerBoundBytes),
+                 note:"directory/package bytes and ordered exact Engine history sizes are in paired artifacts; no growth cause inferred"}' > "$evidence/$before-to-$after-delta.json"
+            fi
+          done
+
+      - name: Upload bounded image size inventory
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-size-${{ inputs.registry }}-${{ steps.hash.outputs.tag }}
+          path: ${{ runner.temp }}/image-size/*.json
+          retention-days: 14
+          if-no-files-found: error
 
       - name: Attest build provenance
         # Runs on BOTH registries, so the production path is covered rather than
