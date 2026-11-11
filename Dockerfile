@@ -24,15 +24,15 @@ RUN npm prune --omit=dev && \
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o /tmp/go.tar.gz \
-    && echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  /tmp/go.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://go.dev/dl/go1.27.4.linux-amd64.tar.gz -o /tmp/go.tar.gz \
+    && echo "7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840  /tmp/go.tar.gz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
 WORKDIR /src/rclone
-RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.75.2 -o /tmp/rclone.tar.gz \
-    && echo "68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a  /tmp/rclone.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.76.0 -o /tmp/rclone.tar.gz \
+    && echo "NEEDS_UPDATE_SEE_PR_BODY  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
-    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.3 -require=golang.org/x/net@v0.62.0 \
+    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.4 -require=golang.org/x/net@v0.62.0 \
     && go mod tidy
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/prepare-rclone-s3-fixture.py /tmp/prepare-rclone-s3-fixture.py
@@ -40,14 +40,14 @@ COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
 # Only the CI server binary receives S3-compatible lexical pagination.
 # Restore upstream server code before building the shipped client.
 RUN mkdir -p /out \
-    && python3 /tmp/prepare-rclone-s3-fixture.py prepare /src/rclone 1.75.2 /tmp/rclone-pager.go \
+    && python3 /tmp/prepare-rclone-s3-fixture.py prepare /src/rclone 1.76.0 /tmp/rclone-pager.go \
     && go build -trimpath -o /out/rclone-unpatched . \
-    && python3 /tmp/prepare-rclone-s3-fixture.py restore /src/rclone 1.75.2 /tmp/rclone-pager.go \
-    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.75.2 \
+    && python3 /tmp/prepare-rclone-s3-fixture.py restore /src/rclone 1.76.0 /tmp/rclone-pager.go \
+    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.76.0 \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
     && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
     && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
-    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone . \
+    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.76.0-codeflare-bisync1' -o /out/rclone . \
     && for binary in /out/rclone-unpatched /out/rclone; do \
          go version -m "$binary" | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' || exit 1; \
        done
@@ -68,9 +68,9 @@ RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/63837fb778d6a39f02be0
 # ---- Unchanged lazygit release rebuilt with the pinned, fixed Go toolchain ----
 FROM rclone-builder AS lazygit-builder
 WORKDIR /src/lazygit
-RUN LAZYGIT_VERSION="0.66.2" && \
+RUN LAZYGIT_VERSION="0.66.3" && \
     LAZYGIT_COMMIT="63ab89fff478854deb4a35ef8902676b3cc5ca72" && \
-    LAZYGIT_SHA256="0522f103eef4fda056562c1509a465ed19ba112192b3db9fbfde7eb9e2180c94" && \
+    LAZYGIT_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
     curl -fsSL "https://codeload.github.com/jesseduffield/lazygit/tar.gz/${LAZYGIT_COMMIT}" -o /tmp/lazygit-src.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit-src.tar.gz" | sha256sum -c - && \
     tar --strip-components=1 -xzf /tmp/lazygit-src.tar.gz && rm /tmp/lazygit-src.tar.gz && \
@@ -314,11 +314,11 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 # follow-redirects 1.16.2 fixes CVE-2026-111755/111756/116689 in its upstream 1.x API.
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
-RUN CODE_SERVER_VERSION="4.145.0" && \
-    CODE_SERVER_SHA256="771bf6038658034d7caf509fcc44af50f0b8bdac5e738177b6cf9c4181dd3382" && \
-    CODE_SERVER_COMMIT="2cb3ad3e258891fbb51001ba465c2348d5021644" && \
-    CODE_SERVER_CODE_VERSION="1.145.0" && \
-    CODE_SERVER_VSCODE_COMMIT="a717861c07586a53d83b80d742cd3f59b20a6273" && \
+RUN CODE_SERVER_VERSION="4.145.2" && \
+    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_COMMIT="302bc77436721f5a474e06d1fe34cf8f86195d5e" && \
+    CODE_SERVER_CODE_VERSION="1.145.2" && \
+    CODE_SERVER_VSCODE_COMMIT="c4453f8ea430795f941c1b2ff6c9321135a74a02" && \
     CODE_SERVER_JS_YAML_VERSION="5.5.0" && \
     CODE_SERVER_IDE_TAR_VERSION="7.5.22" && \
     NODE_TAR_VERSION="7.5.22" && \
@@ -331,8 +331,8 @@ RUN CODE_SERVER_VERSION="4.145.0" && \
     UNDICI_IDE_SHA512="d372ab31b8c814359047944d3eb4b0ddb775af5d89a7215097dff2c6351b26daa48e6965a82e65163661eae8deb8908aafc10e42f456f3bd8ecbf6b3fa72d8c6" && \
     PACOTE_VERSION="21.5.2" && \
     PACOTE_SHA512="ae27c15dac0332fde72ef0015abd644e94a4d148de8254d3e15b7db7c9d4f714a77dd65c093cbe14e8cee938175804bbee521f6d9951925d9e29071d634fbe8c" && \
-    BASIC_FTP_VERSION="6.2.4" && \
-    BASIC_FTP_SHA512="e8008a390c5296fe7191ae22d37ba37e770dafdaa9e7264d2b7bb4fb25054c05381df1b901eced082f7e47523d766f28abed6fb78459edc2114c1add1ea2f69b" && \
+    BASIC_FTP_VERSION="6.2.5" && \
+    BASIC_FTP_SHA512="249298c3175b24ce99e2314ef9c89a2147a31d10b2220ea827d868033b99d0432526c1c34f4ee1eaf66de0d1fc1bad432f375dac32af8e846a7dec273f30d224" && \
     FOLLOW_REDIRECTS_VERSION="1.16.2" && \
     FOLLOW_REDIRECTS_SHA512="fe454fd94f33e7de886b483016bc3221ea3be2d6b9695992794d457c050c0267043f910fef3c9d99a83748b88deb835a44a79fde5c6cabb8bf83b96d2500c6a3" && \
     SHELL_QUOTE_VERSION="1.12.0" && \
@@ -579,9 +579,9 @@ RUN cd /opt/codeflare/npm-tools && \
 # Antigravity native linux-x64 release. The vendor manifest authorizes updates
 # only in bump-shadow-pins.yml; image builds consume this committed identity,
 # never the mutable manifest or installer. Verify before reading archive members.
-ARG ANTIGRAVITY_VERSION=1.5.4
-ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.4-5037094733742080/linux-x64/cli_linux_x64.tar.gz
-ARG ANTIGRAVITY_SHA512=1431a409ef7c7bce23f4abf03f988afab728ba87d91d24ed7db0d5eea3ab71a4b590bf0bf2c79cec84f79b32b674ea38df0417356ce8d5d4f698cd62ea9ee6be
+ARG ANTIGRAVITY_VERSION=1.5.5
+ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.5-6740358537805824/linux-x64/cli_linux_x64.tar.gz
+ARG ANTIGRAVITY_SHA512=746a2bd73f83b65d9b44f2fc55d0f0f511ff7f89702846213eeabd76d06bc9c98576b424c2babc7b947f15e518447b946ba02dca260b778363c55c07a7f7a277
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
       curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 300 --max-filesize 268435456 "$ANTIGRAVITY_URL" -o /tmp/agy.tar.gz && \
       printf '%s  %s\n' "$ANTIGRAVITY_SHA512" /tmp/agy.tar.gz | sha512sum -c - && \
@@ -730,8 +730,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # ---------------------------------------------------------------------------
 # Upstream 0.9.72+ auto-refresh must not replace signed managed skills.
 ENV GRAPHIFY_NO_AUTO_REFRESH=1
-ARG UV_VERSION=0.13.6
-ARG UV_X86_64_LINUX_SHA256=f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645
+ARG UV_VERSION=0.13.7
+ARG UV_X86_64_LINUX_SHA256=c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
