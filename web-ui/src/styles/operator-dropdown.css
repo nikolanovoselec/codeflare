@@ -62,9 +62,11 @@
 .operator-dropdown .operator-activity-item > div > small { flex-shrink: 0; max-width: 40%; text-align: end; }
 .operator-dropdown .operator-activity-item > div > p { min-width: 0; }
 .operator-dropdown .operator-activity-item nav { padding-top: var(--space-2); border-top: 1px solid var(--color-border-subtle); }
-.operator-installed-header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: var(--space-2); }
+.operator-installed-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-2); }
 .operator-installed-identity { display: grid; min-width: 0; gap: var(--space-1); }
-.operator-installed-identity .operator-dropdown-heading { align-items: baseline; gap: var(--space-1) var(--space-2); }
+.operator-installed-identity .operator-dropdown-heading { align-items: baseline; justify-content: flex-start; gap: var(--space-1) var(--space-2); }
+.operator-installed-identity h4 { flex: 1 1 auto; }
+.operator-installed-identity .operator-dropdown-heading > span { flex: 0 1 auto; }
 .operator-dropdown .operator-role-button { display: grid; place-items: center; width: 32px; padding: 0;
   background: var(--color-accent); color: var(--color-accent-contrast); border-color: var(--color-accent); font-weight: var(--font-semibold); }
 .operator-dropdown button.operator-role-button:hover:not(:disabled) { background: var(--color-accent-hover); }
@@ -75,7 +77,6 @@
 .operator-role-help p { margin-top: var(--space-1); }
 .operator-dropdown .operator-scheduling { padding-top: var(--space-2); border-top: 1px solid var(--color-border-subtle); }
 .operator-scheduling-fields { display: grid; min-width: 0; gap: var(--space-2); }
-.operator-interval { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: var(--space-2); }
 .operator-dropdown .operator-scheduling :is(.operator-activate, .operator-scheduling-fields > button) { justify-self: start; }
 .operator-installed-manual { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2);
   padding-top: var(--space-2); border-top: 1px solid var(--color-border-subtle); }

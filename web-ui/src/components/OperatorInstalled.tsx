@@ -1,12 +1,14 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal, createUniqueId, onCleanup, type Component } from 'solid-js';
 import { mdiChevronLeft, mdiMagnify } from '@mdi/js';
 import Icon from './Icon';
+import { AutomaticRunsField, RunIntervalField, createRunInterval, validRunSeconds, runSettingsHelp, runSettingsSaved } from './OperatorRunSettings';
+import { RunWorkspaceField, createRunWorkspace } from './OperatorRunWorkspace';
 import OperatorActivityPages from './OperatorActivityPages';
 import { ApiError } from '../api/fetch-helper';
 import { sessionStore } from '../stores/session';
 import { activateRenovateRuns } from '../api/operator-activities';
 import { configureInstallation, getInstallationActivityPreview, getManagedOperator, getOwnedActivity,
-  listOperatorInstallations, prepareInstallationActivity, startInstallationActivity, type InstalledOperator } from '../api/operator-management';
+  enableInstallation, listOperatorInstallations, prepareInstallationActivity, startInstallationActivity, type InstalledOperator } from '../api/operator-management';
 
 interface Props { locked: (value: boolean) => void; opened: (id: string) => void }
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -65,22 +67,13 @@ const RoleHelp: Component<{ profile: InstalledOperator['profile'] }> = props => 
   </div>;
 };
 
-const intervalUnits = { seconds: 1, minutes: 60, hours: 3600 } as const;
-type IntervalUnit = keyof typeof intervalUnits;
-
 /** REQ-OPERATOR-209: saved settings and current-scope acknowledgements are not schedule status. */
-const Scheduling: Component<{ item: InstalledOperator; saved: (message: string) => void }> = props => {
-  const configId = createUniqueId(), feedbackId = createUniqueId(), reasonId = createUniqueId(), validationId = createUniqueId();
-  const initialSeconds = props.item.repetitionIntervalSeconds ?? 3600;
-  const initialUnit: IntervalUnit = initialSeconds % 3600 === 0 ? 'hours' : initialSeconds % 60 === 0 ? 'minutes' : 'seconds';
+const Scheduling: Component<{ item: InstalledOperator; blocked: boolean; busy: (value: boolean) => void; saved: (message: string) => void }> = props => {
+  const configId = createUniqueId(), feedbackId = createUniqueId(), reasonId = createUniqueId();
   const [expanded, setExpanded] = createSignal(false);
   const [automatic, setAutomatic] = createSignal(props.item.automaticRuns === true);
-  const [unit, setUnit] = createSignal<IntervalUnit>(initialUnit);
-  const [quantity, setQuantity] = createSignal(initialSeconds / intervalUnits[initialUnit]);
-  const interval = () => quantity() * intervalUnits[unit()];
-  const validInterval = () => Number.isSafeInteger(quantity()) && quantity() > 0
-    && Number.isSafeInteger(interval()) && interval() > 0
-    && Number.isFinite(new Date(Date.now() + interval() * 1000).getTime());
+  const runInterval = createRunInterval(props.item.repetitionIntervalSeconds ?? 3600);
+  const interval = runInterval.seconds, validInterval = runInterval.valid;
   const dirty = () => automatic() !== props.item.automaticRuns || interval() !== props.item.repetitionIntervalSeconds;
   const [pending, setPending] = createSignal(false);
   const [message, setMessage] = createSignal('');
@@ -88,35 +81,32 @@ const Scheduling: Component<{ item: InstalledOperator; saved: (message: string) 
   const [activationPending, setActivationPending] = createSignal(false);
   const [activationMessage, setActivationMessage] = createSignal('');
   let alive = true, epoch = 0;
-  const session = () => sessionStore.getActiveSession();
-  const activationSession = () => {
-    const current = session();
-    return !sessionStore.statusUnavailable && current?.status === 'running'
-      && (current.lifecycle === undefined || current.lifecycle === 'running')
-      && /^[a-z0-9]{8,24}$/.test(current.id) && Number.isSafeInteger(current.generation) && current.generation! > 0 ? current : undefined;
-  };
+  const workspace = createRunWorkspace();
+  const activationSession = workspace.session;
+  createEffect(() => props.busy(pending() || activationPending() || saveUnconfirmed()));
+  onCleanup(() => props.busy(false));
   const scope = createMemo(() => JSON.stringify([props.item.id, props.item.operatorId, props.item.revision,
     props.item.profile, props.item.canActivateAutomaticRuns, props.item.canInvoke, props.item.enabled,
     props.item.approved, props.item.guidedMode, props.item.repository, props.item.automaticRuns,
-    props.item.repetitionIntervalSeconds, session()?.id, session()?.generation, session()?.status,
-    session()?.lifecycle, sessionStore.statusUnavailable, dirty(), pending(), saveUnconfirmed()]));
+    props.item.repetitionIntervalSeconds, workspace.scope(), props.blocked, dirty(), pending(), saveUnconfirmed()]));
   createEffect(() => {
     scope(); epoch++; setActivationPending(false); setActivationMessage('');
   });
   onCleanup(() => { alive = false; epoch++; });
   const prerequisite = () => {
-    if (pending()) return 'Scheduling save pending. Wait for confirmation before activating.';
+    if (props.blocked) return 'Installation enablement pending or unconfirmed. Refresh before starting automatic runs.';
+    if (pending()) return 'Run settings save pending. Wait for confirmation before activating.';
     if (saveUnconfirmed()) return 'Refresh installations before acting on the unconfirmed save.';
     if (dirty()) return 'Unsaved scheduling changes. Save before activating.';
     if (!props.item.approved) return 'Installation approval required before activation.';
-    if (!props.item.enabled) return 'Enable this installation through management before activation.';
+    if (!props.item.enabled) return 'Installation is disabled. Enable installation before starting automatic runs.';
     if (!props.item.canInvoke) return 'Invocation permission required. Management access does not grant invocation.';
     if (props.item.automaticRuns !== true) return 'Automatic runs are off. Configure and save them before activation.';
     if (!props.item.canActivateAutomaticRuns) return 'Admin activation eligibility could not be confirmed for this installation.';
     if (props.item.profile !== 'dispatcher' || !validInterval()
       || !props.item.repository || !repositoryPattern.test(props.item.repository)
       || props.item.repository.split('/').some(part => part === '.' || part === '..')) return 'Saved automatic configuration is unavailable. Review it in management.';
-    if (!activationSession()) return 'Open an available running workspace session with a verified generation before activating.';
+    if (!activationSession()) return 'Choose an available running workspace session with a verified generation before activating.';
     return '';
   };
   const activate = async () => {
@@ -134,7 +124,7 @@ const Scheduling: Component<{ item: InstalledOperator; saved: (message: string) 
     } finally { if (current()) setActivationPending(false); }
   };
   const save = async () => {
-    if (pending() || activationPending() || saveUnconfirmed() || !props.item.canManage || !dirty() || !validInterval()) return;
+    if (props.blocked || pending() || activationPending() || saveUnconfirmed() || !props.item.canManage || !dirty() || !validInterval()) return;
     const item = props.item;
     const seconds = interval(), automaticRuns = automatic();
     const currentScope = () => alive && props.item.id === item.id && props.item.revision === item.revision && props.item.canManage;
@@ -149,12 +139,12 @@ const Scheduling: Component<{ item: InstalledOperator; saved: (message: string) 
       if (!renovate || typeof renovate !== 'object' || Array.isArray(renovate)) throw new Error('Configuration unavailable');
       await configureInstallation(current.id, { revision: current.revision, policy: current.policy,
         configuration: { ...configuration, renovate: { ...renovate, automaticRuns, repetitionIntervalSeconds: seconds } } });
-      if (currentScope()) props.saved('Scheduling saved. Installation is disabled; enable it through management when ready. Activation is separate.');
+      if (currentScope()) props.saved(runSettingsSaved);
     } catch (error) {
       if (currentScope()) {
         setSaveUnconfirmed(true);
         setMessage(error instanceof ApiError && error.status === 409 ? 'Installation revision changed. Refresh before saving again.'
-          : 'Scheduling save not confirmed. Refresh before acting.');
+          : 'Run settings save not confirmed. Refresh before acting.');
       }
     } finally { if (currentScope()) setPending(false); }
   };
@@ -165,28 +155,58 @@ const Scheduling: Component<{ item: InstalledOperator; saved: (message: string) 
     </div>
     <Show when={!props.item.canManage}><p>Management permission required to change scheduling.</p></Show>
     <Show when={props.item.canManage && expanded()}><div id={configId} class="operator-scheduling-fields">
-      <label><input type="checkbox" checked={automatic()} disabled={pending() || activationPending() || saveUnconfirmed()}
-        onChange={event => setAutomatic(event.currentTarget.checked)} /> Automatic runs</label>
-      <div class="operator-interval">
-        <label>Repeat interval<input type="number" min="1" step="1" value={quantity()} aria-invalid={!validInterval()}
-          aria-describedby={!validInterval() ? validationId : undefined} disabled={pending() || activationPending() || saveUnconfirmed()}
-          onInput={event => setQuantity(event.currentTarget.valueAsNumber)} /></label>
-        <label>Interval unit<select value={unit()} disabled={pending() || activationPending() || saveUnconfirmed()}
-          onChange={event => setUnit(event.currentTarget.value as IntervalUnit)}>
-          <For each={Object.keys(intervalUnits) as IntervalUnit[]}>{value => <option value={value}>{value}</option>}</For>
-        </select></label>
-      </div>
-      <Show when={!validInterval()}><p id={validationId} role="alert">Enter a valid interval: positive whole seconds within the supported range.</p></Show>
-      <Show when={dirty()}><small>Saving scheduling disables this installation. It does not start a run.</small>
-        <button type="button" disabled={pending() || activationPending() || saveUnconfirmed() || !validInterval()} onClick={() => void save()}>Save scheduling</button>
+      <AutomaticRunsField checked={automatic()} disabled={props.blocked || pending() || activationPending() || saveUnconfirmed()} onChange={value => {
+        if (!value && !validInterval()) {
+          const saved = props.item.repetitionIntervalSeconds ?? 3600;
+          runInterval.setSeconds(validRunSeconds(saved) ? saved : 3600);
+        }
+        setAutomatic(value);
+      }} />
+      <Show when={automatic()}><RunIntervalField interval={runInterval} disabled={props.blocked || pending() || activationPending() || saveUnconfirmed()} /></Show>
+      <Show when={dirty()}><small>{runSettingsHelp}</small>
+        <button type="button" disabled={props.blocked || pending() || activationPending() || saveUnconfirmed() || !validInterval()} onClick={() => void save()}>Save run settings</button>
       </Show>
       <Show when={message()}><p role="status">{message()}</p></Show>
     </div></Show>
+    <RunWorkspaceField workspace={workspace} />
     <p id={feedbackId} role="status">{activationPending() ? 'Activating…' : activationMessage() || 'Activation unverified for this session and installation revision.'}</p>
     <Show when={prerequisite()}><p id={reasonId}>{prerequisite()}</p></Show>
     <button type="button" class="operator-activate" disabled={activationPending() || !!prerequisite()}
-      aria-describedby={`${feedbackId}${prerequisite() ? ` ${reasonId}` : ''}`} onClick={() => void activate()}>Activate</button>
+      aria-describedby={`${feedbackId}${prerequisite() ? ` ${reasonId}` : ''}`} onClick={() => void activate()}>Start automatic runs</button>
   </section>;
+};
+
+const InstalledSettings: Component<{ item: InstalledOperator; saved: (message: string) => void }> = props => {
+  const [pending, setPending] = createSignal(false);
+  const [unconfirmed, setUnconfirmed] = createSignal(false);
+  const [schedulingBusy, setSchedulingBusy] = createSignal(false);
+  const [message, setMessage] = createSignal('');
+  let alive = true;
+  onCleanup(() => { alive = false; });
+  const changeEnablement = async () => {
+    const item = props.item;
+    if (!item.canManage || pending() || unconfirmed() || schedulingBusy() || !item.enabled && !item.approved) return;
+    const current = () => alive && props.item.id === item.id && props.item.revision === item.revision && props.item.canManage;
+    setPending(true); setMessage('');
+    try {
+      await enableInstallation(item.id, !item.enabled, item.revision);
+      if (current()) { setUnconfirmed(true); props.saved(item.enabled ? 'Installation disabled. No automatic runs were started.' : 'Installation enabled. Start automatic runs is a separate action.'); }
+    } catch (error) {
+      if (current()) {
+        setUnconfirmed(true);
+        setMessage(error instanceof ApiError && error.status === 409 ? 'Installation revision changed. Refresh before enabling again.'
+          : 'Installation enablement not confirmed. Refresh before acting.');
+      }
+    } finally { if (current()) setPending(false); }
+  };
+  return <>
+    <Show when={props.item.canManage}><button type="button" disabled={pending() || unconfirmed() || schedulingBusy() || !props.item.enabled && !props.item.approved}
+      onClick={() => void changeEnablement()}>{props.item.enabled ? 'Disable installation' : 'Enable installation'}</button></Show>
+    <Show when={message()}><p role="status">{message()}</p></Show>
+    <Show when={props.item.automaticRuns !== null} fallback={<p>Automatic runs: <strong>Not configurable</strong></p>}>
+      <Scheduling item={props.item} blocked={pending() || unconfirmed()} busy={setSchedulingBusy} saved={props.saved} />
+    </Show>
+  </>;
 };
 
 /** Capabilities stay in this request's closure, never in markup or persistent UI state. */
@@ -298,15 +318,13 @@ const OperatorInstalled: Component<Props> = props => {
         <Show when={visible().length} fallback={<p>{current()?.items.length ? 'No matching installed operators on this page.' : 'No installed operators on this page.'}</p>}>
           <For each={visible()}>{item => <article class="operator-installed-item" aria-label={item.installationName}>
             <header class="operator-installed-header">
-              <RoleHelp profile={item.profile} />
               <div class="operator-installed-identity"><div class="operator-dropdown-heading"><h4>{item.name}</h4><span>{item.version ?? 'Version unavailable'}</span></div>
                 <p>{item.installationName}</p><Show when={item.repository}><p>{item.repository}</p></Show>
                 <p>{!item.approved ? 'Approval required' : !item.enabled ? 'Disabled' : 'Enabled'}</p>
               </div>
+              <RoleHelp profile={item.profile} />
             </header>
-            <Show when={item.automaticRuns !== null} fallback={<p>Automatic runs: <strong>Not configurable</strong></p>}>
-              <Scheduling item={item} saved={message => { setNotice(message); refresh(); }} />
-            </Show>
+            <InstalledSettings item={item} saved={message => { setNotice(message); refresh(); }} />
             <footer class="operator-installed-manual">
               <span>{item.guidedMode ? 'Review one invocation' : 'Manual input not supported here'}</span>
               <Show when={item.guidedMode}>

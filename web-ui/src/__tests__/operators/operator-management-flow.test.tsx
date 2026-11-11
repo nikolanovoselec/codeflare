@@ -105,7 +105,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     expect(await within(await screen.findByRole('region', { name: 'Installed version' })).findByText('No version installed', { selector: 'p' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Enable' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enable installation' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Install operator' }));
     fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
@@ -136,13 +136,13 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Install operator' }));
     fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable installation' })).not.toBeDisabled());
     expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Disable' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Enable installation' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Disable installation' })).not.toBeDisabled());
     expect(screen.queryByRole('link', { name: /run as yourself/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Review preparation.*protected.*pull request/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disable installation' }));
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument());
   });
   it.each([true, false])('REQ-OPERATOR-058: AC1/2 management opens a Dispatcher with native approval=%s and an empty session catalog without starting until explicit submission', async nativeApproved => {
@@ -219,7 +219,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Save restrictions for test' }));
     const installed = screen.getByRole('region', { name: 'Installed version' });
     await waitFor(() => expect(within(installed).getByRole('status')).toHaveTextContent(/restrictions saved/i));
-    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Disable installation' })).not.toBeInTheDocument();
   });
 
   it('shows verified tag and publication time on installed and selectable versions while labelling legacy records honestly', async () => {
@@ -310,9 +310,9 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     const installed = await screen.findByRole('region', { name: 'Installed version' });
     expect(within(installed).getByText(/Enabled configurations: test, secondary/)).toBeInTheDocument();
-    expect(within(installed).queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+    expect(within(installed).queryByRole('button', { name: 'Disable installation' })).not.toBeInTheDocument();
     fireEvent.change(within(installed).getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
-    expect(within(installed).getByRole('button', { name: 'Disable' })).toBeInTheDocument();
+    expect(within(installed).getByRole('button', { name: 'Disable installation' })).toBeInTheDocument();
   });
 
   it('distinguishes an installed pin with unavailable release details from no installation', async () => {
@@ -459,7 +459,7 @@ describe('REQ-OPERATOR-007: Conductor installation-only Pi reasoning', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
     await waitFor(() => expect(saved).toMatchObject({ revision: 2, piReasoningOverride: 'low', policy }));
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'test Pi reasoning' })).toHaveValue('low'));
-    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Disable installation' })).not.toBeInTheDocument();
   });
 });
 
@@ -713,7 +713,7 @@ describe('REQ-OPERATOR-007/049/075: installed Dispatcher model settings', () => 
       revision: 2, policy: expect.objectContaining({ capabilities: ['inference'], resourceProfileId: null, sourceResponseBytes: 65536 }),
       configuration: { unrelated: { keep: true } }, gatewaySelection: { operatorRevision: 3, routeId: 'cheap', reasoningLevel: 'off' },
     } }]);
-    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Disable installation' })).not.toBeInTheDocument();
     expect(await reopen()).toHaveValue('cheap');
     expect(reasoning()).toHaveValue('off');
     fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
@@ -836,7 +836,7 @@ describe('REQ-OPERATOR-007/049/075: installed Dispatcher model settings', () => 
       revision: 2, policy: expect.any(Object), configuration: { unrelated: { keep: true } },
       gatewaySelection: { operatorRevision: 3, routeId: 'cheap', reasoningLevel: 'low' },
     } }]);
-    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Disable installation' })).not.toBeInTheDocument();
     if (status === 403) {
       expect(alert).toHaveTextContent(/Access denied/i);
       expect(screen.queryByRole('button', { name: 'Save model settings' })).not.toBeInTheDocument();

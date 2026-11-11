@@ -4,12 +4,14 @@ import OperatorActivityButton from '../../components/OperatorActivityButton';
 import { ApiError } from '../../api/fetch-helper';
 
 // Reactive incumbent session facade: exercise session/generation invalidation without runtime I/O.
-const activeSession = vi.hoisted(() => ({ set: (_value: unknown) => {} }));
+const activeSession = vi.hoisted(() => ({ set: (_value: unknown) => {}, list: (_value: unknown) => {} }));
 vi.mock('../../stores/session', async () => {
   const { createSignal } = await import('solid-js');
   const [current, setCurrent] = createSignal<unknown>();
   activeSession.set = value => { setCurrent(value); };
-  return { sessionStore: { preferences: { userTimezone: 'UTC' }, getActiveSession: current, get statusUnavailable() { return server.sessionUnavailable; } } };
+  const [listed, setListed] = createSignal<Array<Record<string, unknown>> | undefined>();
+  activeSession.list = value => { setListed(value as Array<Record<string, unknown>> | undefined); };
+  return { sessionStore: { preferences: { userTimezone: 'UTC' }, getActiveSession: current, get sessions() { return listed() ?? []; }, get statusUnavailable() { return server.sessionUnavailable; } } };
 });
 const runningSession = { id: 'ownersession1', status: 'running', lifecycle: 'running', generation: 3 };
 
@@ -31,9 +33,14 @@ const server = vi.hoisted(() => ({
   // Wire-command journal: the intentional contract forbids implicit Enable/Activate writes.
   mutations: [] as Array<{ kind: string; command: unknown }>,
   sessionUnavailable: false,
+  hosts: [] as Array<Record<string, unknown>>, hostError: false, enableError: false,
   activateWait: null as Promise<void> | null, activateError: null as Error | null,
 
 }));
+vi.mock('../../api/client', () => ({ getSessions: async () => {
+  if (server.hostError) throw new Error('Unavailable');
+  return server.hosts;
+} }));
 vi.mock('../../api/operator-activities', () => ({
   activateRenovateRuns: async (command: unknown) => {
     server.mutations.push({ kind: 'activate', command });
@@ -71,7 +78,10 @@ vi.mock('../../api/operator-management', () => ({
   },
   enableInstallation: async (...command: unknown[]) => {
     server.mutations.push({ kind: 'enable', command });
-    throw new Error('Enable must use the explicit management handoff');
+    if (server.enableError) throw new ApiError('Conflict', 409, 'Conflict');
+    const [id, enabled, revision] = command;
+    server.installations = server.installations.map(item => item.id === id ? { ...item, enabled, revision: Number(revision) + 1 } : item);
+    return server.installations.find(item => item.id === id);
   },
   getManagedOperator: async () => server.management,
   configureInstallation: async (_id: string, value: { revision: number; policy: unknown; configuration: typeof server.configuration }) => {
@@ -129,8 +139,8 @@ async function review() {
   await screen.findByRole('heading', { name: 'Start a manual run' });
 }
 beforeEach(() => {
-  server.sessionUnavailable = false;
-  activeSession.set(undefined); server.mutations = []; server.activateWait = null; server.activateError = null;
+  server.sessionUnavailable = false; server.hosts = []; server.hostError = false; server.enableError = false;
+  activeSession.list(undefined); activeSession.set(undefined); server.mutations = []; server.activateWait = null; server.activateError = null;
   server.page = [row('run-1')]; server.older = [row('older-run')]; server.installations = [installation()];
   server.olderInstallations = []; server.runPages = {}; server.installationPages = {};
   server.detail = { ...row('run-1'), sdkCleanupReleased: true, checkpoint: null,
@@ -490,7 +500,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await configure();
     await fireEvent.click(await screen.findByRole('checkbox', { name: /automatic runs/i }));
     expect(screen.getByText(/saving.*disables/i)).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
     await waitFor(() => expect(server.savedRevision).toBe(7));
     expect(server.configuration).toEqual({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3600 }, retained: 'unchanged' });
     expect(server.savedPolicy).toEqual({ capabilities: ['fetch', 'inference'], resourceProfileId: null });
@@ -503,7 +513,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     });
     await configure();
     await fireEvent.click(screen.getByRole('checkbox', { name: /automatic runs/i }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
     await waitFor(() => expect(server.savedRevision).toBe(8));
     expect(server.configuration).toEqual({ renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 3600 }, retained: 'unchanged' });
     expect(server.installations[0].enabled).toBe(false);
@@ -516,7 +526,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect((await screen.findByRole('button', { name: /run once/i })).hasAttribute('disabled')).toBe(true);
     await configure();
     await fireEvent.click(screen.getByRole('checkbox', { name: /automatic runs/i }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
     expect(await screen.findByText(/saved.*disabled/i)).toBeTruthy();
     expect(server.configuration.renovate.automaticRuns).toBe(true);
     expect(server.installations[0].enabled).toBe(false);
@@ -528,7 +538,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await open('Installed');
     await configure();
     await fireEvent.click(await screen.findByRole('checkbox', { name: /automatic runs/i }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
     expect(await screen.findByText(/revision.*changed|revision.*stale/i)).toBeTruthy();
     expect(server.savedRevision).toBeNull();
     expect(server.configuration.renovate.automaticRuns).toBe(false);
@@ -648,7 +658,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await open('Installed');
     await configure();
     await fireEvent.click(await screen.findByRole('checkbox', { name: /automatic runs/i }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
     await screen.findByText('Installation revision changed. Refresh before saving again.');
     expect(server.configuration).toEqual(original);
     expect(server.savedRevision).toBeNull();
@@ -740,7 +750,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
 
 // Task94: public interaction contracts for REQ-OPERATOR-099 AC2/5 and 209 AC2–6.
 // Labels below are intentional accessible-control contracts, not markup snapshots.
-const activation = () => screen.getByRole('button', { name: /^activate(?: automatic runs)?$/i });
+const activation = () => screen.getByRole('button', { name: /^Start automatic runs$/i });
 const quantity = () => screen.getByRole('spinbutton', { name: /repeat interval|interval quantity/i });
 const unit = () => screen.getByRole('combobox', { name: /interval unit/i });
 const unverified = /activation (?:is )?(?:unverified|not verified)|activation status (?:is )?unknown/i;
@@ -873,7 +883,7 @@ describe('Task94 exact human-unit scheduling', () => {
     // Toggle only: untouched nondivisible seconds must survive the human-unit form.
     await fireEvent.click(screen.getByRole('checkbox', { name: /automatic runs/i }));
     expect(server.mutations).toEqual([]);
-    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
     await waitFor(() => expect(server.savedRevision).toBe(7));
     expect(server.configuration.renovate.repetitionIntervalSeconds).toBe(seconds);
     expect(server.installations[0].enabled).toBe(false);
@@ -889,7 +899,7 @@ describe('Task94 exact human-unit scheduling', () => {
     await fireEvent.change(unit(), { target: { value: 'hours' } });
     expect(server.configuration.renovate.repetitionIntervalSeconds).toBe(3600);
     expect(server.mutations).toEqual([]);
-    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
     await screen.findByText(/saved.*disabled/i);
     expect(server.configuration).toEqual({ renovate: { repository: 'acme/updates', automaticRuns: true,
       repetitionIntervalSeconds: 7200 }, retained: 'unchanged' });
@@ -907,7 +917,7 @@ describe('Task94 exact human-unit scheduling', () => {
     await fireEvent.change(unit(), { target: { value: 'seconds' } });
     await fireEvent.input(quantity(), { target: { value } });
     expect(screen.getByText(/positive.*(?:whole|integer)|(?:whole|integer).*second|valid.*interval/i)).toBeVisible();
-    const save = screen.queryByRole('button', { name: 'Save scheduling' });
+    const save = screen.queryByRole('button', { name: 'Save run settings' });
     if (save) { expect(save).toBeDisabled(); await fireEvent.click(save); }
     expect(activation()).toBeDisabled();
     expect(server.mutations).toEqual([]);
@@ -919,7 +929,7 @@ describe('Task94 exact human-unit scheduling', () => {
     await open('Installed');
     await configure();
     await fireEvent.input(quantity(), { target: { value: '2' } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
     await screen.findByText(/revision.*changed|revision.*stale/i);
     window.dispatchEvent(new Event('focus'));
     window.dispatchEvent(new Event('online'));
@@ -977,7 +987,7 @@ describe('Task94 explicit installation and session scoped activation', () => {
     await open('Installed');
     const card = await screen.findByRole('article', { name: 'Updates' });
     for (const explanation of within(card).getAllByText(reason)) expect(explanation).toBeVisible();
-    const button = screen.queryByRole('button', { name: /^activate(?: automatic runs)?$/i });
+    const button = screen.queryByRole('button', { name: /^Start automatic runs$/i });
     if (button) { expect(button).toBeDisabled(); await fireEvent.click(button); }
     expect(server.mutations).toEqual([]);
     expect(screen.queryByText(acknowledged)).toBeNull();
@@ -991,11 +1001,11 @@ describe('Task94 explicit installation and session scoped activation', () => {
     expect(screen.getByText(/unsaved|save.*before activat/i)).toBeVisible();
     await fireEvent.click(activation());
     expect(server.mutations).toEqual([]);
-    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
     await screen.findByText(/saved.*disabled/i);
     expect(server.installations[0].enabled).toBe(false);
     expect(await screen.findByRole('link', { name: 'Manage installations' })).toHaveAttribute('href', '/operators');
-    const button = screen.queryByRole('button', { name: /^activate(?: automatic runs)?$/i });
+    const button = screen.queryByRole('button', { name: /^Start automatic runs$/i });
     if (button) expect(button).toBeDisabled();
     expect(server.mutations.map(value => value.kind)).toEqual(['configure']);
     expect(screen.queryByText(acknowledged)).toBeNull();
@@ -1110,7 +1120,7 @@ describe('Task94 activation authority and abandoned failures', () => {
     expect(screen.queryByRole('button', { name: /^configure(?: automatic runs)?$/i })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Run once' })).toBeNull();
     expect(screen.getByText(/manual input not supported here/i)).toBeVisible();
-    const activate = screen.queryByRole('button', { name: /^activate(?: automatic runs)?$/i });
+    const activate = screen.queryByRole('button', { name: /^Start automatic runs$/i });
     if (activate) { expect(activate).toBeDisabled(); await fireEvent.click(activate); }
     expect(server.prepared).toEqual({});
     expect(server.mutations).toEqual([]);
@@ -1169,10 +1179,146 @@ describe('Task94 concurrent activation scope isolation', () => {
     await fireEvent.input(quantity(), { target: { value: '9007199254740991' } });
     await fireEvent.change(unit(), { target: { value: 'hours' } });
     expect(screen.getByText(/positive.*(?:whole|integer)|(?:whole|integer).*second|valid.*interval|safe.*integer|too large/i)).toBeVisible();
-    const save = screen.queryByRole('button', { name: 'Save scheduling' });
+    const save = screen.queryByRole('button', { name: 'Save run settings' });
     if (save) { expect(save).toBeDisabled(); await fireEvent.click(save); }
     expect(activation()).toBeDisabled();
     expect(server.mutations).toEqual([]);
     expect(server.configuration.renovate.repetitionIntervalSeconds).toBe(3600);
   });
+});
+
+
+describe('Task101 Installed unification', () => {
+  it('REQ-OPERATOR-209 AC2/3: reset uses one hour and explicit enable uses the refreshed revision without starting', async () => {
+    configured({ repetitionIntervalSeconds: 7200 });
+    await open('Installed'); await configure();
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset Repeat interval to default' }));
+    expect(quantity()).toHaveValue(1); expect(unit()).toHaveValue('hours');
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
+    await screen.findByText(/saved.*disabled/i);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Enable installation' }));
+    await screen.findByRole('button', { name: 'Disable installation' });
+    expect(server.mutations.map(value => value.kind)).toEqual(['configure', 'enable']);
+    expect(server.mutations[1].command).toEqual(['install-1', true, 8]);
+    expect(server.configuration.renovate.repetitionIntervalSeconds).toBe(3600);
+  });
+
+  it.each([false, true])('REQ-OPERATOR-209 AC3/5: failed enable and nonmanager authority fail closed (nonmanager=%s)', async nonmanager => {
+    configured({ enabled: false, canManage: !nonmanager }); server.enableError = true;
+    await open('Installed'); await screen.findByRole('article', { name: 'Updates' });
+    const button = screen.queryByRole('button', { name: 'Enable installation' });
+    if (nonmanager) expect(button).toBeNull();
+    else {
+      await fireEvent.click(button!);
+      await screen.findByText(/enablement.*not confirmed|revision.*changed/i);
+      expect(screen.getByRole('button', { name: 'Enable installation' })).toBeDisabled();
+    }
+    expect(activation()).toBeDisabled();
+    expect(server.mutations.filter(value => value.kind === 'activate')).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-209 AC5/6: no active workspace requires explicit owned running selection and only Start submits', async () => {
+    configured(); activeSession.set(undefined);
+    server.hosts = [{ ...runningSession, name: 'Owned running workspace' },
+      { ...runningSession, id: 'stoppedhost1', name: 'Stopped workspace', status: 'stopped', lifecycle: 'stopped' },
+      { ...runningSession, id: 'unverified01', name: 'Unverified workspace', generation: undefined }];
+    await open('Installed');
+    const selector = await screen.findByRole('combobox', { name: 'Running workspace' });
+    await within(selector).findByRole('option', { name: 'Owned running workspace' });
+    expect(selector).toHaveValue(''); expect(activation()).toBeDisabled();
+    expect(within(selector).queryByRole('option', { name: 'Stopped workspace' })).toBeNull();
+    expect(within(selector).queryByRole('option', { name: 'Unverified workspace' })).toBeNull();
+    await fireEvent.change(selector, { target: { value: runningSession.id } });
+    expect(activation()).toBeEnabled(); expect(server.mutations).toEqual([]);
+    await fireEvent.click(activation()); await screen.findByText(acknowledged);
+    expect(server.mutations).toEqual([{ kind: 'activate', command: {
+      installationId: 'install-1', sessionId: runningSession.id, sessionGeneration: 3,
+    } }]);
+  });
+
+  it.each(['unavailable', 'stopped', 'generation', 'removed', 'selection', 'store'] as const)(
+    'REQ-OPERATOR-209 AC6: selected workspace %s fences late acknowledgement without replay', async change => {
+      configured(); activeSession.set(undefined);
+      server.hosts = [{ ...runningSession, name: 'Owned running workspace' },
+        { ...runningSession, id: 'ownersession2', name: 'Second workspace' }];
+      const gate = deferred(); server.activateWait = gate.promise;
+      await open('Installed');
+      const selector = await screen.findByRole('combobox', { name: 'Running workspace' });
+      await within(selector).findByRole('option', { name: 'Owned running workspace' });
+      await fireEvent.change(selector, { target: { value: runningSession.id } });
+      await fireEvent.click(activation()); await screen.findByText(/activating/i);
+      if (change === 'selection') await fireEvent.change(selector, { target: { value: 'ownersession2' } });
+      else if (change === 'store') activeSession.list([{ ...runningSession, status: 'stopped', lifecycle: 'stopped' }]);
+      else {
+        server.hostError = change === 'unavailable';
+        server.hosts = change === 'removed' ? [] : [{ ...runningSession, name: 'Owned running workspace',
+          ...(change === 'stopped' ? { status: 'stopped', lifecycle: 'stopped' } : {}),
+          ...(change === 'generation' ? { generation: 4 } : {}) }];
+        await fireEvent.click(screen.getByRole('button', { name: 'Refresh workspaces' }));
+        await waitFor(() => expect(activation()).toBeDisabled());
+      }
+      gate.release(); await gate.promise; await Promise.resolve();
+      expect(screen.queryByText(acknowledged)).toBeNull();
+      expect(server.mutations.map(value => value.kind)).toEqual(['activate']);
+    });
+});
+
+
+describe('Task101 Installed automatic-off parity', () => {
+  it('REQ-OPERATOR-209 AC2: automatic off hides interval and default help while Configure remains initially collapsed', async () => {
+    await open('Installed');
+    const card = await screen.findByRole('article', { name: 'Updates' });
+    expect(within(card).getByRole('button', { name: 'Configure' })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(card).queryByRole('checkbox', { name: 'Automatic runs' })).toBeNull();
+    await configure();
+    expect(screen.getByRole('checkbox', { name: 'Automatic runs' })).not.toBeChecked();
+    expect(screen.queryByRole('spinbutton', { name: 'Repeat interval' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Interval unit' })).toBeNull();
+    expect(screen.queryByText(/Default: 1 hour/)).toBeNull();
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic runs' }));
+    expect(quantity()).toHaveValue(1); expect(unit()).toHaveValue('hours');
+    expect(screen.getByText(/Default: 1 hour/)).toBeVisible();
+    expect(server.mutations).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-209 AC2/3: off and on retain valid draft seconds and only explicit Save writes manual-only settings', async () => {
+    configured(); await open('Installed'); await configure();
+    await fireEvent.change(unit(), { target: { value: 'seconds' } });
+    await fireEvent.input(quantity(), { target: { value: '3661' } });
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic runs' }));
+    expect(screen.queryByRole('spinbutton', { name: 'Repeat interval' })).toBeNull();
+    expect(screen.queryByText(/Default: 1 hour/)).toBeNull();
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic runs' }));
+    expect(quantity()).toHaveValue(3661); expect(unit()).toHaveValue('seconds');
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic runs' }));
+    expect(server.mutations).toEqual([]);
+    await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
+    await waitFor(() => expect(server.configuration.renovate).toEqual({
+      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 3661,
+    }));
+    expect(server.installations[0].enabled).toBe(false);
+    expect(server.mutations.map(value => value.kind)).toEqual(['configure']);
+  });
+
+  it.each([[900, 900, 15, 'minutes'], [9007199254740991, 3600, 1, 'hours']] as const)(
+    'REQ-OPERATOR-209 AC2/3: invalid draft switched off recovers saved %i as %i seconds without enabling or starting', async (saved, recovered, amount, units) => {
+      configured({ repetitionIntervalSeconds: saved }); server.configuration.renovate.repetitionIntervalSeconds = saved;
+      await open('Installed'); await configure();
+      await fireEvent.input(quantity(), { target: { value: '' } });
+      expect(screen.getByRole('button', { name: 'Save run settings' })).toBeDisabled();
+      await fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic runs' }));
+      expect(screen.queryByRole('spinbutton', { name: 'Repeat interval' })).toBeNull();
+      expect(screen.queryByText(/Default: 1 hour/)).toBeNull();
+      expect(screen.getByRole('button', { name: 'Save run settings' })).toBeEnabled();
+      await fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic runs' }));
+      expect(quantity()).toHaveValue(amount); expect(unit()).toHaveValue(units);
+      await fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic runs' }));
+      expect(server.mutations).toEqual([]);
+      await fireEvent.click(screen.getByRole('button', { name: 'Save run settings' }));
+      await waitFor(() => expect(server.configuration.renovate).toEqual({
+        repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: recovered,
+      }));
+      expect(server.installations[0].enabled).toBe(false);
+      expect(server.mutations.map(value => value.kind)).toEqual(['configure']);
+    });
 });

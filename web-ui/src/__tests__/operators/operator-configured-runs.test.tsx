@@ -3,19 +3,21 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/te
 import OperatorManagement from '../../components/OperatorManagement';
 import type { ManagementDetail } from '../../api/operator-management';
 
-// The activation surface consumes only the incumbent active-session facade.
+// The incumbent active-session facade and the owner catalog remain separate read projections.
 const activeSession = vi.hoisted(() => ({
-  set: (_session: unknown) => {},
+  set: (_session: unknown) => {}, list: (_sessions: unknown) => {},
 }));
 vi.mock('../../stores/session', async () => {
   const { createSignal } = await import('solid-js');
   const [current, setCurrent] = createSignal<typeof sourceHost | undefined>();
   activeSession.set = session => { setCurrent(session as typeof sourceHost | undefined); };
+  const [listed, setListed] = createSignal<Array<typeof sourceHost> | undefined>();
+  activeSession.list = value => { setListed(value as Array<typeof sourceHost> | undefined); };
   return { sessionStore: {
     preferences: {},
     getActiveSession: current,
     get activeSessionId() { return current()?.id ?? null; },
-    get sessions() { return current() ? [current()!] : []; },
+    get sessions() { return listed() ?? (current() ? [current()!] : []); },
     get statusUnavailable() { return false; },
   } };
 });
@@ -52,13 +54,17 @@ let state: ManagementDetail;
 let writes: Array<{ path: string; body: unknown }>;
 let conflict: boolean;
 let reads: string[];
+let hosts: Array<typeof sourceHost>;
+let hostError: boolean;
+let canInvoke: boolean;
 let activate: (body: unknown) => Promise<Response>;
 const activationPath = '/api/operator-activities/renovate/activation';
 const cutoff = '2026-11-11T00:00:00.000Z';
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators');
+  hosts = [sourceHost]; hostError = false; canInvoke = true;
   state = fixture(); writes = []; reads = []; conflict = false;
-  activeSession.set(undefined);
+  activeSession.list(undefined); activeSession.set(undefined);
   activate = async () => json({ activatedAt: cutoff, repositoryId: 424242 }, 202);
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, window.location.origin);
@@ -86,7 +92,15 @@ beforeEach(() => {
     reads.push(path);
     if (path.endsWith('/operator-1')) return json(state);
     if (path.endsWith('/operators')) return json({ items: [state.operator], cursor: null });
-    if (path === '/api/sessions') return json({ sessions: [sourceHost] });
+    if (path === '/api/sessions') return hostError ? json({ error: 'Unavailable' }, 503) : json({ sessions: hosts });
+    if (path === '/api/operator-activities/installations') return json({ items: state.installations.map(item => ({
+      id: item.id, operatorId: item.operatorId, name: 'Renovate Dispatcher', installationName: item.name,
+      revision: item.revision, enabled: item.enabled, approved: state.releases[0].approved, version: 'v0.1.3',
+      profile: 'dispatcher', canManage: true, canInvoke: canInvoke, canActivateAutomaticRuns: canInvoke,
+      guidedMode: 'repository', repository: (item.configuration?.renovate as any)?.repository ?? null,
+      automaticRuns: (item.configuration?.renovate as any)?.automaticRuns ?? false,
+      repetitionIntervalSeconds: (item.configuration?.renovate as any)?.repetitionIntervalSeconds ?? 3600,
+    })), cursor: null });
     if (path.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.3', guidedAssessment: true,
       guidedMode: 'repository', requiresSourceHost: state.operator.policy.capabilities.includes('inference')
         && state.installations[0].policy.capabilities.includes('inference'), configuredRepository: state.installations[0].configuration?.renovate
@@ -111,8 +125,8 @@ async function settings() {
   return screen.findByRole('group', { name: 'Run settings' });
 }
 function repository(group: HTMLElement) { return within(group).getByRole('textbox', { name: 'Repository' }); }
-function interval(group: HTMLElement) { return within(group).getByRole('spinbutton', { name: 'Repeat interval (seconds)' }); }
-function automatic(_group?: HTMLElement) { return screen.getByRole('button', { name: 'Automatic runs' }); }
+function interval(group: HTMLElement) { return within(group).getByRole('spinbutton', { name: 'Repeat interval' }); }
+function automatic(_group?: HTMLElement) { return screen.getByRole('checkbox', { name: 'Automatic runs' }); }
 function save() { return screen.getByRole('button', { name: /Save run settings/i }); }
 function submit() { fireEvent.submit(save().closest('form')!); }
 function setRunSettings(repository: string, automaticRuns: boolean, repetitionIntervalSeconds: number) {
@@ -138,33 +152,31 @@ describe('configured Renovate run settings', () => {
     expect(repository(group)).toHaveValue('');
     expect(repository(group)).toBeRequired();
     expect(repository(group)).toHaveAttribute('maxlength', '201');
-    expect(automatic(group)).toHaveAttribute('aria-pressed', 'false');
-    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
+    expect(automatic(group)).not.toBeChecked();
+    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval' })).not.toBeInTheDocument();
     expect(group).not.toHaveTextContent(/1 hour/i);
-    expect(screen.queryByRole('checkbox', { name: 'Automatic runs' })).not.toBeInTheDocument();
-    expect(automatic()).toHaveAccessibleDescription(/Save run settings.*does not start work/i);
+    expect(automatic()).not.toBeChecked();
+    expect(within(group).getByText(/Saving run settings disables.*does not start a run/i)).toBeVisible();
     expect(save()).toBeDisabled();
     expect(writes).toEqual([]);
     expect(state.installations[0].configuration).toEqual(retained);
   });
 
-  it('REQ-OPERATOR-061: repeat follows Enable or Disable and edits only the unsaved run-settings draft', async () => {
+  it('REQ-OPERATOR-061: labeled Automatic runs checkbox edits only the unsaved run-settings draft', async () => {
     const installed = await open();
     const group = await settings();
     const before = structuredClone(state);
-    const actions = within(installed).getAllByRole('button');
-    // Intentional accessible action order: repeat immediately follows enablement.
-    expect(actions[actions.indexOf(within(installed).getByRole('button', { name: 'Disable' })) + 1]).toBe(automatic());
+    expect(within(installed).getByRole('button', { name: 'Disable installation' })).toBeEnabled();
     fireEvent.click(automatic());
-    expect(automatic()).toHaveAttribute('aria-pressed', 'true');
-    expect(interval(group)).toHaveValue(3600);
-    expect(interval(group)).toHaveAccessibleDescription(/Default: 3,600 seconds/);
+    expect(automatic()).toBeChecked();
+    expect(interval(group)).toHaveValue(1);
+    expect(interval(group)).toHaveAccessibleDescription(/Default: 1 hour/);
     expect(writes).toEqual([]);
     expect(state).toEqual(before);
     fireEvent.click(automatic());
-    expect(automatic()).toHaveAttribute('aria-pressed', 'false');
+    expect(automatic()).not.toBeChecked();
     expect(within(group).queryByRole('spinbutton')).not.toBeInTheDocument();
-    expect(group).not.toHaveTextContent(/Default: 3,600 seconds/);
+    expect(group).not.toHaveTextContent(/Default: 1 hour/);
     expect(writes).toEqual([]);
   });
 
@@ -192,6 +204,7 @@ describe('configured Renovate run settings', () => {
     fireEvent.input(repository(group), { target: { value: 'acme/automation' } });
     fireEvent.click(automatic(group));
     expect(interval(group)).toBeEnabled();
+    fireEvent.change(within(group).getByRole('combobox', { name: 'Interval unit' }), { target: { value: 'seconds' } });
     fireEvent.input(interval(group), { target: { value: '900' } });
     fireEvent.click(save());
     const configuration = { ...retained, renovate: { repository: 'acme/automation', automaticRuns: true, repetitionIntervalSeconds: 900 } };
@@ -201,7 +214,7 @@ describe('configured Renovate run settings', () => {
     const installed = screen.getByRole('region', { name: 'Installed version' });
     await waitFor(() => expect(within(installed).getAllByRole('status').some(element =>
       /saved/i.test(element.textContent ?? '') && /disable|enable/i.test(element.textContent ?? ''))).toBe(true));
-    await screen.findByRole('button', { name: 'Enable' });
+    await screen.findByRole('button', { name: 'Enable installation' });
     expect(state.installations[0]).toMatchObject({ enabled: false, revision: 5, configuration });
     expect(state.installations[1]).toEqual(before.installations[1]);
     expect(state.operator).toEqual(before.operator);
@@ -210,14 +223,14 @@ describe('configured Renovate run settings', () => {
     cleanup(); await open();
     const reloaded = await settings();
     expect(repository(reloaded)).toHaveValue('acme/automation');
-    expect(automatic(reloaded)).toHaveAttribute('aria-pressed', 'true');
-    expect(interval(reloaded)).toHaveValue(900);
+    expect(automatic(reloaded)).toBeChecked();
+    expect(interval(reloaded)).toHaveValue(15);
     fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
     expect(repository(await settings())).toHaveValue('other/project');
-    expect(interval(await settings())).toHaveValue(7200);
+    expect(interval(await settings())).toHaveValue(2);
     fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
-    await screen.findByRole('button', { name: 'Disable' });
+    fireEvent.click(screen.getByRole('button', { name: 'Enable installation' }));
+    await screen.findByRole('button', { name: 'Disable installation' });
     expect(writes).toContainEqual({ path: '/api/operator-management/installations/installation-1/enable', body: { revision: 5, enabled: true } });
     expect(state.installations[0].configuration).toEqual(configuration);
   });
@@ -227,19 +240,19 @@ describe('configured Renovate run settings', () => {
     await open();
     const group = await settings();
     fireEvent.click(automatic(group));
-    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
+    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval' })).not.toBeInTheDocument();
     expect(group).not.toHaveTextContent(/Default: 3,600/);
     fireEvent.click(save());
     await waitFor(() => expect(state.installations[0].configuration?.renovate).toEqual({
       repository: 'acme/manual', automaticRuns: false, repetitionIntervalSeconds: 1800 }));
     cleanup(); await open();
-    expect(screen.queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton', { name: 'Repeat interval' })).not.toBeInTheDocument();
     fireEvent.click(automatic());
-    expect(interval(await settings())).toHaveValue(1800);
+    expect(interval(await settings())).toHaveValue(30);
     fireEvent.click(automatic());
-    expect(automatic(await settings())).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
-    await screen.findByRole('button', { name: 'Disable' });
+    expect(automatic(await settings())).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Enable installation' }));
+    await screen.findByRole('button', { name: 'Disable installation' });
     const installed = screen.getByRole('region', { name: 'Installed version' });
     expect(within(installed).queryByRole('textbox', { name: 'Repository to assess' })).not.toBeInTheDocument();
     expect(within(installed).queryByRole('spinbutton', { name: 'Pull request to assess' })).not.toBeInTheDocument();
@@ -258,16 +271,16 @@ describe('configured Renovate run settings', () => {
     setRunSettings('acme/resume', false, 7200);
     await open();
     const group = await settings();
-    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
+    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval' })).not.toBeInTheDocument();
     fireEvent.click(automatic(group));
     expect(interval(group)).toBeEnabled();
-    expect(interval(group)).toHaveValue(7200);
+    expect(interval(group)).toHaveValue(2);
     fireEvent.click(save());
     await waitFor(() => expect(state.installations[0].configuration?.renovate).toEqual({
       repository: 'acme/resume', automaticRuns: true, repetitionIntervalSeconds: 7200 }));
     cleanup(); await open();
-    expect(automatic(await settings())).toHaveAttribute('aria-pressed', 'true');
-    expect(interval(await settings())).toHaveValue(7200);
+    expect(automatic(await settings())).toBeChecked();
+    expect(interval(await settings())).toHaveValue(2);
     expect(interval(await settings())).toBeEnabled();
   });
 
@@ -276,10 +289,10 @@ describe('configured Renovate run settings', () => {
     const other = structuredClone(state.installations[1]);
     await open();
     const group = await settings();
-    fireEvent.click(within(group).getByRole('button', { name: 'Reset Repeat interval (seconds) to default' }));
-    expect(interval(group)).toHaveValue(3600);
+    fireEvent.click(within(group).getByRole('button', { name: 'Reset Repeat interval to default' }));
+    expect(interval(group)).toHaveValue(1);
     expect(repository(group)).toHaveValue('acme/reset');
-    expect(automatic(group)).toHaveAttribute('aria-pressed', 'true');
+    expect(automatic(group)).toBeChecked();
     fireEvent.click(save());
     await waitFor(() => expect(state.installations[0].configuration).toEqual({ ...retained,
       renovate: { repository: 'acme/reset', automaticRuns: true, repetitionIntervalSeconds: 3600 } }));
@@ -323,9 +336,9 @@ describe('configured Renovate run settings', () => {
     expect(state.installations[0].configuration).toEqual(configuration);
     cleanup(); await open();
     expect(repository(await settings())).toHaveValue('acme/restricted');
-    expect(screen.queryByRole('spinbutton', { name: 'Repeat interval (seconds)' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton', { name: 'Repeat interval' })).not.toBeInTheDocument();
     fireEvent.click(automatic());
-    expect(interval(await settings())).toHaveValue(7200);
+    expect(interval(await settings())).toHaveValue(2);
   });
 
   it('REQ-OPERATOR-061: configured Renovate run settings reconcile stale revisions before a deliberate save at the refreshed revision', async () => {
@@ -341,7 +354,7 @@ describe('configured Renovate run settings', () => {
     expect(state.installations[0].configuration?.renovate).toEqual({ repository: 'acme/concurrent', automaticRuns: true, repetitionIntervalSeconds: 7200 });
     fireEvent.click(screen.getByRole('button', { name: 'Refresh current state' }));
     await waitFor(() => expect(repository(screen.getByRole('group', { name: 'Run settings' }))).toHaveValue('acme/concurrent'));
-    expect(interval(await settings())).toHaveValue(7200);
+    expect(interval(await settings())).toHaveValue(2);
     conflict = false;
     fireEvent.input(repository(await settings()), { target: { value: 'acme/reviewed' } });
     fireEvent.click(save());
@@ -384,10 +397,10 @@ describe('configured Renovate run settings', () => {
 
 
 describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
-  const activationButton = () => screen.getByRole('button', { name: /^Activate(?: automatic runs)?$/i });
+  const activationButton = () => screen.getByRole('button', { name: /^Start automatic runs$/i });
   const activationWrites = () => writes.filter(write => write.path === activationPath);
   const expectInert = () => {
-    const button = screen.queryByRole('button', { name: /^Activate(?: automatic runs)?$/i });
+    const button = screen.queryByRole('button', { name: /^Start automatic runs$/i });
     if (button) { expect(button).toBeDisabled(); fireEvent.click(button); }
     expect(activationWrites()).toEqual([]);
   };
@@ -396,42 +409,42 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
     activeSession.set(sourceHost);
     setRunSettings('acme/automation', true, 900);
     await open(true);
-    expect(activationButton()).toBeEnabled();
+    await waitFor(() => expect(activationButton()).toBeEnabled());
     expect(activationWrites()).toEqual([]);
     fireEvent.input(repository(await settings()), { target: { value: 'acme/reviewed' } });
     fireEvent.click(save());
-    await screen.findByRole('button', { name: 'Enable' });
+    await screen.findByRole('button', { name: 'Enable installation' });
     expect(state.installations[0]).toMatchObject({ enabled: false, configuration: {
       ...retained, renovate: { repository: 'acme/reviewed', automaticRuns: true, repetitionIntervalSeconds: 900 },
     } });
     expectInert();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
-    await screen.findByRole('button', { name: 'Disable' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable installation' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Enable installation' }));
+    await screen.findByRole('button', { name: 'Disable installation' });
     expect(activationWrites()).toEqual([]);
     await waitFor(() => expect(activationButton()).toBeEnabled());
     // Scope disclosure is an intentional user-facing contract, not a service authority promise.
-    expect(screen.getByText(/current.*(?:running )?session|active.*session/i)).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(sourceHost.id))).toBeInTheDocument();
+    expect(screen.getByText(/your selected running workspace session/i)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(sourceHost.name))).toBeInTheDocument();
     fireEvent.click(activationButton());
     await waitFor(() => expect(activationWrites()).toEqual([{ path: activationPath, body: {
       installationId: 'installation-1', sessionId: sourceHost.id, sessionGeneration: sourceHost.generation,
     } }]));
     await waitFor(() => expect(screen.getAllByRole('status').some(element => /activated/i.test(element.textContent ?? ''))).toBe(true));
-    expect(reads).not.toContain('/api/sessions');
+    expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]);
     expect(writes.every(write => write.path === activationPath || /\/(configure|enable)$/.test(write.path))).toBe(true);
     cleanup(); await open(true);
     expect(activationWrites()).toHaveLength(1); // remount/login/read never reactivates
   });
 
-  it('direct load without an active session explains the disabled action without discovering or starting another host', async () => {
+  it('direct load without an active session offers explicit owned selection without starting another host', async () => {
     setRunSettings('acme/automation', true, 900);
     await open(true);
     expect(activationButton()).toBeDisabled();
-    expect(screen.getByText(/(?:current|active).*running.*session|running.*(?:current|active).*session/i)).toBeInTheDocument();
+    expect(screen.getByText(/your selected running workspace session/i)).toBeInTheDocument();
     fireEvent.click(activationButton());
-    expect(writes).toEqual([]); expect(reads).not.toContain('/api/sessions');
-    expect(screen.queryByRole('combobox', { name: /host|session/i })).not.toBeInTheDocument();
+    expect(writes).toEqual([]); expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]);
+    expect(await screen.findByRole('combobox', { name: 'Running workspace' })).toHaveValue('');
   });
 
   it.each([
@@ -448,7 +461,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
     activeSession.set({ ...sourceHost, ...projection });
     setRunSettings('acme/automation', true, 900);
     await open(true); expectInert();
-    expect(reads).not.toContain('/api/sessions'); expect(writes).toEqual([]);
+    expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]); expect(writes).toEqual([]);
   });
 
   it.each(['non-admin', 'disabled', 'automatic-off', 'unset', 'unsupported'] as const)(
@@ -459,7 +472,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
       if (fault === 'unset') state.installations[0].configuration = { ...retained };
       if (fault === 'unsupported') state.releases[0].intentVersion = '99';
       await open(fault !== 'non-admin'); expectInert();
-      expect(reads).not.toContain('/api/sessions'); expect(writes).toEqual([]);
+      expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]); expect(writes).toEqual([]);
     });
 
   it.each([
@@ -470,7 +483,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
   ])('an invalid activation response %j is unconfirmed, not success or a replay instruction', async response => {
     activate = async () => json(response, 202);
     activeSession.set(sourceHost); setRunSettings('acme/automation', true, 900);
-    await open(true); fireEvent.click(activationButton());
+    await open(true); await waitFor(() => expect(activationButton()).toBeEnabled()); fireEvent.click(activationButton());
     expect(await screen.findByRole('alert')).toHaveTextContent(/not confirmed|unavailable|failed/i);
     expect(screen.queryByText(/successfully activated|automatic runs activated/i)).not.toBeInTheDocument();
     expect(activationWrites()).toEqual([{ path: activationPath, body: {
@@ -484,6 +497,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
     activate = () => new Promise<Response>(resolve => { finish = resolve; });
     activeSession.set(sourceHost); setRunSettings('acme/automation', true, 900);
     await open(true);
+    await waitFor(() => expect(activationButton()).toBeEnabled());
     fireEvent.click(activationButton());
     await waitFor(() => expect(activationWrites()).toHaveLength(1));
     expect(activationButton()).toBeDisabled();
@@ -509,7 +523,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
     let finish!: (response: Response) => void;
     activate = () => new Promise<Response>(resolve => { finish = resolve; });
     activeSession.set(sourceHost); setRunSettings('acme/automation', true, 900);
-    await open(true); fireEvent.click(activationButton());
+    await open(true); await waitFor(() => expect(activationButton()).toBeEnabled()); fireEvent.click(activationButton());
     await waitFor(() => expect(activationWrites()).toHaveLength(1));
     if (changed === 'session') activeSession.set({ ...sourceHost, id: 'newsession01', generation: 4 });
     else fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
@@ -524,10 +538,141 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit active-session Activate', () => {
       await waitFor(() => expect(activationWrites()).toHaveLength(2));
       expect(activationWrites()[1].body).toEqual({ installationId: 'installation-1', sessionId: 'newsession01', sessionGeneration: 4 });
     } else {
-      const button = screen.queryByRole('button', { name: /^Activate(?: automatic runs)?$/i });
+      const button = screen.queryByRole('button', { name: /^Start automatic runs$/i });
       if (button) expect(button).toBeDisabled();
       expect(activationWrites()).toHaveLength(1);
     }
-    expect(reads).not.toContain('/api/sessions');
+    expect(writes.filter(write => /sessions/.test(write.path))).toEqual([]);
   });
+});
+
+
+describe('Task101 Administration unification', () => {
+  it.each([[3600, 1, 'hours'], [5400, 90, 'minutes'], [3661, 3661, 'seconds']] as const)(
+    'REQ-OPERATOR-099 AC5: %i seconds retain exact %i %s with a shared unit control', async (seconds, quantity, unit) => {
+      setRunSettings('acme/automation', true, seconds); await open(true);
+      const group = await settings();
+      expect(interval(group)).toHaveValue(quantity);
+      expect(within(group).getByRole('combobox', { name: 'Interval unit' })).toHaveValue(unit);
+      fireEvent.click(automatic()); fireEvent.click(save());
+      await waitFor(() => expect(state.installations[0].enabled).toBe(false));
+      expect(state.installations[0].configuration?.renovate).toEqual({ repository: 'acme/automation',
+        automaticRuns: false, repetitionIntervalSeconds: seconds });
+      expect(writes.filter(write => write.path === activationPath)).toEqual([]);
+    });
+
+  it.each(['9007199254740991', '2400000000'])('REQ-OPERATOR-099 AC5: hours overflow or Date bounds %s block saving and starting', async value => {
+    activeSession.set(sourceHost); setRunSettings('acme/automation', true, 3600); await open(true);
+    fireEvent.input(interval(await settings()), { target: { value } });
+    expect(save()).toBeDisabled(); expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeDisabled();
+    submit(); expect(writes).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-209 AC5/6: explicit owned running selection permits only explicit Start without waking a workspace', async () => {
+    hosts = [sourceHost, { ...sourceHost, id: 'stoppedhost1', name: 'Stopped workspace', status: 'stopped', lifecycle: 'stopped' }];
+    setRunSettings('acme/automation', true, 3600); await open(true);
+    const selector = await screen.findByRole('combobox', { name: 'Running workspace' });
+    await within(selector).findByRole('option', { name: sourceHost.name });
+    expect(selector).toHaveValue(''); expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeDisabled();
+    expect(within(selector).queryByRole('option', { name: 'Stopped workspace' })).toBeNull();
+    fireEvent.change(selector, { target: { value: sourceHost.id } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeEnabled());
+    expect(writes).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Start automatic runs' }));
+    await waitFor(() => expect(writes).toEqual([{ path: activationPath, body: {
+      installationId: 'installation-1', sessionId: sourceHost.id, sessionGeneration: 3,
+    } }]));
+  });
+
+  it.each(['unavailable', 'stopped', 'generation', 'removed', 'selection', 'store'] as const)(
+    'REQ-OPERATOR-209 AC6: explicit selected workspace %s fences a late acknowledgement', async change => {
+      hosts = [sourceHost, { ...sourceHost, id: 'ownersession2', name: 'Second workspace' }];
+      let finish!: (response: Response) => void;
+      activate = () => new Promise<Response>(resolve => { finish = resolve; });
+      setRunSettings('acme/automation', true, 3600); await open(true);
+      const selector = await screen.findByRole('combobox', { name: 'Running workspace' });
+      await within(selector).findByRole('option', { name: sourceHost.name });
+      fireEvent.change(selector, { target: { value: sourceHost.id } });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', { name: 'Start automatic runs' }));
+      await waitFor(() => expect(writes.filter(write => write.path === activationPath)).toHaveLength(1));
+      if (change === 'selection') fireEvent.change(selector, { target: { value: 'ownersession2' } });
+      else if (change === 'store') activeSession.list([{ ...sourceHost, status: 'stopped', lifecycle: 'stopped' }]);
+      else {
+        hostError = change === 'unavailable';
+        hosts = change === 'removed' ? [] : [{ ...sourceHost,
+          ...(change === 'stopped' ? { status: 'stopped', lifecycle: 'stopped' } : {}),
+          ...(change === 'generation' ? { generation: 4 } : {}) }];
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh workspaces' }));
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeDisabled());
+      }
+      finish(json({ activatedAt: cutoff, repositoryId: 424242 }, 202)); await Promise.resolve();
+      await waitFor(() => expect(screen.queryByText(/activating/i)).not.toBeInTheDocument());
+      expect(screen.queryByText(/Automatic runs activated/)).not.toBeInTheDocument();
+      expect(writes.filter(write => write.path === activationPath)).toHaveLength(1);
+    });
+
+  it('REQ-OPERATOR-061 AC3/5: administration never infers invocation from management or admin access', async () => {
+    canInvoke = false; activeSession.set(sourceHost); setRunSettings('acme/automation', true, 3600);
+    await open(true); await settings();
+    await screen.findByText(/Invocation permission and admin activation eligibility must be verified separately/i);
+    expect(screen.getByRole('button', { name: 'Start automatic runs' })).toBeDisabled();
+    expect(writes).toEqual([]);
+  });
+});
+
+
+describe('Task101 Administration automatic-off parity', () => {
+  it('REQ-OPERATOR-209 AC2: automatic off hides interval and default help until explicitly switched on', async () => {
+    setRunSettings('acme/automation', false, 3600); await open();
+    const group = await settings();
+    expect(automatic()).not.toBeChecked();
+    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval' })).toBeNull();
+    expect(within(group).queryByRole('combobox', { name: 'Interval unit' })).toBeNull();
+    expect(within(group).queryByText(/Default: 1 hour/)).toBeNull();
+    fireEvent.click(automatic());
+    expect(interval(group)).toHaveValue(1);
+    expect(within(group).getByRole('combobox', { name: 'Interval unit' })).toHaveValue('hours');
+    expect(within(group).getByText(/Default: 1 hour/)).toBeVisible();
+    expect(writes).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-209 AC2/3: off and on retain valid draft seconds and only explicit Save writes manual-only settings', async () => {
+    setRunSettings('acme/automation', true, 3600); await open();
+    const group = await settings();
+    fireEvent.change(within(group).getByRole('combobox', { name: 'Interval unit' }), { target: { value: 'seconds' } });
+    fireEvent.input(interval(group), { target: { value: '3661' } });
+    fireEvent.click(automatic());
+    expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval' })).toBeNull();
+    expect(within(group).queryByText(/Default: 1 hour/)).toBeNull();
+    fireEvent.click(automatic());
+    expect(interval(group)).toHaveValue(3661);
+    expect(within(group).getByRole('combobox', { name: 'Interval unit' })).toHaveValue('seconds');
+    fireEvent.click(automatic()); expect(writes).toEqual([]);
+    fireEvent.click(save());
+    await waitFor(() => expect(state.installations[0].configuration?.renovate).toEqual({
+      repository: 'acme/automation', automaticRuns: false, repetitionIntervalSeconds: 3661,
+    }));
+    expect(state.installations[0].enabled).toBe(false);
+    expect(writes.map(write => write.path)).toEqual(['/api/operator-management/installations/installation-1/configure']);
+  });
+
+  it.each([[900, 900, 15, 'minutes'], [9007199254740991, 3600, 1, 'hours']] as const)(
+    'REQ-OPERATOR-209 AC2/3: invalid draft switched off recovers saved %i as %i seconds without enabling or starting', async (saved, recovered, amount, units) => {
+      setRunSettings('acme/automation', true, saved); await open();
+      const group = await settings();
+      fireEvent.input(interval(group), { target: { value: '' } });
+      expect(save()).toBeDisabled(); fireEvent.click(automatic());
+      expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval' })).toBeNull();
+      expect(within(group).queryByText(/Default: 1 hour/)).toBeNull();
+      expect(save()).toBeEnabled(); fireEvent.click(automatic());
+      expect(interval(group)).toHaveValue(amount);
+      expect(within(group).getByRole('combobox', { name: 'Interval unit' })).toHaveValue(units);
+      fireEvent.click(automatic()); expect(writes).toEqual([]); fireEvent.click(save());
+      await waitFor(() => expect(state.installations[0].configuration?.renovate).toEqual({
+        repository: 'acme/automation', automaticRuns: false, repetitionIntervalSeconds: recovered,
+      }));
+      expect(state.installations[0].enabled).toBe(false);
+      expect(writes.map(write => write.path)).toEqual(['/api/operator-management/installations/installation-1/configure']);
+    });
 });
