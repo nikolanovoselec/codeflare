@@ -4182,7 +4182,12 @@ describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: explicit automatic delegatio
       expect((await f.capability.fetch(genericWire('inference', { operationId: `delegated-inference-${reload}`,
         input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(200);
     }
-    expect(remoteMutations(f).map(request => request.method)).toEqual(['POST', 'POST']);
+    expect(remoteMutations(f).map(request => ({ method: request.method, url: request.url }))).toEqual([
+      { method: 'POST', url: `${prospectiveBase}/issues/17/comments` },
+      { method: 'POST', url: 'https://api.openai.com/v1/chat/completions' },
+      { method: 'POST', url: `${prospectiveBase}/issues/17/comments` },
+      { method: 'POST', url: 'https://api.openai.com/v1/chat/completions' },
+    ]);
   }, { prospective: true, delegated: true, recovery: true,
     inferenceBody: 'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n' }));
   it.each(['grant', 'installation', 'registration', 'expiry', 'cancel'] as const)(
