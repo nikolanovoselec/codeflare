@@ -131,7 +131,7 @@ export const eventSchema = z.strictObject({ kind: z.literal('event'), id: z.stri
   && (!record.error?.sdkService || record.owner === 'host' && record.boundary === 'model' && record.outcome === 'failed')
   && (!record.preparation || record.owner === 'host' && record.outcome === 'failed'
     && (record.preparation.step === 'parse' ? record.boundary === 'tool' && record.code === 'tool-failed'
-      : record.boundary === 'admission' && record.code === 'authority-denied')));
+      : record.boundary === 'admission' && (record.code === 'authority-denied' || record.code === 'platform-evidence-required'))));
 export type RuntimeEnvelope = z.infer<typeof runtimeSchema>;
 export type DiagnosticEvent = z.infer<typeof eventSchema>;
 export type DiagnosticBinding = z.infer<typeof bindingSchema>;

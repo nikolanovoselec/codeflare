@@ -9,7 +9,46 @@ import { runOperatorActivity } from '../../operators/orchestrator';
 import { parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
 import { captureError } from '../../operators/dispatcher-diagnostics-wire';
 import { setLogLevel } from '../../lib/logger';
+import * as access from '../../lib/access';
 import { pendingRecipient, within } from '../helpers/pending-recipient';
+
+describe('REQ-OPERATOR-047/063: unavailable authority projection', () => {
+  it.each(['entry', 'capability'] as const)(
+    '%s authority outage retains unavailable evidence and the existing refusal without effects', stage => fixture(async f => {
+      await start(f);
+      let unavailable = stage === 'entry';
+      const identity = vi.spyOn(access, 'observeOperatorAccessIdentity').mockImplementation(async human => unavailable
+        ? { status: 'unavailable' as const } : { status: 'current' as const, groups: human.groups ?? [] });
+      const body = JSON.stringify({ operationId: 'unavailable-authority', method: 'GET',
+        url: 'https://api.github.com/repos/another/service' });
+      const request = new Request('https://operator.internal/v1/dispatcher/source', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        // A loss of identity evidence while reading the body occurs after entry authorization.
+        body: stage === 'entry' ? body : new ReadableStream<Uint8Array>({ pull(controller) {
+          unavailable = true;
+          controller.enqueue(new TextEncoder().encode(body)); controller.close();
+        } }, { highWaterMark: 0 }),
+      });
+      try {
+        const response = await f.capability.fetch(request);
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED',
+          reason: stage === 'entry' ? 'execution-inactive' : 'authority-unverified', disposition: 'authority-denied' });
+        expect(f.sent).toEqual([]);
+        expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+        await f.drainBackground();
+      } finally { identity.mockRestore(); }
+      const summary = await diagnosticSummary(f);
+      expect(summary.diagnosis.code).toBe('platform-evidence-required');
+      expect(summary.health.gaps).not.toContain('recorder-unavailable');
+      const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+      const failures = records.filter(record => record.kind === 'event' && record.boundary === 'admission'
+        && record.outcome === 'failed');
+      expect(failures).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'platform-evidence-required',
+        ...(stage === 'capability' ? { preparation: expect.objectContaining({ step: 'capability' }) } : {}) })]));
+      expect(failures).not.toEqual(expect.arrayContaining([expect.objectContaining({ code: 'authority-denied' })]));
+    }, { normalHosting: true, repositoryOnly: true, loggingEnabled: true }));
+});
 
 // Legacy refusal assertions below preserve code/status compatibility and their related
 // effect/lifecycle outcomes; additive reason/disposition are asserted exactly here.

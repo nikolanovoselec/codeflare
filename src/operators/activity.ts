@@ -2984,27 +2984,35 @@ export class OperatorActivity extends Agent {
   }
 
   async #dispatcherDeliveryCurrent(generation: number, token: string | undefined, modelScope = false): Promise<boolean> {
-    if (!await this.dispatcherGenerationCurrent(generation)) return false;
+    return await this.#observeDispatcherDelivery(generation, token, modelScope) === 'current';
+  }
+
+  async #observeDispatcherDelivery(generation: number, token: string | undefined, modelScope = false): Promise<'current' | 'denied' | 'unavailable'> {
+    const initial = await this.#observeDispatcherGeneration(generation);
+    if (initial !== 'current') return initial;
     const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-    if (!this.#phaseTokenMatches(lease, token, true, modelScope)) return false;
+    if (!this.#phaseTokenMatches(lease, token, true, modelScope)) return 'denied';
     if (lease?.serial || lease?.hosting === 'normal') {
       try {
         const plan = await this.getRuntimePlan();
-        if (!plan) return false;
+        if (!plan) return 'denied';
         await authorizeDispatcherPlan(plan, this.#appEnv);
         if (lease.hosting === 'normal') await this.#normalDispatcherConnection(lease, plan);
       } catch (error) {
         if (error instanceof DispatcherAuthorityUnavailable) {
           this.#recordDiagnostic(generation, 'admission', 'failed', 'platform-evidence-required');
+          return 'unavailable';
         }
-        return false;
+        return 'denied';
       }
       // All serial runs retain original authority, not just prospective ones. External
       // authorization can race a new phase, cancellation or the original deadline.
-      return await this.dispatcherGenerationCurrent(generation)
-        && this.#phaseTokenMatches(await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE), token, true, modelScope);
+      const final = await this.#observeDispatcherGeneration(generation);
+      if (final !== 'current') return final;
+      return this.#phaseTokenMatches(await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE), token, true, modelScope)
+        ? 'current' : 'denied';
     }
-    return true;
+    return 'current';
   }
 
   async #scheduleDispatcherRecheck(lease: DispatcherLease, upToDate = true): Promise<void> {
@@ -3462,29 +3470,34 @@ export class OperatorActivity extends Agent {
 
   /** Parent-only local fence checked by the restricted binding before every SDK call and effect. */
   async dispatcherGenerationCurrent(generation: number): Promise<boolean> {
+    return await this.#observeDispatcherGeneration(generation) === 'current';
+  }
+
+  async #observeDispatcherGeneration(generation: number): Promise<'current' | 'denied' | 'unavailable'> {
     this.#resumeDispatcherOnEntry();
-    if (!Number.isSafeInteger(generation) || generation < 1) return false;
+    if (!Number.isSafeInteger(generation) || generation < 1) return 'denied';
     const [record, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
       this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
-    if (!this.#leaseMatches(record, lease, generation)) return false;
+    if (!this.#leaseMatches(record, lease, generation)) return 'denied';
     if (await this.ctx.storage.get<string>('prospective-admission')) {
       try {
         const plan = await this.getRuntimePlan();
-        if (!plan) return false;
+        if (!plan) return 'denied';
         await authorizeDispatcherPlan(plan, this.#appEnv);
       } catch (error) {
         if (error instanceof DispatcherAuthorityUnavailable) {
           this.#recordDiagnostic(generation, 'admission', 'failed', 'platform-evidence-required');
+          return 'unavailable';
         }
-        return false;
+        return 'denied';
       }
       // Authorization involves external services; cancellation can race it.
       const [latest, currentLease] = await Promise.all([
         this.ctx.storage.get<AdmissionState>('admission'), this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE),
       ]);
-      return this.#leaseMatches(latest, currentLease, generation);
+      return this.#leaseMatches(latest, currentLease, generation) ? 'current' : 'denied';
     }
-    return true;
+    return 'current';
   }
 
   async #boundedDispatcher<T>(lease: DispatcherLease, run: () => Promise<T>): Promise<T> {
@@ -4084,8 +4097,9 @@ export class OperatorActivity extends Agent {
       if (loggingEnabled) dispatcherLog.warn('Dispatcher operation rejected', { stage, resource, deadline: deadline(lease), status,
         ...(upstreamStatus === undefined ? {} : { upstreamStatus }) });
     };
-    if (!await this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope)) {
-      this.#recordDiagnostic(generation, 'admission', 'failed', 'authority-denied');
+    const authorityStatus = await this.#observeDispatcherDelivery(generation, deliveryToken, modelScope);
+    if (authorityStatus !== 'current') {
+      if (authorityStatus === 'denied') this.#recordDiagnostic(generation, 'admission', 'failed', 'authority-denied');
       rejected('authority', 'unparsed', await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE).catch(() => undefined), 403);
       return denied();
     }
