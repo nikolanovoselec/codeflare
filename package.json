@@ -46,16 +46,16 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.5.1",
     "@types/node": "^26.6.6",
-    "@vitest/coverage-istanbul": "5.0.5",
+    "@vitest/coverage-istanbul": "5.1.0",
     "agents": "0.33.0",
     "esbuild": "0.28.2",
     "fast-check": "^4.10.2",
-    "knip": "^6.43.0",
-    "oxlint": "^1.90.0",
-    "typebox": "1.4.3",
+    "knip": "^6.44.1",
+    "oxlint": "^1.91.0",
+    "typebox": "1.4.4",
     "typescript": "^7.0.2",
-    "vitest": "5.0.5",
-    "wrangler": "4.155.0",
+    "vitest": "5.1.0",
+    "wrangler": "4.157.0",
     "yaml": "2.9.1"
   }
 }
