@@ -220,7 +220,7 @@ describe('configured Renovate run settings', () => {
     await screen.findByRole('button', { name: 'Activate' });
     expect(state.installations[0]).toMatchObject({ enabled: false, revision: 5, configuration });
     expect(state.installations[1]).toEqual(before.installations[1]);
-    expect(state.operator).toEqual(before.operator);
+    expect(state.operator).toEqual({ ...before.operator, enabled: false });
     expect(state.releases).toEqual(before.releases);
     expect(state.grants).toEqual(before.grants);
     cleanup(); await open();

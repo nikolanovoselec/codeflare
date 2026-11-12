@@ -245,7 +245,7 @@ Non-SDK Dispatcher combined updates use originally admitted `driveResponseBytes`
 
 Cancel fences `cancel-requested`; interrupt fences unknown. Neither claims compute stopped. Cleanup must stop only owned compute, honestly retain pending/failed/unknown and forbid post-expiry uploads.
 
-The owner’s cancellation acknowledgement uses the activity-summary contract, not a detail payload. Repeating the same cancellation fence is idempotent. A never-driven cancellation can report stopped cleanup only from durable proof that no runtime was acquired; an absent lease alone is not proof. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @impl: src/operators/activity.ts::cancelDrive -->
+The owner’s cancellation acknowledgement uses the activity-summary contract, not a detail payload. Repeating a never-driven management Dispatcher cancellation without a resource profile and with the same durable proof is idempotent. A never-driven cancellation can report stopped cleanup only from durable proof that no runtime was acquired; an absent lease alone is not proof. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @impl: src/operators/activity.ts::cancelDrive -->
 
 <a id="managed-dispatcher-host"></a>
 <a id="req-operator-048-preserved-clauses"></a>
