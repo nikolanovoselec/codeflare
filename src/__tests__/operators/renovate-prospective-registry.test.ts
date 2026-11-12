@@ -659,9 +659,9 @@ describe('REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry', () => {
 
 
 describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
-  const activate = (registry: Prospective, user: 'a' | 'z' = 'a') => registry.activateProspectiveRenovate({ installationId: 'dispatcher-install',
+  const activate = (registry: Prospective, user: 'a' | 'z' = 'a', lifetimeSeconds = 3600) => registry.activateProspectiveRenovate({ installationId: 'dispatcher-install',
     scope: 'installation', bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
-    human: claims(`${user}@example.test`, 3600), accessJwt: `${user}-jwt`,
+    human: claims(`${user}@example.test`, lifetimeSeconds), accessJwt: `${user}-jwt`,
     repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } });
   it('zero sessions: explicit activation persists an alarm and admits only post-cutoff work; duplicate consent retains cutoff and identity', () => fixture(async ({ registry, restart, native, state }) => {
     state.sessions.clear();
@@ -755,6 +755,127 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       expect(await native.storage.getAlarm()).toBeNull(); expect([...bound]).toEqual([id]);
     } finally { clock.mockRestore(); }
   }));
+  it.each(['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'empty', 'candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'logger-throws', 'source-and-logger-throws'] as const)(
+    'REQ-OPERATOR-063/209: Registry alarm summary %s is private and does not change admission or saved six-hour cadence', fault => fixture(async ({ registry, native, environment, selection, state }) => {
+      (selection as { installation: { configurationJson: string } }).installation.configurationJson = JSON.stringify({ renovate: {
+        repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 21600 } });
+      if (fault === 'other-registration') {
+        const prior = await enroll(registry, 'a', undefined, undefined, 86400);
+        if (!prior.ok) throw Error('No prior activation');
+        await registry.reserveProspectiveRenovateActivity(pr(prior.registrationId, prior.activatedAt));
+      }
+      const first = await activate(registry, fault === 'other-registration' ? 'z' : 'a', 86400);
+      if (!first.ok) throw Error('No activation');
+      const target = pr(first.registrationId, first.activatedAt);
+      let original: Reservation | undefined;
+      if (fault === 'retained') original = await registry.reserveProspectiveRenovateActivity(target);
+      const admitted = new Set<string>();
+      environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
+        readProspectiveRenovateRetryProof: async () => null,
+        bindProspectiveRenovateAdmission: async () => { admitted.add(id); return true; },
+        // This intentionally incomplete plan only reaches the parent handoff; no SDK success is simulated.
+        getRuntimePlan: async () => fault === 'handoff-attempt' ? { activityId: id } : null,
+        getBrowserDetail: async () => ({ executionStatus: fault === 'handoff-attempt' ? 'queued' : 'unknown' }),
+        fenceRuntimeFailure: async () => false,
+      }) } as never;
+      const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
+        // Observation has already consumed its due time before source I/O.
+        const saved = await native.storage.get<{ nextObservationAt: number }>(`renovate-registration:${first.registrationId}`);
+        expect(saved?.nextObservationAt).toBe(Date.now() + 21600_000);
+        if (fault === 'unexpected-source' || fault === 'source-and-logger-throws') throw Error('secret-source-body https://private.test/raw');
+        if (fault === 'discovery-failure') return new Response('secret-source-body', { status: 503 });
+        return request.url.includes('/pulls?') ? Response.json(fault === 'empty' ? [] : [{
+          number: 1300, state: 'open', draft: false, created_at: target.createdAt,
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
+          base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } },
+        }]) : Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' });
+      } }) };
+      Object.defineProperty(native, 'exports', { configurable: true, value: fault === 'binding-unavailable' ? undefined : {
+        ...exports, OperatorRuntimeCapability: () => { throw Error('No runtime handle may be opened by this diagnostic fixture'); },
+      } });
+      const observer = new OperatorRegistry(native, environment);
+      vi.spyOn(observer, 'resolveManagementExecution').mockResolvedValue({ ok: true, value: selection } as never);
+      if (fault === 'reservation-denied') vi.spyOn(observer, 'reserveProspectiveRenovateActivity')
+        .mockResolvedValue({ ok: false, reason: 'stale-election' });
+      if (fault === 'stale-authority') {
+        const reserve = observer.reserveProspectiveRenovateActivity.bind(observer);
+        vi.spyOn(observer, 'reserveProspectiveRenovateActivity').mockImplementation(async input => {
+          const result = await reserve(input); state.identityFault = 'revoked'; return result;
+        });
+      }
+      if (fault === 'denied') state.identityFault = 'revoked';
+      if (fault === 'unavailable') state.identityFault = 'unavailable';
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+      const outputs: string[] = [];
+      setLogLevel('info');
+      const log = vi.spyOn(console, 'log').mockImplementation((value: string) => {
+        outputs.push(value); if (fault === 'logger-throws' || fault === 'source-and-logger-throws') throw Error('Logger unavailable');
+      });
+      try {
+        await expect(observer.alarm()).resolves.toBeUndefined();
+        const summaries = outputs.map(value => JSON.parse(value)).filter(entry => entry.message === 'Prospective Renovate observation');
+        expect(summaries).toHaveLength(1);
+        const data = summaries[0].data;
+        // Closed parent-owned summary contract: no target or authority payload fields.
+        expect(Object.keys(data).filter(key => key !== 'error').sort()).toEqual([
+          'context', 'observationDigest', 'outcome', 'stage', 'candidates', 'reservationDenied',
+          'retainedOtherRegistration', 'retainedExisting', 'handoffAttempts',
+        ].sort());
+        expect(data).toMatchObject({ context: 'registry-alarm', observationDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+          candidates: ['candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'logger-throws'].includes(fault) ? 1 : 0,
+          reservationDenied: fault === 'reservation-denied' ? 1 : 0,
+          retainedOtherRegistration: fault === 'other-registration' ? 1 : 0,
+          retainedExisting: fault === 'retained' ? 1 : 0, handoffAttempts: fault === 'handoff-attempt' ? 1 : 0 });
+        if (['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'source-and-logger-throws', 'stale-authority'].includes(fault)) {
+          expect(data.outcome).toBe(fault === 'denied' ? 'authority-denied' : fault === 'unavailable' ? 'authority-unavailable'
+            : fault === 'unexpected-source' || fault === 'source-and-logger-throws' ? 'discovery-failure' : fault);
+        }
+        for (const privateValue of ['acme/updates', 'owner-bucket', 'a@example.test', 'a-jwt', 'asession01',
+          first.registrationId, head, newerHead, 'https://private.test/raw', 'secret-source-body', ...admitted]) {
+          expect(JSON.stringify(summaries)).not.toContain(privateValue);
+        }
+        expect(admitted.size).toBe(['candidate', 'retained', 'handoff-attempt', 'logger-throws'].includes(fault) ? 1 : 0);
+        for (const id of admitted) expect(await registry.readProspectiveRenovateAdmission(id)).toMatchObject({
+          activityId: id, pullRequest: 1300, head, actor: { registrationId: first.registrationId },
+        });
+        if (original?.ok) expect(await registry.reserveProspectiveRenovateActivity({ ...target, activityId: 'no-replacement' })).toEqual(original);
+        expect(await registry.readProspectiveRenovateAdmission('no-replacement')).toBeNull();
+        expect(await native.storage.getAlarm()).toBe(fault === 'denied' ? null : Date.now() + 21600_000);
+        const before = [...outputs]; await observer.alarm(); expect(outputs).toEqual(before);
+      } finally { log.mockRestore(); setLogLevel('silent'); clock.mockRestore(); }
+    }));
+  it.each(['claim-lost', 'authority-throw'] as const)(
+    'REQ-OPERATOR-063/209: %s emits one bounded summary without replacing the original alarm outcome', fault => fixture(async ({ registry, native }) => {
+      const first = await activate(registry); if (!first.ok) throw Error('No activation');
+      const originalDue = await native.storage.getAlarm();
+      const originalError = Error('private authority failure');
+      const read = registry.observeProspectiveRenovateRegistration.bind(registry);
+      const observation = vi.spyOn(registry, 'observeProspectiveRenovateRegistration').mockImplementation(async id => {
+        if (fault === 'authority-throw') throw originalError;
+        const result = await read(id);
+        // A competing delivery already claimed this due observation.
+        const key = `renovate-registration:${id}`;
+        const saved = await native.storage.get<Record<string, unknown>>(key);
+        await native.storage.put(key, { ...saved, nextObservationAt: Date.now() + 900_000 });
+        return result;
+      });
+      const outputs: string[] = [];
+      setLogLevel('info');
+      const log = vi.spyOn(console, 'log').mockImplementation((value: string) => { outputs.push(value); throw Error('Logger unavailable'); });
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+      try {
+        if (fault === 'authority-throw') await expect(registry.alarm()).rejects.toBe(originalError);
+        else await expect(registry.alarm()).resolves.toBeUndefined();
+        const summaries = outputs.map(value => JSON.parse(value)).filter(entry => entry.message === 'Prospective Renovate observation');
+        expect(summaries).toHaveLength(1);
+        expect(summaries[0].data).toMatchObject({ context: 'registry-alarm',
+          outcome: fault === 'claim-lost' ? 'claim-lost' : 'observation-failure', candidates: 0, handoffAttempts: 0 });
+        expect(JSON.stringify(summaries)).not.toContain(originalError.message);
+        expect(JSON.stringify(summaries)).not.toContain(first.registrationId);
+        expect(await native.storage.getAlarm()).toBe(fault === 'authority-throw' ? originalDue : Date.now() + 900_000);
+        expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
+      } finally { observation.mockRestore(); log.mockRestore(); setLogLevel('silent'); clock.mockRestore(); }
+    }));
   const handoffFaults = ['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'lost-start-ack',
     'plan-read', 'plan-missing', 'drive-plan-read', 'drive-plan-missing', 'detail-read', 'detail-missing', 'binding', 'concurrent-drive', 'persistence-unavailable',
     'prepared-start', 'admitting-start'] as const;

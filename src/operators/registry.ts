@@ -26,7 +26,7 @@ import type { BoundaryActionBinding } from './boundary-action-trust';
 import { canInvokeOperator, observeOperatorAccessIdentity } from '../lib/access';
 import { listProspectiveRenovatePrs } from './renovate-prospective';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from './orchestrator';
-import { captureError } from './dispatcher-diagnostics-wire';
+import { captureError, hashDiagnostic } from './dispatcher-diagnostics-wire';
 import type { FailureObservation } from './dispatcher-diagnostics-store';
 import { D1SessionRepository } from '../lib/session-repository';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -220,6 +220,14 @@ export type ProspectiveRegistrationObservation =
 type ProspectiveAuthorityObservation =
   | { status: 'current'; authority: { human: VerifiedHumanAccessClaims; accessJwt: string } }
   | { status: 'unavailable' } | { status: 'denied' };
+interface ProspectiveObservationDiagnostic {
+  outcome: 'authority-denied' | 'authority-unavailable' | 'claim-lost' | 'binding-unavailable'
+    | 'discovery-failure' | 'observed' | 'stale-authority' | 'observation-failure';
+  stage: 'authority' | 'claim' | 'binding' | 'discovery' | 'reservation' | 'handoff';
+  candidates: number; reservationDenied: number; retainedOtherRegistration: number;
+  /** An existing reservation is not proof of a safe retry or a quarantined Activity. */
+  retainedExisting: number; handoffAttempts: number;
+}
 class ProspectiveDependencyUnavailable extends Error {}
 /** Only failures of dependency I/O, never malformed data or denied selections. */
 async function observeDependency<T>(read: () => Promise<T>): Promise<T> {
@@ -1920,21 +1928,45 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     for (const record of records.values()) {
       if (record.scope !== 'installation' || !record.nextObservationAt) continue;
       if (record.nextObservationAt > Date.now()) continue;
-      const observed = await this.observeProspectiveRenovateRegistration(record.registrationId);
-      if (observed.status === 'denied') {
-        await this.retireProspectiveObservation(record); continue;
+      const diagnostic: ProspectiveObservationDiagnostic = { outcome: 'observation-failure', stage: 'authority',
+        candidates: 0, reservationDenied: 0, retainedOtherRegistration: 0, retainedExisting: 0, handoffAttempts: 0 };
+      let failure: unknown;
+      try {
+        const observed = await this.observeProspectiveRenovateRegistration(record.registrationId);
+        if (observed.status === 'denied') {
+          diagnostic.outcome = 'authority-denied';
+          await this.retireProspectiveObservation(record); continue;
+        }
+        diagnostic.stage = 'claim';
+        // Advance before I/O: delivery retries cannot turn lost execution acknowledgements into replay.
+        const next = Math.min(Date.now() + record.repetitionIntervalSeconds * 1000, record.context.expiresAt * 1000);
+        const claimed = await this.ctx.storage.transaction(async tx => {
+          const latest = await tx.get<ProspectiveRegistration>(`renovate-registration:${record.registrationId}`);
+          if (latest?.revision !== record.revision || latest.nextObservationAt !== record.nextObservationAt) return false;
+          await tx.put(`renovate-registration:${record.registrationId}`, { ...latest, nextObservationAt: next });
+          return true;
+        });
+        if (!claimed || observed.status !== 'current') {
+          diagnostic.outcome = !claimed ? 'claim-lost' : 'authority-unavailable'; continue;
+        }
+        try { await this.observeProspectiveWork(observed.registration, diagnostic); }
+        catch (error) {
+          failure = error;
+          diagnostic.outcome = diagnostic.stage === 'discovery' ? 'discovery-failure' : 'observation-failure';
+          /* Incomplete observation supplies no work authority; retry only at the saved interval. */
+        }
+      } catch (error) {
+        failure = error; throw error;
+      } finally {
+        // Diagnostics cannot replace a response, exception or saved scheduling decision.
+        try {
+          createLogger('operator-registry').info('Prospective Renovate observation', {
+            context: 'registry-alarm', observationDigest: hashDiagnostic(JSON.stringify([
+              'registry-alarm:prospective-observation:v1', record.registrationId, record.revision, record.nextObservationAt,
+            ])), ...diagnostic, ...(failure === undefined ? {} : { error: captureError(failure) }),
+          });
+        } catch { /* Best-effort parent-owned metadata only. */ }
       }
-      // Advance before I/O: delivery retries cannot turn lost execution acknowledgements into replay.
-      const next = Math.min(Date.now() + record.repetitionIntervalSeconds * 1000, record.context.expiresAt * 1000);
-      const claimed = await this.ctx.storage.transaction(async tx => {
-        const latest = await tx.get<ProspectiveRegistration>(`renovate-registration:${record.registrationId}`);
-        if (latest?.revision !== record.revision || latest.nextObservationAt !== record.nextObservationAt) return false;
-        await tx.put(`renovate-registration:${record.registrationId}`, { ...latest, nextObservationAt: next });
-        return true;
-      });
-      if (!claimed || observed.status !== 'current') continue;
-      try { await this.observeProspectiveWork(observed.registration); }
-      catch { /* Incomplete observation supplies no work authority; retry only at the saved interval. */ }
     }
     await this.ctx.storage.transaction(async tx => {
       const remaining = await tx.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
@@ -1954,20 +1986,29 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     });
   }
 
-  private async observeProspectiveWork(initial: CurrentProspectiveRegistration): Promise<void> {
+  private async observeProspectiveWork(initial: CurrentProspectiveRegistration, diagnostic: ProspectiveObservationDiagnostic): Promise<void> {
     const app = this.env as Env;
     const exports = (this.ctx as unknown as { exports?: Record<string,
       (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
-    if (!exports || !app.OPERATOR_ACTIVITY) return;
+    diagnostic.stage = 'binding';
+    if (!exports || !app.OPERATOR_ACTIVITY) { diagnostic.outcome = 'binding-unavailable'; return; }
+    diagnostic.stage = 'discovery';
     const current = () => this.currentProspectiveRenovateRegistration(initial.registrationId);
     const retainedRetryTargets = await this.retainedProspectiveRenovateRetryTargets(initial.registrationId);
     const candidates = await listProspectiveRenovatePrs({ env: app, exports, registration: initial,
       retainedRetryTargets, current: async () => !!await current() });
+    diagnostic.candidates = candidates.length;
+    diagnostic.outcome = 'observed';
     for (const candidate of candidates) {
-      if (!await current()) return;
+      diagnostic.stage = 'reservation';
+      if (!await current()) { diagnostic.outcome = 'stale-authority'; return; }
+      const activityId = `scan-${crypto.randomUUID()}`;
       const reserved = await this.reserveProspectiveRenovateActivity({ ...candidate,
-        registrationId: initial.registrationId, activityId: `scan-${crypto.randomUUID()}` });
-      if (!reserved.ok || reserved.actor.registrationId !== initial.registrationId) continue;
+        registrationId: initial.registrationId, activityId });
+      if (!reserved.ok) { diagnostic.reservationDenied++; continue; }
+      if (reserved.actor.registrationId !== initial.registrationId) { diagnostic.retainedOtherRegistration++; continue; }
+      if (reserved.activityId !== activityId) diagnostic.retainedExisting++;
+      diagnostic.stage = 'handoff';
       const activity = app.OPERATOR_ACTIVITY.getByName(reserved.activityId);
       let stage: 'authority' | 'admission-binding' | 'plan' | 'preparation' | 'detail' | 'binding' | 'drive' = 'authority';
       const fenceHandoff = async (failure: FailureObservation) => {
@@ -1984,6 +2025,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         stage = 'authority';
         const observed = await this.observeProspectiveRenovateRegistration(initial.registrationId);
         if (observed.status === 'current') return observed.registration;
+        diagnostic.outcome = 'stale-authority';
         await fenceHandoff({ boundary: 'admission',
           code: observed.status === 'denied' ? 'authority-denied' : 'platform-evidence-required' });
         return null;
@@ -2026,6 +2068,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           stage = 'binding';
           const bindCapability = bindOperatorRuntimeCapability(this.ctx);
           stage = 'drive';
+          // Count the handoff attempt, not background SDK admission or completion.
+          diagnostic.handoffAttempts++;
           this.ctx.waitUntil(runOperatorActivity(reserved.activityId, app, bindCapability).then(
             // A null runtime plan is also a refused handoff. A begun drive makes this fence a no-op.
             () => fenceHandoff({ boundary: 'construction', code: 'startup-failed' }),
