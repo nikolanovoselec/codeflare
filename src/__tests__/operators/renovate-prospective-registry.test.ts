@@ -754,7 +754,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       expect(await native.storage.getAlarm()).toBeNull(); expect([...bound]).toEqual([id]);
     } finally { clock.mockRestore(); }
   }));
-  it('role restoration without new consent cannot elect a retired admin or strand the active admin’s normal Dispatcher work', () => fixture(async ({ native, environment, selection, state }) => {
+  const handoffFaults = ['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'lost-start-ack',
+    'plan-read', 'plan-missing', 'drive-plan-read', 'drive-plan-missing', 'detail-read', 'detail-missing', 'binding', 'concurrent-drive', 'persistence-unavailable',
+    'prepared-start', 'admitting-start'] as const;
+  const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none') => fixture(async ({ native, environment, selection, state }) => {
     // Reuse the normal installed-Worker wire fixture: real Registry/Activity/orchestrator,
     // controlled external App HTTP. This proves parent execution, not execution of Flue SDK code.
     const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
@@ -787,6 +790,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       Object.defineProperty(activityNative, 'waitUntil', { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } });
       let activity: OperatorActivity;
       let activityId: string | undefined;
+      let faultArmed = false;
+      let runtimeRead = false;
+      let queuedPlan: Awaited<ReturnType<OperatorActivity['getRuntimePlan']>>;
+      let queuedAdmission: Awaited<ReturnType<OperatorActivity['getAdmission']>>;
+      const sensitiveError = 'private-token=never-log-this; body=private-owner-payload';
+      const warnings = vi.spyOn(console, 'warn');
       environment.CONTAINER = { getByName: () => { throw Error('No user Host may be opened'); },
         idFromName: () => { throw Error('No user Host may be selected'); } } as never;
       environment.LOADER = { get: () => { throw Error('Normal Dispatcher must use its installed App'); } } as never;
@@ -796,7 +805,40 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         // Use the fixture's existing inOwnContext pattern for each real DO boundary.
         return new Proxy(activity, { get: (target, key) => {
           const value = Reflect.get(target, key);
-          return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => Reflect.apply(value, target, args)) : value;
+          return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => {
+            if (key === 'start' && fault === 'prepared-start') {
+              queuedAdmission = await target.getAdmission();
+              return { ok: false, reason: 'admission-uncertain' };
+            }
+            if (faultArmed) {
+              if (key === 'fenceRuntimeFailure' && fault === 'concurrent-drive') {
+                expect(await target.beginDrive()).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+              }
+              if (key === 'getRuntimePlan' && (fault === 'plan-read' || fault === 'drive-plan-read' && runtimeRead)
+                || key === 'getBrowserDetail' && fault === 'detail-read'
+                || key === 'fenceRuntimeFailure' && fault === 'persistence-unavailable') throw Error(sensitiveError);
+              if (key === 'getRuntimePlan' && (fault === 'plan-missing' || fault === 'drive-plan-missing' && runtimeRead)
+                || key === 'getBrowserDetail' && fault === 'detail-missing') return null;
+            }
+            const result = await Reflect.apply(value, target, args);
+            if (key === 'start' && fault === 'admitting-start') queuedAdmission = await target.getAdmission();
+            if (key === 'start' && result.ok && fault !== 'none') {
+              queuedPlan = await target.getRuntimePlan();
+              queuedAdmission = await target.getAdmission();
+              if (fault === 'authority-unavailable' || fault === 'lost-start-ack') state.identityFault = 'unavailable';
+              if (fault === 'authority-denied') state.identityFault = 'forbidden';
+              if (fault === 'binding' || fault === 'concurrent-drive' || fault === 'persistence-unavailable') {
+                Object.defineProperty(exports, 'OperatorRuntimeCapability', { configurable: true, value: undefined });
+              }
+              faultArmed = true;
+              if (fault === 'lost-start-ack') throw Error(sensitiveError);
+            }
+            if (key === 'getBrowserDetail' && faultArmed) {
+              runtimeRead = true;
+              if (fault === 'late-authority-unavailable') state.identityFault = 'unavailable';
+            }
+            return result;
+          }) : value;
         } });
       } } as never;
       const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?')
@@ -806,6 +848,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         : Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' }) }),
         OperatorRuntimeCapability: ({ props }: { props: Record<string, unknown> }) =>
           new OperatorRuntimeCapability({ props } as unknown as ExecutionContext, environment) };
+      const runtimeExport = exports.OperatorRuntimeCapability;
       Object.defineProperties(native, {
         exports: { configurable: true, value: exports },
         waitUntil: { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } },
@@ -813,8 +856,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       const owner = new OperatorRegistry(native, environment);
       vi.spyOn(owner, 'resolveManagementExecution').mockResolvedValue({ ok: true, value: selected });
       // Same Registry admission/deployment authority seams used by dispatcher-production.ts.
-      vi.spyOn(owner, 'admitManagement').mockImplementation(async input => ({ ok: true, value: {
-        ...input, admittedAt: Date.now(), selection: selected } }));
+      vi.spyOn(owner, 'admitManagement').mockImplementation(async input => fault === 'admitting-start'
+        ? { ok: false, reason: 'disabled' } : { ok: true, value: { ...input, admittedAt: Date.now(), selection: selected } });
       vi.spyOn(owner, 'getManagementBundle').mockResolvedValue(bytes);
       vi.spyOn(owner, 'getManagementDispatcherConnection').mockResolvedValue(connection);
       environment.OPERATOR_REGISTRY = { getByName: () => new Proxy(owner, { get: (target, key) => {
@@ -850,6 +893,80 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         clock.mockReturnValue(Date.now() + 900_000);
         await inRegistry(() => owner.alarm()); await drain();
         if (!activityId) throw Error('No Activity admitted by alarm');
+        if (fault !== 'none') {
+          faultArmed = false;
+          const retained = await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!));
+          const due = await inRegistry(() => native.storage.getAlarm());
+          if (fault === 'prepared-start' || fault === 'admitting-start') {
+            activity = new OperatorActivity(activityNative, environment);
+            await drain();
+            expect(await activity.getAdmission()).toEqual(queuedAdmission!);
+            expect(await activity.getAdmission()).toMatchObject({ phase: fault === 'prepared-start' ? 'prepared' : 'admitting', receipt: null });
+            expect(await activity.fenceRuntimeFailure(undefined, { boundary: 'construction', code: 'startup-failed' },
+              { onlyBeforeDrive: true })).toEqual({ ok: false, reason: 'not-admitted' });
+            await inRegistry(() => owner.alarm()); await drain();
+            expect(await activity.getAdmission()).toEqual(queuedAdmission!);
+            expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
+            expect(await inRegistry(() => native.storage.getAlarm())).toBe(due);
+            expect(transport.networkRequests).toEqual([]);
+            return;
+          }
+          expect(due).toBe(Math.min(Date.now() + 900_000, queuedPlan!.deadline));
+          // Reopen the real owner: browser status and diagnostics must come from durable state.
+          activity = new OperatorActivity(activityNative, environment);
+          await drain();
+          expect(await activity.getAdmission()).toEqual(queuedAdmission!);
+          // Immutable runtime-plan contract: fencing cannot replace pins, owner or the original authority window.
+          expect(await activity.getRuntimePlan()).toEqual(queuedPlan!);
+          expect(await activity.getBrowserDetail()).toMatchObject({ activityId,
+            executionStatus: fault === 'concurrent-drive' ? 'running' : fault === 'persistence-unavailable' ? 'queued' : 'unknown',
+            checkpoint: null, result: null });
+          const ownerKey = await operatorOwnerKey(claims('z@example.test'));
+          const diagnostics = await activity.getDispatcherDiagnostics(ownerKey);
+          expect(diagnostics).toMatchObject({ parent: { driveGeneration: fault === 'concurrent-drive' ? 1
+            : fault === 'persistence-unavailable' ? null : 1, lease: null } });
+          if (fault !== 'concurrent-drive' && fault !== 'persistence-unavailable') {
+            const code = fault === 'authority-denied' ? 'authority-denied'
+              : ['authority-unavailable', 'late-authority-unavailable', 'lost-start-ack'].includes(fault)
+                ? 'platform-evidence-required' : 'startup-failed';
+            const summary = await activity.getDispatcherDiagnosticsV2(ownerKey, { view: 'summary' });
+            expect(summary).toMatchObject({ status: 200, value: { fence: { code, uncertain: true },
+              diagnosis: { executionStatus: 'unknown', code } } });
+            const history = await activity.getDispatcherDiagnosticsV2(ownerKey, { view: 'history' });
+            expect(history).toMatchObject({ status: 200, value: { records: expect.arrayContaining([
+              expect.objectContaining({ owner: 'host', outcome: 'unknown', code, origin: 'state-transition' }),
+            ]) } });
+            expect(JSON.stringify(history)).not.toContain(sensitiveError);
+            expect(JSON.stringify(history)).not.toContain('never-log-this');
+          }
+          if (fault === 'persistence-unavailable') {
+            const handoffWarnings = warnings.mock.calls.map(([line]) => {
+              try { return JSON.parse(String(line)); } catch { return null; }
+            }).filter(entry => entry?.message === 'Prospective Renovate handoff fence unavailable');
+            expect(handoffWarnings).toEqual([expect.objectContaining({ data: {
+              stage: 'binding', category: 'fence-unavailable' } })]);
+            expect(JSON.stringify(handoffWarnings)).not.toContain('never-log-this');
+          }
+          expect(transport.admissions.size).toBe(0);
+          expect(transport.networkRequests).toEqual([]);
+          expect(retained).toMatchObject({ activityId, activatedAt: registration.activatedAt, createdAt,
+            actor: { registrationId: registration.registrationId, email: 'z@example.test', sessionId: '', sessionGeneration: 0 } });
+          await inRegistry(() => owner.alarm()); await drain();
+          expect(await inRegistry(() => native.storage.getAlarm())).toBe(due);
+          if (fault !== 'persistence-unavailable') {
+            state.identityFault = 'valid';
+            Object.defineProperty(exports, 'OperatorRuntimeCapability', { configurable: true, value: runtimeExport });
+            clock.mockReturnValue(due! + 1);
+            await inRegistry(() => owner.alarm()); await drain();
+            expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: fault === 'concurrent-drive' ? 'running' : 'unknown' });
+            expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
+            expect(await inRegistry(() => owner.listOwnedActivityPage(ownerKey, null))).toMatchObject({
+              items: [expect.objectContaining({ activityId })],
+            });
+            expect(transport.networkRequests).toEqual([]);
+          }
+          return;
+        }
         expect(await activity.getAdmission()).toMatchObject({ phase: 'queued', receipt: { activityId } });
         expect(await activity.getBrowserDetail()).toMatchObject({ activityId, executionStatus: 'running', result: null });
         const plan = await activity.getRuntimePlan();
@@ -883,10 +1000,14 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
       } finally {
         await drain(); clock.mockRestore(); globalThis.fetch = identityFetch;
-        routing.mockRestore(); groups.mockRestore(); bucket.mockRestore();
+        routing.mockRestore(); groups.mockRestore(); bucket.mockRestore(); warnings.mockRestore();
       }
     });
-  }));
+  });
+  it('role restoration without new consent cannot elect a retired admin or strand the active admin’s normal Dispatcher work',
+    () => normalAlarmHandoff('none'));
+  it.each(handoffFaults)('REQ-OPERATOR-061 AC3/5/7: post-admission %s retains the original Activity and pre-drive disposition',
+    fault => normalAlarmHandoff(fault));
   it.each(['expiry', 'role', 'invoker', 'installation', 'revision', 'configuration', 'release', 'controls', 'identity'] as const)(
     '%s fences session-independent callbacks and new admissions', fault => fixture(async ({ registry, restart, selection, state }) => {
       state.sessions.clear(); const first = await activate(registry); if (!first.ok) throw Error('No activation');

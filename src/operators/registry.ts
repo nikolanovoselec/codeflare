@@ -26,6 +26,8 @@ import type { BoundaryActionBinding } from './boundary-action-trust';
 import { canInvokeOperator, observeOperatorAccessIdentity } from '../lib/access';
 import { listProspectiveRenovatePrs } from './renovate-prospective';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from './orchestrator';
+import { captureError } from './dispatcher-diagnostics-wire';
+import type { FailureObservation } from './dispatcher-diagnostics-store';
 import { D1SessionRepository } from '../lib/session-repository';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { createOperatorExecutionContext, openOperatorExecutionAccess,
@@ -1966,32 +1968,76 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       const reserved = await this.reserveProspectiveRenovateActivity({ ...candidate,
         registrationId: initial.registrationId, activityId: `scan-${crypto.randomUUID()}` });
       if (!reserved.ok || reserved.actor.registrationId !== initial.registrationId) continue;
+      const activity = app.OPERATOR_ACTIVITY.getByName(reserved.activityId);
+      let stage: 'authority' | 'admission-binding' | 'plan' | 'preparation' | 'detail' | 'binding' | 'drive' = 'authority';
+      const fenceHandoff = async (failure: FailureObservation) => {
+        try {
+          // The Activity atomically refuses this fence once any drive has begun, including a concurrent winner.
+          await activity.fenceRuntimeFailure(undefined, failure, { onlyBeforeDrive: true });
+        } catch {
+          createLogger('operator-registry').warn('Prospective Renovate handoff fence unavailable', {
+            stage, category: 'fence-unavailable',
+          });
+        }
+      };
+      const handoffCurrent = async () => {
+        stage = 'authority';
+        const observed = await this.observeProspectiveRenovateRegistration(initial.registrationId);
+        if (observed.status === 'current') return observed.registration;
+        await fenceHandoff({ boundary: 'admission',
+          code: observed.status === 'denied' ? 'authority-denied' : 'platform-evidence-required' });
+        return null;
+      };
       try {
-        const winner = await current(); if (!winner) return;
-        const activity = app.OPERATOR_ACTIVITY.getByName(reserved.activityId);
-        if (!await activity.bindProspectiveRenovateAdmission(reserved.activityId)) continue;
+        const winner = await handoffCurrent(); if (!winner) return;
+        stage = 'admission-binding';
+        if (!await activity.bindProspectiveRenovateAdmission(reserved.activityId)) {
+          await fenceHandoff({ boundary: 'admission', code: 'admission-denied' }); continue;
+        }
+        stage = 'plan';
         let plan = await activity.getRuntimePlan();
         // Unknown/prepared outcomes belong to the original Activity; never prepare a replacement.
         if (!plan && !await activity.getBrowserDetail()) {
+          stage = 'preparation';
           const prepared = await prepareOperatorActivity({ installationId: initial.installationId,
             invocation: { repository: winner.repository } }, { human: winner.human, accessJwt: winner.accessJwt }, app,
           { activityId: reserved.activityId, expectedManagement: { controlsRevision: winner.controlsRevision,
             installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
             releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
-          if (!await current()) return;
+          if (!await handoffCurrent()) return;
           try { await activity.start(prepared.startCapability); } catch { /* Read the same Activity below. */ }
+          stage = 'plan';
           plan = await activity.getRuntimePlan();
         }
-        if (!plan || plan.activityId !== reserved.activityId || !await current()) continue;
+        if (!plan || plan.activityId !== reserved.activityId) {
+          await fenceHandoff({ boundary: 'construction', code: 'startup-failed' }); continue;
+        }
+        if (!await handoffCurrent()) continue;
+        stage = 'detail';
         let detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         if (detail?.executionStatus === 'waiting') {
           await activity.collectBrowserResult();
           detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         }
-        if (detail?.executionStatus === 'queued' && await current()) {
-          this.ctx.waitUntil(runOperatorActivity(reserved.activityId, app, bindOperatorRuntimeCapability(this.ctx)).catch(() => {}));
+        if (!detail) {
+          await fenceHandoff({ boundary: 'construction', code: 'startup-failed' }); continue;
         }
-      } catch { /* Retained admission and Activity own uncertain effects and retries. */ }
+        if (detail.executionStatus === 'queued' && await handoffCurrent()) {
+          stage = 'binding';
+          const bindCapability = bindOperatorRuntimeCapability(this.ctx);
+          stage = 'drive';
+          this.ctx.waitUntil(runOperatorActivity(reserved.activityId, app, bindCapability).then(
+            // A null runtime plan is also a refused handoff. A begun drive makes this fence a no-op.
+            () => fenceHandoff({ boundary: 'construction', code: 'startup-failed' }),
+            error => fenceHandoff({ boundary: 'construction', code: 'startup-failed',
+              error: captureError(error), origin: 'catching' }),
+          ));
+        }
+      } catch (error) {
+        await fenceHandoff({ boundary: stage === 'authority' ? 'admission' : 'construction',
+          code: stage === 'authority' ? 'platform-evidence-required' : 'startup-failed',
+          error: captureError(error), origin: 'catching' });
+      }
     }
   }
 

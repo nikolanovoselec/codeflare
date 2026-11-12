@@ -1816,10 +1816,12 @@ export class OperatorActivity extends Agent {
     return result;
   }
 
-  /** Fence a queued request whose one attached runtime attempt failed before loading code. */
-  async fenceRuntimeFailure(expectedGeneration?: number, failure?: FailureObservation): Promise<OperatorDriveResult> {
-    this.#resumeDispatcherOnEntry();
-    const result = await this.fenceDrive('unknown', expectedGeneration, true, failure ?? { boundary: 'artifact', code: 'artifact-unavailable' });
+  /** Fence runtime failure; parent handoff failures may retire only an admission with no drive. */
+  async fenceRuntimeFailure(expectedGeneration?: number, failure?: FailureObservation,
+    options?: { onlyBeforeDrive: true }): Promise<OperatorDriveResult> {
+    if (!options?.onlyBeforeDrive) this.#resumeDispatcherOnEntry();
+    const result = await this.fenceDrive('unknown', expectedGeneration, true,
+      failure ?? { boundary: 'artifact', code: 'artifact-unavailable' }, undefined, options?.onlyBeforeDrive);
     if (result.ok) {
       await this.#releaseDispatcherSdk();
       await this.publishBrowserSummary();
@@ -1828,12 +1830,15 @@ export class OperatorActivity extends Agent {
   }
 
   private async fenceDrive(status: 'cancel-requested' | 'unknown', generation?: number,
-    allowWaiting = false, failure?: FailureObservation, normalObservation?: DispatcherLease): Promise<OperatorDriveResult> {
+    allowWaiting = false, failure?: FailureObservation, normalObservation?: DispatcherLease,
+    onlyBeforeDrive = false): Promise<OperatorDriveResult> {
     let originalGeneration: number | undefined;
     let reason: FenceReason | undefined;
     const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
+      // Share the transaction with beginDrive: a delayed parent refusal cannot interrupt its winner.
+      if (onlyBeforeDrive && record.drive) return { ok: false, reason: 'stale-drive' };
       if (generation !== undefined && (record.drive?.generation !== generation
         || (record.drive.status !== 'running' && !(allowWaiting && record.drive.status === 'waiting')))) {
         return { ok: false, reason: 'stale-drive' };
