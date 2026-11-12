@@ -185,6 +185,7 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
     // Reuse the shared fixture's external identity/configuration behavior on the
     // original exports used by the application. Real invoker checks stay intact.
     spy(vi.spyOn(access, 'resolveOperatorGroupIdentity')).mockImplementation(fixtureAccess.resolveOperatorGroupIdentity);
+    spy(vi.spyOn(access, 'observeOperatorAccessIdentity')).mockImplementation(fixtureAccess.observeOperatorAccessIdentity);
     spy(vi.spyOn(access, 'operatorAccessSessionCurrent')).mockImplementation(fixtureAccess.operatorAccessSessionCurrent);
     spy(vi.spyOn(access, 'resolveBucketName')).mockImplementation(fixtureAccess.resolveBucketName);
     spy(vi.spyOn(access, 'resolveSessionAccessGroup')).mockImplementation(fixtureAccess.resolveSessionAccessGroup);

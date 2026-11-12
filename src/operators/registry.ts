@@ -1851,17 +1851,16 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       || !app.USAGE_DB || !app.KV) return { status: 'denied' };
     try {
       const authority = await openOperatorExecutionAccess(registration.context, this.env);
-      const [session, rawUser, selected, identity] = await Promise.all([
+      const [session, rawUser, selected] = await Promise.all([
         registration.scope === 'installation' ? Promise.resolve(null)
           : observeDependency(() => new D1SessionRepository(app.USAGE_DB!).getSession(registration.bucket, registration.sessionId)),
         observeDependency(() => app.KV!.get(`user:${authority.human.email.toLowerCase()}`)),
         observeDependency(() => this.resolveManagementExecution(registration.installationId)),
-        observeOperatorAccessIdentity(authority.human, authority.accessJwt),
       ]);
       const user: unknown = rawUser ? JSON.parse(rawUser) : null;
       if (!user || typeof user !== 'object' || (user as { role?: unknown }).role !== 'admin'
         || registration.scope !== 'installation' && (session?.lifecycleState !== 'running' || session.lifecycleGeneration !== registration.sessionGeneration)
-        || identity.status === 'denied' || !selected.ok || selected.value.operator.profile !== 'dispatcher'
+        || !selected.ok || selected.value.operator.profile !== 'dispatcher'
         || selected.value.controlsRevision !== registration.controlsRevision
         || selected.value.installation.revision !== registration.installationRevision
         || selected.value.operator.revision !== registration.operatorRevision
@@ -1874,7 +1873,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         || configured.repetitionIntervalSeconds !== registration.repetitionIntervalSeconds
         || !renovateRepositoryIdentity.safeParse({ repository: registration.repository,
           repositoryId: registration.repositoryId, baseBranch: registration.baseBranch }).success) return { status: 'denied' };
-      if (identity.status !== 'current') return identity;
+      // Read live identity once, after the initial local checks; retain post-I/O fences.
       const refreshed = await observeOperatorAccessIdentity(authority.human, authority.accessJwt);
       if (refreshed.status !== 'current') return refreshed;
       const human = { ...authority.human, groups: refreshed.groups };
@@ -1887,7 +1886,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         || final.value.operator.revision !== registration.operatorRevision
         || final.value.release.id !== registration.releaseId
         || final.value.release.bundleDigest !== registration.bundleDigest) return { status: 'denied' };
-      return canInvokeOperator(human, final.value.operator)
+      return expiresAt * 1000 > Date.now() && canInvokeOperator(human, final.value.operator)
         ? { status: 'current', authority: { human, accessJwt: authority.accessJwt } } : { status: 'denied' };
     } catch (error) {
       return { status: expiresAt * 1000 > Date.now()

@@ -7,7 +7,7 @@ import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { connectionSecret, createNormalDispatcherTransport, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
 import { sealOperatorSecret } from '../../operators/protected-secrets';
-import { OperatorRuntimeCapability, authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
+import { DispatcherAuthorityUnavailable, OperatorRuntimeCapability, authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
 import { createMockKV } from '../helpers/mock-kv';
 import { setLogLevel } from '../../lib/logger';
 import { captureError } from '../../operators/dispatcher-diagnostics-wire';
@@ -47,14 +47,14 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
   native: DurableObjectState; environment: Env; selection: object; proofs: Map<string, unknown>;
   state: { sessions: Map<string, { generation: number; status: string }>;
     roles: Map<string, string>; revoked: Set<string>; enabled: boolean;
-    identityFault: 'valid' | 'revoked' | 'forbidden' | 'unavailable' | 'malformed' | 'transport-error' } }) => Promise<void>) {
+    identityFault: 'valid' | 'revoked' | 'forbidden' | 'unavailable' | 'malformed' | 'transport-error' | 'timeout' } }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.getByName(`prospective-registry-${crypto.randomUUID()}`), async (_instance, native) => {
     const state = { sessions: new Map([['asession01', { generation: 3, status: 'running' }],
       ['zsession01', { generation: 4, status: 'running' }]]),
       roles: new Map([['a@example.test', 'admin'], ['z@example.test', 'admin']]),
       revoked: new Set<string>(), enabled: true,
-      identityFault: 'valid' as 'valid' | 'revoked' | 'forbidden' | 'unavailable' | 'malformed' | 'transport-error' };
+      identityFault: 'valid' as 'valid' | 'revoked' | 'forbidden' | 'unavailable' | 'malformed' | 'transport-error' | 'timeout' };
     const kv = createMockKV();
     const database = { prepare: () => ({ bind: (...args: unknown[]) => ({ first: async () => {
       const session = state.sessions.get(String(args[1]));
@@ -96,6 +96,7 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
       if (state.revoked.has(token) || state.identityFault === 'revoked') return new Response(null, { status: 401 });
       if (state.identityFault === 'forbidden') return new Response(null, { status: 403 });
       if (state.identityFault === 'unavailable') return new Response(null, { status: 503 });
+      if (state.identityFault === 'timeout') throw new DOMException('Timed out', 'TimeoutError');
       if (state.identityFault === 'transport-error') throw new Error('Identity transport unavailable');
       return Response.json({ id: `${token.slice(0, 1)}@example.test`,
         email: `${token.slice(0, 1)}@example.test`,
@@ -115,7 +116,89 @@ function pr(registrationId: string, activatedAt: string, patch: Record<string, u
     createdAt: new Date(Date.parse(activatedAt) + 1).toISOString(), activityId: 'activity-1', ...patch };
 }
 
+async function dispatcherPlan(registry: Prospective, environment: Env, selection: object,
+  patch: { human?: Partial<ReturnType<typeof claims>>; accessJwt?: string } = {}) {
+  const activation = await enroll(registry, 'a');
+  if (!activation.ok) throw Error('No activation');
+  const observed = await registry.observeProspectiveRenovateRegistration(activation.registrationId);
+  if (observed.status !== 'current') throw Error('No registration');
+  const reservation = await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt));
+  if (!reservation.ok) throw Error('No admission');
+  const human = { ...observed.registration.human, ...patch.human };
+  const executionContext = await createOperatorExecutionContext({ activityId: reservation.activityId,
+    operatorId: 'dispatcher', artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64),
+    human, accessJwt: patch.accessJwt ?? observed.registration.accessJwt }, environment);
+  const plan = { activityId: reservation.activityId, prospectiveAdmissionId: reservation.activityId,
+    deadline: human.expiresAt * 1000, invocationJson: JSON.stringify({ repository: 'acme/updates' }),
+    receipt: { selection }, executionContext };
+  const host = { ...environment, OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env;
+  return { plan: plan as never, host };
+}
+
 describe('REQ-OPERATOR-061: durable prospective activation and admission', () => {
+  it('REQ-OPERATOR-045/047/061: finite live transport grants exactly one prospective decision, not cached authority', () => fixture(async ({ registry, environment, selection }) => {
+    const { plan, host } = await dispatcherPlan(registry, environment, selection);
+    const responses = [Response.json({ id: 'a@example.test', email: 'a@example.test' })];
+    const fetcher = globalThis.fetch;
+    globalThis.fetch = async () => responses.shift() ?? new Response(null, { status: 503 });
+    try {
+      expect((await authorizeDispatcherPlan(plan, host)).admittedTarget).toMatchObject({ pullRequest: 1300, headSha: head });
+      await expect(authorizeDispatcherPlan(plan, host)).rejects.toBeInstanceOf(DispatcherAuthorityUnavailable);
+    } finally { globalThis.fetch = fetcher; }
+  }));
+
+  it.each(['subject', 'issuer', 'email', 'audiences', 'expiresAt', 'accessJwt'] as const)(
+    'REQ-OPERATOR-045/061: a current registration cannot authorize a different execution %s', field => fixture(async ({ registry, environment, selection }) => {
+      const patch = field === 'accessJwt' ? { accessJwt: 'different-live-token' } : { human: {
+        [field]: field === 'audiences' ? ['foreign-audience'] : field === 'expiresAt'
+          ? Math.floor(Date.now() / 1000) + 200 : field === 'issuer'
+            ? 'https://foreign.cloudflareaccess.com' : 'foreign@example.test',
+      } };
+      const { plan, host } = await dispatcherPlan(registry, environment, selection, patch);
+      await expect(authorizeDispatcherPlan(plan, host)).rejects.toThrow();
+    }));
+
+  it.each(['unavailable', 'transport-error', 'timeout', 'revoked', 'malformed'] as const)(
+    'REQ-OPERATOR-045/047: prospective %s preserves unavailable versus denied', fault => fixture(async ({ registry, environment, selection, state }) => {
+      const { plan, host } = await dispatcherPlan(registry, environment, selection);
+      state.identityFault = fault;
+      if (fault === 'unavailable' || fault === 'transport-error' || fault === 'timeout') {
+        await expect(authorizeDispatcherPlan(plan, host)).rejects.toBeInstanceOf(DispatcherAuthorityUnavailable);
+      } else {
+        await expect(authorizeDispatcherPlan(plan, host)).rejects.not.toBeInstanceOf(DispatcherAuthorityUnavailable);
+      }
+    }));
+
+  it('REQ-OPERATOR-047/061: revocation during local reads is observed before granting authority', () => fixture(async ({ registry, environment, selection, state }) => {
+    const { plan, host } = await dispatcherPlan(registry, environment, selection);
+    const get = environment.KV.get.bind(environment.KV);
+    const read = vi.spyOn(environment.KV, 'get').mockImplementation(async (...args: Parameters<typeof get>) => {
+      const value = await get(...args);
+      state.revoked.add('a-jwt');
+      return value;
+    });
+    try { await expect(authorizeDispatcherPlan(plan, host)).rejects.toThrow(); }
+    finally { read.mockRestore(); }
+  }));
+
+  it.each(['role', 'revision', 'expiry', 'group-only'] as const)(
+    'REQ-OPERATOR-047/061: %s changes during live verification cannot grant authority', fault => fixture(async ({ registry, environment, selection, state }) => {
+      const { plan, host } = await dispatcherPlan(registry, environment, selection);
+      const selected = selection as ManagementExecutionSelection;
+      const fetcher = globalThis.fetch;
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+      globalThis.fetch = async (...args) => {
+        const response = await fetcher(...args);
+        if (fault === 'role') state.roles.set('a@example.test', 'user');
+        if (fault === 'revision') selected.installation.revision++;
+        if (fault === 'expiry') clock.mockReturnValue(Date.now() + 600_000);
+        if (fault === 'group-only') selected.operator.invokers = { users: [], groups: [{ issuer: claims('a@example.test').issuer, id: 'cached-group' }] };
+        return response;
+      };
+      try { await expect(authorizeDispatcherPlan(plan, host)).rejects.toThrow(); }
+      finally { globalThis.fetch = fetcher; clock.mockRestore(); }
+    }));
+
   it.each([
     ['unavailable', 'unavailable'], ['transport-error', 'unavailable'],
     ['revoked', 'denied'], ['forbidden', 'denied'], ['malformed', 'denied'],
@@ -304,7 +387,9 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
     if (!activation.ok) throw Error('Activation unavailable');
     const reservation = await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt));
     if (!reservation.ok) throw Error('Admission unavailable');
-    const human = claims('a@example.test');
+    const current = await registry.observeProspectiveRenovateRegistration(activation.registrationId);
+    if (current.status !== 'current') throw Error('Registration unavailable');
+    const human = current.registration.human;
     const context = await createOperatorExecutionContext({ activityId: reservation.activityId,
       operatorId: 'dispatcher', artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64),
       human, accessJwt: 'a-jwt' }, environment);
@@ -883,7 +968,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
       } finally { observation.mockRestore(); log.mockRestore(); setLogLevel('silent'); clock.mockRestore(); }
     }));
-  const handoffFaults = ['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'lost-start-ack',
+  const handoffFaults = ['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'lost-start-ack', 'admission-unavailable', 'profile-unavailable', 'profile-revoked',
     'plan-read', 'plan-missing', 'drive-plan-read', 'drive-plan-missing', 'detail-read', 'detail-missing', 'binding', 'concurrent-drive', 'persistence-unavailable',
     'prepared-start', 'admitting-start'] as const;
   const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none') => fixture(async ({ native, environment, selection, state }) => {
@@ -989,7 +1074,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       // Same Registry admission/deployment authority seams used by dispatcher-production.ts.
       vi.spyOn(owner, 'admitManagement').mockImplementation(async input => fault === 'admitting-start'
         ? { ok: false, reason: 'disabled' } : { ok: true, value: { ...input, admittedAt: Date.now(), selection: selected } });
-      vi.spyOn(owner, 'getManagementBundle').mockResolvedValue(bytes);
+      vi.spyOn(owner, 'getManagementBundle').mockImplementation(async () => {
+        if (fault === 'admission-unavailable') state.identityFault = 'unavailable';
+        return bytes;
+      });
       vi.spyOn(owner, 'getManagementDispatcherConnection').mockResolvedValue(connection);
       environment.OPERATOR_REGISTRY = { getByName: () => new Proxy(owner, { get: (target, key) => {
         const value = Reflect.get(target, key);
@@ -1003,7 +1091,13 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       globalThis.fetch = (input, init) => {
         const url = input instanceof Request ? input.url : String(input);
         return new URL(url).origin === normalDeployment.controlOrigin
-          ? transport.fetcher(input, init) : identityFetch(input, init);
+          ? transport.fetcher(input, init).then(response => {
+            if (new URL(url).pathname === '/control/profile') {
+              if (fault === 'profile-unavailable') state.identityFault = 'unavailable';
+              if (fault === 'profile-revoked') state.identityFault = 'revoked';
+            }
+            return response;
+          }) : identityFetch(input, init);
       };
       const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
       let createdAt = '';
@@ -1024,6 +1118,23 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         clock.mockReturnValue(Date.now() + 900_000);
         await inRegistry(() => owner.alarm()); await drain();
         if (!activityId) throw Error('No Activity admitted by alarm');
+        if (['admission-unavailable', 'profile-unavailable', 'profile-revoked'].includes(fault)) {
+          const ownerKey = await operatorOwnerKey(claims('z@example.test'));
+          const code = fault === 'profile-revoked' ? 'authority-denied' : 'platform-evidence-required';
+          expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+          expect(await activity.getDispatcherDiagnosticsV2(ownerKey, { view: 'summary' })).toMatchObject({
+            status: 200, value: { diagnosis: { code } },
+          });
+          expect(transport.admissions.size).toBe(0);
+          expect(transport.networkRequests.filter(request => new URL(request.url).pathname !== '/control/profile')).toEqual([]);
+          if (fault === 'admission-unavailable') expect(transport.networkRequests).toEqual([]);
+          const retained = await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!));
+          state.identityFault = 'valid';
+          await inRegistry(() => owner.alarm()); await drain();
+          expect(transport.admissions.size).toBe(0);
+          expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
+          return;
+        }
         if (fault !== 'none') {
           faultArmed = false;
           const retained = await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!));

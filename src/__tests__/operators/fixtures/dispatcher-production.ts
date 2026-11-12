@@ -47,6 +47,8 @@ let callerReasoning = 'off';
 export let nativeProfileFiles = new Map<string, unknown>();
 vi.mock('../../../lib/access', async original => ({ ...await original<typeof import('../../../lib/access')>(),
   resolveOperatorGroupIdentity: async (human: unknown) => human,
+  observeOperatorAccessIdentity: async (human: { groups?: string[] }) => callerSessionCurrent
+    ? { status: 'current' as const, groups: human.groups ?? [] } : { status: 'denied' as const },
   resolveBucketName: async () => 'owner-bucket',
   resolveSessionAccessGroup: async () => [],
   operatorAccessSessionCurrent: async () => callerSessionCurrent,
@@ -632,6 +634,8 @@ export async function fixture(test: (f: {
         requestedId === activityId ? activity.getBrowserSummary(ownerKey) : null,
       readProspectiveRenovateAdmission: async () => structuredClone(currentProof),
       currentProspectiveRenovateRegistration: async () => structuredClone(currentRegistration),
+      observeProspectiveRenovateRegistration: async () => currentRegistration && callerSessionCurrent
+        ? { status: 'current', registration: structuredClone(currentRegistration) } : { status: 'denied' },
     };
     // Historical Host completion stand-in retains its original profile/digest wire.
     // Current normal discovery uses the separate installed-Worker profile wrapper above.

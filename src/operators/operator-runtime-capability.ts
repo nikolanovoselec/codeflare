@@ -4,7 +4,7 @@ import { inferenceDiagnostic, type InferenceDiagnosticContext } from '../lib/inf
 import { interceptedGithubHosts } from '../github-interceptor';
 import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
-  resolveOperatorGroupIdentity, canInvokeOperator, operatorAccessSessionCurrent } from '../lib/access';
+  observeOperatorAccessIdentity, canInvokeOperator } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
 import { sourceResponseBytes } from './dispatcher-source-limits';
 import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
@@ -222,6 +222,11 @@ export async function readDispatcherBody(message: Request | Response, signal?: A
   } finally { signal?.removeEventListener('abort', abort); void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
+/** Local closed failure: absence of current evidence is not observed revocation. */
+export class DispatcherAuthorityUnavailable extends Error {
+  constructor() { super('Dispatcher authority unavailable'); }
+}
+
 /** Current management authority is re-opened for each effect; receipt pins are never refreshed. */
 export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: Env) {
   if (!isManagementReceipt(plan.receipt) || plan.receipt.selection.operator.profile !== 'dispatcher'
@@ -234,8 +239,7 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
     || selected.value.release.bundleDigest !== pinned.release.bundleDigest
     || selected.value.operator.profile !== 'dispatcher') throw new Error('Dispatcher installation changed');
   const authority = await openOperatorExecutionAccess(plan.executionContext, env);
-  const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
-  if (!canInvokeOperator(human, selected.value.operator)) throw new Error('Dispatcher invoker denied');
+  let human = authority.human;
   const parent = z.strictObject({ repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
     pullRequest: z.number().safe().int().positive().optional() }).parse(JSON.parse(plan.invocationJson));
   // No resource resolver is introduced: only the direct read/inference profile is supported.
@@ -272,7 +276,11 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
       || JSON.stringify([...proof.actor.audiences].sort()) !== JSON.stringify([...human.audiences].sort())) {
       throw new Error('Prospective admission changed');
     }
-    const selectedActor = await registry.currentProspectiveRenovateRegistration(proof.actor.registrationId);
+    // This trusted observation belongs only to this decision, never to the plan or a cache.
+    const observed = await registry.observeProspectiveRenovateRegistration(proof.actor.registrationId);
+    if (human.expiresAt * 1000 <= Date.now() || plan.deadline <= Date.now()) throw new Error('Dispatcher authority denied');
+    if (observed.status === 'unavailable') throw new DispatcherAuthorityUnavailable();
+    const selectedActor = observed.status === 'current' ? observed.registration : null;
     if (!selectedActor || selectedActor.registrationId !== proof.actor.registrationId
       || selectedActor.installationId !== proof.installationId || selectedActor.activatedAt !== proof.activatedAt
       || (repositoryOnly && (selectedActor.repository !== proof.repository || selectedActor.repositoryId !== proof.repositoryId
@@ -284,13 +292,25 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
       || selectedActor.human.subject !== human.subject || selectedActor.human.issuer !== human.issuer
       || selectedActor.human.email.toLowerCase() !== human.email.toLowerCase()
       || JSON.stringify([...selectedActor.human.audiences].sort()) !== JSON.stringify([...human.audiences].sort())
-      || !await operatorAccessSessionCurrent(human, authority.accessJwt)) {
-      throw new Error('Prospective actor expired');
+      || selectedActor.human.expiresAt !== human.expiresAt
+      || selectedActor.human.issuedAt !== human.issuedAt
+      || selectedActor.accessJwt !== authority.accessJwt
+      || human.expiresAt * 1000 <= Date.now()) {
+      throw new Error('Prospective actor changed');
     }
+    human = { ...human, groups: selectedActor.human.groups ?? [] };
     if (repositoryOnly) admittedTarget = { repository: parent.repository, repositoryId: proof.repositoryId,
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
       createdAfter: proof.activatedAt, baseBranch: proof.baseBranch };
+  } else {
+    const observed = await observeOperatorAccessIdentity(human, authority.accessJwt);
+    if (human.expiresAt * 1000 <= Date.now() || plan.deadline <= Date.now()) throw new Error('Dispatcher authority denied');
+    if (observed.status === 'unavailable') throw new DispatcherAuthorityUnavailable();
+    if (observed.status !== 'current') throw new Error('Dispatcher authority denied');
+    human = { ...human, groups: observed.groups };
   }
+  if (human.expiresAt * 1000 <= Date.now() || plan.deadline <= Date.now()
+    || !canInvokeOperator(human, selected.value.operator)) throw new Error('Dispatcher invoker denied');
   return { authority: { ...authority, human }, parent, policy: pinned.installation.policy, admittedTarget,
     inferencePolicies: [pinned.installation.policy, pinned.operator.policy,
       selected.value.installation.policy, selected.value.operator.policy] };
@@ -320,7 +340,9 @@ export async function prepareDispatcherNative(input: { plan: OperatorRuntimePlan
     const routes = await loadEnterpriseRouteConfig(env, groups);
     const personal = { piDefaultSource: routes.piDefaultSource, allowPersonalPiProviders: routes.allowPersonalPiProviders };
     if (!selection && !input.selection && personal.piDefaultSource !== 'pi-native') return { native: false as const };
-    if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Dispatcher native session expired');
+    const identity = await observeOperatorAccessIdentity(authority.human, authority.accessJwt);
+    if (identity.status === 'unavailable') throw new DispatcherAuthorityUnavailable();
+    if (identity.status !== 'current') throw new Error('Dispatcher native session expired');
     if (!personal.allowPersonalPiProviders) throw new Error('Dispatcher native permission denied');
     const bucket = await resolveBucketName(env, authority.human.email);
     if (ownerBucket !== undefined && ownerBucket !== bucket) throw new Error('Dispatcher native owner changed');
@@ -377,7 +399,9 @@ export async function createDispatcherOperation(input: {
     const sourceCurrent = async () => {
       if (operation.signal?.aborted) throw new DispatcherRefusal('execution-inactive', 'Dispatcher caller cancelled');
       await current();
-      if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
+      const identity = await observeOperatorAccessIdentity(authority.human, authority.accessJwt);
+      if (identity.status === 'unavailable') throw new DispatcherAuthorityUnavailable();
+      if (identity.status !== 'current') {
         throw new DispatcherRefusal('authority-unverified', 'Dispatcher caller session expired');
       }
     };

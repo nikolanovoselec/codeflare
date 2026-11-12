@@ -34,7 +34,7 @@ import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatche
 import { classifyDispatcherInference, inferenceAttemptKey, inferenceRetryDelay,
   type DispatcherInferenceAttempt, type DispatcherInferenceChain, type DispatcherInferenceResponse } from './dispatcher-inference-recovery';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
-import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
+import { DispatcherAuthorityUnavailable, authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, prepareDispatcherNative, parseRetainedDispatcherSource, type DispatcherAdmittedTarget,
   type DispatcherInferenceCountObservation, type DispatcherBodyOverflowObservation } from './operator-runtime-capability';
 import { z } from 'zod';
@@ -2087,7 +2087,7 @@ export class OperatorActivity extends Agent {
       const metadata = captureError(error);
       const family: Boundary = boundary === 'artifact' ? 'artifact' : boundary === 'loader' ? 'construction'
         : boundary === 'scheduling' ? 'scheduling' : ['admission', 'cursor', 'commit'].includes(boundary) ? 'submission' : 'admission';
-      const code: ReasonCode = family === 'artifact' ? (error instanceof Error && error.message === 'Dispatcher artifact unavailable'
+      const code: ReasonCode = error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : family === 'artifact' ? (error instanceof Error && error.message === 'Dispatcher artifact unavailable'
         ? 'artifact-unavailable' : 'artifact-mismatch') : family === 'construction' ? 'startup-failed'
           : family === 'submission' ? 'submission-failed' : family === 'scheduling' ? 'unclassified' : 'authority-denied';
       // Before a lease commits, fenceDrive initializes the ledger before recording
@@ -2410,7 +2410,7 @@ export class OperatorActivity extends Agent {
     } catch (error) {
       if (trace) try {
         emitRaw(trace, 'dispatcher-callback-failure', () => error);
-        this.#recordDiagnostic(generation, 'delivery', 'failed', 'authority-denied', undefined,
+        this.#recordDiagnostic(generation, 'delivery', 'failed', error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : 'authority-denied', undefined,
           { ...(deliveryToken ? { deliveryDigest: hashDiagnostic(deliveryToken) } : {}),
             ...(submissionId ? { submissionDigest: hashDiagnostic(submissionId) } : {}) }, 'host', undefined,
           { ...captureError(error), transportStatus: 403, transportReason: 'execution-inactive', transportDisposition: 'authority-denied' });
@@ -2863,7 +2863,7 @@ export class OperatorActivity extends Agent {
       }
       const journal = error instanceof DispatcherJournalUnaccounted ? error.detail : undefined;
       const fenced = await this.fenceDrive('unknown', lease.generation, false,
-        { boundary: 'settlement', code: journal ? 'journal-unaccounted' : 'settlement-failed',
+        { boundary: 'settlement', code: error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : journal ? 'journal-unaccounted' : 'settlement-failed',
           error: { ...captureError(error), ...(journal ? { publicCode: 'journal-unaccounted' as const, journal } : {}) },
           ...(journal ? { origin: 'originating' as const, correlation: {
             ...(lease.receipt ? { submissionDigest: hashDiagnostic(lease.receipt.submissionId), rootDigest: hashDiagnostic(lease.receipt.uid) } : {}),
@@ -2993,7 +2993,12 @@ export class OperatorActivity extends Agent {
         if (!plan) return false;
         await authorizeDispatcherPlan(plan, this.#appEnv);
         if (lease.hosting === 'normal') await this.#normalDispatcherConnection(lease, plan);
-      } catch { return false; }
+      } catch (error) {
+        if (error instanceof DispatcherAuthorityUnavailable) {
+          this.#recordDiagnostic(generation, 'admission', 'failed', 'platform-evidence-required');
+        }
+        return false;
+      }
       // All serial runs retain original authority, not just prospective ones. External
       // authorization can race a new phase, cancellation or the original deadline.
       return await this.dispatcherGenerationCurrent(generation)
@@ -3467,7 +3472,12 @@ export class OperatorActivity extends Agent {
         const plan = await this.getRuntimePlan();
         if (!plan) return false;
         await authorizeDispatcherPlan(plan, this.#appEnv);
-      } catch { return false; }
+      } catch (error) {
+        if (error instanceof DispatcherAuthorityUnavailable) {
+          this.#recordDiagnostic(generation, 'admission', 'failed', 'platform-evidence-required');
+        }
+        return false;
+      }
       // Authorization involves external services; cancellation can race it.
       const [latest, currentLease] = await Promise.all([
         this.ctx.storage.get<AdmissionState>('admission'), this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE),
@@ -4249,7 +4259,7 @@ export class OperatorActivity extends Agent {
         const metadata: ErrorMetadata = { ...captureError(error), transportStatus: 403,
           transportReason: refusal.reason, transportDisposition: refusal.disposition };
         this.#recordDiagnostic(generation, preparationStep === 'parse' ? 'tool' : 'admission', 'failed',
-          preparationStep === 'parse' ? 'tool-failed' : 'authority-denied', undefined,
+          preparationStep === 'parse' ? 'tool-failed' : error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : 'authority-denied', undefined,
           { ...preparationCorrelation, ...(trace?.requestDigest ? { requestDigest: trace.requestDigest } : {}) },
           'host', undefined, metadata, undefined, bodyOverflow ? 'originating' : 'catching',
           loggingEnabled ? { step: preparationStep, failureClass, route: preparationRoute, ...bodyOverflow } : undefined);
@@ -4433,7 +4443,7 @@ export class OperatorActivity extends Agent {
       if (!local && ((!genericMutation && resource !== 'comment' && resource !== 'merge')
         || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope))) await this.interruptDrive(generation,
           { boundary: stage === 'authority' ? 'admission' : resource === 'inference' ? 'model' : 'effect',
-            code: stage === 'authority' ? 'authority-denied' : resource === 'inference' ? 'provider-failed' : 'effect-unknown', error: captureError(error) });
+            code: error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : stage === 'authority' ? 'authority-denied' : resource === 'inference' ? 'provider-failed' : 'effect-unknown', error: captureError(error) });
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource, failureClass: stage === 'authority' ? 'authority' : stage === 'commit' ? 'commit' : upstreamStatus !== undefined ? 'upstream-status' : bodyReading && error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit' : bodyReading ? 'body-read' : 'unknown', elapsedMs: performance.now() - began });
       rejected(stage, resource, lease, 409, upstreamStatus);
       return dispatcherRefusal(genericMutation || resource === 'comment' || resource === 'merge' ? 'effect-uncertain'
@@ -4635,6 +4645,7 @@ export class OperatorActivity extends Agent {
           emitRaw(attemptTrace, 'inference-attempt-response', () => response);
           classification = classifyDispatcherInference(response, (operation.body as { input: { stream?: boolean } }).input.stream !== false);
         } catch (error) {
+          if (error instanceof DispatcherAuthorityUnavailable) throw error;
           emitRaw(attemptTrace, 'inference-attempt-failure', () => error);
           this.#recordDiagnostic(generation, 'model', 'failed', 'provider-failed', error, attemptCorrelation, 'host', undefined, undefined,
             [{ operationDigest: hashDiagnostic(operation.operationId), effect: 'none', status: 'unavailable' }]);
@@ -4676,7 +4687,7 @@ export class OperatorActivity extends Agent {
       }
     } catch (error) {
       this.#recordDiagnostic(generation, failureClass === 'authority' ? 'admission' : 'recovery', 'failed',
-        failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed', error, { requestDigest });
+        error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed', error, { requestDigest });
       // A replaced owner's late failure cannot fence its successor. Persistence ambiguity never authorizes I/O.
       let owns = false;
       try {
@@ -4701,7 +4712,7 @@ export class OperatorActivity extends Agent {
           if (!local) {
             const fenced = await this.interruptDrive(generation, { boundary: failureClass === 'authority' ? 'admission'
               : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'recovery' : 'model',
-              code: failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed' });
+              code: error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed' });
             if (fenced.ok && terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED') {
               exhaustionReason = journal.count >= operationLimit ? 'operation-limit' : 'execution-inactive';
             }
