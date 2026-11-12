@@ -10,6 +10,7 @@ import { sealOperatorSecret } from '../../operators/protected-secrets';
 import { OperatorRuntimeCapability, authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
 import { createMockKV } from '../helpers/mock-kv';
 import { setLogLevel } from '../../lib/logger';
+import { captureError } from '../../operators/dispatcher-diagnostics-wire';
 import { Hono } from 'hono';
 import * as access from '../../lib/access';
 import activityRoutes from '../../routes/operator-activities';
@@ -755,7 +756,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       expect(await native.storage.getAlarm()).toBeNull(); expect([...bound]).toEqual([id]);
     } finally { clock.mockRestore(); }
   }));
-  it.each(['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'empty', 'candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'logger-throws', 'source-and-logger-throws'] as const)(
+  it.each(['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'empty', 'candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'handoff-failure', 'logger-throws', 'source-and-logger-throws'] as const)(
     'REQ-OPERATOR-063/209: Registry alarm summary %s is private and does not change admission or saved six-hour cadence', fault => fixture(async ({ registry, native, environment, selection, state }) => {
       (selection as { installation: { configurationJson: string } }).installation.configurationJson = JSON.stringify({ renovate: {
         repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 21600 } });
@@ -770,11 +771,15 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       let original: Reservation | undefined;
       if (fault === 'retained') original = await registry.reserveProspectiveRenovateActivity(target);
       const admitted = new Set<string>();
+      const handoffError = Error('secret-handoff-body https://private.test/handoff');
       environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
         readProspectiveRenovateRetryProof: async () => null,
         bindProspectiveRenovateAdmission: async () => { admitted.add(id); return true; },
         // This intentionally incomplete plan only reaches the parent handoff; no SDK success is simulated.
-        getRuntimePlan: async () => fault === 'handoff-attempt' ? { activityId: id } : null,
+        getRuntimePlan: async () => {
+          if (fault === 'handoff-failure') throw handoffError;
+          return fault === 'handoff-attempt' ? { activityId: id } : null;
+        },
         getBrowserDetail: async () => ({ executionStatus: fault === 'handoff-attempt' ? 'queued' : 'unknown' }),
         fenceRuntimeFailure: async () => false,
       }) } as never;
@@ -822,19 +827,21 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           'retainedOtherRegistration', 'retainedExisting', 'handoffAttempts',
         ].sort());
         expect(data).toMatchObject({ context: 'registry-alarm', observationDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
-          candidates: ['candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'logger-throws'].includes(fault) ? 1 : 0,
+          candidates: ['candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'handoff-failure', 'logger-throws'].includes(fault) ? 1 : 0,
           reservationDenied: fault === 'reservation-denied' ? 1 : 0,
           retainedOtherRegistration: fault === 'other-registration' ? 1 : 0,
           retainedExisting: fault === 'retained' ? 1 : 0, handoffAttempts: fault === 'handoff-attempt' ? 1 : 0 });
-        if (['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'source-and-logger-throws', 'stale-authority'].includes(fault)) {
+        if (['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'source-and-logger-throws', 'stale-authority', 'handoff-failure'].includes(fault)) {
           expect(data.outcome).toBe(fault === 'denied' ? 'authority-denied' : fault === 'unavailable' ? 'authority-unavailable'
             : fault === 'unexpected-source' || fault === 'source-and-logger-throws' ? 'discovery-failure' : fault);
         }
+        if (fault === 'handoff-failure') expect(data.error).toEqual(captureError(handoffError));
         for (const privateValue of ['acme/updates', 'owner-bucket', 'a@example.test', 'a-jwt', 'asession01',
-          first.registrationId, head, newerHead, 'https://private.test/raw', 'secret-source-body', ...admitted]) {
+          first.registrationId, head, newerHead, 'https://private.test/raw', 'secret-source-body',
+          'secret-handoff-body', 'https://private.test/handoff', ...admitted]) {
           expect(JSON.stringify(summaries)).not.toContain(privateValue);
         }
-        expect(admitted.size).toBe(['candidate', 'retained', 'handoff-attempt', 'logger-throws'].includes(fault) ? 1 : 0);
+        expect(admitted.size).toBe(['candidate', 'retained', 'handoff-attempt', 'handoff-failure', 'logger-throws'].includes(fault) ? 1 : 0);
         for (const id of admitted) expect(await registry.readProspectiveRenovateAdmission(id)).toMatchObject({
           activityId: id, pullRequest: 1300, head, actor: { registrationId: first.registrationId },
         });

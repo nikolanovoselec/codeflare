@@ -222,11 +222,12 @@ type ProspectiveAuthorityObservation =
   | { status: 'unavailable' } | { status: 'denied' };
 interface ProspectiveObservationDiagnostic {
   outcome: 'authority-denied' | 'authority-unavailable' | 'claim-lost' | 'binding-unavailable'
-    | 'discovery-failure' | 'observed' | 'stale-authority' | 'observation-failure';
+    | 'discovery-failure' | 'observed' | 'stale-authority' | 'observation-failure' | 'handoff-failure';
   stage: 'authority' | 'claim' | 'binding' | 'discovery' | 'reservation' | 'handoff';
   candidates: number; reservationDenied: number; retainedOtherRegistration: number;
   /** An existing reservation is not proof of a safe retry or a quarantined Activity. */
   retainedExisting: number; handoffAttempts: number;
+  error?: ReturnType<typeof captureError>;
 }
 class ProspectiveDependencyUnavailable extends Error {}
 /** Only failures of dependency I/O, never malformed data or denied selections. */
@@ -1952,7 +1953,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         try { await this.observeProspectiveWork(observed.registration, diagnostic); }
         catch (error) {
           failure = error;
-          diagnostic.outcome = diagnostic.stage === 'discovery' ? 'discovery-failure' : 'observation-failure';
+          // The callee updates this stage across its awaits; retain its declared union here.
+          diagnostic.outcome = (diagnostic.stage as ProspectiveObservationDiagnostic['stage']) === 'discovery'
+            ? 'discovery-failure' : 'observation-failure';
           /* Incomplete observation supplies no work authority; retry only at the saved interval. */
         }
       } catch (error) {
@@ -2078,9 +2081,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           ));
         }
       } catch (error) {
+        const captured = captureError(error);
+        diagnostic.outcome = 'handoff-failure';
+        diagnostic.error ??= captured;
         await fenceHandoff({ boundary: stage === 'authority' ? 'admission' : 'construction',
           code: stage === 'authority' ? 'platform-evidence-required' : 'startup-failed',
-          error: captureError(error), origin: 'catching' });
+          error: captured, origin: 'catching' });
       }
     }
   }
