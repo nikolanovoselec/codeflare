@@ -9,6 +9,7 @@ import { connectionSecret, createNormalDispatcherTransport, normalDeployment, no
 import { sealOperatorSecret } from '../../operators/protected-secrets';
 import { OperatorRuntimeCapability, authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
 import { createMockKV } from '../helpers/mock-kv';
+import { setLogLevel } from '../../lib/logger';
 import { Hono } from 'hono';
 import * as access from '../../lib/access';
 import activityRoutes from '../../routes/operator-activities';
@@ -796,6 +797,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       let queuedAdmission: Awaited<ReturnType<OperatorActivity['getAdmission']>>;
       const sensitiveError = 'private-token=never-log-this; body=private-owner-payload';
       const warnings = vi.spyOn(console, 'warn');
+      if (fault === 'persistence-unavailable') setLogLevel('warn');
       environment.CONTAINER = { getByName: () => { throw Error('No user Host may be opened'); },
         idFromName: () => { throw Error('No user Host may be selected'); } } as never;
       environment.LOADER = { get: () => { throw Error('Normal Dispatcher must use its installed App'); } } as never;
@@ -822,7 +824,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             }
             const result = await Reflect.apply(value, target, args);
             if (key === 'start' && fault === 'admitting-start') queuedAdmission = await target.getAdmission();
-            if (key === 'start' && result.ok && fault !== 'none') {
+            if (key === 'start' && result !== null && typeof result === 'object'
+              && 'ok' in result && result.ok === true && fault !== 'none') {
               queuedPlan = await target.getRuntimePlan();
               queuedAdmission = await target.getAdmission();
               if (fault === 'authority-unavailable' || fault === 'lost-start-ack') state.identityFault = 'unavailable';
@@ -999,6 +1002,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           .toMatchObject({ human: { email: 'a@example.test' } });
         expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
       } finally {
+        if (fault === 'persistence-unavailable') setLogLevel('silent');
         await drain(); clock.mockRestore(); globalThis.fetch = identityFetch;
         routing.mockRestore(); groups.mockRestore(); bucket.mockRestore(); warnings.mockRestore();
       }
