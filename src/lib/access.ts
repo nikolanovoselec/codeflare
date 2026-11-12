@@ -227,10 +227,26 @@ export async function observeOperatorAccessIdentity(human: VerifiedHumanAccessCl
   if (human.expiresAt * 1000 <= Date.now()) return denied('identity', 'expired');
   let failure: 'transport' | 'response' = 'transport';
   try {
+    const signal = AbortSignal.timeout(5000);
     const response = await fetch(`${human.issuer}/cdn-cgi/access/get-identity`, {
       method: 'GET', headers: { Cookie: `CF_Authorization=${accessJwt}` },
-      redirect: 'manual', signal: AbortSignal.timeout(5000),
+      redirect: 'manual', signal,
     });
+    if (response.status === 503) {
+      let classification: 'cloudflare-1019' | 'cloudflare-1042' | 'unclassified' = 'unclassified';
+      try {
+        const bytes = await readBoundedResponse(response, 8192, 'Access identity', signal);
+        const body = new TextDecoder().decode(bytes);
+        // Public codes: https://developers.cloudflare.com/workers/observability/errors/#error-pages-generated-by-workers
+        // Deliberately exact plain-code forms only; never search JSON/HTML or retain body data.
+        if (body === 'error code: 1019') classification = 'cloudflare-1019';
+        else if (body === 'error code: 1042') classification = 'cloudflare-1042';
+      } catch { /* Inspection failure cannot replace the observed HTTP 503. */ }
+      try {
+        logger.warn('Operator Access identity unavailable', { stage: 'identity', reason: 'http', status: 503, classification });
+      } catch { /* Logging is best-effort and cannot change availability. */ }
+      return { status: 'unavailable' };
+    }
     if (!response.ok) {
       denied('identity', 'http', response.status);
       return { status: [408, 429, 500, 502, 503, 504].includes(response.status) ? 'unavailable' : 'denied' };
