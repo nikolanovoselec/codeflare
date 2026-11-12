@@ -172,7 +172,10 @@ RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.12.0
     test -z "$(find /out -iname '*.vsix' -print -quit)" && \
     DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
       /out/resources/native-binary/claude --version | grep -F "${CLAUDE_VSCODE_VERSION}" && \
-    rm -rf /tmp/anthropic.claude-code.vsix /tmp/anthropic-claude
+    rm -rf /tmp/anthropic.claude-code.vsix /tmp/anthropic-claude && \
+    find /out -type d -exec chmod 0555 {} + && \
+    find /out -type f -perm /111 -exec chmod 0555 {} + && \
+    find /out -type f ! -perm /111 -exec chmod 0444 {} +
 
 # ---- Assemble immutable agent inventories once, before the runtime image ----
 FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-agent-inventories
@@ -187,7 +190,8 @@ RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions
     test -f /out/openvscode/extensions/claude/anthropic.claude-code/extension.js && \
     test -x /out/openvscode/extensions/claude/anthropic.claude-code/resources/native-binary/claude && \
     test -z "$(find /out/openvscode/extensions/none -mindepth 1 -print -quit)" && \
-    test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)"
+    test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)" && \
+    rm -rf /out/openvscode/extensions/claude
 
 # ---- Stage 2: Runtime ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9
@@ -536,9 +540,9 @@ RUN cd /opt/codeflare/oxlint && \
 # npm ci already installs the locked production tree for the full agent selection.
 # For reduced selections, remove omitted agent roots without re-resolving the
 # already integrity-checked tree; npm prune fails on the Pi-only image.
-# Copy the immutable IDE inventory in this same install layer so byte-identical
-# Claude CLI/extension executables can share storage without changing either path.
-RUN --mount=from=openvscode-agent-inventories,source=/out/openvscode,target=/codeflare-openvscode,readonly \
+# Only the pinned official Claude payload belongs in this dependency layer;
+# source-dependent sidebar assembly stays late. Sharing preserves both paths.
+RUN --mount=from=openvscode-official-claude-extension,source=/out,target=/codeflare-claude,readonly \
     --mount=type=bind,source=scripts/ci/share-claude-native.mjs,target=/codeflare-share-claude.mjs,readonly \
     cd /opt/codeflare/npm-tools && \
     CODEFLARE_CODING_AGENTS="$(node /opt/codeflare/scripts/coding-agent-selection.mjs resolve "$CODEFLARE_CODING_AGENTS")" && \
@@ -578,7 +582,8 @@ RUN --mount=from=openvscode-agent-inventories,source=/out/openvscode,target=/cod
     chrome-devtools-mcp --help >/dev/null && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
-    cp -a /codeflare-openvscode /opt/codeflare/openvscode && \
+    mkdir -p /opt/codeflare/openvscode/extensions/claude && \
+    cp -a /codeflare-claude /opt/codeflare/openvscode/extensions/claude/anthropic.claude-code && \
     if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" claude-code; then \
       node /codeflare-share-claude.mjs /usr/local/bin/claude \
         /opt/codeflare/openvscode/extensions/claude/anthropic.claude-code/resources/native-binary/claude; \
@@ -964,8 +969,9 @@ COPY --from=openvscode-agent-sidebar-builder /out/welcome /opt/code-server/lib/v
 RUN test -f /opt/code-server/lib/vscode/extensions/codeflare-welcome/dist/welcome-extension.cjs && \
     chmod -R a-w /opt/code-server/lib/vscode/extensions/codeflare-welcome
 
-# The immutable Pi/Claude/unsupported-agent inventories were copied once in the
-# shared-tool install layer, including byte-verified native executable sharing.
+# Merge only the source-dependent sidebar, Pi/empty inventories and pin metadata.
+# The Claude payload was installed/shared earlier and is absent from this output.
+COPY --from=openvscode-agent-inventories /out/openvscode /opt/codeflare/openvscode
 
 # Official Claude sessions use an isolated config projection. Managed settings
 # and hooks remain root-owned; terminal history and runtime state are never

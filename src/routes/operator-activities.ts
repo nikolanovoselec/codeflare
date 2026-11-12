@@ -170,6 +170,8 @@ app.get('/installations', async c => {
     const releases = await registry.getManagementReleases(operator.id);
     const release = releases.find(value => value.id === installation.releaseId && value.operatorId === operator.id);
     const approved = release?.approved === true;
+    // Advisory metadata may describe a disabled saved installation. Execution and
+    // activation still require resolveManagementExecution at their own boundaries.
     const selected = approved ? await registry.resolveManagementConfiguration(installation.id) : null;
     const selection = selected?.ok && selected.value.operator.id === operator.id
       && selected.value.operator.revision === operator.revision && selected.value.controlsRevision === controls.revision

@@ -758,10 +758,6 @@ function configured(extra: Record<string, unknown> = {}) {
   server.configuration.renovate.automaticRuns = true;
   activeSession.set({ ...runningSession });
 }
-async function refreshInstalled() {
-  await fireEvent.click(screen.getByRole('button', { name: 'Refresh installations' }));
-  await screen.findByRole('article', { name: 'Updates' });
-}
 describe('Task94 installed role help and independent controls', () => {
   it.each([
     { profile: 'dispatcher', name: 'Conductor', badge: 'D', role: 'Dispatcher' },

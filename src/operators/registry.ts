@@ -1835,7 +1835,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   private async observeProspectiveAuthority(registration: ProspectiveRegistration): Promise<ProspectiveAuthorityObservation> {
     const app = this.env as Env;
     const expiresAt = registration.context?.expiresAt;
-    if (!Number.isSafeInteger(expiresAt) || expiresAt * 1000 <= Date.now()
+    if (registration.scope === 'installation' && !registration.nextObservationAt
+      || !Number.isSafeInteger(expiresAt) || expiresAt * 1000 <= Date.now()
       || !app.USAGE_DB || !app.KV) return { status: 'denied' };
     try {
       const authority = await openOperatorExecutionAccess(registration.context, this.env);
@@ -1984,7 +1985,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         if (!plan || plan.activityId !== reserved.activityId || !await current()) continue;
         let detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         if (detail?.executionStatus === 'waiting') {
-          await activity.collectBrowserResult(); detail = await activity.getBrowserDetail() as typeof detail;
+          await activity.collectBrowserResult();
+          detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         }
         if (detail?.executionStatus === 'queued' && await current()) {
           this.ctx.waitUntil(runOperatorActivity(reserved.activityId, app, bindOperatorRuntimeCapability(this.ctx)).catch(() => {}));
@@ -2196,8 +2198,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (stillActivated?.activatedAt !== activation.activatedAt || stillActivated.repositoryId !== activation.repositoryId
         || stillActivated.repository !== activation.repository || stillActivated.baseBranch !== activation.baseBranch
         || stillActivated.installationId !== activation.installationId
-        || currentElection !== election || stillRegistered?.revision !== winner.record.revision
-        || !await this.prospectiveSelectionCurrent(winner.record)) return { ok: false, reason: 'stale-election' } as const;
+        || currentElection !== election || !stillRegistered || stillRegistered.revision !== winner.record.revision
+        || stillRegistered.scope === 'installation' && !stillRegistered.nextObservationAt
+        || !await this.prospectiveSelectionCurrent(stillRegistered)) return { ok: false, reason: 'stale-election' } as const;
       const admission: ProspectiveAdmission = { activityId: input.activityId, admittedAt: Date.now(),
         attempt: (existing?.attempt ?? (existing ? 1 : 0)) + 1,
         ...(existing ? { previousActivityId: existing.activityId } : {}),

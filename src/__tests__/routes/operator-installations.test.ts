@@ -240,8 +240,14 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
   it('REQ-OPERATOR-061 AC1: a disabled approved installation retains advisory eligibility for explicit automatic activation, never implicit scheduling', async () => {
     const f = fixture(); identity.role = 'admin'; f.installed.enabled = false;
     f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true } });
-    expect(await (await f.request()).json()).toMatchObject({ items: [{ id: f.installed.id,
-      enabled: false, canActivateAutomaticRuns: true, automaticRunStatus: 'inactive' }] });
+    const response = await f.request();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ items: expect.arrayContaining([
+      expect.objectContaining({ id: f.installed.id, enabled: false, canActivateAutomaticRuns: true,
+        automaticRunStatus: 'inactive', repository: 'acme/updates', automaticRuns: true }),
+    ]) });
+    // Advisory eligibility does not authorize even the execution preview.
+    expect((await f.request(`/${f.installed.id}/preview`)).status).toBe(404);
     expect(f.effects).toEqual([]);
   });
   it('retains enterprise and authenticated-human gates for installed reads', async () => {

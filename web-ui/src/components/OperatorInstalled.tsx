@@ -254,7 +254,7 @@ const OperatorInstalled: Component<Props> = props => {
                   onClick={() => { if (item.canInvoke && item.enabled && item.approved && item.guidedMode) setSelected(item); }}>Run once</button>
               </Show>
             </footer>
-            <Show when={!item.canInvoke && item.automaticRuns === null}><small>Invocation permission required. Management access does not grant invocation.</small></Show>
+            <Show when={!item.canInvoke}><small>Invocation permission required. Management access does not grant invocation.</small></Show>
             <Show when={!item.canManage && item.automaticRuns === null}><small>Management permission required to configure installations.</small></Show>
           </article>}</For>
         </Show>

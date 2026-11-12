@@ -658,9 +658,9 @@ describe('REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry', () => {
 
 
 describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
-  const activate = (registry: Prospective) => registry.activateProspectiveRenovate({ installationId: 'dispatcher-install',
+  const activate = (registry: Prospective, user: 'a' | 'z' = 'a') => registry.activateProspectiveRenovate({ installationId: 'dispatcher-install',
     scope: 'installation', bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
-    human: claims('a@example.test', 3600), accessJwt: 'a-jwt',
+    human: claims(`${user}@example.test`, 3600), accessJwt: `${user}-jwt`,
     repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } });
   it('zero sessions: explicit activation persists an alarm and admits only post-cutoff work; duplicate consent retains cutoff and identity', () => fixture(async ({ registry, restart, native, state }) => {
     state.sessions.clear();
@@ -678,6 +678,50 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     expect(await restart().reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt, { activityId: 'duplicate' }))).toEqual(reserved);
     expect(await registry.readProspectiveRenovateAdmission('duplicate')).toBeNull();
   }));
+  it('retirement during asynchronous election fences the stale winner at commit and leaves the head available to the armed admin', () => fixture(async ({ registry, restart, state }) => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    const identityFetch = globalThis.fetch;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let entered!: () => void;
+    const observing = new Promise<void>(resolve => { entered = resolve; });
+    let held = false;
+    let reservation: Promise<Reservation> | undefined;
+    const consent = { installationId: 'dispatcher-install', scope: 'installation' as const,
+      bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
+      human: claims('a@example.test', 3600), accessJwt: 'a-jwt',
+      repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } };
+    try {
+      const a = await registry.activateProspectiveRenovate(consent), z = await activate(registry, 'z');
+      if (!a.ok || !z.ok) throw Error('No activation');
+      globalThis.fetch = async (input, init) => {
+        if (!held && new Headers(init?.headers).get('Cookie') === 'CF_Authorization=a-jwt') {
+          held = true; entered(); await gate;
+        }
+        return identityFetch(input, init);
+      };
+      reservation = registry.reserveProspectiveRenovateActivity(pr(z.registrationId, z.activatedAt));
+      await observing;
+      state.roles.set('a@example.test', 'user');
+      clock.mockReturnValue(Date.now() + 2000);
+      await registry.alarm();
+      state.roles.set('a@example.test', 'admin');
+      release();
+      expect(await reservation).toMatchObject({ ok: false, reason: 'stale-election' });
+      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
+      expect(await restart().reserveProspectiveRenovateActivity(pr(z.registrationId, z.activatedAt)))
+        .toMatchObject({ ok: true, actor: { registrationId: z.registrationId } });
+      // Reusing the same still-valid explicit consent also rearms a retired record.
+      const rearmed = await registry.activateProspectiveRenovate(consent);
+      expect(rearmed).toEqual(a);
+      expect(await registry.currentProspectiveRenovateRegistration(a.registrationId))
+        .toMatchObject({ human: { email: 'a@example.test' } });
+      expect(await registry.activateProspectiveRenovate(consent)).toEqual(rearmed);
+    } finally {
+      release(); await reservation;
+      globalThis.fetch = identityFetch; clock.mockRestore();
+    }
+  }));
   it('due Registry alarm observes the configured repository and binds one durable admission with zero sessions or container access', () => fixture(async ({ registry, native, environment, selection, state }) => {
     state.sessions.clear(); const first = await activate(registry); if (!first.ok) throw Error('No activation');
     const bound = new Set<string>();
@@ -693,9 +737,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
         base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } }])
       : Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' }) }) };
-    const ctx = new Proxy(native, { get: (target, key) => key === 'exports' ? exports
-      : typeof Reflect.get(target, key) === 'function' ? Reflect.get(target, key).bind(target) : Reflect.get(target, key) });
-    const observer = new OperatorRegistry(ctx, environment);
+    Object.defineProperty(native, 'exports', { configurable: true, value: exports });
+    const observer = new OperatorRegistry(native, environment);
     vi.spyOn(observer, 'resolveManagementExecution').mockImplementation(async () => state.enabled
       ? { ok: true, value: selection } as never : { ok: false, reason: 'disabled' });
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
@@ -711,7 +754,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       expect(await native.storage.getAlarm()).toBeNull(); expect([...bound]).toEqual([id]);
     } finally { clock.mockRestore(); }
   }));
-  it('zero-session due alarm prepares and starts the original Activity through normal Dispatcher control, collects its result and deduplicates its identity', () => fixture(async ({ native, environment, selection, state }) => {
+  it('role restoration without new consent cannot elect a retired admin or strand the active admin’s normal Dispatcher work', () => fixture(async ({ native, environment, selection, state }) => {
     // Reuse the normal installed-Worker wire fixture: real Registry/Activity/orchestrator,
     // controlled external App HTTP. This proves parent execution, not execution of Flue SDK code.
     const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
@@ -753,20 +796,21 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         // Use the fixture's existing inOwnContext pattern for each real DO boundary.
         return new Proxy(activity, { get: (target, key) => {
           const value = Reflect.get(target, key);
-          return typeof value === 'function' ? (...args: unknown[]) => inActivity(() => Reflect.apply(value, target, args)) : value;
+          return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => Reflect.apply(value, target, args)) : value;
         } });
       } } as never;
       const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?')
-        ? Response.json([{ number: 1300, state: 'open', draft: false, created_at: createdAt,
+        ? Response.json(createdAt ? [{ number: 1300, state: 'open', draft: false, created_at: createdAt,
           user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
-          base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } }])
+          base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } }] : [])
         : Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' }) }),
         OperatorRuntimeCapability: ({ props }: { props: Record<string, unknown> }) =>
           new OperatorRuntimeCapability({ props } as unknown as ExecutionContext, environment) };
-      const context = new Proxy(native, { get: (target, key) => key === 'exports' ? exports
-        : key === 'waitUntil' ? (promise: Promise<unknown>) => { pending.push(promise); }
-          : typeof Reflect.get(target, key) === 'function' ? Reflect.get(target, key).bind(target) : Reflect.get(target, key) });
-      const owner = new OperatorRegistry(context, environment);
+      Object.defineProperties(native, {
+        exports: { configurable: true, value: exports },
+        waitUntil: { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } },
+      });
+      const owner = new OperatorRegistry(native, environment);
       vi.spyOn(owner, 'resolveManagementExecution').mockResolvedValue({ ok: true, value: selected });
       // Same Registry admission/deployment authority seams used by dispatcher-production.ts.
       vi.spyOn(owner, 'admitManagement').mockImplementation(async input => ({ ok: true, value: {
@@ -775,7 +819,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       vi.spyOn(owner, 'getManagementDispatcherConnection').mockResolvedValue(connection);
       environment.OPERATOR_REGISTRY = { getByName: () => new Proxy(owner, { get: (target, key) => {
         const value = Reflect.get(target, key);
-        return typeof value === 'function' ? (...args: unknown[]) => inRegistry(() => Reflect.apply(value, target, args)) : value;
+        return typeof value === 'function' ? (...args: unknown[]) => inRegistry(async () => Reflect.apply(value, target, args)) : value;
       } }) } as never;
       const bucket = vi.spyOn(access, 'resolveBucketName').mockResolvedValue('owner-bucket');
       const groups = vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue([]);
@@ -789,17 +833,25 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       try {
         activity = new OperatorActivity(activityNative, environment);
         await drain();
-        const registration = await inRegistry(() => activate(owner as unknown as Prospective));
-        if (!registration.ok) throw Error('No installation activation');
-        createdAt = new Date(Date.parse(registration.activatedAt) + 1).toISOString();
+        const retired = await inRegistry(() => activate(owner as unknown as Prospective));
+        const registration = await inRegistry(() => activate(owner as unknown as Prospective, 'z'));
+        if (!retired.ok || !registration.ok) throw Error('No installation activation');
+        state.roles.set('a@example.test', 'user');
         clock.mockReturnValue(Date.now() + 2000);
+        // No new PRs yet; this delivery retires only A's authority.
+        await inRegistry(() => owner.alarm()); await drain();
+        expect(activityId).toBeUndefined();
+        state.roles.set('a@example.test', 'admin');
+        expect(await inRegistry(() => owner.currentProspectiveRenovateRegistration(retired.registrationId))).toBeNull();
+        createdAt = new Date(Date.parse(registration.activatedAt) + 1).toISOString();
+        clock.mockReturnValue(Date.now() + 900_000);
         await inRegistry(() => owner.alarm()); await drain();
         if (!activityId) throw Error('No Activity admitted by alarm');
         expect(await activity.getAdmission()).toMatchObject({ phase: 'queued', receipt: { activityId } });
         expect(await activity.getBrowserDetail()).toMatchObject({ activityId, executionStatus: 'running', result: null });
         const plan = await activity.getRuntimePlan();
         expect(plan).toMatchObject({ activityId, prospectiveAdmissionId: activityId,
-          invocationJson: JSON.stringify({ repository: 'acme/updates' }), executionContext: { owner: { email: 'a@example.test' } } });
+          invocationJson: JSON.stringify({ repository: 'acme/updates' }), executionContext: { owner: { email: 'z@example.test' } } });
         const result = { repository: 'acme/updates', results: [{ pullRequest: 1300, headSha: head,
           decision: 'DO_NOT_MERGE', comment: 'Controlled normal App result; no merge authorized.', outcome: 'NOT_MERGED' }] };
         transport.settle('completed', [{ name: 'assessment', data: result }]);
@@ -817,6 +869,15 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         expect(await activity.getBrowserDetail()).toMatchObject({ activityId, executionStatus: 'completed', result });
         expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
         expect([...transport.admissions.values()]).toEqual(accepted);
+        // Only fresh explicit consent can rearm A; it cannot change the cutoff
+        // or replace Z's already-completed admission.
+        const reactivated = await inRegistry(() => activate(owner as unknown as Prospective));
+        expect(reactivated).toMatchObject({ ok: true, activatedAt: retired.activatedAt });
+        expect(await inRegistry(() => activate(owner as unknown as Prospective))).toEqual(reactivated);
+        if (!reactivated.ok) throw Error('No explicit reactivation');
+        expect(await inRegistry(() => owner.currentProspectiveRenovateRegistration(reactivated.registrationId)))
+          .toMatchObject({ human: { email: 'a@example.test' } });
+        expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
       } finally {
         await drain(); clock.mockRestore(); globalThis.fetch = identityFetch;
         routing.mockRestore(); groups.mockRestore(); bucket.mockRestore();
@@ -866,7 +927,13 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       const next = await activate(registry); if (!next.ok) throw Error('No reactivation');
       expect(next.activatedAt).toBe(first.activatedAt); expect(next.registrationId).not.toBe(first.registrationId);
       expect(await registry.prospectiveRenovateStatus('dispatcher-install', owner)).toBe('active');
+      // A clock jump does not deliver the earlier saved alarm. Activation must not
+      // postpone that due delivery; delivering it advances the newly armed owner.
+      expect(await native.storage.getAlarm()).toBeLessThanOrEqual(Date.now());
+      await registry.alarm();
       expect(await native.storage.getAlarm()).toBeGreaterThan(Date.now());
+      expect(await registry.prospectiveRenovateStatus('dispatcher-install', owner)).toBe('active');
+      expect(await activate(registry)).toEqual(next);
     } finally { clock.mockRestore(); }
   }));
   it('temporary identity loss projects unconfirmed and supplies no admission authority', () => fixture(async ({ registry, state }) => {

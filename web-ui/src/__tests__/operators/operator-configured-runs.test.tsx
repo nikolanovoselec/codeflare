@@ -409,7 +409,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit installation Activate', () => {
       { path: activationPath, body: { installationId: 'installation-1', revision: 5 } },
     ]));
     expect(reads).not.toContain('/api/sessions');
-    expect(await screen.findByRole('button', { name: 'Deactivate' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Deactivate' })).toBeEnabled());
   });
   it('an expired installation rearms from the same single Activate without toggling availability or requiring a workspace', async () => {
     hosts = []; setRunSettings('acme/automation', true, 900); automaticStatus = 'expired';
@@ -417,17 +417,21 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit installation Activate', () => {
     expect(screen.getByText(/Automatic runs: expired/)).toBeVisible();
     fireEvent.click(activateButton());
     await waitFor(() => expect(writes).toEqual([{ path: activationPath, body: { installationId: 'installation-1', revision: 4 } }]));
-    expect(await screen.findByRole('button', { name: 'Deactivate' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Deactivate' })).toBeEnabled());
     expect(reads).not.toContain('/api/sessions');
   });
   it('manual-only Activate enables availability without scheduling, Deactivate disables it', async () => {
     setRunSettings('acme/manual', false, 900); state.installations[0].enabled = false;
-    await open(true); fireEvent.click(await screen.findByRole('button', { name: 'Activate' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Deactivate' }));
-    await screen.findByRole('button', { name: 'Activate' });
-    expect(writes.map(write => write.path)).toEqual([
-      '/api/operator-management/installations/installation-1/enable',
-      '/api/operator-management/installations/installation-1/enable']);
+    await open(true);
+    await waitFor(() => expect(activateButton()).toBeEnabled());
+    fireEvent.click(activateButton());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Deactivate' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
+    await waitFor(() => expect(activateButton()).toBeEnabled());
+    expect(writes).toEqual([
+      { path: '/api/operator-management/installations/installation-1/enable', body: { enabled: true, revision: 4 } },
+      { path: '/api/operator-management/installations/installation-1/enable', body: { enabled: false, revision: 5 } },
+    ]);
     expect(state.installations[0].enabled).toBe(false);
   });
   it.each([{}, { activatedAt: 'invalid', repositoryId: 424242 }, { activatedAt: cutoff, repositoryId: 424242, accessJwt: 'private' }])(

@@ -129,6 +129,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
         return json({ ...installation, ...state });
       }
       return url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: { ...operator, name: 'Conductor Review' },
+        releases: [{ ...release, approved: state.releaseId === release.id }],
         installations: [{ ...installation, ...state }] }) : json({ items: [operator], cursor: null });
     };
     render(() => <OperatorManagement />);
@@ -143,7 +144,9 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     expect(screen.queryByRole('link', { name: /run as yourself/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Review preparation.*protected.*pull request/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
-    await waitFor(() => expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Activate' })).toBeEnabled());
+    expect(state.enabled).toBe(false);
+    expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument();
   });
   it.each([true, false])('REQ-OPERATOR-058: AC1/2 management opens a Dispatcher with native approval=%s and an empty session catalog without starting until explicit submission', async nativeApproved => {
     const dispatcherPolicy = { capabilities: ['inference'], resourceProfileId: null,
