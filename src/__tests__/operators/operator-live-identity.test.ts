@@ -356,11 +356,13 @@ describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-
       for (const [fault, reason, status] of outcomes) {
         warnings.length = 0; f.setFault(fault);
         expect((await f.request('/operators')).status).toBe(403);
+        const message = status === 503 ? 'Operator Access identity unavailable' : 'Operator human authentication denied';
         const diagnostics = warnings.map(value => JSON.parse(value) as { message: string; data: unknown })
-          .filter(value => value.message === 'Operator human authentication denied');
-        // Intentional diagnostic wire contract: only stage, closed reason and HTTP status are observable.
+          .filter(value => value.message === message);
+        // Intentional diagnostic wire contract: closed reason/status and a closed classification only for 503.
         expect(diagnostics.map(value => value.data)).toEqual([
-          { stage: 'identity', reason, ...(status === undefined ? {} : { status }) },
+          { stage: 'identity', reason, ...(status === undefined ? {} : { status }),
+            ...(status === 503 ? { classification: 'unclassified' } : {}) },
         ]);
         const serialized = JSON.stringify(diagnostics);
         for (const privateValue of [f.token, email, subject, issuer, 'unrelated-identity-metadata']) {
