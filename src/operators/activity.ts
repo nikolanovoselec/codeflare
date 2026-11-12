@@ -566,6 +566,19 @@ function isManagementReceipt(receipt: OperatorAdmissionReceipt | ManagementAdmis
   return 'selection' in receipt;
 }
 
+/** The atomic fence of generation zero proves this Dispatcher never reserved compute.
+ * Absence of an SDK lease alone is not shutdown evidence for any begun/unknown drive.
+ */
+function neverStartedDispatcherCancellation(state: AdmissionState, lease?: DispatcherLease): boolean {
+  return !lease && state.phase === 'queued' && !!state.receipt && isManagementReceipt(state.receipt)
+    && state.receipt.selection.operator.profile === 'dispatcher'
+    && state.receipt.selection.installation.policy.resourceProfileId === null
+    && state.drive?.status === 'cancel-requested' && state.drive.generation === 1
+    && state.drive.checkpoint === null && state.drive.result === null
+    && state.diagnosticFence?.generation === 0 && state.diagnosticFence.boundary === 'fence'
+    && state.diagnosticFence.code === 'cancelled' && state.diagnosticFence.uncertain === false;
+}
+
 function executionLoggingEnabled(receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt | null | undefined): boolean {
   return !receipt || !isManagementReceipt(receipt) || receipt.selection.operator.policy.loggingEnabled !== false;
 }
@@ -1843,6 +1856,10 @@ export class OperatorActivity extends Agent {
         || (record.drive.status !== 'running' && !(allowWaiting && record.drive.status === 'waiting')))) {
         return { ok: false, reason: 'stale-drive' };
       }
+      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (status === 'cancel-requested' && neverStartedDispatcherCancellation(record, lease)) {
+        return { ok: true, state: structuredClone(record.drive!) };
+      }
       if (record.drive && record.drive.status !== 'running' && record.drive.status !== 'waiting') {
         return { ok: false, reason: 'drive-settled' };
       }
@@ -1850,7 +1867,6 @@ export class OperatorActivity extends Agent {
         generation: (record.drive?.generation ?? 0) + 1, status,
         checkpoint: record.drive?.checkpoint ?? null, result: record.drive?.result ?? null,
       };
-      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
       if (normalObservation && (lease?.hosting !== 'normal' || lease.status !== normalObservation.status
         || lease.generation !== normalObservation.generation || lease.submissionId !== normalObservation.submissionId
         || lease.inputDigest !== normalObservation.inputDigest || lease.artifactDigest !== normalObservation.artifactDigest
@@ -5021,7 +5037,8 @@ export class OperatorActivity extends Agent {
             && state.receipt.selection.installation.piReasoningOverride !== undefined
             ? 'installation' as const : 'inherited' as const } } : {}),
       ...(state.authFailure ? { authFailure: state.authFailure } : {}),
-      cleanupStatus: released === true ? 'released' : executionStatus === 'cancel-requested' ? 'stopping'
+      cleanupStatus: neverStartedDispatcherCancellation(state, lease) ? 'stopped'
+        : released === true ? 'released' : executionStatus === 'cancel-requested' ? 'stopping'
         : released === false ? 'pending' : terminal ? 'unknown' : 'pending',
       collectionStatus: state.browserCollectionConsumed ? 'consumed' : terminal ? 'ready' : 'unavailable',
       attention: executionStatus === 'failed' || executionStatus === 'unknown' || (terminal && !state.browserCollectionConsumed),

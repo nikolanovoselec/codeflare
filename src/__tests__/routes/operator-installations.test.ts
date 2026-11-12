@@ -54,7 +54,7 @@ function fixture() {
       ? { ok: true, value: { ...resolved, manifestJson: manifests.value } }
       : { ok: false, reason: 'disabled' },
     resolveManagementConfiguration: async (id: string) => id === installed.id && release.approved
-      ? { ok: true, value: { ...resolved, manifestJson: manifests.value } }
+      ? { ok: true, value: { ...resolved, operator: { ...resolved.operator, enabled: true }, manifestJson: manifests.value } }
       : { ok: false, reason: 'artifact-unapproved' },
   };
   const env = { ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY: { getByName: () => registry },
@@ -198,7 +198,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     expect(f.effects).toEqual([]);
   });
 
-  it.each(['nonadmin', 'manager-only', 'admin-without-invoke', 'operator-disabled', 'unapproved',
+  it.each(['nonadmin', 'manager-only', 'admin-without-invoke', 'unapproved',
     'unsupported', 'conductor', 'automatic-off', 'missing-settings', 'invalid-settings', 'invalid-json', 'invalid-automatic', 'invalid-repository', 'resource-profile',
     'missing-pin', 'resolved-release', 'resolved-revision', 'resolved-operator', 'resolved-installation',
     'resolved-operator-revision', 'resolved-controls', 'resolved-configuration', 'resolved-digest']) (
@@ -211,7 +211,6 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
         f.operator.managers = grant([identity.email]); f.controls.managers = grant([identity.email]);
       }
       if (fault === 'admin-without-invoke') f.operator.invokers = grant();
-      if (fault === 'operator-disabled') f.operator.enabled = false;
       if (fault === 'unapproved') f.release.approved = false;
       if (fault === 'unsupported') f.manifests.value = JSON.stringify({ ...JSON.parse(f.manifests.value), intentVersion: '2' });
       if (fault === 'conductor') f.operator.profile = 'conductor';
@@ -238,7 +237,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     });
 
   it('REQ-OPERATOR-061 AC1: a disabled approved installation retains advisory eligibility for explicit automatic activation, never implicit scheduling', async () => {
-    const f = fixture(); identity.role = 'admin'; f.installed.enabled = false;
+    const f = fixture(); identity.role = 'admin'; f.installed.enabled = false; f.operator.enabled = false;
     f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true } });
     const response = await f.request();
     expect(response.status).toBe(200);

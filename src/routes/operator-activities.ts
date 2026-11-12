@@ -193,7 +193,7 @@ app.get('/installations', async c => {
     }
     const supportedAutomatic = selection !== null && operator.profile === 'dispatcher'
       && selection.operator.profile === 'dispatcher' && prospectiveRenovatePackageSupported(selection.manifestJson);
-    const canActivateAutomaticRuns = platformAdmin && invoke && operator.enabled && operator.profile === 'dispatcher' && installation.policy.resourceProfileId === null && approved
+    const canActivateAutomaticRuns = platformAdmin && invoke && operator.profile === 'dispatcher' && installation.policy.resourceProfileId === null && approved
       && selection !== null && selection.operator.enabled && selection.operator.profile === 'dispatcher'
       && selection.installation.policy.resourceProfileId === null
       && supportedAutomatic && settings?.automaticRuns === true;
@@ -421,8 +421,9 @@ app.post('/:activityId/cancel', async c => {
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
   const outcome = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).cancelDrive();
   if (!outcome.ok) return c.json({ error: 'Activity cancel rejected', code: outcome.reason }, 409);
-  const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
-  return c.json(detail ? { ...detail, updatedAt: new Date(detail.updatedAt).toISOString() } : outcome);
+  const summary = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getBrowserSummary(c.get('ownerKey'));
+  if (!summary) return c.json({ error: 'Cancellation projection unavailable', code: 'CANCELLATION_NOT_CONFIRMED' }, 503);
+  return c.json({ ...summary, updatedAt: new Date(summary.updatedAt).toISOString() });
 });
 
 export default app;

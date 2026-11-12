@@ -91,6 +91,7 @@ beforeEach(() => {
       }
       return json({ error: 'Unexpected mutation' }, 400);
     }
+    state.operator.enabled = state.installations.some(item => item.enabled);
     reads.push(path);
     if (path.endsWith('/operator-1')) return json(state);
     if (path.endsWith('/operators')) return json({ items: [state.operator], cursor: null });
@@ -410,6 +411,24 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit installation Activate', () => {
     ]));
     expect(reads).not.toContain('/api/sessions');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Deactivate' })).toBeEnabled());
+  });
+  it('saving the sole enabled configuration permits a fresh explicit enable-and-arm without a workspace', async () => {
+    hosts = []; setRunSettings('acme/automation', true, 900);
+    await open(true);
+    const group = await settings();
+    fireEvent.input(repository(group), { target: { value: 'acme/changed' } });
+    fireEvent.click(save());
+    await waitFor(() => expect(state.operator.enabled).toBe(false));
+    await waitFor(() => expect(activateButton()).toBeEnabled());
+    const revision = state.installations[0].revision;
+    writes = [];
+    fireEvent.click(activateButton());
+    await waitFor(() => expect(writes).toEqual([
+      { path: '/api/operator-management/installations/installation-1/enable', body: { enabled: true, revision } },
+      { path: activationPath, body: { installationId: 'installation-1', revision: revision + 1 } },
+    ]));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Deactivate' })).toBeEnabled());
+    expect(reads).not.toContain('/api/sessions');
   });
   it('an expired installation rearms from the same single Activate without toggling availability or requiring a workspace', async () => {
     hosts = []; setRunSettings('acme/automation', true, 900); automaticStatus = 'expired';

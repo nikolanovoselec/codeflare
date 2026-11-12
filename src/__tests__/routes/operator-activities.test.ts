@@ -476,9 +476,31 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(activity.start).toHaveBeenCalledWith('s'.repeat(43));
     expect(orchestration.run).toHaveBeenCalledWith('activity-1', expect.anything(), expect.any(Function));
     expect(waitUntil).toHaveBeenCalledOnce();
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, executionStatus: 'cancel-requested' });
     const cancelled = await request('/activity-1/cancel', 'POST', {});
     expect(cancelled.status).toBe(200);
     expect(activity.cancelDrive).toHaveBeenCalledOnce();
+  });
+
+  it('REQ-OPERATOR-016/104: cancellation acknowledgement satisfies the strict summary wire contract after configuration revocation', async () => {
+    const f = fixture();
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
+    f.activity.getBrowserSummary.mockResolvedValue({ ...summary, executionStatus: 'cancel-requested' });
+    const response = await f.request('/activity-1/cancel', 'POST', {});
+    expect(response.status).toBe(200);
+    // Intentional wire contract: detail-only fields must not break the strict browser summary decoder.
+    expect(await response.json()).toEqual({ ...summary, executionStatus: 'cancel-requested',
+      updatedAt: new Date(summary.updatedAt).toISOString() });
+    expect((await f.request('/activity-1/cancel', 'POST', {}, false)).status).toBe(403);
+    expect((await f.request('/foreign/cancel', 'POST', {})).status).toBe(404);
+  });
+
+  it('REQ-OPERATOR-104: unavailable cancel projection never returns incompatible success JSON', async () => {
+    const f = fixture();
+    f.activity.getBrowserSummary.mockResolvedValue(null);
+    const response = await f.request('/activity-1/cancel', 'POST', {});
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'CANCELLATION_NOT_CONFIRMED' });
   });
 
   it('is unavailable outside enterprise without reading the activity index', async () => {

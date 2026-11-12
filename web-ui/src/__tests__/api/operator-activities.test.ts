@@ -119,6 +119,38 @@ it('REQ-OPERATOR-086 AC3: paging summary rows uses only summary and acknowledgem
     || request === 'POST /api/operator-activities/read')).toBe(true);
 });
 
+it.each(['stopping', 'stopped', 'released'] as const)(
+  'REQ-OPERATOR-104: cancel-requested cleanup %s retains Cancel only while shutdown can remain pending', async cleanupStatus => {
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin);
+      if (url.pathname.endsWith('/read')) return Response.json({ unreadCount: 0 });
+      return Response.json({ items: [{ activityId: 'activity-1', operatorId: 'dispatcher',
+        executionStatus: 'cancel-requested', cleanupStatus, collectionStatus: 'unavailable',
+        attention: false, sessionId: null, source: null, updatedAt: detail.updatedAt }],
+        nextCursor: null, workingCount: 1, unreadCount: 0, latestSequence: 1 });
+    });
+    render(() => createComponent(OperatorActivityButton, { enabled: true }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    expect(await screen.findByRole('button', { name: 'View activity-1' })).toBeVisible();
+    const cancel = screen.queryByRole('button', { name: 'Cancel activity-1' });
+    if (cleanupStatus === 'stopping') expect(cancel).toBeEnabled();
+    else expect(cancel).toBeNull();
+  });
+
+describe('REQ-OPERATOR-016/104: cancellation acknowledgement wire', () => {
+  const summary = { activityId: 'activity-1', operatorId: 'dispatcher', executionStatus: 'cancel-requested',
+    cleanupStatus: 'stopped', collectionStatus: 'unavailable', attention: false, sessionId: null,
+    source: null, updatedAt: detail.updatedAt };
+  it('accepts the original cancellation fence through the strict summary client', async () => {
+    vi.stubGlobal('fetch', async () => Response.json(summary));
+    expect(await cancelOperatorActivity('activity-1')).toEqual(summary);
+  });
+  it('rejects a detail-shaped cancellation acknowledgement instead of falsely confirming it', async () => {
+    vi.stubGlobal('fetch', async () => Response.json({ ...summary, checkpoint: null, result: null }));
+    await expect(cancelOperatorActivity('activity-1')).rejects.toBeDefined();
+  });
+});
+
 describe('REQ-OPERATOR-036: failed activity mutations surface uncertainty instead of replaying', () => {
   const summary = { activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'cancel-requested',
     cleanupStatus: 'pending', collectionStatus: 'unavailable', attention: false, sessionId: null,

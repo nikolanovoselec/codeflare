@@ -577,6 +577,61 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.commitDrive(1, update)).toEqual({ ok: false, reason: 'stale-drive' });
   }));
 
+  it('REQ-OPERATOR-016/104: never-started Dispatcher cancellation is confirmed across repeats and cold reconstruction without compute', () => withActivity(async ({ activity, ctx, activityEnv, registry }) => {
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['aud'] });
+    const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+    if (!admission) throw new Error('Missing fixture admission');
+    await ctx.storage.put('admission', { ...admission, ownerKey, receipt: { ...admission.receipt, selection: {
+      controlsRevision: 1, manifestJson: JSON.stringify({ name: 'Dispatcher', intentVersion: '4' }),
+      operator: { operatorId: 'operator', profile: 'dispatcher', revision: 1,
+        policy: { capabilities: ['fetch'], resourceProfileId: null, loggingEnabled: false } },
+      installation: { id: 'installation', revision: 1, enabled: true,
+        policy: { capabilities: ['fetch'], resourceProfileId: null }, configurationJson: '{}', releaseId: 'release' },
+      release: { id: 'release', bundleDigest: 'a'.repeat(64), intentVersion: '4' },
+    } } });
+    expect(await activity.getDispatcherDiagnostics(ownerKey)).toMatchObject({
+      parent: { driveGeneration: null, lease: null }, sdk: { status: 'unavailable', reason: 'unbound' },
+    });
+    const first = await activity.cancelDrive();
+    expect(first).toMatchObject({ ok: true, state: { generation: 1, status: 'cancel-requested' } });
+    expect(await activity.getBrowserDetail()).toMatchObject({ cleanupStatus: 'stopped', checkpoint: null, result: null });
+    const cold = new OperatorActivity(ctx, activityEnv);
+    expect(await cold.cancelDrive()).toEqual(first);
+    expect(await cold.cancelDrive()).toEqual(first);
+    expect(await cold.getBrowserSummary(ownerKey)).toMatchObject({ cleanupStatus: 'stopped', executionStatus: 'cancel-requested' });
+    expect(await registry.getOwnedActivity(ownerKey, 'activity')).toMatchObject({ cleanupStatus: 'stopped' });
+    expect(await cold.getDispatcherDiagnostics(ownerKey)).toMatchObject({
+      parent: { driveGeneration: 1, lease: null }, sdk: { status: 'unavailable', reason: 'unbound' },
+    });
+    expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    expect(await cold.start('s'.repeat(43))).toEqual({ ok: false, reason: 'already-started' });
+    expect(await cold.commitDrive(1, update)).toEqual({ ok: false, reason: 'stale-drive' });
+  }));
+
+  it.each(['begun', 'unknown', 'conductor', 'missing-proof', 'mismatched-proof'] as const)(
+    'REQ-OPERATOR-104: absent SDK lease does not prove stopped compute for %s', scenario => withActivity(async ({ activity, ctx, activityEnv }) => {
+      const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+      if (!admission) throw new Error('Missing fixture admission');
+      await ctx.storage.put('admission', { ...admission, receipt: { ...admission.receipt, selection: {
+        operator: { profile: scenario === 'conductor' ? 'conductor' : 'dispatcher', policy: { loggingEnabled: false } },
+        installation: { policy: { resourceProfileId: null } },
+        release: { bundleDigest: 'a'.repeat(64) }, manifestJson: '{}',
+      } } });
+      if (scenario === 'begun') await activity.beginDrive();
+      if (scenario === 'unknown') await activity.fenceRuntimeFailure();
+      else await activity.cancelDrive();
+      if (scenario === 'missing-proof' || scenario === 'mismatched-proof') {
+        const fenced = await ctx.storage.get<Record<string, unknown> & { diagnosticFence?: Record<string, unknown> }>('admission');
+        await ctx.storage.put('admission', { ...fenced, diagnosticFence: scenario === 'missing-proof'
+          ? undefined : { ...fenced?.diagnosticFence, generation: 1 } });
+      }
+      const cold = new OperatorActivity(ctx, activityEnv);
+      expect((await cold.getBrowserDetail())?.cleanupStatus).not.toMatch(/^(stopped|released)$/);
+      expect(await cold.cancelDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+      expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    }));
+
   it('durably owns one immutable session request while allowing status reconciliation', () => withActivity(async ({ activity }) => {
     const session = ownedSessionFixture();
     expect(await activity.saveOwnedSession(session)).toEqual({ ok: true });

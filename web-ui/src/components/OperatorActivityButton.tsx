@@ -164,7 +164,8 @@ const OperatorActivityButton: Component<Props> = props => {
                       <Show when={item.resultSummary} fallback={<small>Outcome details unavailable</small>}>{counts => <div class="operator-run-outcomes"><span>{counts().merged} merged</span><span>{counts().notMerged} not merged</span><Show when={counts().deferred}><span>{counts().deferred} deferred</span></Show><Show when={counts().unknown}><span>{counts().unknown} unknown</span></Show></div>}</Show>
                       <Show when={item.progress}><p>{item.progress}</p></Show><Show when={item.attention && !item.authFailure}><span class="operator-activity-attention">Needs attention</span></Show>
                       <nav><button type="button" aria-label={`View ${item.activityId}`} onClick={() => select(item.activityId)}>View details</button><Show when={item.sessionId}>{id => <a href={`/app?session=${encodeURIComponent(id())}`}>Open session</a>}</Show>
-                        <Show when={workingStates.has(item.executionStatus) && item.executionStatus !== 'unknown'}><button type="button" disabled={cancelling() === item.activityId} aria-label={`Cancel ${item.activityId}`} onClick={() => void cancel(item.activityId)}>Cancel</button></Show></nav>
+                        <Show when={workingStates.has(item.executionStatus) && item.executionStatus !== 'unknown'
+                          && !(item.executionStatus === 'cancel-requested' && ['stopped', 'released'].includes(item.cleanupStatus))}><button type="button" disabled={cancelling() === item.activityId} aria-label={`Cancel ${item.activityId}`} onClick={() => void cancel(item.activityId)}>Cancel</button></Show></nav>
                     </article>}</For>
                   </Show></div>
                   <OperatorActivityPages label="Run pages" hasNewer={previous().length > 0} hasNext={!!activities()?.nextCursor}
