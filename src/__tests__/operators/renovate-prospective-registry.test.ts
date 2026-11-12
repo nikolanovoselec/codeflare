@@ -826,8 +826,11 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       const routing = vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: ['approved'],
         defaultRoute: 'approved', defaultReasoning: 'off', routeContextWindows: {} } as never);
       const identityFetch = globalThis.fetch;
-      globalThis.fetch = (input, init) => new URL(new Request(input, init).url).origin === normalDeployment.controlOrigin
-        ? transport.fetcher(input, init) : identityFetch(input, init);
+      globalThis.fetch = (input, init) => {
+        const url = input instanceof Request ? input.url : String(input);
+        return new URL(url).origin === normalDeployment.controlOrigin
+          ? transport.fetcher(input, init) : identityFetch(input, init);
+      };
       const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
       let createdAt = '';
       try {
