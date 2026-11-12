@@ -5921,12 +5921,36 @@ export class OperatorInstalledDispatcherCapability extends WorkerEntrypoint<AppE
       const binding = await authenticateInstalledDispatcher(this.env, request);
       if (!this.env.OPERATOR_ACTIVITY) throw new Error('Dispatcher owner unavailable');
       const activity = this.env.OPERATOR_ACTIVITY.getByName(binding.activityId);
-      if (new URL(request.url).pathname === '/v1/dispatcher/logging-policy') {
-        return activity.dispatcherLoggingPolicy(binding.generation, request);
-      }
-      return new URL(request.url).pathname === '/v1/dispatcher/abort-authority'
-        ? activity.dispatcherAbortAuthority(binding.generation, request)
-        : activity.dispatcherInstalledCallback(binding.generation, request);
+      const path = new URL(request.url).pathname;
+      const diagnose = (outcome: { stage: 'owner-response'; status: number } | { stage: 'owner-rpc'; error: unknown }) => {
+        try {
+          const route = path === '/v1/dispatcher/pi/config' ? 'pi-config'
+            : path === '/v1/dispatcher/gateway' ? 'gateway'
+            : path === '/v1/dispatcher/model-fetch' ? 'model-fetch'
+            : path === '/v1/dispatcher/model-admission' ? 'model-admission'
+            : path === '/v1/dispatcher/logging-policy' ? 'logging-policy'
+            : path === '/v1/dispatcher/abort-authority' ? 'abort-authority' : 'other';
+          // Essential fixed platform failure metadata only; no optional execution content or policy lookup.
+          createLogger('dispatcher-installed-callback').warn('Installed Dispatcher callback failed', {
+            route, generation: binding.generation,
+            activityDigest: hashDiagnostic(`codeflare:installed-dispatcher:activity:v1\0${binding.activityId}`),
+            ...(outcome.stage === 'owner-response' ? outcome : { stage: outcome.stage, error: captureError(outcome.error) }),
+          });
+        } catch { /* Diagnostics cannot replace the original response or rejection. */ }
+      };
+      const pending = path === '/v1/dispatcher/logging-policy'
+        ? activity.dispatcherLoggingPolicy(binding.generation, request)
+        : path === '/v1/dispatcher/abort-authority'
+          ? activity.dispatcherAbortAuthority(binding.generation, request)
+          : activity.dispatcherInstalledCallback(binding.generation, request);
+      // Do not await inside this try: asynchronous RPC rejection must not become an authentication 403.
+      return pending.then(response => {
+        if (response.status >= 400) diagnose({ stage: 'owner-response', status: response.status });
+        return response;
+      }, error => {
+        diagnose({ stage: 'owner-rpc', error });
+        throw error;
+      });
     } catch { return dispatcherRefusal('execution-inactive'); }
   }
 }
