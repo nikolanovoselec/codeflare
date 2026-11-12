@@ -1069,7 +1069,7 @@ describe('native provider authorization and compat dispatch', () => {
       OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
     } as unknown as Env;
     vi.spyOn(access, 'resolveOperatorGroupIdentity').mockImplementation(async human => human);
-    vi.spyOn(access, 'observeOperatorAccessIdentity').mockImplementation(async human => ({ status: 'current', groups: human.groups ?? [] }));
+    vi.spyOn(access, 'observeOperatorAccessIdentity').mockImplementation(async human => ({ status: 'current', groups: [...(human.groups ?? [])] }));
     vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue(['engineering']);
     vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: [fixture.handle], defaultRoute: fixture.handle, defaultReasoning: 'medium',
       routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });

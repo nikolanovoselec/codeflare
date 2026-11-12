@@ -18,7 +18,7 @@ describe('REQ-OPERATOR-047/063: unavailable authority projection', () => {
       await start(f);
       let unavailable = stage === 'entry';
       const identity = vi.spyOn(access, 'observeOperatorAccessIdentity').mockImplementation(async human => unavailable
-        ? { status: 'unavailable' as const } : { status: 'current' as const, groups: human.groups ?? [] });
+        ? { status: 'unavailable' as const } : { status: 'current' as const, groups: [...(human.groups ?? [])] });
       const body = JSON.stringify({ operationId: 'unavailable-authority', method: 'GET',
         url: 'https://api.github.com/repos/another/service' });
       const request = new Request('https://operator.internal/v1/dispatcher/source', {
