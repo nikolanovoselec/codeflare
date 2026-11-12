@@ -4183,7 +4183,8 @@ describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: explicit automatic delegatio
         input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(200);
     }
     expect(remoteMutations(f).map(request => request.method)).toEqual(['POST', 'POST']);
-  }, { prospective: true, delegated: true, recovery: true }));
+  }, { prospective: true, delegated: true, recovery: true,
+    inferenceBody: 'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n' }));
   it.each(['grant', 'installation', 'registration', 'expiry', 'cancel'] as const)(
     'fresh local %s loss still fences delegated work after logout', fault => fixture(async f => {
       await startProspective(f); f.revokeSession();

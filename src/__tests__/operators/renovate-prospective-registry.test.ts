@@ -67,7 +67,7 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
       } : null;
     } }) }) };
     kv.get = vi.fn(async (key: string) => key.startsWith('user:')
-      ? JSON.stringify({ role: state.roles.get(key.slice(5)) ?? 'user' }) : null) as typeof kv.get;
+      ? JSON.stringify({ role: state.roles.get(key.slice(5)) ?? 'user' }) : kv._store.get(key) ?? null) as typeof kv.get;
     const proofs = new Map<string, unknown>();
     const environment = { OPERATOR_ACTIVITY: { getByName: (id: string) => ({
       readProspectiveRenovateRetryProof: async () => proofs.get(id) ?? null,
@@ -780,9 +780,7 @@ describe('REQ-OPERATOR-045 AC3 /047 AC3/7 /061 AC1/3: bounded installation deleg
   it('seals final verified ACL membership and captures separate configured routing labels without live external dependence', () => fixture(async ({ registry, restart, native, environment, selection, state }) => {
     const selected = selection as ManagementExecutionSelection;
     selected.operator.invokers = { users: [], groups: [{ issuer: claims('a@example.test').issuer, id: 'stable-id' }] };
-    const get = environment.KV.get.bind(environment.KV);
-    const kv = vi.spyOn(environment.KV, 'get').mockImplementation(async (...args: Parameters<typeof get>) =>
-      args[0] === 'setup:enterprise_access_group' ? 'Operators,stable-id,a@example.test,missing' : get(...args));
+    await environment.KV.put('setup:enterprise_access_group', 'Operators,stable-id,a@example.test,missing');
     const fetcher = globalThis.fetch;
     // Wire budget is exactly issuance's two independently validated identity responses.
     const responses = [1, 2].map(() => Response.json({ id: 'a@example.test', email: 'a@example.test',
@@ -804,7 +802,7 @@ describe('REQ-OPERATOR-045 AC3 /047 AC3/7 /061 AC1/3: bounded installation deleg
       expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt))).ok).toBe(true);
       selected.operator.invokers = { users: [], groups: [] };
       expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
-    } finally { globalThis.fetch = fetcher; kv.mockRestore(); }
+    } finally { globalThis.fetch = fetcher; }
   }));
   it.each(['role', 'revision', 'invoker', 'expiry'] as const)(
     'final issuance %s race cannot seal authority', fault => fixture(async ({ registry, native, selection, state }) => {
