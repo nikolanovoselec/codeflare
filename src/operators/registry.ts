@@ -23,7 +23,9 @@ import { dispatcherCapacities, dispatcherCapacityKeys, pickDispatcherCapacities,
 import { dispatcherCapacityPolicySchema } from './dispatcher-capacity-schema';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
-import { canInvokeOperator, observeOperatorAccessIdentity } from '../lib/access';
+import { z } from 'zod';
+import { SETUP_KEYS } from '../lib/kv-keys';
+import { canInvokeOperator, observeOperatorAccessIdentity, parseAccessGroups } from '../lib/access';
 import { listProspectiveRenovatePrs } from './renovate-prospective';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from './orchestrator';
 import { captureError, hashDiagnostic } from './dispatcher-diagnostics-wire';
@@ -198,8 +200,11 @@ interface ProspectiveSelectionPin {
   controlsRevision: number; installationRevision: number; operatorRevision: number; releaseId: string; bundleDigest: string;
 }
 interface ProspectiveActivation extends RenovateRepositoryIdentity { installationId: string; activatedAt: string }
+export const dispatcherDelegationSchema = z.strictObject({ version: z.literal(1),
+  routingGroups: z.array(z.string().min(1).max(256)).max(1024) });
+export type DispatcherDelegation = z.infer<typeof dispatcherDelegationSchema>;
 interface ProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
-  scope?: 'installation'; nextObservationAt?: number;
+  scope?: 'installation'; nextObservationAt?: number; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; ownerKey: string; bucket: string; sessionId: string;
   sessionGeneration: number; revision: number; context: OperatorExecutionContext; repetitionIntervalSeconds: number;
 }
@@ -210,7 +215,7 @@ export interface ProspectiveAdmission extends RenovateRepositoryIdentity, Prospe
     subject: string; issuer: string; email: string; audiences: readonly string[] };
 }
 export interface CurrentProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
-  scope?: 'installation';
+  scope?: 'installation'; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; activatedAt: string; bucket: string;
   sessionId: string; sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string; repetitionIntervalSeconds: number;
 }
@@ -218,7 +223,7 @@ export type ProspectiveRegistrationObservation =
   | { status: 'current'; registration: CurrentProspectiveRegistration }
   | { status: 'unavailable' } | { status: 'denied' };
 type ProspectiveAuthorityObservation =
-  | { status: 'current'; authority: { human: VerifiedHumanAccessClaims; accessJwt: string } }
+  | { status: 'current'; authority: { human: VerifiedHumanAccessClaims; accessJwt: string }; routingGroups?: string[] }
   | { status: 'unavailable' } | { status: 'denied' };
 interface ProspectiveObservationDiagnostic {
   outcome: 'authority-denied' | 'authority-unavailable' | 'claim-lost' | 'binding-unavailable'
@@ -1843,14 +1848,20 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       unreadCount: Math.max(0, latestSequence - lastRead), latestSequence };
   }
 
-  private async observeProspectiveAuthority(registration: ProspectiveRegistration): Promise<ProspectiveAuthorityObservation> {
+  private async observeProspectiveAuthority(registration: ProspectiveRegistration, captureRoutingGroups = false): Promise<ProspectiveAuthorityObservation> {
     const app = this.env as Env;
     const expiresAt = registration.context?.expiresAt;
     if (registration.scope === 'installation' && !registration.nextObservationAt
       || !Number.isSafeInteger(expiresAt) || expiresAt * 1000 <= Date.now()
       || !app.USAGE_DB || !app.KV) return { status: 'denied' };
     try {
+      // Presence is intentional: corrupt/unsupported metadata cannot downgrade to live authority.
+      const delegation = Object.hasOwn(registration, 'delegation')
+        ? dispatcherDelegationSchema.parse(registration.delegation) : undefined;
+      if (delegation && (registration.scope !== 'installation' || registration.sessionId !== ''
+        || registration.sessionGeneration !== 0)) return { status: 'denied' };
       const authority = await openOperatorExecutionAccess(registration.context, this.env);
+      if (delegation && !Array.isArray(authority.human.groups)) return { status: 'denied' };
       const [session, rawUser, selected] = await Promise.all([
         registration.scope === 'installation' ? Promise.resolve(null)
           : observeDependency(() => new D1SessionRepository(app.USAGE_DB!).getSession(registration.bucket, registration.sessionId)),
@@ -1873,8 +1884,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         || configured.repetitionIntervalSeconds !== registration.repetitionIntervalSeconds
         || !renovateRepositoryIdentity.safeParse({ repository: registration.repository,
           repositoryId: registration.repositoryId, baseBranch: registration.baseBranch }).success) return { status: 'denied' };
-      // Read live identity once, after the initial local checks; retain post-I/O fences.
-      const refreshed = await observeOperatorAccessIdentity(authority.human, authority.accessJwt);
+      // Issuance is live even for installation scope; only persisted server-issued grants skip Access.
+      const configuredGroups = captureRoutingGroups
+        ? parseAccessGroups(await observeDependency(() => app.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP))) : undefined;
+      const refreshed = delegation ? { status: 'current' as const, groups: authority.human.groups!, routingGroups: delegation.routingGroups }
+        : await observeOperatorAccessIdentity(authority.human, authority.accessJwt, configuredGroups);
       if (refreshed.status !== 'current') return refreshed;
       const human = { ...authority.human, groups: refreshed.groups };
       const finalUser = await observeDependency(() => app.KV!.get(`user:${authority.human.email.toLowerCase()}`));
@@ -1887,7 +1901,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         || final.value.release.id !== registration.releaseId
         || final.value.release.bundleDigest !== registration.bundleDigest) return { status: 'denied' };
       return expiresAt * 1000 > Date.now() && canInvokeOperator(human, final.value.operator)
-        ? { status: 'current', authority: { human, accessJwt: authority.accessJwt } } : { status: 'denied' };
+        ? { status: 'current', authority: { human, accessJwt: authority.accessJwt },
+          ...(captureRoutingGroups ? { routingGroups: refreshed.routingGroups } : {}) }
+        : { status: 'denied' };
     } catch (error) {
       return { status: expiresAt * 1000 > Date.now()
         && error instanceof ProspectiveDependencyUnavailable ? 'unavailable' : 'denied' };
@@ -2130,7 +2146,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     const rawId = JSON.stringify([ownerKey, input.bucket, input.sessionId, input.sessionGeneration,
       input.installationId, pins, target.data, configured.repetitionIntervalSeconds, input.accessJwt, input.scope, input.human.expiresAt]);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawId)));
-    const registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
+    let registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
     const provisional: ProspectiveRegistration = { registrationId, installationId: input.installationId,
       ...target.data, ...pins, repetitionIntervalSeconds: configured.repetitionIntervalSeconds,
       ownerKey, bucket: input.bucket, sessionId: input.sessionId, sessionGeneration: input.sessionGeneration,
@@ -2141,7 +2157,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           new TextEncoder().encode(JSON.stringify(selected.value.installation.policy)))))
           .map(byte => byte.toString(16).padStart(2, '0')).join(''),
         human: input.human, accessJwt: input.accessJwt }, this.env) };
-    if (!await this.prospectiveAuthority(provisional)) return { ok: false, reason: 'not-authorized' };
+    if ((await this.observeProspectiveAuthority(provisional, input.scope === 'installation')).status !== 'current') {
+      return { ok: false, reason: 'not-authorized' };
+    }
     const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
     const inactive: Array<{ key: string; revision: number }> = [];
     for (const [key, record] of registrations) {
@@ -2157,11 +2175,28 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           || session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping')) inactive.push({ key, revision: record.revision });
       } catch { /* Unavailable lifecycle is not proof of retirement. */ }
     }
-    if (!await this.prospectiveAuthority(provisional)) return { ok: false, reason: 'stale-selection' };
+    const verified = await this.observeProspectiveAuthority(provisional, input.scope === 'installation');
+    if (verified.status !== 'current') return { ok: false, reason: 'stale-selection' };
+    if (input.scope === 'installation') {
+      const delegation = dispatcherDelegationSchema.safeParse({ version: 1, routingGroups: verified.routingGroups });
+      if (!delegation.success) return { ok: false, reason: 'not-authorized' };
+      const consent = JSON.stringify([rawId, delegation.data, verified.authority.human.groups]);
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(consent)));
+      registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
+      // Mark only after BOTH live checks, and seal final verified memberships, not input claims.
+      provisional.registrationId = registrationId;
+      provisional.context = await createOperatorExecutionContext({ activityId: registrationId,
+        operatorId: provisional.context.operatorId, artifactDigest: provisional.context.artifactDigest,
+        policyDigest: provisional.context.policyDigest, ...verified.authority }, this.env);
+      provisional.delegation = delegation.data;
+      if ((await this.observeProspectiveAuthority(provisional)).status !== 'current') {
+        return { ok: false, reason: 'stale-selection' };
+      }
+    }
     return this.ctx.storage.transaction(async tx => {
       if (!await this.prospectiveSelectionCurrent(provisional)) return { ok: false, reason: 'stale-selection' } as const;
       const before = await tx.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-      for (const { key, revision } of inactive) if (before.get(key)?.revision === revision) { await tx.delete(key); before.delete(key); }
+      for (const { key, revision } of inactive) if (key !== `renovate-registration:${registrationId}` && before.get(key)?.revision === revision) { await tx.delete(key); before.delete(key); }
       if (before.size >= 32 && !before.has(`renovate-registration:${registrationId}`)) return { ok: false, reason: 'registration-limit' } as const;
       if (input.scope !== 'installation' && await tx.get(`renovate-installation-scope:${input.installationId}`)) return { ok: false, reason: 'explicit-installation-activation-required' } as const;
       const previous = await tx.get<ProspectiveActivation>('renovate-activation');
@@ -2214,7 +2249,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (record.context.expiresAt * 1000 <= Date.now()) return { status: 'denied' };
       if (observed.status !== 'current') return observed;
       const current = observed.authority;
-      return { status: 'current', registration: { ...(record.scope ? { scope: record.scope } : {}), registrationId, installationId: record.installationId,
+      return { status: 'current', registration: { ...(record.scope ? { scope: record.scope } : {}),
+        ...(record.delegation ? { delegation: record.delegation } : {}), registrationId, installationId: record.installationId,
         repository: record.repository, repositoryId: record.repositoryId, baseBranch: record.baseBranch,
         repetitionIntervalSeconds: record.repetitionIntervalSeconds, activatedAt: activation.activatedAt,
         bucket: record.bucket, sessionId: record.sessionId, sessionGeneration: record.sessionGeneration,

@@ -171,7 +171,7 @@ const tokenReply = () => Response.json({ access_token: renewedAccess, refresh_to
 type Store = ReturnType<typeof storageBoundary>;
 const laneStores = new WeakMap<DispatcherFixture, Store>();
 async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true,
-  realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number; managedProviderDefault?: boolean;
+  realInterceptors = false, limits: { delegated?: boolean; operationLimit?: number; inferenceAttemptLimit?: number; managedProviderDefault?: boolean;
     nativeProviderDefault?: boolean; nativeNullProfile?: boolean; loggingEnabled?: boolean; nativeSelection?: typeof logical } = {}) {
   return fixture(async f => {
     const store = storageBoundary();
@@ -263,7 +263,7 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       cleanups.reverse().forEach(cleanup => cleanup());
     }
   }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors,
-    ...limits });
+    ...(limits.delegated ? { prospective: true } : {}), ...limits });
 }
 async function admitted(f: DispatcherFixture) {
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
@@ -338,20 +338,22 @@ describe('REQ-OPERATOR-007/047: Dispatcher installation Gateway selection', () =
   it.each([
     { scope: 'admitted installation', index: 0 }, { scope: 'admitted operator', index: 1 },
     { scope: 'current installation', index: 2 }, { scope: 'current operator', index: 3 },
-  ])('refuses installation route denied by $scope without substitution or grant mutation', ({ index }) => lane(async f => {
+  ].flatMap(scope => [false, true].map(delegated => ({ ...scope, delegated }))))('refuses installation route denied by $scope without substitution or grant mutation (delegated=$delegated)', ({ index, delegated }) => lane(async f => {
     const owner = await managedOwner(f, { deniedScope: index, denial: 'route' });
+    if (delegated) f.revokeSession();
     await expect(owner.select()).rejects.toMatchObject({ code: 'ROUTE_NOT_ELIGIBLE' });
     owner.unchanged();
-  }, false));
+  }, false, false, { delegated }));
 
   it.each([
     { scope: 'admitted installation', index: 0 }, { scope: 'admitted operator', index: 1 },
     { scope: 'current installation', index: 2 }, { scope: 'current operator', index: 3 },
-  ])('refuses installation Low denied by $scope without substitution or grant mutation', ({ index }) => lane(async f => {
+  ].flatMap(scope => [false, true].map(delegated => ({ ...scope, delegated }))))('refuses installation Low denied by $scope without substitution or grant mutation (delegated=$delegated)', ({ index, delegated }) => lane(async f => {
     const owner = await managedOwner(f, { deniedScope: index, denial: 'reasoning' });
+    if (delegated) f.revokeSession();
     await expect(owner.select()).rejects.toMatchObject({ code: 'REASONING_NOT_ELIGIBLE' });
     owner.unchanged();
-  }, false));
+  }, false, false, { delegated }));
 
   it('refuses the installation route excluded by the eligible catalog without substituting its eligible default', () => lane(async f => {
     const owner = await managedOwner(f, { eligibleRoutes: ['policy-default'] });
@@ -475,9 +477,10 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   }));
 
   it.each((['original-operator', 'original-installation', 'current-operator', 'current-installation'] as const)
-    .flatMap(scope => (['source', 'inference'] as const).map(check => ({ scope, check }))))(
-    'REQ-OPERATOR-007/047: normal Native retains $scope $check authorization', ({ scope, check }) => lane(async f => {
+    .flatMap(scope => (['source', 'inference'] as const).flatMap(check => [false, true].map(delegated => ({ scope, check, delegated })))))(
+    'REQ-OPERATOR-007/047: normal Native retains $scope $check authorization (delegated=$delegated)', ({ scope, check, delegated }) => lane(async f => {
       await admitted(f);
+      if (delegated) f.revokeSession();
       const plan = (await f.activity.getRuntimePlan())!;
       if (!('selection' in plan.receipt)) throw new Error('Expected management receipt');
       const current = await f.environment.OPERATOR_REGISTRY!.getByName('registry')
@@ -495,7 +498,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
         await storage.put('admission', state);
       });
       await denied(await modelAdmission(f));
-    }));
+    }, true, false, { delegated }));
 
   it('later owner R2 reasoning changes do not replace the original admitted identity across reconstruction', () => lane(async (f, store) => {
     await admitted(f);
@@ -1887,4 +1890,55 @@ describe('REQ-OPERATOR-007/047/048: read-only credential non-retention', () => {
       expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
     } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
   }));
+});
+
+
+describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: delegated normal SDK services', () => {
+  it.each([false, true])('external logout cannot terminate normal %s owner config, R2, model admission or model HTTP', native => lane(async (f, store) => {
+    await admitted(f); f.revokeSession(); f.restart();
+    const configuration = await json(await config(f));
+    expect(configuration.source).toBe(native ? 'pi-native' : 'managed');
+    if (native) expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
+    else { await json(await gateway(f)); expect(store.touchedKeys).toEqual(new Set()); }
+    const permit = await json(await modelAdmission(f, 'delegated-sdk-model'));
+    expect(permit.expiresAt).toBeLessThanOrEqual((await f.activity.getRuntimePlan())!.deadline);
+    const normalFetch = globalThis.fetch;
+    const external: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (!native && request.method === 'POST' && request.url === 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/chat/completions') {
+        return new Response('Fixture provider is unavailable on REST', { status: 404 });
+      }
+      if (request.url === 'https://custom.example.test/native/stream' || !native && new URL(request.url).origin === 'https://gateway.ai.cloudflare.com') {
+        external.push({ url: request.url, body: await request.text() });
+        return new Response(managedSse, { headers: { 'content-type': 'text/event-stream' } });
+      }
+      return normalFetch(request);
+    });
+    if (native) {
+      const response = await modelFetch(f, permit.permitId, { url: 'https://custom.example.test/native/stream', method: 'POST',
+        headers: [['authorization', `Bearer ${oldOAuth.access}`]], bodyBase64: encodeBody(sdkBody) }, 'delegated-sdk-model');
+      expect(response.status).toBe(200); expect(await response.text()).toBe(managedSse);
+      expect(external).toEqual([{ url: 'https://custom.example.test/native/stream', body: sdkBody }]);
+    } else {
+      const response = await modelFetch(f, permit.permitId, { url: 'https://api.openai.com/v1/chat/completions', method: 'POST',
+        headers: [['content-type', 'application/json'], ['authorization', 'Bearer codeflare-enterprise']],
+        bodyBase64: encodeBody(JSON.stringify({ model: 'approved', messages: [{ role: 'user', content: 'Delegated managed input.' }],
+          max_tokens: 16, stream: true })) }, 'delegated-sdk-model');
+      expect(response.status).toBe(200); expect(await response.text()).toBe(managedSse);
+      expect(external.map(request => JSON.parse(request.body))).toEqual([expect.objectContaining({ model: 'dynamic/approved',
+        messages: [{ role: 'user', content: 'Delegated managed input.' }] })]);
+    }
+    expect(store.escapedReads).toEqual([]);
+    expect(f.ownerPortRequests).toEqual([]);
+  }, native, !native, { delegated: true }));
+  it.each(['installation', 'grant', 'registration', 'expiry'] as const)(
+    'delegated normal SDK still denies current local %s after logout', fault => lane(async f => {
+      await admitted(f); f.revokeSession();
+      if (fault === 'installation') f.revoke();
+      if (fault === 'grant') f.revokeGrant();
+      if (fault === 'registration') f.changeRegistration(null);
+      if (fault === 'expiry') f.expire();
+      await denied(await config(f)); await denied(await modelAdmission(f));
+    }, true, false, { delegated: true }));
 });

@@ -4174,9 +4174,9 @@ export class OperatorActivity extends Agent {
         sourceBytes = sourceResponseBytes(plan.receipt.selection.installation.policy);
       }
       if (operation.path === '/v1/dispatcher/receipt' || operation.path === '/v1/dispatcher/resolve') {
-        const { authority, policy } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        const { authority, policy, delegation } = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (!policy.capabilities.includes('fetch')) return denied('policy-denied');
-        if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) return denied('authority-unverified');
+        if (!delegation && !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) return denied('authority-unverified');
         if (JSON.parse(plan.invocationJson).pullRequest !== undefined) return denied('request-invalid');
         const value = operation.body as { operationId: string; requestDigest?: string;
           sourceResponse?: { generation: number; requestDigest: string; responseDigest: string; url: string };
@@ -4234,8 +4234,8 @@ export class OperatorActivity extends Agent {
         });
       }
       effectContext = { reconcileOnly: false, authorize: async () => {
-        const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Dispatcher effect session unavailable');
+        const { authority, delegation } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (!delegation && !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Dispatcher effect session unavailable');
         const rawUser = await this.#appEnv.KV.get(`user:${authority.human.email.toLowerCase()}`);
         let user: unknown;
         try { user = rawUser ? JSON.parse(rawUser) : null; } catch { throw new Error('Dispatcher effect role unavailable'); }
@@ -4486,8 +4486,8 @@ export class OperatorActivity extends Agent {
       try {
         const plan = await this.getRuntimePlan();
         if (!plan) throw new Error('Dispatcher inference unavailable');
-        const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
+        const { authority, delegation } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (!delegation && !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
           || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) throw new Error('Dispatcher inference denied');
       } catch (error) { return dispatcherRefusal(error instanceof DispatcherRefusal ? error.reason : 'authority-unverified'); }
     }
@@ -4534,8 +4534,8 @@ export class OperatorActivity extends Agent {
       if (!plan) return rejected('OPERATOR_CAPABILITY_DENIED', 403);
       const prepare = async (attemptTrace: InferenceDiagnosticContext | undefined, pin = true) => {
         failureClass = 'authority';
-        const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (controller.signal.aborted || !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
+        const { authority, delegation } = await authorizeDispatcherPlan(plan, this.#appEnv);
+        if (controller.signal.aborted || !delegation && !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
           || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) throw new Error('Dispatcher inference authority expired');
         return createDispatcherOperation({ plan, env: this.#appEnv, operation: { ...operation, signal: controller.signal },
           current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken), diagnosticContext: attemptTrace,

@@ -4,7 +4,8 @@ import { inferenceDiagnostic, type InferenceDiagnosticContext } from '../lib/inf
 import { interceptedGithubHosts } from '../github-interceptor';
 import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
-  observeOperatorAccessIdentity, canInvokeOperator } from '../lib/access';
+  observeOperatorAccessIdentity, canInvokeOperator, parseAccessGroups } from '../lib/access';
+import { SETUP_KEYS } from '../lib/kv-keys';
 import { getAigConfig } from '../lib/aig-config';
 import { sourceResponseBytes } from './dispatcher-source-limits';
 import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
@@ -22,7 +23,7 @@ import { projectChangedCompose, projectDispatcherFiles } from './dispatcher-comp
 import { createConductorProductionCapability } from './conductor-production';
 import type { OperatorRuntimePlan } from './activity';
 import { prospectiveRenovatePackageSupported, prospectiveRenovateTimestamp,
-  type OperatorAdmissionReceipt, type ManagementAdmissionReceipt } from './registry';
+  dispatcherDelegationSchema, type DispatcherDelegation, type OperatorAdmissionReceipt, type ManagementAdmissionReceipt } from './registry';
 
 export interface DispatcherAdmittedTarget {
   repository: string; repositoryId: number; pullRequest: number; headSha: string;
@@ -245,6 +246,7 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
   // No resource resolver is introduced: only the direct read/inference profile is supported.
   if (pinned.installation.policy.resourceProfileId !== null) throw new DispatcherRefusal('policy-denied', 'Dispatcher resource profile unavailable');
   let admittedTarget: DispatcherAdmittedTarget | undefined;
+  let delegation: DispatcherDelegation | undefined;
   if (plan.prospectiveAdmissionId) {
     const repositoryOnly = parent.pullRequest === undefined;
     const configured = repositoryOnly ? parseRenovateRunSettings(pinned.installation.configurationJson) : null;
@@ -298,6 +300,13 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
       || human.expiresAt * 1000 <= Date.now()) {
       throw new Error('Prospective actor changed');
     }
+    if (Object.hasOwn(selectedActor, 'delegation')) {
+      if (!repositoryOnly || selectedActor.scope !== 'installation' || selectedActor.sessionId !== ''
+        || selectedActor.sessionGeneration !== 0 || !Array.isArray(selectedActor.human.groups)) {
+        throw new Error('Dispatcher delegation denied');
+      }
+      delegation = dispatcherDelegationSchema.parse(selectedActor.delegation);
+    }
     human = { ...human, groups: selectedActor.human.groups ?? [] };
     if (repositoryOnly) admittedTarget = { repository: parent.repository, repositoryId: proof.repositoryId,
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
@@ -311,9 +320,22 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
   }
   if (human.expiresAt * 1000 <= Date.now() || plan.deadline <= Date.now()
     || !canInvokeOperator(human, selected.value.operator)) throw new Error('Dispatcher invoker denied');
-  return { authority: { ...authority, human }, parent, policy: pinned.installation.policy, admittedTarget,
+  return { authority: { ...authority, human }, delegation, parent, policy: pinned.installation.policy, admittedTarget,
     inferencePolicies: [pinned.installation.policy, pinned.operator.policy,
       selected.value.installation.policy, selected.value.operator.policy] };
+}
+
+/** Captured labels confer membership only in the CURRENT configured routing groups.
+ * Callers pass a fresh trusted authorization, never plan/package metadata. */
+export async function dispatcherRoutingGroups(authorization: Awaited<ReturnType<typeof authorizeDispatcherPlan>>, env: Env): Promise<string[]> {
+  const delegation = authorization.delegation;
+  if (delegation) {
+    const configured = parseAccessGroups(await env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
+    return configured.filter(group => delegation.routingGroups.includes(group));
+  }
+  return resolveSessionAccessGroup(new Request('https://operator.internal/', {
+    headers: { 'cf-access-jwt-assertion': authorization.authority.accessJwt },
+  }), env);
 }
 
 /** Current owner/source authority for Dispatcher native bootstrap and every later binding/send.
@@ -327,22 +349,23 @@ export async function prepareDispatcherNative(input: { plan: OperatorRuntimePlan
   let ownerBucket: string | undefined;
   const authorize = async (selection?: NativeOperatorInference) => {
     if (input.signal?.aborted || !await input.current()) throw new Error('Dispatcher native generation changed');
-    const { authority } = await authorizeDispatcherPlan(plan, env);
+    const authorization = await authorizeDispatcherPlan(plan, env);
+    const { authority, delegation } = authorization;
     if (!env.OPERATOR_REGISTRY) throw new Error('Dispatcher native authority denied');
     const selected = await env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(pinned.installation.id);
     if (!selected.ok || selected.value.installation.revision !== pinned.installation.revision
       || selected.value.operator.revision !== pinned.operator.revision
       || selected.value.controlsRevision !== pinned.controlsRevision
       || selected.value.release.bundleDigest !== pinned.release.bundleDigest) throw new Error('Dispatcher native installation changed');
-    const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
-      headers: { 'cf-access-jwt-assertion': authority.accessJwt },
-    }), env);
+    const groups = await dispatcherRoutingGroups(authorization, env);
     const routes = await loadEnterpriseRouteConfig(env, groups);
     const personal = { piDefaultSource: routes.piDefaultSource, allowPersonalPiProviders: routes.allowPersonalPiProviders };
     if (!selection && !input.selection && personal.piDefaultSource !== 'pi-native') return { native: false as const };
-    const identity = await observeOperatorAccessIdentity(authority.human, authority.accessJwt);
-    if (identity.status === 'unavailable') throw new DispatcherAuthorityUnavailable();
-    if (identity.status !== 'current') throw new Error('Dispatcher native session expired');
+    if (!delegation) {
+      const identity = await observeOperatorAccessIdentity(authority.human, authority.accessJwt);
+      if (identity.status === 'unavailable') throw new DispatcherAuthorityUnavailable();
+      if (identity.status !== 'current') throw new Error('Dispatcher native session expired');
+    }
     if (!personal.allowPersonalPiProviders) throw new Error('Dispatcher native permission denied');
     const bucket = await resolveBucketName(env, authority.human.email);
     if (ownerBucket !== undefined && ownerBucket !== bucket) throw new Error('Dispatcher native owner changed');
@@ -355,6 +378,7 @@ export async function prepareDispatcherNative(input: { plan: OperatorRuntimePlan
       if (selection) resolveOperatorInference({ policy: parsed, trusted: selection, eligible: {
         routeIds: [], defaultRouteId: '', defaultReasoningLevel: '', allowPersonalPiProviders: personal.allowPersonalPiProviders } });
     }
+    if (delegation) await authorizeDispatcherPlan(plan, env);
     if (input.signal?.aborted || !await input.current()) throw new Error('Dispatcher native generation changed');
     return { native: true as const };
   };
@@ -386,10 +410,12 @@ export async function createDispatcherOperation(input: {
 }): Promise<() => Promise<Response>> {
   const { plan, env, operation } = input;
   const limits = dispatcherCapacities(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
-  const { authority, parent, policy: installationPolicy, admittedTarget, inferencePolicies } = await authorizeDispatcherPlan(plan, env);
+  const authorization = await authorizeDispatcherPlan(plan, env);
+  const { authority, parent, policy: installationPolicy, admittedTarget, inferencePolicies } = authorization;
   const current = async () => {
-    await authorizeDispatcherPlan(plan, env);
+    const latest = await authorizeDispatcherPlan(plan, env);
     if (!await input.current()) throw new DispatcherRefusal('execution-inactive', 'Dispatcher generation changed');
+    return latest;
   };
   const inference = operation.path === '/v1/dispatcher/inference';
   if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new DispatcherRefusal('policy-denied', 'Dispatcher capability denied');
@@ -398,8 +424,9 @@ export async function createDispatcherOperation(input: {
     if (parent.pullRequest !== undefined) throw new DispatcherRefusal('request-invalid', 'Legacy Dispatcher source selection denied');
     const sourceCurrent = async () => {
       if (operation.signal?.aborted) throw new DispatcherRefusal('execution-inactive', 'Dispatcher caller cancelled');
-      await current();
-      const identity = await observeOperatorAccessIdentity(authority.human, authority.accessJwt);
+      const latest = await current();
+      if (latest.delegation) return;
+      const identity = await observeOperatorAccessIdentity(latest.authority.human, latest.authority.accessJwt);
       if (identity.status === 'unavailable') throw new DispatcherAuthorityUnavailable();
       if (identity.status !== 'current') {
         throw new DispatcherRefusal('authority-unverified', 'Dispatcher caller session expired');
@@ -552,9 +579,7 @@ export async function createDispatcherOperation(input: {
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   if (inference) {
     if (!input.exports.LlmInterceptor) throw new DispatcherRefusal('operation-failed', 'LLM interceptor unavailable');
-    let groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
-      headers: { 'cf-access-jwt-assertion': authority.accessJwt },
-    }), env);
+    let groups = await dispatcherRoutingGroups(authorization, env);
     const routes = await loadEnterpriseRouteConfig(env, groups);
     // Only the current human default is selected; a child cannot widen or replace it.
     policy.inference = { routeIds: [routes.defaultRoute], defaultRouteId: routes.defaultRoute,
@@ -577,9 +602,7 @@ export async function createDispatcherOperation(input: {
     return async () => {
       await current();
       const latestAuthority = await authorizeDispatcherPlan(plan, env);
-      groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
-        headers: { 'cf-access-jwt-assertion': latestAuthority.authority.accessJwt },
-      }), env);
+      groups = await dispatcherRoutingGroups(latestAuthority, env);
       const latest = await loadEnterpriseRouteConfig(env, groups);
       resolveOperatorInference({ policy, trusted, eligible: { routeIds: latest.routeCatalog,
         defaultRouteId: latest.defaultRoute, defaultReasoningLevel: latest.defaultReasoning } });

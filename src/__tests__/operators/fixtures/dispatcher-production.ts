@@ -229,7 +229,7 @@ export async function fixture(test: (f: {
   interruptOwnedChild: (error: Error) => void;
   failOwnedAbort: () => void;
   seedCancelledReleased: () => Promise<void>;
-}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
+}) => Promise<void>, options: { delegated?: boolean; humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; installationSourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
@@ -271,7 +271,8 @@ export async function fixture(test: (f: {
     const now = Date.now();
     const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
     const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
-      audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
+      audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt,
+      ...(options.delegated ? { groups: [] } : {}) };
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
       ...(options.nativeInference ? { inference: { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
         reasoningLevels: ['low'], defaultReasoningLevel: options.nativeProviderDefault ? null : 'low', inheritUserDefaults: false } }
@@ -302,13 +303,13 @@ export async function fixture(test: (f: {
       controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
       pullRequest: 17, head: 'b'.repeat(40), createdAt: new Date(now - 86_400_000).toISOString(),
       activatedAt: new Date(now - 2 * 86_400_000).toISOString(), ownerKey: await operatorOwnerKey(human),
-      actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: 'original-session',
-        sessionGeneration: 3, subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences } } as unknown as ProspectiveAdmission;
+      actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: options.delegated ? '' : 'original-session',
+        sessionGeneration: options.delegated ? 0 : 3, subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences } } as unknown as ProspectiveAdmission;
     const admittedTarget = { repository: configuredTarget.repository, repositoryId: proof.repositoryId,
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
       createdAfter: proof.activatedAt, baseBranch: configuredTarget.baseBranch };
     let currentProof: Record<string, unknown> | null = structuredClone(proof) as unknown as Record<string, unknown>;
-    let currentRegistration: CurrentProspectiveRegistration | null = { registrationId: proof.actor.registrationId,
+    let currentRegistration: CurrentProspectiveRegistration | null = { ...(options.delegated ? { scope: 'installation' as const, delegation: { version: 1 as const, routingGroups: [] } } : {}), registrationId: proof.actor.registrationId,
       installationId: proof.installationId, activatedAt: proof.activatedAt, bucket: proof.actor.bucket,
       sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration, human, accessJwt: 'private.jwt',
       ...configuredTarget, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
@@ -634,7 +635,7 @@ export async function fixture(test: (f: {
         requestedId === activityId ? activity.getBrowserSummary(ownerKey) : null,
       readProspectiveRenovateAdmission: async () => structuredClone(currentProof),
       currentProspectiveRenovateRegistration: async () => structuredClone(currentRegistration),
-      observeProspectiveRenovateRegistration: async () => currentRegistration && callerSessionCurrent
+      observeProspectiveRenovateRegistration: async () => currentRegistration && (options.delegated || callerSessionCurrent)
         ? { status: 'current', registration: structuredClone(currentRegistration) } : { status: 'denied' },
     };
     // Historical Host completion stand-in retains its original profile/digest wire.
@@ -646,6 +647,7 @@ export async function fixture(test: (f: {
     let normalHostAuthMissing = false;
     const ownerPortRequests: Array<{ url: string; loggingContext: unknown; body: unknown }> = [];
     const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
+      ...(options.delegated ? { KV: { get: async (key: string) => key === 'user:owner@example.test' ? '{"role":"admin"}' : null } } : {}),
       ...(options.normalHosting ? { CONTAINER: { getByName: () => ({
         getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
           if (ref.bucket !== 'owner-bucket' || ref.sessionId !== 'ownerhost123' || ref.email !== human.email

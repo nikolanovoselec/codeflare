@@ -163,3 +163,31 @@ describe('REQ-OPERATOR-045: independent, current operator grants', () => {
     expect(canInvokeOperator({ ...human, expiresAt: 1 }, { invokers: user })).toBe(false);
   });
 });
+
+
+describe('REQ-OPERATOR-045 AC3 /061 AC1: verified delegation memberships', () => {
+  it('captures routing labels separately from stable ACL IDs on the same verified identity', async () => {
+    vi.stubGlobal('fetch', async () => identity(['string-group', { id: 'stable-id', name: 'Operators', email: 'team@example.test' },
+      { name: 'name-only' }, { email: 'email-only@example.test' }]));
+    expect(await observeOperatorAccessIdentity(human, 'fixture-access-token',
+      ['Operators', 'string-group', 'stable-id', 'team@example.test', 'name-only', 'email-only@example.test', 'absent']))
+      .toEqual({ status: 'current', groups: ['stable-id'],
+        routingGroups: ['Operators', 'string-group', 'stable-id', 'team@example.test', 'name-only', 'email-only@example.test'] });
+    expect(await observeOperatorAccessIdentity(human, 'fixture-access-token')).toEqual({ status: 'current', groups: ['stable-id'] });
+  });
+  it('captures explicitly empty membership only after successful principal verification', async () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ user_uuid: human.subject, email: human.email })));
+    expect(await observeOperatorAccessIdentity(human, 'fixture-access-token', ['Operators']))
+      .toEqual({ status: 'current', groups: [], routingGroups: [] });
+  });
+  it.each([
+    () => new Response('unavailable', { status: 503 }),
+    () => identity(null), () => identity([{ id: 4 }]),
+    () => identity([], { user_uuid: 'other' }), () => identity([], { email: 'other@example.test' }),
+    () => new Response('invalid json'),
+  ])('never captures an outage or malformed/foreign identity as verified empty membership', async response => {
+    vi.stubGlobal('fetch', async () => response());
+    expect(await observeOperatorAccessIdentity(human, 'fixture-access-token', ['Operators']))
+      .toEqual({ status: response().status === 503 ? 'unavailable' : 'denied' });
+  });
+});

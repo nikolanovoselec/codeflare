@@ -609,7 +609,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       if (automatic) await activateRenovateRuns({ installationId: selected.id, revision: enabled.revision });
       if (!current()) throw new Error('Activation scope changed');
     }, disabling ? 'Installation deactivated. Future automatic observations are fenced.'
-      : automatic ? 'Automatic runs activated until the original Access expiry.' : 'Installation activated for manual runs only.', 'installed-enable');
+      : automatic ? 'Automatic runs delegated until the original Access expiry.' : 'Installation activated for manual runs only.', 'installed-enable');
   };
   const purpose = () => installation()?.releaseId
     ? currentRelease()?.description || 'Purpose unavailable for the selected installed version.'
@@ -718,7 +718,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <div class="operator-actions"><button class="admin-primary-button" type="button" disabled={!canChangeAvailability()}
           onClick={changeAvailability}>{deactivate() ? 'Deactivate' : 'Activate'}</button></div>
         <Show when={savedAutomatic()}><p class="admin-help-text" role="status">Automatic runs: {installation()?.enabled ? automaticStatus() : 'inactive'}.
-          Activation uses your current administrator and invocation authority until its original Access expiry; no running workspace is required.</p>
+          New activation delegates your verified permissions until the original Access expiry; no running workspace is required. Use Deactivate to revoke this delegation; Cloudflare sign-out does not revoke it.</p>
           <Show when={dirtyRunSettings()}><p class="admin-help-text">Save run settings before activating.</p></Show>
           <Show when={!verifiedActivation()?.canInvoke || !verifiedActivation()?.canActivateAutomaticRuns}><p class="admin-help-text">Invocation permission and admin activation eligibility must be verified separately from management access.</p></Show>
         </Show>

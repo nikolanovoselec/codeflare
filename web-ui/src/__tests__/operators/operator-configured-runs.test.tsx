@@ -403,6 +403,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit installation Activate', () => {
     await open(true); await waitFor(() => expect(activateButton()).toBeEnabled());
     expect(screen.queryByRole('combobox', { name: 'Running workspace' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Start automatic runs' })).toBeNull();
+    expect(screen.getByText(/Use Deactivate to revoke this delegation; Cloudflare sign-out does not revoke it/)).toBeVisible();
     expect(writes).toEqual([]);
     fireEvent.click(activateButton());
     await waitFor(() => expect(writes).toEqual([

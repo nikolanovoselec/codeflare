@@ -13,6 +13,7 @@ import { setLogLevel } from '../../lib/logger';
 import { captureError } from '../../operators/dispatcher-diagnostics-wire';
 import { Hono } from 'hono';
 import * as access from '../../lib/access';
+import { openOperatorExecutionAccess } from '../../operators/execution-context';
 import activityRoutes from '../../routes/operator-activities';
 import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
 import type { Env } from '../../types';
@@ -117,8 +118,8 @@ function pr(registrationId: string, activatedAt: string, patch: Record<string, u
 }
 
 async function dispatcherPlan(registry: Prospective, environment: Env, selection: object,
-  patch: { human?: Partial<ReturnType<typeof claims>>; accessJwt?: string } = {}) {
-  const activation = await enroll(registry, 'a');
+  patch: { delegated?: boolean; human?: Partial<ReturnType<typeof claims>>; accessJwt?: string } = {}) {
+  const activation = patch.delegated ? await activateInstallation(registry) : await enroll(registry, 'a');
   if (!activation.ok) throw Error('No activation');
   const observed = await registry.observeProspectiveRenovateRegistration(activation.registrationId);
   if (observed.status !== 'current') throw Error('No registration');
@@ -744,6 +745,119 @@ describe('REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry', () => {
 });
 
 
+
+const activateInstallation = (registry: Prospective, human = claims('a@example.test', 3600)) => registry.activateProspectiveRenovate({
+  installationId: 'dispatcher-install', scope: 'installation', bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
+  human, accessJwt: 'a-jwt', repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } });
+// Migration contract: historical persisted installation records have no delegation field.
+async function seedLegacyInstallation(native: DurableObjectState, activation: Registration) {
+  if (!activation.ok) throw Error('No activation');
+  const key = `renovate-registration:${activation.registrationId}`;
+  const { delegation: _newOnly, ...legacy } = (await native.storage.get<Record<string, unknown>>(key))!;
+  await native.storage.put(key, legacy);
+}
+
+describe('REQ-OPERATOR-045 AC3 /047 AC3/7 /061 AC1/3: bounded installation delegation', () => {
+  it.each(['subject', 'issuer', 'email', 'audiences', 'issuedAt', 'expiresAt', 'accessJwt'] as const)(
+    'delegated original authority cannot be replaced or extended by execution %s', field => fixture(async ({ registry, environment, selection, state }) => {
+      const patch = field === 'accessJwt' ? { accessJwt: 'reauthenticated-token' } : { human: {
+        [field]: field === 'audiences' ? ['foreign-audience'] : field === 'expiresAt'
+          ? Math.floor(Date.now() / 1000) + 7200 : field === 'issuedAt' ? Math.floor(Date.now() / 1000)
+            : field === 'issuer' ? 'https://foreign.cloudflareaccess.com' : 'foreign@example.test',
+      } };
+      const { plan, host } = await dispatcherPlan(registry, environment, selection, { delegated: true, ...patch });
+      state.identityFault = 'unavailable';
+      await expect(authorizeDispatcherPlan(plan, host)).rejects.toThrow();
+    }));
+
+  it.each(['unavailable', 'transport-error', 'timeout', 'revoked', 'forbidden', 'malformed'] as const)(
+    'fresh Activate cannot delegate with %s identity evidence', fault => fixture(async ({ registry, native, state }) => {
+      state.identityFault = fault;
+      expect(await activateInstallation(registry)).toMatchObject({ ok: false });
+      expect(await native.storage.getAlarm()).toBeNull();
+      expect(await native.storage.list({ prefix: 'renovate-registration:' })).toEqual(new Map());
+    }));
+  it('seals final verified ACL membership and captures separate configured routing labels without live external dependence', () => fixture(async ({ registry, restart, native, environment, selection, state }) => {
+    const selected = selection as ManagementExecutionSelection;
+    selected.operator.invokers = { users: [], groups: [{ issuer: claims('a@example.test').issuer, id: 'stable-id' }] };
+    const get = environment.KV.get.bind(environment.KV);
+    const kv = vi.spyOn(environment.KV, 'get').mockImplementation(async (...args: Parameters<typeof get>) =>
+      args[0] === 'setup:enterprise_access_group' ? 'Operators,stable-id,a@example.test,missing' : get(...args));
+    const fetcher = globalThis.fetch;
+    // Wire budget is exactly issuance's two independently validated identity responses.
+    const responses = [1, 2].map(() => Response.json({ id: 'a@example.test', email: 'a@example.test',
+      groups: [{ id: 'stable-id', name: 'Operators' }, { email: 'a@example.test' }] }));
+    globalThis.fetch = async () => responses.shift() ?? new Response(null, { status: 503 });
+    try {
+      const consent = claims('a@example.test', 3600);
+      const first = await activateInstallation(registry, consent); if (!first.ok) throw Error('No activation');
+      const key = `renovate-registration:${first.registrationId}`;
+      const record = (await native.storage.get<Record<string, unknown>>(key))!;
+      const sealed = await openOperatorExecutionAccess(record.context as never, environment);
+      expect(sealed.human.groups).toEqual(['stable-id']);
+      for (const fault of ['unavailable', 'revoked', 'valid'] as const) {
+        state.identityFault = fault;
+        expect(await restart().observeProspectiveRenovateRegistration(first.registrationId)).toMatchObject({ status: 'current', registration: {
+          scope: 'installation', delegation: { version: 1, routingGroups: ['Operators', 'stable-id', 'a@example.test'] },
+          human: { groups: ['stable-id'], expiresAt: consent.expiresAt } } });
+      }
+      expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt))).ok).toBe(true);
+      selected.operator.invokers = { users: [], groups: [] };
+      expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
+    } finally { globalThis.fetch = fetcher; kv.mockRestore(); }
+  }));
+  it.each(['role', 'revision', 'invoker', 'expiry'] as const)(
+    'final issuance %s race cannot seal authority', fault => fixture(async ({ registry, native, selection, state }) => {
+      const fetcher = globalThis.fetch;
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+      globalThis.fetch = async (...args) => {
+        const response = await fetcher(...args);
+        if (fault === 'role') state.roles.set('a@example.test', 'user');
+        if (fault === 'revision') (selection as ManagementExecutionSelection).installation.revision++;
+        if (fault === 'invoker') (selection as ManagementExecutionSelection).operator.invokers = { users: [], groups: [] };
+        if (fault === 'expiry') clock.mockReturnValue(Date.now() + 3601_000);
+        return response;
+      };
+      try {
+        expect(await activateInstallation(registry)).toMatchObject({ ok: false });
+        expect(await native.storage.list({ prefix: 'renovate-registration:' })).toEqual(new Map());
+      } finally { clock.mockRestore(); globalThis.fetch = fetcher; }
+    }));
+  it.each([{ version: 2, routingGroups: [] }, { version: 1 }, null, { version: 1, routingGroups: [4] }])(
+    'invalid persisted marker/snapshot never downgrades to live authority: %j', delegation => fixture(async ({ registry, restart, native }) => {
+      const activation = await activateInstallation(registry); if (!activation.ok) throw Error('No activation');
+      const key = `renovate-registration:${activation.registrationId}`;
+      await native.storage.put(key, { ...await native.storage.get<Record<string, unknown>>(key), delegation });
+      expect(await restart().observeProspectiveRenovateRegistration(activation.registrationId)).toEqual({ status: 'denied' });
+      expect((await registry.reserveProspectiveRenovateActivity(pr(activation.registrationId, activation.activatedAt))).ok).toBe(false);
+    }));
+  it('legacy persisted installation keeps live identity checks and requires fresh explicit consent to delegate', () => fixture(async ({ registry, restart, native, state }) => {
+    const consent = claims('a@example.test', 3600);
+    const first = await activateInstallation(registry, consent); if (!first.ok) throw Error('No activation');
+    await seedLegacyInstallation(native, first);
+    state.identityFault = 'unavailable';
+    expect(await restart().observeProspectiveRenovateRegistration(first.registrationId)).toEqual({ status: 'unavailable' });
+    state.identityFault = 'valid';
+    expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toMatchObject({ human: { email: consent.email } });
+    state.identityFault = 'revoked';
+    expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
+  }));
+  it('duplicate acknowledgement and reconstruction retain original expiry and immutable cutoff', () => fixture(async ({ registry, restart, native }) => {
+    const consent = claims('a@example.test', 3600);
+    const first = await activateInstallation(registry, consent); if (!first.ok) throw Error('No activation');
+    const now = Date.now(); const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 1000);
+    try {
+      expect(await activateInstallation(restart(), consent)).toEqual(first);
+      expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toMatchObject({ human: { expiresAt: consent.expiresAt } });
+      clock.mockReturnValue(consent.expiresAt * 1000);
+      expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
+      expect(await activateInstallation(registry, consent)).toMatchObject({ ok: false });
+      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
+      expect(await native.storage.get('renovate-cutoff:dispatcher-install:424242')).toBe(first.activatedAt);
+    } finally { clock.mockRestore(); }
+  }));
+});
+
 describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   const activate = (registry: Prospective, user: 'a' | 'z' = 'a', lifetimeSeconds = 3600) => registry.activateProspectiveRenovate({ installationId: 'dispatcher-install',
     scope: 'installation', bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
@@ -755,7 +869,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     if (!first.ok) throw Error('No activation');
     expect(await native.storage.getAlarm()).toBeGreaterThan(Date.now());
     expect(await activate(registry)).toEqual(first);
-    expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toMatchObject({ scope: 'installation' });
+    expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toMatchObject({ scope: 'installation',
+      delegation: { version: 1, routingGroups: [] }, human: { groups: [] } });
     expect(await registry.prospectiveRenovateStatus('dispatcher-install', await operatorOwnerKey(claims('a@example.test')))).toBe('active');
     expect(await registry.prospectiveRenovateStatus('dispatcher-install', 'f'.repeat(64))).toBe('inactive');
     expect(await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt, { createdAt: first.activatedAt })))
@@ -765,7 +880,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     expect(await restart().reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt, { activityId: 'duplicate' }))).toEqual(reserved);
     expect(await registry.readProspectiveRenovateAdmission('duplicate')).toBeNull();
   }));
-  it('retirement during asynchronous election fences the stale winner at commit and leaves the head available to the armed admin', () => fixture(async ({ registry, restart, state }) => {
+  it('legacy installation migration: retirement during asynchronous election fences the stale winner at commit and leaves the head available to the armed admin', () => fixture(async ({ registry, restart, native, state }) => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
     const identityFetch = globalThis.fetch;
     let release!: () => void;
@@ -781,6 +896,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     try {
       const a = await registry.activateProspectiveRenovate(consent), z = await activate(registry, 'z');
       if (!a.ok || !z.ok) throw Error('No activation');
+      await seedLegacyInstallation(native, a); await seedLegacyInstallation(native, z);
       globalThis.fetch = async (input, init) => {
         if (!held && new Headers(init?.headers).get('Cookie') === 'CF_Authorization=a-jwt') {
           held = true; entered(); await gate;
@@ -842,7 +958,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     } finally { clock.mockRestore(); }
   }));
   it.each(['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'empty', 'candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'handoff-failure', 'logger-throws', 'source-and-logger-throws'] as const)(
-    'REQ-OPERATOR-063/209: Registry alarm summary %s is private and does not change admission or saved six-hour cadence', fault => fixture(async ({ registry, native, environment, selection, state }) => {
+    'REQ-OPERATOR-063/209: legacy installation migration Registry alarm summary %s is private and does not change admission or saved six-hour cadence', fault => fixture(async ({ registry, native, environment, selection, state }) => {
       (selection as { installation: { configurationJson: string } }).installation.configurationJson = JSON.stringify({ renovate: {
         repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 21600 } });
       if (fault === 'other-registration') {
@@ -852,6 +968,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       }
       const first = await activate(registry, fault === 'other-registration' ? 'z' : 'a', 86400);
       if (!first.ok) throw Error('No activation');
+      // Historical alarm diagnostic contract retains live Access dispositions.
+      await seedLegacyInstallation(native, first);
       const target = pr(first.registrationId, first.activatedAt);
       let original: Reservation | undefined;
       if (fault === 'retained') original = await registry.reserveProspectiveRenovateActivity(target);
@@ -971,7 +1089,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   const handoffFaults = ['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'lost-start-ack', 'admission-unavailable', 'profile-unavailable', 'profile-revoked',
     'plan-read', 'plan-missing', 'drive-plan-read', 'drive-plan-missing', 'detail-read', 'detail-missing', 'binding', 'concurrent-drive', 'persistence-unavailable',
     'prepared-start', 'admitting-start'] as const;
-  const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none') => fixture(async ({ native, environment, selection, state }) => {
+  const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none', delegated = false) => fixture(async ({ native, environment, selection, state }) => {
     // Reuse the normal installed-Worker wire fixture: real Registry/Activity/orchestrator,
     // controlled external App HTTP. This proves parent execution, not execution of Flue SDK code.
     const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
@@ -1107,6 +1225,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         const retired = await inRegistry(() => activate(owner as unknown as Prospective));
         const registration = await inRegistry(() => activate(owner as unknown as Prospective, 'z'));
         if (!retired.ok || !registration.ok) throw Error('No installation activation');
+        if (!delegated) {
+          await inRegistry(() => seedLegacyInstallation(native, retired));
+          await inRegistry(() => seedLegacyInstallation(native, registration));
+        }
         state.roles.set('a@example.test', 'user');
         clock.mockReturnValue(Date.now() + 2000);
         // No new PRs yet; this delivery retires only A's authority.
@@ -1118,7 +1240,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         clock.mockReturnValue(Date.now() + 900_000);
         await inRegistry(() => owner.alarm()); await drain();
         if (!activityId) throw Error('No Activity admitted by alarm');
-        if (['admission-unavailable', 'profile-unavailable', 'profile-revoked'].includes(fault)) {
+        if (!delegated && ['admission-unavailable', 'profile-unavailable', 'profile-revoked'].includes(fault)) {
           const ownerKey = await operatorOwnerKey(claims('z@example.test'));
           const code = fault === 'profile-revoked' ? 'authority-denied' : 'platform-evidence-required';
           expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
@@ -1135,7 +1257,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
           return;
         }
-        if (fault !== 'none') {
+        if (!delegated && fault !== 'none') {
           faultArmed = false;
           const retained = await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!));
           const due = await inRegistry(() => native.storage.getAlarm());
@@ -1232,7 +1354,11 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
         expect([...transport.admissions.values()]).toEqual(accepted);
         // Only fresh explicit consent can rearm A; it cannot change the cutoff
-        // or replace Z's already-completed admission.
+        // or replace Z's already-completed admission. Issuance itself stays live.
+        if (delegated) {
+          expect(await inRegistry(() => activate(owner as unknown as Prospective))).toMatchObject({ ok: false });
+          state.identityFault = 'valid';
+        }
         const reactivated = await inRegistry(() => activate(owner as unknown as Prospective));
         expect(reactivated).toMatchObject({ ok: true, activatedAt: retired.activatedAt });
         expect(await inRegistry(() => activate(owner as unknown as Prospective))).toEqual(reactivated);
@@ -1249,9 +1375,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   });
   it('role restoration without new consent cannot elect a retired admin or strand the active admin’s normal Dispatcher work',
     () => normalAlarmHandoff('none'));
-  it.each(handoffFaults)('REQ-OPERATOR-061 AC3/5/7: post-admission %s retains the original Activity and pre-drive disposition',
+  it.each(['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'admission-unavailable', 'profile-unavailable', 'profile-revoked'] as const)(
+    'REQ-OPERATOR-047/048/061: delegated normal alarm handoff and immutable terminal collection survive external %s without a Host',
+    fault => normalAlarmHandoff(fault, true));
+  it.each(handoffFaults)('REQ-OPERATOR-061 AC3/5/7: legacy installation migration post-admission %s retains the original Activity and pre-drive disposition',
     fault => normalAlarmHandoff(fault));
-  it.each(['expiry', 'role', 'invoker', 'installation', 'revision', 'configuration', 'release', 'controls', 'identity'] as const)(
+  it.each(['expiry', 'role', 'invoker', 'installation', 'revision', 'configuration', 'release', 'controls'] as const)(
     '%s fences session-independent callbacks and new admissions', fault => fixture(async ({ registry, restart, selection, state }) => {
       state.sessions.clear(); const first = await activate(registry); if (!first.ok) throw Error('No activation');
       const selected = selection as { installation: { revision: number; configurationJson: string };
@@ -1267,7 +1396,6 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } });
         if (fault === 'release') selected.release.id = 'other';
         if (fault === 'controls') selected.controlsRevision++;
-        if (fault === 'identity') state.revoked.add('a-jwt');
         expect(await restart().currentProspectiveRenovateRegistration(first.registrationId)).toBeNull();
         expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt))).ok).toBe(false);
         expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
@@ -1303,8 +1431,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       expect(await activate(registry)).toEqual(next);
     } finally { clock.mockRestore(); }
   }));
-  it('temporary identity loss projects unconfirmed and supplies no admission authority', () => fixture(async ({ registry, state }) => {
-    const first = await activate(registry); if (!first.ok) throw Error('No activation'); state.identityFault = 'unavailable';
+  it('legacy installation migration: temporary identity loss projects unconfirmed and supplies no admission authority', () => fixture(async ({ registry, native, state }) => {
+    const first = await activate(registry); if (!first.ok) throw Error('No activation');
+    await seedLegacyInstallation(native, first); state.identityFault = 'unavailable';
     expect(await registry.prospectiveRenovateStatus('dispatcher-install', await operatorOwnerKey(claims('a@example.test')))).toBe('unconfirmed');
     expect((await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt))).ok).toBe(false);
   }));

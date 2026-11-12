@@ -6,7 +6,7 @@ import { emitRaw } from '../../host/src/operator-raw-logging';
 import { getContainerId, forwardExisting } from '../lib/container-helpers';
 import { readBoundedResponse, readBoundedStream } from '../lib/bounded-stream';
 import { loadEnterpriseRouteConfig, resolveSessionAccessGroup, resolveBucketName, operatorAccessSessionCurrent } from '../lib/access';
-import { authorizeDispatcherPlan } from './operator-runtime-capability';
+import { authorizeDispatcherPlan, dispatcherRoutingGroups } from './operator-runtime-capability';
 import { OperatorInferenceSelectionError, resolveOperatorInference } from './inference-selection';
 import { operatorOwnerKey } from './browser-activity';
 import { PiAuthRequiredError, safePiAuthFailure } from './pi-auth-failure';
@@ -30,11 +30,11 @@ type SendInput = Input & Pick<ExecutionContext, 'waitUntil'>;
 export async function dispatcherSdkOwnerContext(input: Input, selection?: ConfiguredDispatcherInference) {
   const { plan, env } = input;
   if (input.signal?.aborted || plan.authFailure || !await input.current() || !('selection' in plan.receipt)) throw new Error('Owner inference denied');
-  const { authority, inferencePolicies } = await authorizeDispatcherPlan(plan, env);
-  if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Owner access expired');
+  const authorization = await authorizeDispatcherPlan(plan, env);
+  const { authority, inferencePolicies, delegation } = authorization;
+  if (!delegation && !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Owner access expired');
   const bucket = await resolveBucketName(env, authority.human.email);
-  const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
-    headers: { 'cf-access-jwt-assertion': authority.accessJwt } }), env);
+  const groups = await dispatcherRoutingGroups(authorization, env);
   const routes = await loadEnterpriseRouteConfig(env, groups);
   const source = routes.piDefaultSource === 'pi-native' && routes.allowPersonalPiProviders === true ? 'pi-native' : 'managed';
   if (selection && selection.source !== source) throw new Error('Owner inference source changed');
@@ -63,6 +63,7 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
     }
   }
   if (managed && !routes.routeCatalog.includes(managed.routeId)) throw new Error('Owner managed route unavailable');
+  if (delegation) await authorizeDispatcherPlan(plan, env);
   if (Date.now() >= plan.deadline || input.signal?.aborted || !await input.current()) throw new Error('Owner inference expired');
   return { bucket, email: authority.human.email.trim().toLowerCase(), authority, groups, source,
     ownerKey: await operatorOwnerKey(authority.human), managed, routeContextWindows: routes.routeContextWindows,

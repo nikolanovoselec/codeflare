@@ -216,9 +216,10 @@ function operatorHumanDenied(
  * Only the verified issuer receives the credential; redirects are never followed.
  */
 export type OperatorAccessIdentityObservation =
-  | { status: 'current'; groups: string[] } | { status: 'unavailable' } | { status: 'denied' };
+  | { status: 'current'; groups: string[]; routingGroups?: string[] } | { status: 'unavailable' } | { status: 'denied' };
 
-export async function observeOperatorAccessIdentity(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<OperatorAccessIdentityObservation> {
+export async function observeOperatorAccessIdentity(human: VerifiedHumanAccessClaims, accessJwt: string,
+  configuredRoutingGroups?: readonly string[]): Promise<OperatorAccessIdentityObservation> {
   const denied = (...args: Parameters<typeof operatorHumanDenied>): OperatorAccessIdentityObservation => {
     operatorHumanDenied(...args); return { status: 'denied' };
   };
@@ -264,7 +265,8 @@ export async function observeOperatorAccessIdentity(human: VerifiedHumanAccessCl
     }
     // Cloudflare's documented identity has no required groups field. A verified
     // session without it asserts no memberships; malformed supplied groups still deny.
-    if (!Object.hasOwn(record, 'groups')) return { status: 'current', groups: [] };
+    if (!Object.hasOwn(record, 'groups')) return { status: 'current', groups: [],
+      ...(configuredRoutingGroups === undefined ? {} : { routingGroups: [] }) };
     if (!Array.isArray(record.groups) || record.groups.length > 1024) return denied('identity', 'groups');
     const groups: string[] = [];
     const validLabel = (value: unknown): value is string =>
@@ -285,7 +287,11 @@ export async function observeOperatorAccessIdentity(human: VerifiedHumanAccessCl
       if (typeof id !== 'string' || !id || id.length > 256 || id.trim() !== id) return denied('identity', 'groups');
       groups.push(id);
     }
-    return { status: 'current', groups: [...new Set(groups)] };
+    return { status: 'current', groups: [...new Set(groups)],
+      ...(configuredRoutingGroups === undefined ? {} : { routingGroups: configuredRoutingGroups.filter(configured =>
+        (record.groups as unknown[]).some(value => typeof value === 'string' ? value === configured
+          : !!value && typeof value === 'object' && ['id', 'name', 'email'].some(key =>
+            (value as Record<string, unknown>)[key] === configured))) }) };
   } catch (error) {
     denied('identity', failure);
     const timeout = error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name);

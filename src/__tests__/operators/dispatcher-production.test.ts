@@ -6,7 +6,7 @@ import { Agent } from 'agents';
 import { OperatorActivity, OperatorDispatcherTail } from '../../operators/activity';
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
-import { parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
+import { authorizeDispatcherPlan, dispatcherRoutingGroups, parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
 import { captureError } from '../../operators/dispatcher-diagnostics-wire';
 import { setLogLevel } from '../../lib/logger';
 import * as access from '../../lib/access';
@@ -4121,12 +4121,13 @@ describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent a
     expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
   }, { prospective: true }));
 
-  it('preserves unknown writes without replay, allows closed/moved target readback, and seals only same-generation receipt references', () => fixture(async f => {
+  it.each([false, true])('preserves unknown writes without replay, allows closed/moved target readback, and seals only same-generation receipt references (delegated=%s)', delegated => fixture(async f => {
     await startProspective(f);
     const mutation = prospectiveComment('unknown-admitted-comment');
     f.loseResponse();
     expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
     f.restoreTransport();
+    if (delegated) f.revokeSession();
     f.changeTarget({ state: 'closed', head: { sha: 'c'.repeat(40) } });
     f.restart();
     f.throwTransport();
@@ -4152,5 +4153,74 @@ describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent a
     expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ resolved: true,
       operationId: mutation.operationId, requestDigest: original.requestDigest });
     expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
+  }, { prospective: true, delegated }));
+});
+
+
+describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: explicit automatic delegation', () => {
+  it.each(['grant', 'registration', 'cancel'] as const)(
+    'current local %s loss during awaited delegated mutation preflight prevents the effect', fault => fixture(async f => {
+      await startProspective(f); f.revokeSession();
+      f.afterTargetRead(async () => {
+        if (fault === 'grant') f.revokeGrant();
+        else if (fault === 'registration') f.changeRegistration(null);
+        else await f.activity.cancelDrive();
+      });
+      expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).ok).toBe(false);
+      expect(remoteMutations(f)).toEqual([]);
+    }, { prospective: true, delegated: true }));
+
+  it('retains protected source, receipt, effects and inference after external logout and reconstruction', () => fixture(async f => {
+    await startProspective(f);
+    f.revokeSession();
+    for (const reload of [false, true]) {
+      if (reload) f.restart();
+      const id = `delegated-source-${reload}`;
+      expect((await f.capability.fetch(genericWire('source', { operationId: id, url: `${prospectiveBase}/pulls/17` }))).status).toBe(200);
+      expect((await f.capability.fetch(genericWire('receipt', { operationId: id }))).status).toBe(200);
+      expect((await f.capability.fetch(genericWire('source', prospectiveComment(`delegated-comment-${reload}`)))).status).toBe(200);
+      expect((await f.capability.fetch(genericWire('inference', { operationId: `delegated-inference-${reload}`,
+        input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(200);
+    }
+    expect(remoteMutations(f).map(request => request.method)).toEqual(['POST', 'POST']);
+  }, { prospective: true, delegated: true, recovery: true }));
+  it.each(['grant', 'installation', 'registration', 'expiry', 'cancel'] as const)(
+    'fresh local %s loss still fences delegated work after logout', fault => fixture(async f => {
+      await startProspective(f); f.revokeSession();
+      if (fault === 'grant') f.revokeGrant();
+      if (fault === 'installation') f.revoke();
+      if (fault === 'registration') f.changeRegistration(null);
+      if (fault === 'expiry') f.expire();
+      if (fault === 'cancel') await f.activity.cancelDrive();
+      f.restart();
+      expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
+      expect(remoteMutations(f)).toEqual([]);
+    }, { prospective: true, delegated: true }));
+  it.each([{ version: 2, routingGroups: [] }, { version: 1 }, null, { version: 1, routingGroups: 'all' }])(
+    'present invalid trusted delegation metadata denies rather than falling back: %j', delegation => fixture(async f => {
+      await startProspective(f);
+      f.changeRegistration(JSON.parse(JSON.stringify({ delegation })));
+      expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
+      expect(remoteMutations(f)).toEqual([]);
+    }, { prospective: true, delegated: true }));
+  it('client delegation flags cannot upgrade live-bound work', () => fixture(async f => {
+    await start(f); f.revokeSession();
+    expect((await f.capability.fetch(genericWire('source', { ...prospectiveComment(),
+      delegated: true, delegation: { version: 1, routingGroups: [] } }))).status).toBe(403);
+    expect(remoteMutations(f)).toEqual([]);
   }, { prospective: true }));
+});
+
+
+describe('REQ-OPERATOR-047 AC7 /061 AC3: current delegated routing restrictions', () => {
+  it('intersects captured routing labels with current configured groups in current order; never adds a new membership', () => fixture(async f => {
+    f.changeRegistration({ delegation: { version: 1, routingGroups: ['old', 'second', 'first'] } });
+    let configured = 'first,second,new';
+    f.environment.KV = { get: async () => configured } as unknown as KVNamespace;
+    const plan = (await f.activity.getRuntimePlan())!;
+    f.revokeSession();
+    expect(await dispatcherRoutingGroups(await authorizeDispatcherPlan(plan, f.environment), f.environment)).toEqual(['first', 'second']);
+    configured = 'new';
+    expect(await dispatcherRoutingGroups(await authorizeDispatcherPlan(plan, f.environment), f.environment)).toEqual([]);
+  }, { prospective: true, delegated: true }));
 });
