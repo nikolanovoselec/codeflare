@@ -1698,6 +1698,106 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
   });
 
   describe('WebSocket reconnection behavior', () => {
+    it('REQ-SESSION-012 AC7 / REQ-TERM-003: delivered 1011 backs off, restores the same terminal and accepts fresh input/output', async () => {
+      // Store-layer contract, not an end-to-end relay test: the Workers test
+      // independently verifies that an upstream 1006 delivers this wire code.
+      const sockets: InstanceType<typeof _MockWebSocket>[] = [];
+      const inputs: string[] = [];
+      let workloadScreen = 'existing workload\r\n';
+      let painted = '';
+      let typeInput: ((data: string) => void) | undefined;
+      const terminal = {
+        ...createMockTerminal(),
+        write(data: string, callback?: () => void) { painted += data; callback?.(); },
+        clear() { painted = ''; },
+        reset() { painted = ''; },
+        onData(handler: (data: string) => void) {
+          typeInput = handler;
+          return { dispose() { if (typeInput === handler) typeInput = undefined; } };
+        },
+      } as unknown as Terminal;
+      const OriginalWebSocket = globalThis.WebSocket;
+      vi.stubGlobal('WebSocket', class extends _MockWebSocket {
+        constructor(url: string) {
+          super(url);
+          sockets.push(this);
+          // The same in-memory workload owns authoritative restore on every
+          // attach; it is not recreated by the reconnecting store.
+          setTimeout(() => this._simulateMessage(JSON.stringify({ type: 'restore', state: workloadScreen })), 0);
+        }
+        send(data: string | ArrayBuffer | Blob | ArrayBufferView) {
+          if (typeof data !== 'string' || data.startsWith('{"type":')) return;
+          inputs.push(data);
+          const output = `echo: ${data}`;
+          workloadScreen += output;
+          this._simulateMessage(output);
+        }
+      } as unknown as typeof WebSocket);
+
+      try {
+        terminalStore.connect(sessionId, terminalId, terminal);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(painted).toBe(workloadScreen);
+        const original = sockets[0];
+        original._simulateMessage('queued obsolete bytes');
+        original._simulateMessage('\x1b[?2026hstale partial');
+        original.close(1011);
+        workloadScreen += 'output while detached\r\n';
+        expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connecting');
+        expect(sendInputToTerminal(sessionId, terminalId, 'while disconnected')).toBe(false);
+        await vi.advanceTimersByTimeAsync(49);
+        expect(sockets).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(sockets).toHaveLength(2);
+        // Let the replacement's asynchronous open and restore arrive.
+        await vi.advanceTimersByTimeAsync(1);
+        expect(sockets[1].url).toBe(original.url);
+        expect(terminalStore.getTerminal(sessionId, terminalId)).toBe(terminal);
+        expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connected');
+        expect(painted).toBe(workloadScreen);
+
+        // Old transport events cannot overwrite the restored screen or retire
+        // its successor; the active onData subscription reaches the workload.
+        original._simulateMessage('stale output');
+        original.onclose?.(new CloseEvent('close', { code: 4503 }));
+        typeInput?.('fresh input\r');
+        await vi.advanceTimersByTimeAsync(33);
+        expect(inputs).toEqual(['fresh input\r']);
+        expect(painted).toBe('existing workload\r\noutput while detached\r\necho: fresh input\r');
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(painted).toBe(workloadScreen);
+        expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connected');
+        expect(sockets).toHaveLength(2);
+      } finally {
+        terminalStore.disconnect(sessionId, terminalId);
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+
+    it.each([
+      { code: 1000, reason: 'finished' },
+      { code: 1005, reason: '' },
+      { code: 1011, reason: 'dashboard-disconnect' },
+    ])('REQ-SESSION-012 AC7: delivered final close $code "$reason" does not reconnect', async ({ code, reason }) => {
+      const sockets: InstanceType<typeof _MockWebSocket>[] = [];
+      const OriginalWebSocket = globalThis.WebSocket;
+      vi.stubGlobal('WebSocket', class extends _MockWebSocket {
+        constructor(url: string) { super(url); sockets.push(this); }
+      } as unknown as typeof WebSocket);
+      try {
+        terminalStore.connect(sessionId, terminalId, createMockTerminal());
+        await vi.advanceTimersByTimeAsync(0);
+        sockets[0].close(code, reason);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('disconnected');
+        expect(sendInputToTerminal(sessionId, terminalId, 'must not send')).toBe(false);
+        expect(sockets).toHaveLength(1);
+      } finally {
+        terminalStore.disconnect(sessionId, terminalId);
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+
     it('stops retrying on 4503, releases this transport, and requests session reconciliation', async () => {
       const terminal = createMockTerminal();
       const onSessionStopped = vi.fn();
@@ -2060,7 +2160,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('should cancel in-flight retries when disconnect() is called', async () => {
+    it.each([1006, 1011])('should cancel in-flight retries on %s when disconnect() is called', async (code) => {
       const terminal = createMockTerminal();
 
       // Create WebSocket that immediately closes with abnormal code
@@ -2087,7 +2187,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
           setTimeout(() => {
             this.readyState = 3;
             if (this.onclose) {
-              this.onclose(new CloseEvent('close', { code: 1006 }));
+              this.onclose(new CloseEvent('close', { code }));
             }
           }, 0);
         }

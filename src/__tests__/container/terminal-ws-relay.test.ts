@@ -67,6 +67,7 @@ type RelayFixture = {
   readonly container: ContainerSide;
   readonly wasStarted: () => boolean;
   readonly lifecycleGeneration: () => unknown;
+  readonly reconnect: () => Promise<Response>;
 };
 
 type RecordedEvents = {
@@ -144,9 +145,11 @@ async function upgrade(options: {
   await runInDurableObject<NativeDurableObject, void>(nativeObjectStub, async nativeInstance => {
     nativeInstance.fetch = (request: Request) => instance.fetch(request);
   });
-  const response = await nativeStub.fetch(new Request(`https://codeflare.ch${options.path}?reconnect=a%2Fb`, {
+  // Each upgrade reuses the same existing-process stand-in, storage and coordinator.
+  const reconnect = () => nativeStub.fetch(new Request(`https://codeflare.ch${options.path}?reconnect=a%2Fb`, {
     headers: { Upgrade: 'websocket' },
   }));
+  const response = await reconnect();
   const inDurableObject = (act: (end: WebSocket) => void): Promise<void> =>
     runInDurableObject<NativeDurableObject, void>(nativeObjectStub, async () => {
       if (!containerEnd) throw new Error('the container end does not exist: the private port was never reached');
@@ -194,6 +197,7 @@ async function upgrade(options: {
       },
       wasStarted: () => started,
       lifecycleGeneration: () => persisted.get('lifecycleGeneration'),
+      reconnect,
     },
   };
 }
@@ -288,7 +292,6 @@ describe('terminal and IDE WebSocket relay owned by the Container Durable Object
   it.each<{ how: string; closeContainer: (container: ContainerSide) => Promise<void> }>([
     { how: 'with 1000', closeContainer: container => container.close(1000) },
     { how: 'without a status (1005)', closeContainer: container => container.close() },
-    { how: 'abnormally (1006)', closeContainer: container => container.reportAbnormalClose() },
   ])(
     'a container close $how reaches the client as a final 1000',
     ({ closeContainer }) => withRelay({}, async relay => {
@@ -297,10 +300,64 @@ describe('terminal and IDE WebSocket relay owned by the Container Durable Object
       await eventually(() => seen.closes[0], 'client must see a close');
       expect(
         seen.closes[0].code,
-        'WHAT: the client did not see the final close code 1000. WHY: a 1005 or 1006 close would otherwise be treated differently by the client reconnect policy. HOW: map 1005 and 1006 to 1000 when forwarding close.',
+        'Normal and absent-status closes remain final, distinct from abnormal terminal transport loss.',
       ).toBe(1000);
     }),
   );
+
+  it('REQ-SESSION-012 AC7: abnormal terminal upstream close delivers 1011 and a reconnect restores I/O on the same generation without starting', () =>
+    withRelay({ sdkRunning: false }, async relay => {
+      const first = recordEvents(relay.client);
+      await relay.container.send('before interruption');
+      await eventually(() => first.messages[0], 'original transport must deliver output');
+      // No preceding error event: the upstream reports reserved 1006 locally.
+      await relay.container.reportAbnormalClose();
+      await eventually(() => first.closes[0], 'client must receive the relay close');
+      expect(first.closes).toEqual([{ code: 1011, reason: '' }]);
+
+      // Native transport layer only: browser backoff/restore consumption is
+      // covered separately in terminal.test.ts, not in this Workers fixture.
+      const response = await relay.reconnect();
+      expect(response.status).toBe(101);
+      const recovered = response.webSocket;
+      if (!recovered) throw new Error('reconnect did not return a socket');
+      recovered.accept();
+      try {
+        const seen = recordEvents(recovered);
+        const restore = JSON.stringify({ type: 'restore', state: 'before interruption' });
+        await relay.container.send(restore);
+        recovered.send('fresh input\r');
+        await eventually(() => relay.container.received[0], 'same process must receive fresh input');
+        expect(relay.container.received[0]).toBe('fresh input\r');
+        await relay.container.send('fresh output');
+        await eventually(() => seen.messages[1], 'reconnected transport must deliver restore and new output');
+        expect(seen.messages).toEqual([restore, 'fresh output']);
+        expect(relay.wasStarted()).toBe(false);
+        expect(relay.lifecycleGeneration()).toBe(7);
+      } finally {
+        recovered.close(1000);
+      }
+    }));
+
+  it('IDE abnormal upstream close retains its existing final 1000 policy', () =>
+    withRelay({ path: '/api/vscode/abcdef1234567890/ws' }, async relay => {
+      const seen = recordEvents(relay.client);
+      await relay.container.reportAbnormalClose();
+      await eventually(() => seen.closes[0], 'IDE client must see a close');
+      expect(seen.closes).toEqual([{ code: 1000, reason: '' }]);
+    }));
+
+  it.each([
+    { code: 1000, reason: 'finished' },
+    { code: 4503, reason: 'container-stopped' },
+    { code: 1011, reason: 'dashboard-disconnect' },
+  ])('upstream close $code preserves reason "$reason"', ({ code, reason }) =>
+    withRelay({}, async relay => {
+      const seen = recordEvents(relay.client);
+      await relay.container.close(code, reason);
+      await eventually(() => seen.closes[0], 'client must receive close and reason unchanged');
+      expect(seen.closes).toEqual([{ code, reason }]);
+    }));
 
   it('a container socket error closes the client with 1011 so the client reconnects', () =>
     withRelay({}, async relay => {

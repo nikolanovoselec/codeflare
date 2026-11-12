@@ -1019,7 +1019,8 @@ export class container extends Container<Env> implements ContainerEnvState {
     const server = pair[1];
     server.accept();
 
-    // 1005/1006 are reserved: they cannot be sent in a close frame.
+    // Reserved codes cannot be sent. Keep the existing final-close policy
+    // except for abnormal terminal upstream loss, handled below.
     const sendableCode = (code: number): number => (code === 1005 || code === 1006 ? 1000 : code);
     const closeQuietly = (socket: WebSocket, code: number, reason: string): void => {
       try {
@@ -1055,7 +1056,12 @@ export class container extends Container<Env> implements ContainerEnvState {
 
     containerWs.addEventListener('message', event => { void forward(server, event.data); });
     server.addEventListener('message', event => { void forward(containerWs, event.data); });
-    containerWs.addEventListener('close', event => closeQuietly(server, sendableCode(event.code), event.reason));
+    containerWs.addEventListener('close', event => {
+      // Terminal transport loss must remain retryable under the existing error
+      // policy. IDE and client-originated close behavior stay unchanged.
+      const code = options.terminalKeepalive && event.code === 1006 ? 1011 : sendableCode(event.code);
+      closeQuietly(server, code, event.reason);
+    });
     server.addEventListener('close', event => closeQuietly(containerWs, sendableCode(event.code), event.reason));
     containerWs.addEventListener('error', () => closeQuietly(server, 1011, 'container-socket-error'));
     server.addEventListener('error', () => closeQuietly(containerWs, 1011, 'client-socket-error'));
