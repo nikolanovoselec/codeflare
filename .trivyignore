@@ -1,6 +1,15 @@
 # Trivy vulnerability suppressions
 # Review monthly and remove entries when upstream fixes are available.
 #
+# Owner-authorized, 2026-11-13: pip 26.3 vendors only pkg_resources from
+# setuptools 70.3.0. GHSA-5rjg-fvgr-3xxf affects setuptools/package_index.py,
+# which is absent from the checksum-verified pip wheel. Managed CPython's
+# installed setuptools is 84.2.0 (already patched), not the vendored version.
+# This CVE-level suppression is IMAGE-WIDE, not path- or version-scoped.
+# Recheck by 2026-11-20; remove if an affected full setuptools copy appears
+# or pip no longer reports this non-affected subset as setuptools 70.3.0.
+CVE-2025-47273 exp:2026-11-20
+#
 # Owner-authorized release exceptions, 2026-10-26; expire 2026-11-02.
 # Deploy scans 40247521604 / 40247521566 found these vendored npm DoS issues
 # in code-server, shared CLI tooling, Pi's seed and browser-run-mcp. Hostile
