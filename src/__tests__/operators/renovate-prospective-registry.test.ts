@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { describe, expect, it, vi } from 'vitest';
-import { env, runInDurableObject } from 'cloudflare:test';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { env, reset, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry, type CurrentProspectiveRegistration, type ManagementExecutionSelection } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
 import { operatorOwnerKey } from '../../operators/browser-activity';
@@ -21,6 +21,8 @@ import type { ProspectiveRenovateRetryProof } from '../../operators/renovate-ret
 
 const repoId = 424242, head = 'a'.repeat(40), newerHead = 'b'.repeat(40);
 const at = new Date().toISOString();
+// Manually driven fixtures must not leave backing objects or alarms for later cases.
+afterEach(async () => { await reset(); });
 const claims = (email: string, lifetimeSeconds = 300) => ({ subject: email, email, issuer: 'https://owner.cloudflareaccess.com',
   audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
   expiresAt: Math.floor(Date.now() / 1000) + lifetimeSeconds });
