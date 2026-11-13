@@ -780,9 +780,9 @@ apt-get install -y --no-install-recommends gcc g++ python3-dev
 # CVE-2026-126190: patched Soup Sieve requires a newer 3.11 patch than Bookworm.
 # Keep this interpreter isolated to Graphify; leave the system Python unchanged.
 uv tool install --python 3.11.18 --with "soupsieve==4.1" "graphifyy[mcp,sql,pdf]==$VER"
-# Update the managed interpreter's pip, which vendors msgpack and urllib3.
+# Update pip in this image-owned interpreter, not Bookworm's protected Python.
 GRAPHIFY_PYTHON=$(uv python find --managed-python 3.11.18)
-uv pip install --python "$GRAPHIFY_PYTHON" "pip==26.3"
+uv pip install --break-system-packages --python "$GRAPHIFY_PYTHON" "pip==26.3"
 apt-get purge -y gcc g++ python3-dev
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
