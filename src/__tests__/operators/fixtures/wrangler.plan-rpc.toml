@@ -1,0 +1,21 @@
+# CI-only; existing native Wrangler harness, never a deploy configuration.
+name = "dispatcher-plan-rpc-fixture"
+main = "dispatcher-plan-rpc-worker.ts"
+compatibility_date = "2026-02-05"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[vars]
+LOG_LEVEL = "silent"
+
+[[durable_objects.bindings]]
+name = "OPERATOR_ACTIVITY"
+class_name = "OperatorActivity"
+
+[[durable_objects.bindings]]
+name = "PLAN_RPC_PARENT"
+class_name = "PlanRpcAlarmParent"
+
+[[migrations]]
+tag = "plan-rpc-fixture-v1"
+new_sqlite_classes = ["OperatorActivity", "PlanRpcAlarmParent"]
