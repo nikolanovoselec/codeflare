@@ -233,7 +233,7 @@ interface ProspectiveObservationDiagnostic {
   /** An existing reservation is not proof of a safe retry or a quarantined Activity. */
   retainedExisting: number; handoffAttempts: number;
   error?: ReturnType<typeof captureError>;
-  failureStage?: 'authority' | 'admission-binding' | 'plan' | 'preparation' | 'detail' | 'binding' | 'drive';
+  failureStage?: 'authority' | 'plan' | 'preparation' | 'detail' | 'binding' | 'drive';
   admissionDigest?: string;
 }
 class ProspectiveDependencyUnavailable extends Error {}
@@ -2060,10 +2060,6 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       };
       try {
         const winner = await handoffCurrent(); if (!winner) return;
-        stage = 'admission-binding';
-        if (!await activity.bindProspectiveRenovateAdmission(reserved.activityId)) {
-          await fenceHandoff({ boundary: 'admission', code: 'admission-denied' }); continue;
-        }
         stage = 'plan';
         let plan = await activity.getRuntimePlan();
         // Unknown/prepared outcomes belong to the original Activity; never prepare a replacement.
@@ -2071,7 +2067,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           stage = 'preparation';
           const prepared = await prepareOperatorActivity({ installationId: initial.installationId,
             invocation: { repository: winner.repository } }, { human: winner.human, accessJwt: winner.accessJwt }, app,
-          { activityId: reserved.activityId, expectedManagement: { controlsRevision: winner.controlsRevision,
+          { activityId: reserved.activityId, prospectiveAdmissionId: reserved.activityId,
+            expectedManagement: { controlsRevision: winner.controlsRevision,
             installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
             releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
           if (!await handoffCurrent()) return;

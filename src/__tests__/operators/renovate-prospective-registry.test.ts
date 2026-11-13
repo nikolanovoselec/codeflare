@@ -363,7 +363,9 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
       operatorId: 'dispatcher', artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64),
       human, accessJwt: 'a-jwt' }, environment);
     let accepted = false;
-    const activity = new OperatorActivity(native, { ...environment, OPERATOR_REGISTRY: { getByName: () => ({
+    const activity = new OperatorActivity(native, { ...environment,
+      OPERATOR_ACTIVITY: { idFromName: () => native.id }, OPERATOR_REGISTRY: { getByName: () => ({
+      readProspectiveRenovateAdmission: (id: string) => registry.readProspectiveRenovateAdmission(id),
       admitManagement: async () => { accepted = true; throw new Error('Registry admission response lost'); },
       resolveManagementExecution: async () => ({ ok: true, value: selection }),
       upsertOwnedActivity: async () => {},
@@ -372,7 +374,9 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
       operatorId: 'dispatcher', intentDigest: await createOperatorIntentDigest('dispatcher', reserved.activityId, invocationJson),
       expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
       deadline: human.expiresAt * 1000, startExpiresAt: human.expiresAt * 1000, startVerifier: verifier };
-    expect(await activity.prepareAuthorized(intent, context, invocationJson)).toMatchObject({ ok: true });
+    expect(await activity.prepareAuthorized(intent, context, invocationJson, undefined, reserved.activityId))
+      .toMatchObject({ ok: true });
+    expect(await native.storage.get('prospective-admission')).toBe(reserved.activityId);
     expect(await activity.start(token)).toMatchObject({ ok: false, reason: 'admission-uncertain' });
     expect(accepted).toBe(true);
     expect(await restart().reserveProspectiveRenovateActivity({ ...observed,
@@ -874,9 +878,21 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
     }
   };
 
-  it.each(['success', 'missing-proof', 'foreign-proof', 'previous-binding', 'foreign-admission',
-    'rpc-error', 'unsafe-rpc-error', 'registry-storage-error', 'bind-transaction-error', 'bind-write-error',
-    'invalid-id', 'foreign-object'] as const)(
+  async function preparation(environment: Env, activityId: string) {
+    const human = claims('a@example.test');
+    const invocationJson = JSON.stringify({ repository: 'acme/updates' });
+    const executionContext = await createOperatorExecutionContext({ activityId, operatorId: 'dispatcher',
+      artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64), human, accessJwt: 'a-jwt' }, environment);
+    const intent = { installationId: 'dispatcher-install', activityId, operatorId: 'dispatcher',
+      intentDigest: await createOperatorIntentDigest('dispatcher', activityId, invocationJson),
+      expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
+      deadline: human.expiresAt * 1000, startExpiresAt: human.expiresAt * 1000, startVerifier: 'e'.repeat(64) };
+    return { intent, executionContext, invocationJson };
+  }
+
+  it.each(['success', 'same-binding', 'missing-proof', 'foreign-proof', 'previous-binding', 'foreign-admission',
+    'same-admission', 'rpc-error', 'unsafe-rpc-error', 'registry-storage-error', 'bind-transaction-error', 'bind-write-error',
+    'admission-write-error', 'invalid-id', 'foreign-id', 'foreign-object', 'missing-namespace'] as const)(
     'REQ-OPERATOR-063 AC1/5/6 /061 AC3/7: %s traces only validated boundaries and preserves proof, binding and original errors with working and throwing loggers',
     fault => fixture(async ({ registry, native, environment }) => {
       const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -896,7 +912,8 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
           get: () => { throw Error('private-getter-body'); },
         });
         const host = { ...environment,
-          OPERATOR_ACTIVITY: { idFromName: () => fault === 'foreign-object' ? namespace.idFromName(otherId) : activityNative.id },
+          OPERATOR_ACTIVITY: fault === 'missing-namespace' ? undefined
+            : { idFromName: () => fault === 'foreign-object' ? namespace.idFromName(otherId) : activityNative.id },
           OPERATOR_REGISTRY: { getByName: () => ({ readProspectiveRenovateAdmission: async (id: string) => {
             if (fault === 'rpc-error' || fault === 'unsafe-rpc-error') throw originalError;
             if (fault === 'foreign-proof') return { ...journal as object, activityId: otherId };
@@ -904,8 +921,14 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
           } }) },
         } as unknown as Env;
         const activity = new OperatorActivity(activityNative, host);
-        if (fault === 'previous-binding') await activityNative.storage.put('prospective-admission', otherId);
-        if (fault === 'foreign-admission') await activityNative.storage.put('admission', { intent: { activityId: otherId } });
+        const { intent, executionContext, invocationJson } = await preparation(host, activityId);
+        if (fault === 'previous-binding' || fault === 'same-binding') {
+          await activityNative.storage.put('prospective-admission', fault === 'same-binding' ? activityId : otherId);
+        }
+        if (fault === 'foreign-admission' || fault === 'same-admission') {
+          await activityNative.storage.put('admission', { intent: { ...intent,
+            activityId: fault === 'same-admission' ? activityId : otherId }, phase: 'prepared', receipt: null });
+        }
         const beforeAdmission = await activityNative.storage.get('admission');
         const beforeBinding = await activityNative.storage.get('prospective-admission');
         const read = native.storage.get.bind(native.storage);
@@ -920,7 +943,10 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
           return transaction(tx => callback(new Proxy(tx, { get(target, property) {
             const member = Reflect.get(target, property);
             if (property === 'put') return (...args: unknown[]) => {
-              if (fault === 'bind-write-error' && args[0] === 'prospective-admission') throw originalError;
+              const key = fault === 'bind-write-error' ? 'prospective-admission'
+                : fault === 'admission-write-error' ? 'admission' : null;
+              if (key && (args[0] === key || typeof args[0] === 'object'
+                && args[0] !== null && key in args[0])) throw originalError;
               return Reflect.apply(member, target, args);
             };
             return typeof member === 'function' ? member.bind(target) : member;
@@ -938,23 +964,33 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
         const errors = vi.spyOn(console, 'error').mockImplementation(output);
         let firstDigest: unknown;
         try {
-          // Each public boundary is repeated under a throwing logger, not a simulated successful operation.
+          // Repeat fresh preparation under a throwing logger; a second prepare is not a successful replay.
           for (const outage of [false, true]) {
+            const accepted = fault === 'success' || fault === 'same-binding';
+            if (outage && accepted) {
+              await activityNative.storage.delete('admission');
+              if (beforeBinding === undefined) await activityNative.storage.delete('prospective-admission');
+            }
             loggerOutage = outage; outputs.length = 0;
-            const input = fault === 'invalid-id' ? 'private/invalid?Authorization=private-token' : activityId;
-            const throws = ['rpc-error', 'unsafe-rpc-error', 'registry-storage-error', 'bind-transaction-error', 'bind-write-error'].includes(fault);
-            if (throws) await expect(activity.bindProspectiveRenovateAdmission(input)).rejects.toBe(originalError);
-            else await expect(activity.bindProspectiveRenovateAdmission(input)).resolves.toBe(fault === 'success');
+            const input = fault === 'invalid-id' ? 'private/invalid?Authorization=private-token'
+              : fault === 'foreign-id' ? otherId : activityId;
+            const throws = ['rpc-error', 'unsafe-rpc-error', 'registry-storage-error', 'bind-transaction-error',
+              'bind-write-error', 'admission-write-error'].includes(fault);
+            const result = activity.prepareAuthorized(intent, executionContext, invocationJson, undefined, input);
+            if (throws) await expect(result).rejects.toBe(originalError);
+            else await expect(result).resolves.toEqual(accepted ? { ok: true, phase: 'prepared' }
+              : { ok: false, reason: fault === 'same-admission' || fault === 'foreign-admission'
+                ? 'already-prepared' : 'admission-denied' });
             const boundaries = outputs.filter(entry => entry.message === message);
             assertBoundaryWire(outputs);
-            const proofRead = !['invalid-id', 'foreign-object'].includes(fault);
+            const proofRead = !['invalid-id', 'foreign-id', 'foreign-object', 'missing-namespace'].includes(fault);
             const storageRead = proofRead && !['rpc-error', 'unsafe-rpc-error', 'foreign-proof'].includes(fault);
             const bind = proofRead && !['rpc-error', 'unsafe-rpc-error', 'foreign-proof', 'registry-storage-error', 'missing-proof'].includes(fault);
             expect(boundaries.map(({ data }) => `${data.boundary}:${data.outcome}`)).toEqual([
               ...(proofRead ? ['activity-proof-rpc:started'] : []),
               ...(storageRead ? ['registry-proof-storage:started', `registry-proof-storage:${fault === 'registry-storage-error' ? 'failed' : 'completed'}`] : []),
               ...(proofRead ? [`activity-proof-rpc:${['rpc-error', 'unsafe-rpc-error', 'registry-storage-error'].includes(fault) ? 'failed' : 'completed'}`] : []),
-              ...(bind ? ['activity-bind-storage:started', `activity-bind-storage:${['bind-transaction-error', 'bind-write-error'].includes(fault) ? 'failed' : 'completed'}`] : []),
+              ...(bind ? ['activity-bind-storage:started', `activity-bind-storage:${['bind-transaction-error', 'bind-write-error', 'admission-write-error'].includes(fault) ? 'failed' : 'completed'}`] : []),
             ]);
             const digests = new Set(boundaries.map(({ data }) => data.admissionDigest));
             expect(digests.size).toBe(proofRead ? 1 : 0);
@@ -967,10 +1003,15 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
             for (const { data } of boundaries) {
               if (data.outcome === 'failed') expect(data.error).toEqual(captureError(originalError));
               if (data.outcome === 'completed') expect(data).toMatchObject(data.boundary === 'activity-bind-storage'
-                ? { accepted: fault === 'success' } : { proofPresent: fault !== 'missing-proof' });
+                ? { accepted } : { proofPresent: fault !== 'missing-proof' });
             }
-            expect(await activityNative.storage.get('prospective-admission')).toBe(fault === 'success' ? activityId : beforeBinding);
-            expect(await activityNative.storage.get('admission')).toEqual(beforeAdmission);
+            expect(await activityNative.storage.get('prospective-admission')).toBe(accepted ? activityId : beforeBinding);
+            if (accepted) {
+              expect(await activityNative.storage.get('admission')).toMatchObject({ intent, executionContext,
+                invocationJson, phase: 'prepared', receipt: null });
+              expect(await activity.getAdmission()).toEqual({ activityId, phase: 'prepared', receipt: null });
+              expect(await activity.getRuntimePlan()).toBeNull(); // Prepared never masquerades as queued.
+            } else expect(await activityNative.storage.get('admission')).toEqual(beforeAdmission);
             // Registry failure is transient; removing the injected storage outage reveals the same immutable proof.
             storageOutage = false;
             expect(await inRegistry(() => registry.readProspectiveRenovateAdmission(activityId))).toEqual(journal);
@@ -990,6 +1031,46 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
           persist.mockRestore(); unavailable.mockRestore(); logs.mockRestore(); warnings.mockRestore(); errors.mockRestore(); setLogLevel('silent');
         }
       });
+    }));
+
+  it.each(['manual', 'boundary'] as const)(
+    'REQ-OPERATOR-016 AC2 /061 AC3: %s preparation retains its existing authority without prospective proof',
+    mode => fixture(async ({ native, environment }) => {
+      const activityId = 'manual-preparation';
+      const { intent, executionContext, invocationJson } = await preparation(environment, activityId);
+      const boundary = { repositoryId: repoId, pullRequest: 1300, contextDigest: 'f'.repeat(64),
+        session: { bucket: 'owner-bucket', sessionId: 'asession01', generation: 3 } };
+      const activity = new OperatorActivity(native, { ...environment,
+        OPERATOR_REGISTRY: { getByName: () => ({ readProspectiveRenovateAdmission: async () => null }) },
+      } as unknown as Env);
+      const result = mode === 'manual'
+        ? await activity.prepareAuthorized(intent, executionContext, invocationJson)
+        : await activity.prepareAuthorized(intent, executionContext, invocationJson, boundary);
+      expect(result).toEqual({ ok: true, phase: 'prepared' });
+      expect(await native.storage.get('prospective-admission')).toBeUndefined();
+      expect(await native.storage.get('admission')).toMatchObject({ intent, executionContext, invocationJson,
+        phase: 'prepared', receipt: null, ...(mode === 'boundary' ? { boundary } : {}) });
+      expect(await activity.getBoundaryStartBinding(activityId)).toEqual(mode === 'boundary' ? boundary : null);
+      expect(await activity.getAdmission()).toEqual({ activityId, phase: 'prepared', receipt: null });
+      expect(await activity.getRuntimePlan()).toBeNull();
+    }));
+
+  it.each(['expired', 'mismatched-context'] as const)(
+    'REQ-OPERATOR-016 AC2 /061 AC3: refused %s preparation cannot leave a prospective link or admission',
+    fault => fixture(async ({ native, environment }) => {
+      const activityId = 'refused-preparation';
+      const { intent, executionContext, invocationJson } = await preparation(environment, activityId);
+      const host = { ...environment, OPERATOR_ACTIVITY: { idFromName: () => native.id },
+        OPERATOR_REGISTRY: { getByName: () => ({ readProspectiveRenovateAdmission: async () => ({ activityId }) }) },
+      } as unknown as Env;
+      const activity = new OperatorActivity(native, host);
+      await expect(activity.prepareAuthorized(fault === 'expired' ? { ...intent, deadline: Date.now() - 1 } : intent,
+        fault === 'mismatched-context' ? { ...executionContext, activityId: 'different-activity' } : executionContext,
+        invocationJson, undefined, activityId)).resolves.toEqual({ ok: false,
+        reason: fault === 'expired' ? 'authority-expired' : 'admission-denied' });
+      expect(await native.storage.get('prospective-admission')).toBeUndefined();
+      expect(await activity.getAdmission()).toBeNull();
+      expect(await activity.getRuntimePlan()).toBeNull();
     }));
 
   it.each(['none', 'info', 'warn', 'both'] as const)(
@@ -1015,10 +1096,13 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
       environment.CONTAINER = { getByName: () => { throw Error('No Host access'); } } as never;
       environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
         readProspectiveRenovateRetryProof: async () => null,
-        bindProspectiveRenovateAdmission: async () => {
-          attempted.push(id); if (attempted.length === 1) throw originalError; return true;
+        getRuntimePlan: async () => {
+          attempted.push(id);
+          if (attempted.length === 1) return null;
+          throw laterError;
         },
-        getRuntimePlan: async () => { throw laterError; },
+        getBrowserDetail: async () => null,
+        prepareAuthorized: async () => { throw originalError; },
         fenceRuntimeFailure: async () => { throw fenceError; },
       }) } as never;
       const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?')
@@ -1029,6 +1113,7 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
       Object.defineProperty(native, 'exports', { configurable: true, value: exports });
       const observer = new OperatorRegistry(native, environment);
       vi.spyOn(observer, 'resolveManagementExecution').mockResolvedValue({ ok: true, value: selection } as never);
+      environment.OPERATOR_REGISTRY = { getByName: () => observer } as never;
       const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
       const outputs: Entry[] = [];
       const output = (level: 'info' | 'warn' | 'error') => (line: unknown) => {
@@ -1046,11 +1131,11 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
         expect(summaries[0].data).toEqual({ context: 'registry-alarm',
           observationDigest: expect.stringMatching(/^[a-f0-9]{64}$/), outcome: 'handoff-failure', stage: 'reservation',
           candidates: 3, reservationDenied: 0, retainedOtherRegistration: 1, retainedExisting: 0, handoffAttempts: 0,
-          error: captureError(originalError), failureStage: 'admission-binding', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+          error: captureError(originalError), failureStage: 'preparation', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
         });
         const fenceWarnings = outputs.filter(entry => entry.message === 'Prospective Renovate handoff fence unavailable');
         expect(fenceWarnings.map(entry => entry.data)).toEqual([
-          { stage: 'admission-binding', category: 'fence-unavailable', admissionDigest: summaries[0].data.admissionDigest, error: captureError(fenceError) },
+          { stage: 'preparation', category: 'fence-unavailable', admissionDigest: summaries[0].data.admissionDigest, error: captureError(fenceError) },
           { stage: 'plan', category: 'fence-unavailable', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/), error: captureError(fenceError) },
         ]);
         expect(attempted).toHaveLength(2); // Two actually reserved identities, not replacement/replayed admissions.
@@ -1162,9 +1247,19 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     const bound = new Set<string>();
     environment.CONTAINER = { getByName: () => { throw Error('Must not wake a container'); } } as never;
     environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
-      bindProspectiveRenovateAdmission: async () => { bound.add(id); return true; },
+      prepareAuthorized: async (intent: { activityId: string; expectedControlsRevision: number;
+        expectedInstallationRevision: number; expectedRevision: number }, _context: unknown, invocationJson: string,
+      boundary: unknown, prospectiveAdmissionId?: string) => {
+        expect(intent).toMatchObject({ activityId: id, expectedControlsRevision: 1,
+          expectedInstallationRevision: 1, expectedRevision: 1 });
+        expect(invocationJson).toBe('{"repository":"acme/updates"}');
+        expect(boundary).toBeUndefined();
+        expect(prospectiveAdmissionId).toBe(id);
+        bound.add(id); return { ok: true, phase: 'prepared' };
+      },
+      start: async () => ({ ok: false, reason: 'admission-uncertain' }),
       getRuntimePlan: async () => null,
-      getBrowserDetail: async () => ({ executionStatus: 'unknown' }),
+      getBrowserDetail: async () => bound.has(id) ? { executionStatus: 'unknown' } : null,
     }) } as never;
     const createdAt = new Date(Date.parse(first.activatedAt) + 1).toISOString();
     const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?')
@@ -1176,6 +1271,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     const observer = new OperatorRegistry(native, environment);
     vi.spyOn(observer, 'resolveManagementExecution').mockImplementation(async () => state.enabled
       ? { ok: true, value: selection } as never : { ok: false, reason: 'disabled' });
+    environment.OPERATOR_REGISTRY = { getByName: () => observer } as never;
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
     try {
       await observer.alarm();
@@ -1209,13 +1305,19 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       const handoffError = Error('secret-handoff-body https://private.test/handoff');
       environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
         readProspectiveRenovateRetryProof: async () => null,
-        bindProspectiveRenovateAdmission: async () => { admitted.add(id); return true; },
-        // This intentionally incomplete plan only reaches the parent handoff; no SDK success is simulated.
-        getRuntimePlan: async () => {
+        prepareAuthorized: async (intent: { activityId: string }, _context: unknown, _invocation: string,
+          _boundary: unknown, prospectiveAdmissionId?: string) => {
+          expect(intent.activityId).toBe(id);
+          expect(prospectiveAdmissionId).toBe(id);
+          admitted.add(id);
           if (fault === 'handoff-failure') throw handoffError;
-          return fault === 'handoff-attempt' ? { activityId: id } : null;
+          return { ok: true, phase: 'prepared' };
         },
-        getBrowserDetail: async () => ({ executionStatus: fault === 'handoff-attempt' ? 'queued' : 'unknown' }),
+        start: async () => ({ ok: false, reason: 'admission-uncertain' }),
+        // This intentionally incomplete plan only reaches the parent handoff; no SDK success is simulated.
+        getRuntimePlan: async () => admitted.has(id) && fault === 'handoff-attempt' ? { activityId: id } : null,
+        getBrowserDetail: async () => admitted.has(id)
+          ? { executionStatus: fault === 'handoff-attempt' ? 'queued' : 'unknown' } : null,
         fenceRuntimeFailure: async () => false,
       }) } as never;
       const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
@@ -1235,6 +1337,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       } });
       const observer = new OperatorRegistry(native, environment);
       vi.spyOn(observer, 'resolveManagementExecution').mockResolvedValue({ ok: true, value: selection } as never);
+      environment.OPERATOR_REGISTRY = { getByName: () => observer } as never;
       if (fault === 'reservation-denied') vi.spyOn(observer, 'reserveProspectiveRenovateActivity')
         .mockResolvedValue({ ok: false, reason: 'stale-election' });
       if (fault === 'stale-authority') {
@@ -1272,7 +1375,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             : fault === 'unexpected-source' || fault === 'source-and-logger-throws' ? 'discovery-failure' : fault);
         }
         if (fault === 'handoff-failure') expect(data).toMatchObject({ error: captureError(handoffError),
-          failureStage: 'plan', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/) });
+          failureStage: 'preparation', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/) });
         for (const privateValue of ['acme/updates', 'owner-bucket', 'a@example.test', 'a-jwt', 'asession01',
           first.registrationId, head, newerHead, 'https://private.test/raw', 'secret-source-body',
           'secret-handoff-body', 'https://private.test/handoff', ...admitted]) {
@@ -1322,7 +1425,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     }));
   const handoffFaults = ['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'lost-start-ack', 'admission-unavailable', 'profile-unavailable', 'profile-revoked',
     'plan-read', 'plan-missing', 'drive-plan-read', 'drive-plan-missing', 'detail-read', 'detail-missing', 'binding', 'concurrent-drive', 'persistence-unavailable',
-    'prepared-start', 'admitting-start'] as const;
+    'prepared-start', 'admitting-start', 'preparation-proof-missing'] as const;
   const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none', delegated = false) => fixture(async ({ native, environment, selection, state }) => {
     // Reuse the normal installed-Worker wire fixture: real Registry/Activity/orchestrator,
     // controlled external App HTTP. This proves parent execution, not execution of Flue SDK code.
@@ -1369,9 +1472,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         try {
           const entry = JSON.parse(String(line));
           if (entry?.message !== 'Prospective Renovate observation') return;
-          const { outcome, stage, candidates, reservationDenied, retainedOtherRegistration,
+          const { outcome, stage, failureStage, candidates, reservationDenied, retainedOtherRegistration,
             retainedExisting, handoffAttempts } = entry.data;
-          observations.push({ outcome, stage, candidates, reservationDenied,
+          observations.push({ outcome, stage, failureStage, candidates, reservationDenied,
             retainedOtherRegistration, retainedExisting, handoffAttempts });
         } catch { /* Unrelated console output is not admission evidence. */ }
       });
@@ -1458,7 +1561,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       vi.spyOn(owner, 'getManagementDispatcherConnection').mockResolvedValue(connection);
       environment.OPERATOR_REGISTRY = { getByName: () => new Proxy(owner, { get: (target, key) => {
         const value = Reflect.get(target, key);
-        return typeof value === 'function' ? (...args: unknown[]) => inRegistry(async () => Reflect.apply(value, target, args)) : value;
+        return typeof value === 'function' ? (...args: unknown[]) => inRegistry(async () => {
+          if (key === 'readProspectiveRenovateAdmission' && fault === 'preparation-proof-missing') return null;
+          return Reflect.apply(value, target, args);
+        }) : value;
       } }) } as never;
       const bucket = vi.spyOn(access, 'resolveBucketName').mockResolvedValue('owner-bucket');
       const groups = vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue([]);
@@ -1502,6 +1608,23 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           observations: observations.slice(-4), observationStatuses: observationStatuses.slice(-16),
           reservationStatuses: reservationStatuses.slice(-8),
         })}`);
+        if (fault === 'preparation-proof-missing') {
+          expect(observations.at(-1)).toMatchObject({ outcome: 'handoff-failure', failureStage: 'preparation',
+            handoffAttempts: 0 });
+          expect(await activity.getAdmission()).toBeNull();
+          expect(await activityNative.storage.get('prospective-admission')).toBeUndefined();
+          expect(await activity.getRuntimePlan()).toBeNull();
+          expect(transport.networkRequests).toEqual([]);
+          const retained = await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!));
+          expect(retained).toMatchObject({ activityId, activatedAt: registration.activatedAt, createdAt });
+          await inRegistry(() => owner.alarm()); await drain();
+          expect(await activity.getAdmission()).toBeNull();
+          expect(await inRegistry(() => owner.reserveProspectiveRenovateActivity(pr(registration.registrationId,
+            registration.activatedAt, { activityId: 'must-not-replace-refused-preparation' }))))
+            .toMatchObject({ ok: true, activityId });
+          expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('must-not-replace-refused-preparation'))).toBeNull();
+          return;
+        }
         if (!delegated && ['admission-unavailable', 'profile-unavailable', 'profile-revoked'].includes(fault)) {
           const ownerKey = await operatorOwnerKey(claims('z@example.test'));
           const code = fault === 'profile-revoked' ? 'authority-denied' : 'platform-evidence-required';

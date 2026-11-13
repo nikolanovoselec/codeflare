@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import { prepareOperatorActivity, runOperatorActivity } from '../../operators/orchestrator';
-import { createOperatorIntentDigest } from '../../operators/activity';
-import { createOperatorExecutionContext } from '../../operators/execution-context';
+import { createOperatorIntentDigest, type BoundaryActivityBinding, type OperatorActivityPreparation } from '../../operators/activity';
+import { createOperatorExecutionContext, type OperatorExecutionContext } from '../../operators/execution-context';
 import { sealOperatorSecret } from '../../operators/protected-secrets';
 
 const claims = {
@@ -247,6 +247,74 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     } as unknown as Env;
     return { prepared, host, selection };
   }
+  it('REQ-OPERATOR-016 AC2 /061 AC3/7: shared preparation carries the exact prospective reservation and current management pins', async () => {
+    const f = configured();
+    f.selection.controlsRevision = 13;
+    f.selection.installation.revision = 7;
+    f.selection.operator.revision = 11;
+    const reserved = 'reserved-prospective-activity';
+    const accepted: Array<{ intent: OperatorActivityPreparation; executionContext: OperatorExecutionContext;
+      invocationJson: string; boundary: BoundaryActivityBinding | undefined; prospectiveAdmissionId: string | undefined }> = [];
+    f.host.OPERATOR_ACTIVITY = { getByName: (id: string) => ({ prepareAuthorized: async (
+      intent: OperatorActivityPreparation, executionContext: OperatorExecutionContext, invocationJson: string,
+      boundary?: BoundaryActivityBinding, prospectiveAdmissionId?: string) => {
+      if (id !== reserved || intent.activityId !== reserved || prospectiveAdmissionId !== reserved) {
+        return { ok: false, reason: 'admission-denied' };
+      }
+      accepted.push({ intent, executionContext, invocationJson, boundary, prospectiveAdmissionId });
+      return { ok: true, phase: 'prepared' };
+    } }) } as never;
+    const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation: {} },
+      { human: claims, accessJwt: 'private.jwt' }, f.host, { activityId: reserved,
+        prospectiveAdmissionId: reserved, expectedManagement: { controlsRevision: 13, installationRevision: 7,
+          operatorRevision: 11, releaseId: 'release', bundleDigest: 'a'.repeat(64) } });
+    expect(result.activityId).toBe(reserved);
+    expect(accepted).toEqual([{ intent: expect.objectContaining({ activityId: reserved,
+      installationId: 'configured-install', operatorId: 'renovate-dispatcher', expectedControlsRevision: 13,
+      expectedInstallationRevision: 7, expectedRevision: 11, deadline: claims.expiresAt * 1000,
+      intentDigest: await createOperatorIntentDigest('renovate-dispatcher', reserved, '{"repository":"acme/updates"}') }),
+    executionContext: expect.objectContaining({ activityId: reserved, operatorId: 'renovate-dispatcher',
+      artifactDigest: 'a'.repeat(64), expiresAt: claims.expiresAt }), invocationJson: '{"repository":"acme/updates"}',
+    boundary: undefined, prospectiveAdmissionId: reserved }]);
+    expect(result.startExpiresAt).toBeLessThanOrEqual(claims.expiresAt * 1000);
+  });
+
+  it.each(['manual', 'boundary'] as const)(
+    'REQ-OPERATOR-016 AC2 /061 AC3: shared %s preparation does not require prospective authority', async mode => {
+      const f = configured();
+      const boundary = { repositoryId: 424242, pullRequest: 1300, contextDigest: 'f'.repeat(64),
+        session: { bucket: 'owner-bucket', sessionId: 'asession01', generation: 3 } };
+      const accepted: Array<{ activityId: string; invocationJson: string; boundary: BoundaryActivityBinding | undefined;
+        prospectiveAdmissionId: string | undefined }> = [];
+      f.host.OPERATOR_ACTIVITY = { getByName: () => ({ prepareAuthorized: async (
+        intent: OperatorActivityPreparation, _context: OperatorExecutionContext, invocationJson: string,
+        boundary?: BoundaryActivityBinding, prospectiveAdmissionId?: string) => {
+        if (prospectiveAdmissionId !== undefined) return { ok: false, reason: 'admission-denied' };
+        accepted.push({ activityId: intent.activityId, invocationJson, boundary, prospectiveAdmissionId });
+        return { ok: true, phase: 'prepared' };
+      } }) } as never;
+      const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation: {} },
+        { human: claims, accessJwt: 'private.jwt' }, f.host,
+        mode === 'boundary' ? { activityId: 'manual-boundary-activity', boundary } : undefined);
+      expect(accepted).toEqual([{ activityId: result.activityId, invocationJson: '{"repository":"acme/updates"}',
+        boundary: mode === 'boundary' ? boundary : undefined, prospectiveAdmissionId: undefined }]);
+      if (mode === 'boundary') expect(result.activityId).toBe('manual-boundary-activity');
+      else expect(result.activityId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(result.startCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    });
+
+  it.each(['activityId', 'prospectiveAdmissionId', 'parentReservation', 'prospectiveAdmission', 'proof'] as const)(
+    'REQ-OPERATOR-061 AC3: the strict browser preparation body rejects injected %s authority', async field => {
+      for (const identity of [{ installationId: 'configured-install' }, { operatorId: 'renovate-dispatcher' }]) {
+        const f = configured();
+        await expect(prepareOperatorActivity({ ...identity, invocation: {},
+          [field]: field === 'activityId' || field === 'prospectiveAdmissionId' ? 'caller-chosen'
+            : { activityId: 'caller-chosen', prospectiveAdmissionId: 'caller-chosen' } },
+        { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toMatchObject({ statusCode: 400 });
+        expect(f.prepared).toEqual([]);
+      }
+    });
+
   it.each([{}, { repository: 'acme/updates' }])('materializes only the configured repository before immutable admission for %j', async invocation => {
     const f = configured();
     const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation },

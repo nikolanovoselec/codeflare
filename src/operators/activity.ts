@@ -758,10 +758,10 @@ export class OperatorActivity extends Agent {
     await this.reconcileDispatcherLease();
   }
 
-  /** Production preparation stores parent-created encrypted human authority. */
+  /** Shared preparation stores authority and any validated prospective reservation atomically. */
   async prepareAuthorized(intent: OperatorActivityPreparation,
     executionContext: OperatorExecutionContext, invocationJson = 'null',
-    boundary?: BoundaryActivityBinding): Promise<ActivityAdmissionResult> {
+    boundary?: BoundaryActivityBinding, prospectiveAdmissionId?: string): Promise<ActivityAdmissionResult> {
     this.#resumeDispatcherOnEntry();
     if (boundary && !boundaryBindingSchema.safeParse(boundary).success) {
       return { ok: false, reason: 'admission-denied' };
@@ -778,14 +778,56 @@ export class OperatorActivity extends Agent {
     if (!Number.isFinite(intent.deadline) || intent.deadline > executionContext.expiresAt * 1000
       || intent.deadline <= Date.now()) return { ok: false, reason: 'authority-expired' };
     const ownerKey = await operatorOwnerKey(executionContext.owner);
-    const result = await this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
-      if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
-      await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext,
-        invocationJson, ownerKey, inferenceRecoveryVersion: 1,
-        ...(boundary ? { boundary: structuredClone(boundary) } : {}), updatedAt: Date.now() });
-      return { ok: true, phase: 'prepared' };
-    });
-    return result;
+    let proofBoundary: 'activity-proof-rpc' | 'activity-bind-storage' = 'activity-proof-rpc';
+    const trace = (outcome: 'started' | 'completed' | 'failed', result?: boolean, error?: unknown) => {
+      if (prospectiveAdmissionId === undefined) return;
+      try {
+        createLogger('operator-activity').info('Prospective Renovate admission boundary', {
+          boundary: proofBoundary, outcome,
+          admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', prospectiveAdmissionId])),
+          ...(outcome === 'completed' ? proofBoundary === 'activity-proof-rpc' ? { proofPresent: result } : { accepted: result } : {}),
+          ...(outcome === 'failed' ? { error: captureError(error) } : {}),
+        });
+      } catch { /* Diagnostics cannot change preparation or its original errors. */ }
+    };
+    if (prospectiveAdmissionId !== undefined) {
+      if (prospectiveAdmissionId !== intent.activityId || !/^[A-Za-z0-9_-]{1,128}$/.test(prospectiveAdmissionId)
+        || !this.#appEnv.OPERATOR_ACTIVITY
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(prospectiveAdmissionId).toString() !== this.ctx.id.toString()) {
+        return { ok: false, reason: 'admission-denied' };
+      }
+      trace('started');
+      try {
+        const proof = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
+          .readProspectiveRenovateAdmission(prospectiveAdmissionId);
+        trace('completed', !!proof);
+        if (!proof || proof.activityId !== prospectiveAdmissionId) return { ok: false, reason: 'admission-denied' };
+      } catch (error) {
+        trace('failed', undefined, error);
+        throw error;
+      }
+      proofBoundary = 'activity-bind-storage';
+      trace('started');
+    }
+    try {
+      const result = await this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
+        if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
+        if (prospectiveAdmissionId !== undefined) {
+          const previous = await tx.get<string>('prospective-admission');
+          if (previous && previous !== prospectiveAdmissionId) return { ok: false, reason: 'admission-denied' };
+          await tx.put('prospective-admission', prospectiveAdmissionId);
+        }
+        await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null, executionContext,
+          invocationJson, ownerKey, inferenceRecoveryVersion: 1,
+          ...(boundary ? { boundary: structuredClone(boundary) } : {}), updatedAt: Date.now() });
+        return { ok: true, phase: 'prepared' };
+      });
+      trace('completed', result.ok);
+      return result;
+    } catch (error) {
+      trace('failed', undefined, error);
+      throw error;
+    }
   }
 
   /** Parent-only read for a stopping session; contains no human or start credentials. */
@@ -945,46 +987,6 @@ export class OperatorActivity extends Agent {
     this.#resumeDispatcherOnEntry();
     const context = (await this.ctx.storage.get<AdmissionState>('admission'))?.executionContext;
     return context ? projectOperatorExecution(context) : null;
-  }
-
-  /** Bind the existing Registry reservation before any prospective preparation. */
-  async bindProspectiveRenovateAdmission(activityId: string): Promise<boolean> {
-    this.#resumeDispatcherOnEntry();
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId) || !this.#appEnv.OPERATOR_ACTIVITY
-      || this.#appEnv.OPERATOR_ACTIVITY.idFromName(activityId).toString() !== this.ctx.id.toString()) return false;
-    let boundary: 'activity-proof-rpc' | 'activity-bind-storage' = 'activity-proof-rpc';
-    const trace = (outcome: 'started' | 'completed' | 'failed', result?: boolean, error?: unknown) => {
-      try {
-        createLogger('operator-activity').info('Prospective Renovate admission boundary', {
-          boundary, outcome,
-          admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', activityId])),
-          ...(outcome === 'completed' ? boundary === 'activity-proof-rpc' ? { proofPresent: result } : { accepted: result } : {}),
-          ...(outcome === 'failed' ? { error: captureError(error) } : {}),
-        });
-      } catch { /* Diagnostic hashing/capture/logging cannot change admission. */ }
-    };
-    trace('started');
-    try {
-      const proof = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
-        .readProspectiveRenovateAdmission(activityId);
-      trace('completed', !!proof);
-      if (!proof || proof.activityId !== activityId) return false;
-      boundary = 'activity-bind-storage';
-      trace('started');
-      const accepted = await this.ctx.storage.transaction(async tx => {
-        const [previous, admission] = await Promise.all([
-          tx.get<string>('prospective-admission'), tx.get<AdmissionState>('admission'),
-        ]);
-        if ((previous && previous !== activityId) || (admission && admission.intent.activityId !== activityId)) return false;
-        await tx.put('prospective-admission', activityId);
-        return true;
-      });
-      trace('completed', accepted);
-      return accepted;
-    } catch (error) {
-      trace('failed', undefined, error);
-      throw error;
-    }
   }
 
   /** Parent-only source binding after server validation, before admission/start. Never SDK job data. */

@@ -866,7 +866,6 @@ export class container extends Container<Env> implements ContainerEnvState {
         if (!proof || proof.repositoryId !== candidate.repositoryId || proof.pullRequest !== candidate.pullRequest
           || proof.head !== candidate.head || proof.actor.registrationId !== actor.registrationId) continue;
         const activity = this.env.OPERATOR_ACTIVITY.getByName(reserved.activityId);
-        if (!await activity.bindProspectiveRenovateAdmission(reserved.activityId)) continue;
         let plan = await activity.getRuntimePlan();
         // Null plan can also be an uncertain, already-prepared admission. Never
         // re-prepare it or replace its Activity identity merely for a missing plan.
@@ -877,7 +876,8 @@ export class container extends Container<Env> implements ContainerEnvState {
               invocation: { repository: winner.repository },
               sourceSession: { sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration } },
             { human: winner.human, accessJwt: winner.accessJwt }, this.env,
-            { activityId: reserved.activityId, expectedManagement: { controlsRevision: winner.controlsRevision,
+            { activityId: reserved.activityId, prospectiveAdmissionId: reserved.activityId,
+              expectedManagement: { controlsRevision: winner.controlsRevision,
               installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
               releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
           } catch { continue; }

@@ -369,11 +369,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const reads: Request[] = [], admissions: unknown[] = [];
       mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
       mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
-        bindProspectiveRenovateAdmission: async () => {
+        getRuntimePlan: async () => {
           if (id !== activityId) throw Error('Foreign or replacement Activity');
-          activities.set(id, { executionStatus: 'completed' }); return true;
+          return { activityId: id };
         },
-        getRuntimePlan: async () => ({ activityId: id }),
         getBrowserDetail: async () => activities.get(id),
       }) };
       mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
@@ -385,6 +384,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         },
         reserveProspectiveRenovateActivity: async (input: { activityId: string }) => {
           admissions.push(input); activityId ??= input.activityId;
+          // Scheduler-only fixture reconciles an already-completed original Activity.
+          if (!activities.has(activityId)) activities.set(activityId, { executionStatus: 'completed' });
           return { ok: true, activityId, actor: binding };
         },
         readProspectiveRenovateAdmission: async () => ({ repositoryId: 424242, pullRequest: 17,
@@ -677,12 +678,18 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     }) };
     mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
       if (id !== reservedId) throw Error('Replacement Activity');
-      return { bindProspectiveRenovateAdmission: async () => true,
-        bindDispatcherOwnerSource: async (source: { bucket: string; sessionId: string; sessionGeneration: number }) => source.bucket === actor.bucket
+      return { bindDispatcherOwnerSource: async (source: { bucket: string; sessionId: string; sessionGeneration: number }) => source.bucket === actor.bucket
           && source.sessionId === actor.sessionId && source.sessionGeneration === actor.sessionGeneration,
         getRuntimePlan: async () => null,
         getBrowserDetail: async () => state === 'absent' ? null : ({ executionStatus: state }),
-        prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
+        prepareAuthorized: async (intent: { activityId: string; expectedRevision: number;
+          expectedInstallationRevision: number; expectedControlsRevision: number; deadline: number },
+        _context: unknown, invocation: string, boundary: unknown, prospectiveAdmissionId?: string) => {
+          expect(intent).toMatchObject({ activityId: reservedId, expectedRevision: current.operatorRevision,
+            expectedInstallationRevision: current.installationRevision, expectedControlsRevision: current.controlsRevision,
+            deadline: human.expiresAt * 1000 });
+          expect(boundary).toBeUndefined();
+          expect(prospectiveAdmissionId).toBe(reservedId);
           state = 'prepared'; history.push({ activityId: intent.activityId, effect: 'prepared', invocation });
           if (lost === 'preparation') throw Error('Accepted preparation acknowledgement lost');
           return { ok: true };
@@ -815,8 +822,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     }) };
     mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
       if (id !== reservedActivityId) throw Error('Uncertain admission identity changed');
-      return { bindProspectiveRenovateAdmission: async () => true,
-        getBrowserDetail: async () => ({ executionStatus: uncertainStatus }),
+      return { getBrowserDetail: async () => ({ executionStatus: uncertainStatus }),
         getRuntimePlan: async () => null,
         prepareAuthorized: async () => { uncertainStatus = 'running'; unauthorizedEffects.push('replacement-preparation');
           return { ok: true }; },

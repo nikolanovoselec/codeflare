@@ -61,7 +61,7 @@ export interface PreparedOperatorActivity {
 /** Request-attached preparation only; it creates no scheduler or child session. */
 export async function prepareOperatorActivity(input: unknown, authority: {
   human: VerifiedHumanAccessClaims; accessJwt: string;
-}, env: Env, parentReservation?: { activityId: string; boundary?: BoundaryActivityBinding; expectedManagement?: {
+}, env: Env, parentReservation?: { activityId: string; boundary?: BoundaryActivityBinding; prospectiveAdmissionId?: string; expectedManagement?: {
   controlsRevision: number; installationRevision: number; operatorRevision: number;
   releaseId: string; bundleDigest: string;
 } }): Promise<PreparedOperatorActivity> {
@@ -205,9 +205,12 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   } : { operatorId, activityId, intentDigest, expectedRevision: legacySelection!.revision,
     deadline, startExpiresAt, startVerifier };
   const activity = env.OPERATOR_ACTIVITY.getByName(activityId);
-  const prepared = parentReservation?.boundary
-    ? await activity.prepareAuthorized(intent, executionContext, invocationJson, parentReservation.boundary)
-    : await activity.prepareAuthorized(intent, executionContext, invocationJson);
+  const prepared = parentReservation?.prospectiveAdmissionId !== undefined
+    ? await activity.prepareAuthorized(intent, executionContext, invocationJson,
+      parentReservation.boundary, parentReservation.prospectiveAdmissionId)
+    : parentReservation?.boundary
+      ? await activity.prepareAuthorized(intent, executionContext, invocationJson, parentReservation.boundary)
+      : await activity.prepareAuthorized(intent, executionContext, invocationJson);
   if (!prepared.ok) throw new AppError('CONFLICT', 409, 'Operator activity could not be prepared');
   return { activityId, startCapability, startExpiresAt };
 }
