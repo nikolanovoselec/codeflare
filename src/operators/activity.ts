@@ -13,7 +13,7 @@ import { readDispatcherSdkConfiguration, dispatcherSdkCredentials, forwardDispat
 import { dispatcherSdkOwnerContext } from './dispatcher-owner-inference';
 import { openOperatorSecret } from './protected-secrets';
 import { discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference, type ConfiguredDispatcherInference } from './dispatcher-owner-inference';
-import { captureError, hashDiagnostic, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches, sdkAdmissionTypes,
+import { captureError, hashDiagnostic, recordActivityRpcCheckpoint, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches, sdkAdmissionTypes,
   type JournalFailure, type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata, type DiagnosticPreparation, type SdkServiceFailure } from './dispatcher-diagnostics-wire';
 import { appendDiagnostic, initializeDiagnostics, diagnosticLoss, observeOutbox,
   type FailureObservation, type FenceReason, type EventObservation, type DiagnosticCapsule } from './dispatcher-diagnostics-store';
@@ -646,6 +646,7 @@ export class OperatorActivity extends Agent {
   #dispatcherScheduleQueue: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
+    recordActivityRpcCheckpoint(ctx, 'constructor-migration');
     migrateDispatcherSchedules(ctx.storage, () => {
       const record = ctx.storage.kv.get<AdmissionState>('admission');
       const lease = ctx.storage.kv.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -662,6 +663,7 @@ export class OperatorActivity extends Agent {
     // A diagnostics-only cold wake must not enter admission recovery or cleanup.
     ctx.blockConcurrencyWhile(async () => {
       this.#coldDispatcherLease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      recordActivityRpcCheckpoint(ctx, 'agent-initialized');
     });
   }
 
@@ -1006,8 +1008,10 @@ export class OperatorActivity extends Agent {
 
   /** Parent-only runtime input; never returned by browser, webhook, or child capabilities. */
   async getRuntimePlan(): Promise<OperatorRuntimePlan | null> {
+    recordActivityRpcCheckpoint(this.ctx, 'plan-entered');
     this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
+    recordActivityRpcCheckpoint(this.ctx, 'admission-read-completed');
     if (!state?.executionContext || !state.receipt || state.phase !== 'queued'
       || !await this.boundaryCurrent(state)) return null;
     const prospectiveAdmissionId = await this.ctx.storage.get<string>('prospective-admission');

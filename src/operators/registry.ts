@@ -28,7 +28,7 @@ import { SETUP_KEYS } from '../lib/kv-keys';
 import { canInvokeOperator, observeOperatorAccessIdentity, parseAccessGroups } from '../lib/access';
 import { listProspectiveRenovatePrs } from './renovate-prospective';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from './orchestrator';
-import { captureError, hashDiagnostic } from './dispatcher-diagnostics-wire';
+import { captureError, hashDiagnostic, activityRpcReceiverDigest } from './dispatcher-diagnostics-wire';
 import type { FailureObservation } from './dispatcher-diagnostics-store';
 import { D1SessionRepository } from '../lib/session-repository';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -235,6 +235,7 @@ interface ProspectiveObservationDiagnostic {
   error?: ReturnType<typeof captureError>;
   failureStage?: 'authority' | 'plan' | 'preparation' | 'detail' | 'binding' | 'drive';
   admissionDigest?: string;
+  receiverDigest?: string;
 }
 class ProspectiveDependencyUnavailable extends Error {}
 /** Only failures of dependency I/O, never malformed data or denied selections. */
@@ -2032,10 +2033,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       const activity = app.OPERATOR_ACTIVITY.getByName(reserved.activityId);
       let stage: NonNullable<ProspectiveObservationDiagnostic['failureStage']> = 'authority';
       let admissionDigest: string | undefined;
+      let receiverDigest: string | undefined;
       try {
         if (scanId.test(reserved.activityId)) admissionDigest = hashDiagnostic(JSON.stringify([
           'prospective-renovate-admission:v1', reserved.activityId,
         ]));
+        receiverDigest = activityRpcReceiverDigest(activity.id);
       } catch { /* Correlation is best-effort, never admission authority. */ }
       const fenceHandoff = async (failure: FailureObservation) => {
         try {
@@ -2044,7 +2047,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         } catch (error) {
           try {
             createLogger('operator-registry').warn('Prospective Renovate handoff fence unavailable', {
-              stage, category: 'fence-unavailable', admissionDigest, error: captureError(error),
+              stage, category: 'fence-unavailable', admissionDigest,
+              ...(receiverDigest ? { receiverDigest } : {}), error: captureError(error),
             });
           } catch { /* A secondary fence/logging failure cannot replace the original handoff outcome. */ }
         }
@@ -2109,6 +2113,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           diagnostic.error = captured;
           diagnostic.failureStage = stage;
           diagnostic.admissionDigest = admissionDigest;
+          if (receiverDigest) diagnostic.receiverDigest = receiverDigest;
         }
         await fenceHandoff({ boundary: stage === 'authority' ? 'admission' : 'construction',
           code: stage === 'authority' ? 'platform-evidence-required' : 'startup-failed',

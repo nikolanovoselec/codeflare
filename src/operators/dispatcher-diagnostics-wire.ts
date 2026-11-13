@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import { createLogger } from '../lib/logger';
 import type { DispatcherBundle } from './distribution';
 import { producerCodes } from './dispatcher-diagnostic-wire';
 import { dispatcherRefusalReasons, dispatcherRefusalDispositions, transportDiagnosticShape } from './dispatcher-refusal';
@@ -141,6 +142,25 @@ export type ReasonCode = typeof reasonCodes[number];
 export type Correlation = z.infer<typeof correlationSchema>;
 export type DiagnosticSource = z.infer<typeof sourceSchema>;
 export const hashDiagnostic = (value: string | Uint8Array): string => createHash('sha256').update(value).digest('hex');
+type ActivityRpcCheckpoint = 'constructor-migration' | 'agent-initialized' | 'plan-entered' | 'admission-read-completed';
+const receiverCheckpoints = new WeakMap<DurableObjectState, Set<ActivityRpcCheckpoint>>();
+
+/** Native receiver correlation only; never retain its opaque ID or user-supplied name. */
+export const activityRpcReceiverDigest = (id: DurableObjectId): string =>
+  hashDiagnostic(JSON.stringify(['operator-activity-rpc-receiver:v1', id.toString()]));
+
+/** At most four best-effort attempts per cold receiver; no durable state or execution authority. */
+export function recordActivityRpcCheckpoint(ctx: DurableObjectState, checkpoint: ActivityRpcCheckpoint): void {
+  try {
+    let seen = receiverCheckpoints.get(ctx);
+    if (!seen) { seen = new Set(); receiverCheckpoints.set(ctx, seen); }
+    if (seen.has(checkpoint)) return;
+    seen.add(checkpoint);
+    createLogger('operator-activity').info('Prospective Renovate receiver checkpoint', {
+      checkpoint, receiverDigest: activityRpcReceiverDigest(ctx.id),
+    });
+  } catch { /* Diagnostics cannot replace constructor, storage or RPC outcomes. */ }
+}
 export const canonicalDiagnostic = (value: unknown): string => JSON.stringify(value, (_key, item) =>
   item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);

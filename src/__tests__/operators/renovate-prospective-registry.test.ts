@@ -1093,8 +1093,13 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
       const laterError = Error('private-later-plan-body');
       const fenceError = Error('private-fence-body', { cause: Error('private-fence-cause') });
       const attempted: string[] = [];
+      const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
+      const receiverDigest = (id: string) => hashDiagnostic(JSON.stringify([
+        'operator-activity-rpc-receiver:v1', activityNamespace.idFromName(id).toString(),
+      ]));
       environment.CONTAINER = { getByName: () => { throw Error('No Host access'); } } as never;
       environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
+        id: activityNamespace.idFromName(id),
         readProspectiveRenovateRetryProof: async () => null,
         getRuntimePlan: async () => {
           attempted.push(id);
@@ -1132,11 +1137,14 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
           observationDigest: expect.stringMatching(/^[a-f0-9]{64}$/), outcome: 'handoff-failure', stage: 'reservation',
           candidates: 3, reservationDenied: 0, retainedOtherRegistration: 1, retainedExisting: 0, handoffAttempts: 0,
           error: captureError(originalError), failureStage: 'preparation', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+          receiverDigest: receiverDigest(attempted[0]!),
         });
         const fenceWarnings = outputs.filter(entry => entry.message === 'Prospective Renovate handoff fence unavailable');
         expect(fenceWarnings.map(entry => entry.data)).toEqual([
-          { stage: 'preparation', category: 'fence-unavailable', admissionDigest: summaries[0].data.admissionDigest, error: captureError(fenceError) },
-          { stage: 'plan', category: 'fence-unavailable', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/), error: captureError(fenceError) },
+          { stage: 'preparation', category: 'fence-unavailable', admissionDigest: summaries[0].data.admissionDigest,
+            receiverDigest: receiverDigest(attempted[0]!), error: captureError(fenceError) },
+          { stage: 'plan', category: 'fence-unavailable', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+            receiverDigest: receiverDigest(attempted[1]!), error: captureError(fenceError) },
         ]);
         expect(attempted).toHaveLength(2); // Two actually reserved identities, not replacement/replayed admissions.
         const proofDigests: unknown[] = [];
@@ -1167,7 +1175,8 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
         await expect(observer.alarm()).resolves.toBeUndefined();
         expect(outputs).toEqual(beforeDuplicate);
         expect(await native.storage.getAlarm()).toBe(Date.now() + 21600_000);
-        for (const value of [first.registrationId, prior.registrationId, ...attempted, 'private-retained-activity',
+        for (const value of [first.registrationId, prior.registrationId, ...attempted,
+          ...attempted.map(id => activityNamespace.idFromName(id).toString()), 'private-retained-activity',
           'private-no-replacement', 'owner-bucket', 'a@example.test', 'z@example.test', 'asession01', 'a-jwt', 'z-jwt', head, newerHead,
           'private-admission-body', 'private-token', 'Authorization', 'private-admission-cause', 'private-later-plan-body',
           'private-fence-body', 'private-fence-cause', 'private-logger-outage']) expect(JSON.stringify(outputs)).not.toContain(value);

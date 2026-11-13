@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-13
 
+- Add four privacy-safe, best-effort receiver checkpoints and first-failure receiver correlation; diagnostics remain non-authorizing and establish neither a runtime repair nor SDK acceptance ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)).
+
 - Use shared authorized preparation for automatic Dispatcher work, validating its exact Registry reservation and saving the proof link atomically with pending intent instead of a separate binding RPC. Preserve manual behavior, original authority, target pins and no-replay guarantees ([REQ-OPERATOR-016](operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)).
 
 - Correlate automatic admission proof-RPC/storage observations by a one-way digest, preserve the first handoff failure's inner stage and retain secondary fence errors separately. Best-effort diagnostics preserve original returns, exceptions, authority and cadence; they do not establish a runtime cause or authorize replay ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)).
