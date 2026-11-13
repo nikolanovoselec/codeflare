@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
+import { describe, expect, it, vi } from 'vitest';
+import { listProspectiveRenovatePrs, resolveProspectiveRenovateRepository } from '../../operators/renovate-prospective';
+import { createLogger, setLogLevel } from '../../lib/logger';
+import { toError } from '../../lib/error-types';
 import type { CurrentProspectiveRegistration } from '../../operators/registry';
 import type { Env } from '../../types';
 import type { RetainedRenovateRetryTarget } from '../../operators/renovate-retry-proof';
@@ -9,26 +11,30 @@ const row = (number: number) => ({ number, state: 'open', created_at: '2026-09-2
   user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
   draft: false, head: { sha: 'a'.repeat(40) }, base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } });
 const next = `${root}/pulls?state=open&per_page=100&page=2`;
-function scan(pages: Array<{ rows: unknown[]; link?: string }>, metadata: unknown = { id: 424242, full_name: 'acme/updates', default_branch: 'trunk' }, current: () => Promise<boolean> = async () => true,
+type Page = { rows: unknown[]; link?: string } | Response;
+function scanExports(pages: Page[], metadata: unknown = { id: 424242, full_name: 'acme/updates', default_branch: 'trunk' },
+  onResponse: (request: Request) => void = () => {}) {
+  return { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
+    const url = new URL(request.url);
+    if (url.href === root) {
+      const response = metadata instanceof Response ? metadata : Response.json(metadata);
+      onResponse(request);
+      return response;
+    }
+    const page = pages[Number(url.searchParams.get('page')) - 1];
+    if (!page) throw Error('Unprovided external GitHub page');
+    const response = page instanceof Response ? page : Response.json(page.rows, { headers: page.link ? { link: page.link } : {} });
+    onResponse(request);
+    return response;
+  }, connect: () => { throw Error('Prospective GitHub reads do not open sockets'); } }) };
+}
+function scan(pages: Page[], metadata?: unknown, current: () => Promise<boolean> = async () => true,
   onResponse: (request: Request) => void = () => {}, retainedRetryTargets: RetainedRenovateRetryTarget[] = []) {
   return listProspectiveRenovatePrs({ env: {} as Env,
     registration: { bucket: 'owner', human: { email: 'owner@example.test' },
       activatedAt: '2026-09-27T00:00:00.000Z', repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
       repetitionIntervalSeconds: 900 } as unknown as CurrentProspectiveRegistration,
-    current, retainedRetryTargets,
-    exports: { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-      const url = new URL(request.url);
-      if (url.href === root) {
-        const response = metadata instanceof Response ? metadata : Response.json(metadata);
-        onResponse(request);
-        return response;
-      }
-      const page = pages[Number(url.searchParams.get('page')) - 1];
-      if (!page) throw Error('Unprovided external GitHub page');
-      const response = Response.json(page.rows, { headers: page.link ? { link: page.link } : {} });
-      onResponse(request);
-      return response;
-    }, connect: () => { throw Error('Prospective GitHub reads do not open sockets'); } }) },
+    current, retainedRetryTargets, exports: scanExports(pages, metadata, onResponse),
   });
 }
 
@@ -108,4 +114,80 @@ describe('REQ-OPERATOR-061 AC2: retained failures never bypass the original cuto
     await expect(scan([{ rows: [old], link: `<${next}>; rel="next"` }],
       undefined, undefined, undefined, [retained])).rejects.toThrow();
   });
+});
+
+describe('REQ-OPERATOR-063 AC1/5/6: discovery cause retention', () => {
+  const resolve = (response: Response) => resolveProspectiveRenovateRepository({ env: {} as Env,
+    exports: scanExports([], response), repository: 'acme/updates', human: { email: 'owner@example.test' },
+    bucket: 'owner', current: async () => true });
+  const bodyResponse = (body: string | Uint8Array) => new Response(new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(typeof body === 'string' ? new TextEncoder().encode(body) : body); controller.close(); },
+  }));
+  // Rejection, not an empty/partial candidate set or repository identity, is the public outcome.
+  async function unavailable(result: Promise<unknown>): Promise<Error> {
+    await expect(result).rejects.toBeInstanceOf(Error);
+    const failure: unknown = await result.catch((error: unknown) => error);
+    expect(failure).toMatchObject({ name: 'Error', message: 'Renovate page unavailable' });
+    return failure as Error;
+  }
+
+  it.each(['repository metadata', 'later PR page'] as const)(
+    'retains the identical stream rejection behind the generic error for %s without partial results', async path => {
+      const original = Error('SYNTHETIC_STREAM_SECRET Authorization=synthetic-token owner@synthetic.test');
+      const response = new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.error(original); } }));
+      const result = path === 'repository metadata' ? resolve(response)
+        : scan([{ rows: Array.from({ length: 100 }, (_, index) => row(index + 1)), link: `<${next}>; rel="next"` }, response]);
+      expect((await unavailable(result)).cause).toBe(original);
+    });
+
+  it('retains the fatal UTF-8 decoder TypeError without returning PR candidates', async () => {
+    const failure = await unavailable(scan([bodyResponse(new Uint8Array([0x5b, 0xff, 0x5d]))]));
+    expect(failure.cause).toBeInstanceOf(TypeError);
+  });
+
+  it.each([
+    ['metadata', '{"secret":"SYNTHETIC_JSON_SECRET Authorization=synthetic-token owner@synthetic.test",!}'],
+    ['PR page', '[{"secret":"SYNTHETIC_JSON_SECRET Authorization=synthetic-token owner@synthetic.test"'],
+  ] as const)('retains a SyntaxError for malformed or truncated %s JSON without partial observations', async (path, body) => {
+    const response = bodyResponse(body);
+    const failure = await unavailable(path === 'metadata' ? scan([{ rows: [row(1)] }], response) : scan([response]));
+    expect(failure.cause).toBeInstanceOf(SyntaxError);
+  });
+
+  it('retains the byte-bound cause above 2 MiB without returning candidates', async () => {
+    const body = JSON.stringify([row(1)]).padEnd(2 * 1024 * 1024 + 1, ' ');
+    const failure = await unavailable(scan([bodyResponse(body)]));
+    expect(failure.cause).toBeInstanceOf(Error);
+    expect(failure.cause).toMatchObject({ message: 'Renovate page exceeds byte bound' });
+  });
+
+  it('still accepts valid JSON padded to exactly 2 MiB', async () => {
+    const body = JSON.stringify([row(1)]).padEnd(2 * 1024 * 1024, ' ');
+    expect(await scan([bodyResponse(body)])).toEqual([{ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
+      pullRequest: 1, head: 'a'.repeat(40), createdAt: '2026-09-28T00:00:00.000Z' }]);
+  });
+
+  it.each(['malformed JSON', 'secret-bearing stream Error'] as const)(
+    'the production error formatter omits retained %s and its cause from unexpected-error logs', async fault => {
+      const privateValues = ['SYNTHETIC_FORMATTER_SECRET', 'Authorization', 'synthetic-token', 'owner@synthetic.test'];
+      const original = Error(privateValues.join(' '));
+      const response = fault === 'malformed JSON' ? bodyResponse(`{"secret":"${privateValues.join(' ')}",!}`)
+        : new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.error(original); } }));
+      const failure = await unavailable(resolve(response));
+      if (fault === 'malformed JSON') expect(failure.cause).toBeInstanceOf(SyntaxError);
+      else expect(failure.cause).toBe(original);
+      expect(toError(failure)).toBe(failure);
+      const outputs: string[] = [];
+      const output = vi.spyOn(console, 'error').mockImplementation((line: unknown) => { outputs.push(String(line)); });
+      setLogLevel('error');
+      try {
+        // Exercise index.ts's actual formatter components, not Hono's default console inspection.
+        createLogger('index').error('Unexpected error', toError(failure), { requestId: 'synthetic-request-id' });
+        expect(outputs.map(line => JSON.parse(line))).toEqual([expect.objectContaining({
+          message: 'Unexpected error', data: { requestId: 'synthetic-request-id' },
+          error: { name: 'Error', message: 'Renovate page unavailable', stack: expect.any(String) },
+        })]);
+        for (const value of privateValues) expect(outputs.join('\n')).not.toContain(value);
+      } finally { output.mockRestore(); setLogLevel('silent'); }
+    });
 });

@@ -23,7 +23,7 @@ async function readScanPage(response: Response): Promise<unknown> {
       text += decoder.decode(chunk.value, { stream: true });
     }
     return JSON.parse(text + decoder.decode()) as unknown;
-  } catch { throw Error('Renovate page unavailable'); }
+  } catch (cause) { throw Error('Renovate page unavailable', { cause }); }
   finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 function scanTransport(input: ParentScanTransport) {

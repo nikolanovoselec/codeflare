@@ -1296,7 +1296,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       expect(await native.storage.getAlarm()).toBeNull(); expect([...bound]).toEqual([id]);
     } finally { clock.mockRestore(); }
   }));
-  it.each(['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'empty', 'candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'handoff-failure', 'logger-throws', 'source-and-logger-throws'] as const)(
+  it.each(['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'malformed-json-body', 'stream-error-body', 'empty', 'candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'handoff-failure', 'logger-throws', 'source-and-logger-throws'] as const)(
     'REQ-OPERATOR-063/209: legacy installation migration Registry alarm summary %s is private and does not change admission or saved six-hour cadence', fault => fixture(async ({ registry, native, environment, selection, state }) => {
       (selection as { installation: { configurationJson: string } }).installation.configurationJson = JSON.stringify({ renovate: {
         repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 21600 } });
@@ -1313,6 +1313,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       let original: Reservation | undefined;
       if (fault === 'retained') original = await registry.reserveProspectiveRenovateActivity(target);
       const admitted = new Set<string>();
+      const bodyFault = fault === 'malformed-json-body' || fault === 'stream-error-body';
+      const originalRegistration = bodyFault ? await registry.currentProspectiveRenovateRegistration(first.registrationId) : undefined;
+      const privateBody = '{"secret":"SYNTHETIC_DISCOVERY_SECRET Authorization=synthetic-token owner@synthetic.test",!}';
+      const streamError = Error(privateBody);
       const handoffError = Error('secret-handoff-body https://private.test/handoff');
       environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
         readProspectiveRenovateRetryProof: async () => null,
@@ -1337,6 +1341,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         expect(saved?.nextObservationAt).toBe(Date.now() + 21600_000);
         if (fault === 'unexpected-source' || fault === 'source-and-logger-throws') throw Error('secret-source-body https://private.test/raw');
         if (fault === 'discovery-failure') return new Response('secret-source-body', { status: 503 });
+        if (bodyFault && request.url.includes('/pulls?')) return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            if (fault === 'stream-error-body') controller.error(streamError);
+            else { controller.enqueue(new TextEncoder().encode(privateBody)); controller.close(); }
+          },
+        }));
         return request.url.includes('/pulls?') ? Response.json(fault === 'empty' ? [] : [{
           number: 1300, state: 'open', draft: false, created_at: target.createdAt,
           user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
@@ -1381,9 +1391,27 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           reservationDenied: fault === 'reservation-denied' ? 1 : 0,
           retainedOtherRegistration: fault === 'other-registration' ? 1 : 0,
           retainedExisting: fault === 'retained' ? 1 : 0, handoffAttempts: fault === 'handoff-attempt' ? 1 : 0 });
-        if (['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'source-and-logger-throws', 'stale-authority', 'handoff-failure'].includes(fault)) {
+        if (['denied', 'unavailable', 'binding-unavailable', 'discovery-failure', 'unexpected-source', 'source-and-logger-throws', 'stale-authority', 'handoff-failure'].includes(fault) || bodyFault) {
           expect(data.outcome).toBe(fault === 'denied' ? 'authority-denied' : fault === 'unavailable' ? 'authority-unavailable'
-            : fault === 'unexpected-source' || fault === 'source-and-logger-throws' ? 'discovery-failure' : fault);
+            : fault === 'unexpected-source' || fault === 'source-and-logger-throws' || bodyFault ? 'discovery-failure' : fault);
+        }
+        if (bodyFault) {
+          expect(data.stage).toBe('discovery');
+          // Closed wire permits unavailable fingerprints and reports unsafe native accessors explicitly.
+          const fingerprint = (value: unknown) => value === null ? null : expect.stringMatching(/^[a-f0-9]{64}$/);
+          const accessorLoss = data.error.loss.includes('unsafe-error-access');
+          expect(data.error).toEqual({ kind: 'Error', publicCode: null,
+            messageDigest: hashDiagnostic('Renovate page unavailable'), stackDigest: fingerprint(data.error.stackDigest),
+            causes: [{ kind: fault === 'malformed-json-body' ? 'SyntaxError' : 'Error',
+              messageDigest: fault === 'stream-error-body' ? hashDiagnostic(streamError.message) : fingerprint(data.error.causes[0]?.messageDigest),
+              stackDigest: fingerprint(data.error.causes[0]?.stackDigest) }],
+            loss: accessorLoss ? ['unsafe-error-access'] : [], fingerprintScope: accessorLoss ? 'bounded' : 'full' });
+          expect(await native.storage.list({ prefix: 'renovate-activity:' })).toEqual(new Map());
+          expect(await native.storage.list({ prefix: 'renovate-admission:' })).toEqual(new Map());
+          expect(originalRegistration).not.toBeNull();
+          expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toEqual(originalRegistration);
+          for (const privateValue of [privateBody, 'SYNTHETIC_DISCOVERY_SECRET', 'Authorization', 'synthetic-token', 'owner@synthetic.test',
+            'Renovate page unavailable', 'SyntaxError:']) expect(JSON.stringify(outputs)).not.toContain(privateValue);
         }
         if (fault === 'handoff-failure') expect(data).toMatchObject({ error: captureError(handoffError),
           failureStage: 'preparation', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/) });
