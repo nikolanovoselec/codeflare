@@ -777,7 +777,9 @@ echo "[Dockerfile] installing graphifyy==$VER with [mcp,sql,pdf] extras"
 # directory" (and, before that, "x86_64-linux-gnu-gcc: No such file or directory").
 apt-get update
 apt-get install -y --no-install-recommends gcc g++ python3-dev
-uv tool install "graphifyy[mcp,sql,pdf]==$VER"
+# CVE-2026-126190: patched Soup Sieve requires a newer 3.11 patch than Bookworm.
+# Keep this interpreter isolated to Graphify; leave the system Python unchanged.
+uv tool install --python 3.11.18 --with "soupsieve==4.1" "graphifyy[mcp,sql,pdf]==$VER"
 apt-get purge -y gcc g++ python3-dev
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
@@ -798,8 +800,8 @@ ln -sf /root/.local/share/uv/tools/graphifyy/bin/graphify /usr/local/bin/graphif
 # A regression in either (e.g. missing tree-sitter wheel, broken entry-point)
 # surfaces at build time rather than at first user invocation.
 graphify --version
-uv tool run --from graphifyy python3 -c "import graphify.serve" \
-  || (echo "[Dockerfile] FATAL: graphify.serve import failed" >&2 && exit 1)
+uv tool run --from graphifyy python3 -c "import graphify.serve; from importlib.metadata import version; assert version('soupsieve') == '4.1', 'Graphify Soup Sieve security pin differs'" \
+  || (echo "[Dockerfile] FATAL: Graphify MCP import or security pin verification failed" >&2 && exit 1)
 
 rm -f /tmp/graphify-plugin.json
 
