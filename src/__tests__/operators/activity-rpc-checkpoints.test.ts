@@ -114,6 +114,8 @@ describe('REQ-OPERATOR-063 AC1/5/6: receiver checkpoints', () => {
       const { name, stub } = freshActivity();
       const original = new Error(privateContent);
       await captureWire(async ({ entries, output, breakSink }) => {
+        // Complete legitimate SDK startup before measuring diagnostic storage effects.
+        expect(await stub.getAdmission()).toBeNull();
         await runInDurableObject(stub, async (activity, ctx) => {
           const before = [...await ctx.storage.list()];
           const get = ctx.storage.get.bind(ctx.storage);
@@ -141,6 +143,8 @@ describe('REQ-OPERATOR-063 AC1/5/6: receiver checkpoints', () => {
     'diagnostic %s fault spends both plan stages without changing the next native plan result', async faultKind => {
       const { name, stub } = freshActivity();
       await captureWire(async ({ entries, output }) => {
+        // This read initializes the SDK without spending either plan checkpoint.
+        expect(await stub.getAdmission()).toBeNull();
         await runInDurableObject(stub, async (activity, ctx) => {
           const before = [...await ctx.storage.list()];
           const originalId = Object.getOwnPropertyDescriptor(ctx, 'id');
@@ -192,7 +196,7 @@ describe('REQ-OPERATOR-063 AC1/5/6: receiver checkpoints', () => {
         breakSink();
         let caught: unknown;
         try {
-          try { new OperatorActivity(ctx, env as ConstructorParameters<typeof OperatorActivity>[1]); }
+          try { new OperatorActivity(ctx, env as unknown as ConstructorParameters<typeof OperatorActivity>[1]); }
           catch (error) { caught = error; }
           expect(caught).toBe(original);
         } finally { fault.mockRestore(); }
