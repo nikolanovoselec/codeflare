@@ -233,6 +233,8 @@ interface ProspectiveObservationDiagnostic {
   /** An existing reservation is not proof of a safe retry or a quarantined Activity. */
   retainedExisting: number; handoffAttempts: number;
   error?: ReturnType<typeof captureError>;
+  failureStage?: 'authority' | 'admission-binding' | 'plan' | 'preparation' | 'detail' | 'binding' | 'drive';
+  admissionDigest?: string;
 }
 class ProspectiveDependencyUnavailable extends Error {}
 /** Only failures of dependency I/O, never malformed data or denied selections. */
@@ -1981,7 +1983,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           createLogger('operator-registry').info('Prospective Renovate observation', {
             context: 'registry-alarm', observationDigest: hashDiagnostic(JSON.stringify([
               'registry-alarm:prospective-observation:v1', record.registrationId, record.revision, record.nextObservationAt,
-            ])), ...diagnostic, ...(failure === undefined ? {} : { error: captureError(failure) }),
+            ])), ...diagnostic, ...(failure === undefined || diagnostic.error !== undefined ? {} : { error: captureError(failure) }),
           });
         } catch { /* Best-effort parent-owned metadata only. */ }
       }
@@ -2028,15 +2030,23 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (reserved.activityId !== activityId) diagnostic.retainedExisting++;
       diagnostic.stage = 'handoff';
       const activity = app.OPERATOR_ACTIVITY.getByName(reserved.activityId);
-      let stage: 'authority' | 'admission-binding' | 'plan' | 'preparation' | 'detail' | 'binding' | 'drive' = 'authority';
+      let stage: NonNullable<ProspectiveObservationDiagnostic['failureStage']> = 'authority';
+      let admissionDigest: string | undefined;
+      try {
+        if (scanId.test(reserved.activityId)) admissionDigest = hashDiagnostic(JSON.stringify([
+          'prospective-renovate-admission:v1', reserved.activityId,
+        ]));
+      } catch { /* Correlation is best-effort, never admission authority. */ }
       const fenceHandoff = async (failure: FailureObservation) => {
         try {
           // The Activity atomically refuses this fence once any drive has begun, including a concurrent winner.
           await activity.fenceRuntimeFailure(undefined, failure, { onlyBeforeDrive: true });
-        } catch {
-          createLogger('operator-registry').warn('Prospective Renovate handoff fence unavailable', {
-            stage, category: 'fence-unavailable',
-          });
+        } catch (error) {
+          try {
+            createLogger('operator-registry').warn('Prospective Renovate handoff fence unavailable', {
+              stage, category: 'fence-unavailable', admissionDigest, error: captureError(error),
+            });
+          } catch { /* A secondary fence/logging failure cannot replace the original handoff outcome. */ }
         }
       };
       const handoffCurrent = async () => {
@@ -2098,7 +2108,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       } catch (error) {
         const captured = captureError(error);
         diagnostic.outcome = 'handoff-failure';
-        diagnostic.error ??= captured;
+        if (diagnostic.error === undefined) {
+          diagnostic.error = captured;
+          diagnostic.failureStage = stage;
+          diagnostic.admissionDigest = admissionDigest;
+        }
         await fenceHandoff({ boundary: stage === 'authority' ? 'admission' : 'construction',
           code: stage === 'authority' ? 'platform-evidence-required' : 'startup-failed',
           error: captured, origin: 'catching' });
@@ -2396,7 +2410,26 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   }
 
   async readProspectiveRenovateAdmission(activityId: string): Promise<ProspectiveAdmission | null> {
-    return scanId.test(activityId) ? await this.ctx.storage.get<ProspectiveAdmission>(`renovate-activity:${activityId}`) ?? null : null;
+    if (!scanId.test(activityId)) return null;
+    const trace = (outcome: 'started' | 'completed' | 'failed', proofPresent?: boolean, error?: unknown) => {
+      try {
+        createLogger('operator-registry').info('Prospective Renovate admission boundary', {
+          boundary: 'registry-proof-storage', outcome,
+          admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', activityId])),
+          ...(outcome === 'completed' ? { proofPresent } : {}),
+          ...(outcome === 'failed' ? { error: captureError(error) } : {}),
+        });
+      } catch { /* Diagnostic hashing/capture/logging cannot change the proof read. */ }
+    };
+    trace('started');
+    try {
+      const proof = await this.ctx.storage.get<ProspectiveAdmission>(`renovate-activity:${activityId}`) ?? null;
+      trace('completed', !!proof);
+      return proof;
+    } catch (error) {
+      trace('failed', undefined, error);
+      throw error;
+    }
   }
 
   async getOwnedActivity(ownerKey: string, activityId: string): Promise<OperatorBrowserSummary | null> {

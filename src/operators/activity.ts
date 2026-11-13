@@ -952,17 +952,39 @@ export class OperatorActivity extends Agent {
     this.#resumeDispatcherOnEntry();
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId) || !this.#appEnv.OPERATOR_ACTIVITY
       || this.#appEnv.OPERATOR_ACTIVITY.idFromName(activityId).toString() !== this.ctx.id.toString()) return false;
-    const proof = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
-      .readProspectiveRenovateAdmission(activityId);
-    if (!proof || proof.activityId !== activityId) return false;
-    return this.ctx.storage.transaction(async tx => {
-      const [previous, admission] = await Promise.all([
-        tx.get<string>('prospective-admission'), tx.get<AdmissionState>('admission'),
-      ]);
-      if ((previous && previous !== activityId) || (admission && admission.intent.activityId !== activityId)) return false;
-      await tx.put('prospective-admission', activityId);
-      return true;
-    });
+    let boundary: 'activity-proof-rpc' | 'activity-bind-storage' = 'activity-proof-rpc';
+    const trace = (outcome: 'started' | 'completed' | 'failed', result?: boolean, error?: unknown) => {
+      try {
+        createLogger('operator-activity').info('Prospective Renovate admission boundary', {
+          boundary, outcome,
+          admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', activityId])),
+          ...(outcome === 'completed' ? boundary === 'activity-proof-rpc' ? { proofPresent: result } : { accepted: result } : {}),
+          ...(outcome === 'failed' ? { error: captureError(error) } : {}),
+        });
+      } catch { /* Diagnostic hashing/capture/logging cannot change admission. */ }
+    };
+    trace('started');
+    try {
+      const proof = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
+        .readProspectiveRenovateAdmission(activityId);
+      trace('completed', !!proof);
+      if (!proof || proof.activityId !== activityId) return false;
+      boundary = 'activity-bind-storage';
+      trace('started');
+      const accepted = await this.ctx.storage.transaction(async tx => {
+        const [previous, admission] = await Promise.all([
+          tx.get<string>('prospective-admission'), tx.get<AdmissionState>('admission'),
+        ]);
+        if ((previous && previous !== activityId) || (admission && admission.intent.activityId !== activityId)) return false;
+        await tx.put('prospective-admission', activityId);
+        return true;
+      });
+      trace('completed', accepted);
+      return accepted;
+    } catch (error) {
+      trace('failed', undefined, error);
+      throw error;
+    }
   }
 
   /** Parent-only source binding after server validation, before admission/start. Never SDK job data. */

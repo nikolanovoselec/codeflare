@@ -10,7 +10,7 @@ import { sealOperatorSecret } from '../../operators/protected-secrets';
 import { DispatcherAuthorityUnavailable, OperatorRuntimeCapability, authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
 import { createMockKV } from '../helpers/mock-kv';
 import { setLogLevel } from '../../lib/logger';
-import { captureError } from '../../operators/dispatcher-diagnostics-wire';
+import { captureError, hashDiagnostic } from '../../operators/dispatcher-diagnostics-wire';
 import { Hono } from 'hono';
 import * as access from '../../lib/access';
 import { openOperatorExecutionAccess } from '../../operators/execution-context';
@@ -856,6 +856,240 @@ describe('REQ-OPERATOR-045 AC3 /047 AC3/7 /061 AC1/3: bounded installation deleg
   }));
 });
 
+describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic wire', () => {
+  const message = 'Prospective Renovate admission boundary';
+  type Entry = { message: string; data: Record<string, unknown> };
+  // Intentional closed diagnostic wire contract, always paired below with real return/storage outcomes.
+  const assertBoundaryWire = (entries: Entry[]) => {
+    for (const { data } of entries.filter(entry => entry.message === message)) {
+      expect(['activity-proof-rpc', 'registry-proof-storage', 'activity-bind-storage']).toContain(data.boundary);
+      expect(['started', 'completed', 'failed']).toContain(data.outcome);
+      expect(data.admissionDigest).toMatch(/^[a-f0-9]{64}$/);
+      const completionField = data.boundary === 'activity-bind-storage' ? 'accepted' : 'proofPresent';
+      expect(Object.keys(data).sort()).toEqual(['boundary', 'outcome', 'admissionDigest',
+        ...(data.outcome === 'completed' ? [completionField] : []),
+        ...(data.outcome === 'failed' ? ['error'] : []),
+      ].sort());
+      if (data.outcome === 'completed') expect(typeof data[completionField]).toBe('boolean');
+    }
+  };
+
+  it.each(['success', 'missing-proof', 'foreign-proof', 'previous-binding', 'foreign-admission',
+    'rpc-error', 'unsafe-rpc-error', 'registry-storage-error', 'bind-transaction-error', 'bind-write-error',
+    'invalid-id', 'foreign-object'] as const)(
+    'REQ-OPERATOR-063 AC1/5/6 /061 AC3/7: %s traces only validated boundaries and preserves proof, binding and original errors with working and throwing loggers',
+    fault => fixture(async ({ registry, native, environment }) => {
+      const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
+      await runInDurableObject(namespace.getByName(`admission-boundary-${crypto.randomUUID()}`), async (_instance, activityNative) => {
+        const activityId = 'private-admission-activity', otherId = 'private-other-activity';
+        const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
+        const inRegistry = <T>(action: () => Promise<T>) => runInDurableObject(registryNamespace.get(native.id), () => action());
+        const first = await inRegistry(() => activateInstallation(registry));
+        if (!first.ok) throw Error('No activation');
+        if (fault !== 'missing-proof') expect(await inRegistry(() => registry.reserveProspectiveRenovateActivity(
+          pr(first.registrationId, first.activatedAt, { activityId })))).toMatchObject({ ok: true, activityId });
+        const journal = await inRegistry(() => registry.readProspectiveRenovateAdmission(activityId));
+        const originalError = Error('private-provider-body Authorization=private-token', {
+          cause: Error('private-cause https://private.invalid/provider'),
+        });
+        if (fault === 'unsafe-rpc-error') Object.defineProperty(originalError, 'message', {
+          get: () => { throw Error('private-getter-body'); },
+        });
+        const host = { ...environment,
+          OPERATOR_ACTIVITY: { idFromName: () => fault === 'foreign-object' ? namespace.idFromName(otherId) : activityNative.id },
+          OPERATOR_REGISTRY: { getByName: () => ({ readProspectiveRenovateAdmission: async (id: string) => {
+            if (fault === 'rpc-error' || fault === 'unsafe-rpc-error') throw originalError;
+            if (fault === 'foreign-proof') return { ...journal as object, activityId: otherId };
+            return inRegistry(() => registry.readProspectiveRenovateAdmission(id));
+          } }) },
+        } as unknown as Env;
+        const activity = new OperatorActivity(activityNative, host);
+        if (fault === 'previous-binding') await activityNative.storage.put('prospective-admission', otherId);
+        if (fault === 'foreign-admission') await activityNative.storage.put('admission', { intent: { activityId: otherId } });
+        const beforeAdmission = await activityNative.storage.get('admission');
+        const beforeBinding = await activityNative.storage.get('prospective-admission');
+        const read = native.storage.get.bind(native.storage);
+        let storageOutage = fault === 'registry-storage-error';
+        const unavailable = vi.spyOn(native.storage, 'get').mockImplementation((async (key: string) => {
+          if (storageOutage && key === `renovate-activity:${activityId}`) throw originalError;
+          return read(key);
+        }) as typeof native.storage.get);
+        const transaction = activityNative.storage.transaction.bind(activityNative.storage);
+        const persist = vi.spyOn(activityNative.storage, 'transaction').mockImplementation(callback => {
+          if (fault === 'bind-transaction-error') return Promise.reject(originalError);
+          return transaction(tx => callback(new Proxy(tx, { get(target, property) {
+            const member = Reflect.get(target, property);
+            if (property === 'put') return (...args: unknown[]) => {
+              if (fault === 'bind-write-error' && args[0] === 'prospective-admission') throw originalError;
+              return Reflect.apply(member, target, args);
+            };
+            return typeof member === 'function' ? member.bind(target) : member;
+          } })));
+        });
+        const outputs: Entry[] = [];
+        let loggerOutage = false;
+        const output = (line: unknown) => {
+          outputs.push(JSON.parse(String(line)));
+          if (loggerOutage) throw Error('private-logger-body');
+        };
+        setLogLevel('info');
+        const logs = vi.spyOn(console, 'log').mockImplementation(output);
+        const warnings = vi.spyOn(console, 'warn').mockImplementation(output);
+        const errors = vi.spyOn(console, 'error').mockImplementation(output);
+        let firstDigest: unknown;
+        try {
+          // Each public boundary is repeated under a throwing logger, not a simulated successful operation.
+          for (const outage of [false, true]) {
+            loggerOutage = outage; outputs.length = 0;
+            const input = fault === 'invalid-id' ? 'private/invalid?Authorization=private-token' : activityId;
+            const throws = ['rpc-error', 'unsafe-rpc-error', 'registry-storage-error', 'bind-transaction-error', 'bind-write-error'].includes(fault);
+            if (throws) await expect(activity.bindProspectiveRenovateAdmission(input)).rejects.toBe(originalError);
+            else await expect(activity.bindProspectiveRenovateAdmission(input)).resolves.toBe(fault === 'success');
+            const boundaries = outputs.filter(entry => entry.message === message);
+            assertBoundaryWire(outputs);
+            const proofRead = !['invalid-id', 'foreign-object'].includes(fault);
+            const storageRead = proofRead && !['rpc-error', 'unsafe-rpc-error', 'foreign-proof'].includes(fault);
+            const bind = proofRead && !['rpc-error', 'unsafe-rpc-error', 'foreign-proof', 'registry-storage-error', 'missing-proof'].includes(fault);
+            expect(boundaries.map(({ data }) => `${data.boundary}:${data.outcome}`)).toEqual([
+              ...(proofRead ? ['activity-proof-rpc:started'] : []),
+              ...(storageRead ? ['registry-proof-storage:started', `registry-proof-storage:${fault === 'registry-storage-error' ? 'failed' : 'completed'}`] : []),
+              ...(proofRead ? [`activity-proof-rpc:${['rpc-error', 'unsafe-rpc-error', 'registry-storage-error'].includes(fault) ? 'failed' : 'completed'}`] : []),
+              ...(bind ? ['activity-bind-storage:started', `activity-bind-storage:${['bind-transaction-error', 'bind-write-error'].includes(fault) ? 'failed' : 'completed'}`] : []),
+            ]);
+            const digests = new Set(boundaries.map(({ data }) => data.admissionDigest));
+            expect(digests.size).toBe(proofRead ? 1 : 0);
+            // Domain separation is required; the plan deliberately does not pin the choice of prefix.
+            if (proofRead) {
+              expect([...digests][0]).not.toBe(hashDiagnostic(activityId));
+              if (outage) expect([...digests][0]).toBe(firstDigest);
+              else firstDigest = [...digests][0];
+            }
+            for (const { data } of boundaries) {
+              if (data.outcome === 'failed') expect(data.error).toEqual(captureError(originalError));
+              if (data.outcome === 'completed') expect(data).toMatchObject(data.boundary === 'activity-bind-storage'
+                ? { accepted: fault === 'success' } : { proofPresent: fault !== 'missing-proof' });
+            }
+            expect(await activityNative.storage.get('prospective-admission')).toBe(fault === 'success' ? activityId : beforeBinding);
+            expect(await activityNative.storage.get('admission')).toEqual(beforeAdmission);
+            // Registry failure is transient; removing the injected storage outage reveals the same immutable proof.
+            storageOutage = false;
+            expect(await inRegistry(() => registry.readProspectiveRenovateAdmission(activityId))).toEqual(journal);
+            storageOutage = fault === 'registry-storage-error';
+            if (fault === 'invalid-id') {
+              const beforeInvalidRead = [...outputs];
+              await expect(inRegistry(() => registry.readProspectiveRenovateAdmission(input))).resolves.toBeNull();
+              expect(outputs).toEqual(beforeInvalidRead);
+            }
+            for (const value of [activityId, otherId, input, first.registrationId, 'owner-bucket', 'a@example.test',
+              'a-jwt', head, 'private-provider-body', 'private-token', 'private-cause', 'private-getter-body',
+              'private-logger-body', 'https://private.invalid/provider', 'Authorization']) {
+              expect(JSON.stringify(outputs)).not.toContain(value);
+            }
+          }
+        } finally {
+          persist.mockRestore(); unavailable.mockRestore(); logs.mockRestore(); warnings.mockRestore(); errors.mockRestore(); setLogLevel('silent');
+        }
+      });
+    }));
+
+  it.each(['none', 'info', 'warn', 'both'] as const)(
+    'REQ-OPERATOR-063 AC1/5/6 /061 AC3/7: first captured handoff stays paired through later failures and retained candidates; logger outage=%s cannot promote the secondary fence error',
+    outage => fixture(async ({ registry, native, environment, selection, state }) => {
+      (selection as ManagementExecutionSelection).installation.configurationJson = JSON.stringify({ renovate: {
+        repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 21600 } });
+      const prior = await enroll(registry, 'a', undefined, undefined, 86400);
+      if (!prior.ok) throw Error('No prior activation');
+      const retained = await registry.reserveProspectiveRenovateActivity(pr(prior.registrationId, prior.activatedAt,
+        { pullRequest: 1302, activityId: 'private-retained-activity' }));
+      const consent = claims('z@example.test', 86400);
+      const first = await registry.activateProspectiveRenovate({ installationId: 'dispatcher-install', scope: 'installation',
+        bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0, human: consent, accessJwt: 'z-jwt',
+        repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } });
+      if (!first.ok) throw Error('No activation');
+      state.sessions.clear();
+      const createdAt = new Date(Date.parse(first.activatedAt) + 1).toISOString();
+      const originalError = Error('private-admission-body Authorization=private-token', { cause: Error('private-admission-cause') });
+      const laterError = Error('private-later-plan-body');
+      const fenceError = Error('private-fence-body', { cause: Error('private-fence-cause') });
+      const attempted: string[] = [];
+      environment.CONTAINER = { getByName: () => { throw Error('No Host access'); } } as never;
+      environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
+        readProspectiveRenovateRetryProof: async () => null,
+        bindProspectiveRenovateAdmission: async () => {
+          attempted.push(id); if (attempted.length === 1) throw originalError; return true;
+        },
+        getRuntimePlan: async () => { throw laterError; },
+        fenceRuntimeFailure: async () => { throw fenceError; },
+      }) } as never;
+      const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?')
+        ? Response.json([1300, 1301, 1302].map(number => ({ number, state: 'open', draft: false, created_at: createdAt,
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
+          base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } })))
+        : Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' }) }) };
+      Object.defineProperty(native, 'exports', { configurable: true, value: exports });
+      const observer = new OperatorRegistry(native, environment);
+      vi.spyOn(observer, 'resolveManagementExecution').mockResolvedValue({ ok: true, value: selection } as never);
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+      const outputs: Entry[] = [];
+      const output = (level: 'info' | 'warn' | 'error') => (line: unknown) => {
+        outputs.push(JSON.parse(String(line)));
+        if (outage === level || outage === 'both') throw Error('private-logger-outage');
+      };
+      setLogLevel('info');
+      const logs = vi.spyOn(console, 'log').mockImplementation(output('info'));
+      const warnings = vi.spyOn(console, 'warn').mockImplementation(output('warn'));
+      const errors = vi.spyOn(console, 'error').mockImplementation(output('error'));
+      try {
+        await expect(observer.alarm()).resolves.toBeUndefined();
+        const summaries = outputs.filter(entry => entry.message === 'Prospective Renovate observation');
+        expect(summaries).toHaveLength(1);
+        expect(summaries[0].data).toEqual({ context: 'registry-alarm',
+          observationDigest: expect.stringMatching(/^[a-f0-9]{64}$/), outcome: 'handoff-failure', stage: 'reservation',
+          candidates: 3, reservationDenied: 0, retainedOtherRegistration: 1, retainedExisting: 0, handoffAttempts: 0,
+          error: captureError(originalError), failureStage: 'admission-binding', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        });
+        const fenceWarnings = outputs.filter(entry => entry.message === 'Prospective Renovate handoff fence unavailable');
+        expect(fenceWarnings.map(entry => entry.data)).toEqual([
+          { stage: 'admission-binding', category: 'fence-unavailable', admissionDigest: summaries[0].data.admissionDigest, error: captureError(fenceError) },
+          { stage: 'plan', category: 'fence-unavailable', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/), error: captureError(fenceError) },
+        ]);
+        expect(attempted).toHaveLength(2); // Two actually reserved identities, not replacement/replayed admissions.
+        const proofDigests: unknown[] = [];
+        for (const [index, id] of attempted.entries()) {
+          const start = outputs.length;
+          expect(await registry.readProspectiveRenovateAdmission(id)).toMatchObject({ activityId: id, pullRequest: 1300 + index,
+            head, createdAt, activatedAt: first.activatedAt, actor: { registrationId: first.registrationId, sessionId: '', sessionGeneration: 0 } });
+          const boundary = outputs.slice(start).filter(entry => entry.message === message);
+          assertBoundaryWire(boundary);
+          expect(boundary.map(entry => entry.data)).toEqual([
+            { boundary: 'registry-proof-storage', outcome: 'started', admissionDigest: fenceWarnings[index].data.admissionDigest },
+            { boundary: 'registry-proof-storage', outcome: 'completed', admissionDigest: fenceWarnings[index].data.admissionDigest, proofPresent: true },
+          ]);
+          proofDigests.push(boundary[0].data.admissionDigest);
+          expect(await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt,
+            { pullRequest: 1300 + index, activityId: 'private-no-replacement' }))).toMatchObject({ ok: true, activityId: id });
+        }
+        expect(proofDigests[0]).toBe(summaries[0].data.admissionDigest);
+        expect(proofDigests[0]).not.toBe(proofDigests[1]);
+        expect(await registry.reserveProspectiveRenovateActivity(pr(first.registrationId, first.activatedAt,
+          { pullRequest: 1302, activityId: 'private-no-replacement' }))).toEqual(retained);
+        expect(await registry.readProspectiveRenovateAdmission('private-no-replacement')).toBeNull();
+        expect(await registry.currentProspectiveRenovateRegistration(first.registrationId)).toMatchObject({
+          human: { expiresAt: consent.expiresAt }, repetitionIntervalSeconds: 21600, activatedAt: first.activatedAt,
+        });
+        expect(await native.storage.getAlarm()).toBe(Date.now() + 21600_000);
+        const beforeDuplicate = [...outputs];
+        await expect(observer.alarm()).resolves.toBeUndefined();
+        expect(outputs).toEqual(beforeDuplicate);
+        expect(await native.storage.getAlarm()).toBe(Date.now() + 21600_000);
+        for (const value of [first.registrationId, prior.registrationId, ...attempted, 'private-retained-activity',
+          'private-no-replacement', 'owner-bucket', 'a@example.test', 'z@example.test', 'asession01', 'a-jwt', 'z-jwt', head, newerHead,
+          'private-admission-body', 'private-token', 'Authorization', 'private-admission-cause', 'private-later-plan-body',
+          'private-fence-body', 'private-fence-cause', 'private-logger-outage']) expect(JSON.stringify(outputs)).not.toContain(value);
+      } finally { logs.mockRestore(); warnings.mockRestore(); errors.mockRestore(); clock.mockRestore(); setLogLevel('silent'); }
+    }));
+});
+
 describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   const activate = (registry: Prospective, user: 'a' | 'z' = 'a', lifetimeSeconds = 3600) => registry.activateProspectiveRenovate({ installationId: 'dispatcher-install',
     scope: 'installation', bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
@@ -1026,6 +1260,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         expect(Object.keys(data).filter(key => key !== 'error').sort()).toEqual([
           'context', 'observationDigest', 'outcome', 'stage', 'candidates', 'reservationDenied',
           'retainedOtherRegistration', 'retainedExisting', 'handoffAttempts',
+          ...(fault === 'handoff-failure' ? ['failureStage', 'admissionDigest'] : []),
         ].sort());
         expect(data).toMatchObject({ context: 'registry-alarm', observationDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
           candidates: ['candidate', 'retained', 'other-registration', 'reservation-denied', 'stale-authority', 'handoff-attempt', 'handoff-failure', 'logger-throws'].includes(fault) ? 1 : 0,
@@ -1036,7 +1271,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           expect(data.outcome).toBe(fault === 'denied' ? 'authority-denied' : fault === 'unavailable' ? 'authority-unavailable'
             : fault === 'unexpected-source' || fault === 'source-and-logger-throws' ? 'discovery-failure' : fault);
         }
-        if (fault === 'handoff-failure') expect(data.error).toEqual(captureError(handoffError));
+        if (fault === 'handoff-failure') expect(data).toMatchObject({ error: captureError(handoffError),
+          failureStage: 'plan', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/) });
         for (const privateValue of ['acme/updates', 'owner-bucket', 'a@example.test', 'a-jwt', 'asession01',
           first.registrationId, head, newerHead, 'https://private.test/raw', 'secret-source-body',
           'secret-handoff-body', 'https://private.test/handoff', ...admitted]) {
@@ -1334,7 +1570,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               try { return JSON.parse(String(line)); } catch { return null; }
             }).filter(entry => entry?.message === 'Prospective Renovate handoff fence unavailable');
             expect(handoffWarnings).toEqual([expect.objectContaining({ data: {
-              stage: 'binding', category: 'fence-unavailable' } })]);
+              stage: 'binding', category: 'fence-unavailable', admissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+              error: expect.objectContaining({ messageDigest: hashDiagnostic(sensitiveError) }),
+            } })]);
             expect(JSON.stringify(handoffWarnings)).not.toContain('never-log-this');
           }
           expect(transport.admissions.size).toBe(0);
