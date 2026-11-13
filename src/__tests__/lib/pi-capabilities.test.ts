@@ -594,6 +594,36 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
   });
 
+  it.each([
+    { label: 'fresh lazy session', visibility: 'after-first-goal', goal: null, plan: false, registered: true, visible: false },
+    { label: 'active Goal', visibility: 'after-first-goal', goal: 'active', plan: false, registered: true, visible: true },
+    { label: 'restored blocked Goal', visibility: 'after-first-goal', goal: 'blocked', plan: false, registered: true, visible: true },
+    { label: 'active Plan with paused Goal', visibility: 'after-first-goal', goal: 'paused', plan: true, registered: true, visible: false },
+    { label: 'always-visible controls during Plan', visibility: 'always', goal: 'paused', plan: true, registered: true, visible: true },
+    { label: 'older runtime without progress tool', visibility: 'after-first-goal', goal: 'active', plan: false, registered: false, visible: false },
+  ] as const)('REQ-AGENT-191: exposes only registered progress controls for $label', async ({ visibility, goal, plan, registered, visible }) => {
+    const base = fakePi({ tools: [
+      { name: 'read', description: 'Read files' },
+      { name: 'goal_complete', description: 'Complete Goal' },
+      { name: 'goal_blocked', description: 'Block Goal' },
+      { name: 'goal_wait', description: 'Disabled wait' },
+      { name: 'plan_mode_question', description: 'Ask a Plan question' },
+      { name: 'plan_mode_complete', description: 'Complete Plan' },
+      ...(registered ? [{ name: 'goal_progress', description: 'Report verified advancement or a stall' }] : []),
+    ] });
+    const handlers = new EventRegistry();
+    const pi = { ...base, on: (event: string, handler: EventHandler) => handlers.set(event, handler) };
+    toolExposureFinalizer(pi, () => visibility);
+    await handlers.get('before_agent_start')({}, { sessionManager: { getBranch: () => [
+      ...(goal ? [{ type: 'custom', customType: 'goal-state', data: { goal: { id: 'goal-1', status: goal } } }] : []),
+      ...(plan ? [{ type: 'custom', customType: 'plan-mode-state', data: {
+        enabled: true, workflowToolPolicy: { allowedNames: ['read'], resolved: true },
+      } }] : []),
+    ] } });
+    expect(pi.getActiveTools().includes('goal_progress')).toBe(visible);
+    expect(pi.getActiveTools()).not.toContain('goal_wait');
+  });
+
   it('REQ-AGENT-191 AC3: preserves Goal tools already active under the always-visible policy', () => {
     const base = fakePi({
       active: ['read', 'goal_complete', 'goal_blocked', 'goal_wait'],

@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-13
 
+- Bound stalled Goal work to five spaced automatic continuations or a persisted 25-minute deadline, using current-owned-Goal progress evidence rather than output repetition or tool activity. Preserve productive-work preferences, resume/reset semantics, stale-run guards and cancellation; repair disabled startup safety and expose registered progress controls in both seeds ([REQ-AGENT-111](agents.md#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-129](agents.md#req-agent-129-goal-continuation-settings-policy), [REQ-AGENT-130](agents.md#req-agent-130-goal-continuation-runtime-pacing), [REQ-AGENT-191](agents.md#req-agent-191-goal-tool-visibility-across-workflows)).
+
 - Reconcile positive late native Stop completion through the existing durable exit ledger, retaining captured owner/generation/intent and the original 135-second caller deadline. No extra destruction attempt, age-only status repair or new scheduler is introduced ([REQ-SESSION-035](session-lifecycle.md#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced)).
 
 ## 2026-11-11

@@ -3042,11 +3042,13 @@ function configure() {
   const missingVisibility = !hasOwn(settings, 'toolVisibility');
   const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
   const needsMinInterval = limits.minIntervalMs !== 300_000;
-  if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval) return;
+  const needsStallLimit = limits.noProgressTurns !== 5;
+  if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval && !needsStallLimit) return;
 
   const nextLimits = {
     ...limits,
-    ...(missingAutomaticTurns ? { automaticTurns: 10 } : {}),
+    ...(missingAutomaticTurns ? { automaticTurns: null } : {}),
+    noProgressTurns: 5,
     minIntervalMs: 300_000,
   };
   const nextSettings = {

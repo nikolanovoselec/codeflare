@@ -247,7 +247,7 @@ describe('entrypoint production helpers', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
       toolVisibility: 'after-first-goal',
-      continuationLimits: { automaticTurns: 10, minIntervalMs: 300_000 },
+      continuationLimits: { automaticTurns: null, noProgressTurns: 5, minIntervalMs: 300_000 },
     });
     assert.equal(existsSync(conflictingPath), false);
   });
@@ -274,7 +274,7 @@ describe('entrypoint production helpers', () => {
       toolVisibility: 'always',
       continuationLimits: {
         automaticTurns: null,
-        noProgressTurns: 8,
+        noProgressTurns: 5,
         customLimit: 'keep',
         minIntervalMs: 300_000,
       },
@@ -291,10 +291,35 @@ describe('entrypoint production helpers', () => {
     assert.equal(missing.status, 0, missing.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
       toolVisibility: 'after-first-goal',
-      continuationLimits: { minIntervalMs: 300_000, automaticTurns: 10 },
+      continuationLimits: { minIntervalMs: 300_000, automaticTurns: null, noProgressTurns: 5 },
       rpc: { enabled: false },
       unknownRoot: 'keep',
     });
+  });
+
+  it('REQ-AGENT-129: repairs disabled or legacy stall safety even when cadence is already correct', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-stall-migration-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    mkdirSync(dirname(configPath), { recursive: true });
+    try {
+      for (const noProgressTurns of [undefined, null, 3, 8]) {
+        for (const automaticTurns of [null, 2]) {
+          const original = {
+            toolVisibility: 'always', rpc: { enabled: true }, custom: { preserve: 'owned' },
+            continuationLimits: { automaticTurns, ...(noProgressTurns === undefined ? {} : { noProgressTurns }),
+              minIntervalMs: 300_000, custom: 'keep' },
+          };
+          writeFileSync(configPath, JSON.stringify(original));
+          const first = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
+          assert.equal(first.status, 0, first.stderr);
+          const expected = { ...original, continuationLimits: { ...original.continuationLimits, noProgressTurns: 5 } };
+          assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), expected);
+          const repeated = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
+          assert.equal(repeated.status, 0, repeated.stderr);
+          assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), expected);
+        }
+      }
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
   });
 
   it('REQ-AGENT-129 AC4: preserves malformed Goal config byte-for-byte', () => {
@@ -306,6 +331,9 @@ describe('entrypoint production helpers', () => {
     for (const malformed of [
       '{"toolVisibility":"always",\n',
       '{"toolVisibility":"always","continuationLimits":null}\n',
+      '{"continuationLimits":{"noProgressTurns":"5"}}\n',
+      '{"continuationLimits":{"noProgressTurns":0}}\n',
+      '{"continuationLimits":{"automaticTurns":0}}\n',
     ]) {
       writeFileSync(configPath, malformed);
       const result = runStartupInvocation('configure_pi_goal_defaults', env);
