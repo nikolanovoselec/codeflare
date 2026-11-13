@@ -32,13 +32,13 @@ const REVIEWED_05415 = {
   'src/goal-contract.ts': ['8add9c3b4715b09c79962e1aefe0279a9a83fabf3e4a998cef2fff2bc2f29d15'],
   'src/goal.ts': ['edfc9affd3b7b9492f31fea833a67590a97b51a94a68cf39e95908424cf4db3e', '12c9c560d54c1d455ecb69547454b356d2f3386acbe5c63920668e7f6bc8fbd0'],
   'src/index.ts': ['6ab0c01a44bf7bb78010c9d55713edbacb5a1bfbaa10d558835f906d589b6082'],
-  'src/lifecycle.ts': ['e758af48b13dd7688bbc6adb9a2881f6cc0d7c34b702eb37b894d22d79b10a23', '9c820876c4ef5dc29a0b0eedb99bbbd0e8adf844548e2846eab05f2f46edb0b2', '7088d30264a37c0836a9a3f4bc2a49705ab9c6ff2e94bb009bdec3dac2870b61'],
+  'src/lifecycle.ts': ['e758af48b13dd7688bbc6adb9a2881f6cc0d7c34b702eb37b894d22d79b10a23', '9c820876c4ef5dc29a0b0eedb99bbbd0e8adf844548e2846eab05f2f46edb0b2', '8ccb922618033df613ecb8607262f4bf270292d0b4ff200d7df63d1cd8d08cd8'],
   'src/markers.ts': ['cfd25799640ac51230c7f11740cb7d8dd955d7ef7c461e0d3ca9286a7968d837'],
   'src/menu.ts': ['5a64f4eb6c1bc1d2cc02956df30b3f5eeaf9cedafaf7265704c1c958758fede4'],
   'src/persistence.ts': ['fc4a213f97c9396fcdfa9123266c4095d092e64bdc96f5e45322e471614bd47c', '569a15d883edc43f65caf4e2cc4c2aad35c849f0929366d6c693c0ed0d203306'],
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', '8595c4a6aee3b485504f6c0d0ab51091d669fc6bfd9ff89ba94c251934ef2231', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
-  'src/runtime.ts': ['4dbb2be140a035241265724ebb91401a08417f4d8abed2e58973bf8baa72f706', '3c44ff728961ab627b334a32ce847cfdfefa6125763e9839680df63d2eee1ea0', 'dcf4fd3b588445aa87e2fdd878a1b95a534cb8120cf5b44d5cd485cd9202d0aa'],
+  'src/runtime.ts': ['4dbb2be140a035241265724ebb91401a08417f4d8abed2e58973bf8baa72f706', '3c44ff728961ab627b334a32ce847cfdfefa6125763e9839680df63d2eee1ea0', '86c40489e8c4b0dd8ddf1e04fd7ca02efc9b7056aa11f0173035a8483ef613bb'],
   'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d'],
   'src/settings-ui.ts': ['a0482ed1fb6bf15a00a251ea576419248e9ae81fbae485145ae78a62798127d5'],
   'src/settings.ts': ['0a16915b084ffc1ec69e3884fe29e8ab2edb3675e5d87f8ccff67e386c3bd4b9', 'e2fafa65a07b40a8c7fbd46fcf95c3177ecd16afaa961443dbdd69d312689ba4', 'b849014f307cafca8195ecbaafd95c2c075226542b9c86a4a025214aa06210e3'],
@@ -592,7 +592,9 @@ export function patchPiGoalSettingsSource(source) {
       source,
       SETTINGS_PATCH_MARKER,
       [
-        'minIntervalMs: 0',
+        source.includes(PROGRESS_MARKER)
+          ? 'automaticTurns: null, noProgressTurns: 5, minIntervalMs: 300000'
+          : 'minIntervalMs: 0',
         'normalizeMinIntervalMs(',
         'minIntervalMs: normalized.continuationLimits.minIntervalMs',
       ],
@@ -731,11 +733,15 @@ export function patchPiGoalRuntimeSource(source) {
         ...(usesNativeContinuationScheduler
           ? [
               `private continuationDispatchTimer?: NodeJS.Timeout; // ${RUNTIME_PATCH_MARKER}`,
-              'let remainingMs = this.settings.continuationLimits.minIntervalMs;',
+              source.includes(PROGRESS_MARKER)
+                ? 'let remainingMs = this.progressContinuationDelay();'
+                : 'let remainingMs = this.settings.continuationLimits.minIntervalMs;',
               'const delayMs = Math.min(remainingMs, 2_147_483_647);',
               'this.continuationIntent?.marker !== marker',
               'options: { intervalElapsed?: boolean } = {}',
-              'if (this.settings.continuationLimits.minIntervalMs > 0) {',
+              source.includes(PROGRESS_MARKER)
+                ? 'if (this.progressContinuationDelay() > 0) {'
+                : 'if (this.settings.continuationLimits.minIntervalMs > 0) {',
               'this.clearContinuationDispatchTimer();',
               'return this.scheduleContinuationDispatch(ctx, intent.goalId);',
               'this.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });',
@@ -992,7 +998,7 @@ function patchProgressTools(source) {
 }
 
 function patchProgressRuntime(source) {
-  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['private agentRunProgress?: "advanced" | "stalled";', 'progress: this.agentRunProgress,', 'this.agentRunGoalId !== goal.id || !this.ownsWorkflow(goal)', 'goal.stalledRuns ?? 0) < 5', 'goal.stalledSince + 1500000', 'this.progressContinuationDelay()', 'goal.waiting) this.restoreGoalWaitTimer(ctx)'], 'Goal progress runtime')) return source;
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['private agentRunProgress?: "advanced" | "stalled";', 'progress: this.agentRunProgress,', 'this.agentRunGoalId !== goal.id || !this.ownsWorkflow(goal)', 'goal.stalledRuns ?? 0) < 5', 'goal.stalledSince + 1500000', 'this.progressContinuationDelay()', 'goal.waiting) this.restoreGoalWaitTimer(ctx)', 'beginRecoveryRunIfNeeded(ctx: StatusContext)', 'Date.now() < (this.activeGoal.nextAutomaticAt ?? 0)'], 'Goal progress runtime')) return source;
   let patched = replaceOnce(source, 'import { nextToolFreeRepeatState, resetGoalSafetyEpoch } from "./safety.js";', 'import { resetGoalSafetyEpoch } from "./safety.js";', 'remove output-based progress inference');
   patched = replaceOnce(patched, '\ttoolAttempted: boolean;', '\ttoolAttempted: boolean;\n\tprogress?: "advanced" | "stalled";', 'completed run progress');
   patched = replaceOnce(patched, '\tbeginAgentRun(goalId: string | null | undefined, origin: GoalRunOrigin | undefined) {', `\tprivate agentRunProgress?: "advanced" | "stalled"; // ${PROGRESS_MARKER}
@@ -1000,6 +1006,20 @@ function patchProgressRuntime(source) {
   patched = replaceOnce(patched, '\t\t\ttoolAttempted: this.agentRunToolAttempted,', '\t\t\ttoolAttempted: this.agentRunToolAttempted,\n\t\t\tprogress: this.agentRunProgress,', 'completed run report');
   patched = replaceOnce(patched, '\tclearAgentRun() {', '\tclearAgentRun() {\n\t\tthis.agentRunProgress = undefined;', 'clear run report');
   patched = replaceOnce(patched, '\t\tthis.agentRunGoalId = goalId;', '\t\tthis.agentRunProgress = undefined;\n\t\tthis.agentRunGoalId = goalId;', 'begin run report');
+  patched = replaceOnce(patched, '\tbeginRecoveryRunIfNeeded() {', '\tbeginRecoveryRunIfNeeded(ctx: StatusContext) {', 'recovery pacing context');
+  patched = replaceOnce(patched, '\t\tthis.beginAgentRun(recovery.goalId, recovery.automaticOwner ? "automatic" : "manual");', `\t\tif (recovery.automaticOwner && this.activeGoal.status === "active" && this.ownsWorkflow(this.activeGoal)) {
+\t\t\tif (this.enforceNoProgressLimit(ctx, true)) return;
+\t\t\tif (Date.now() < (this.activeGoal.nextAutomaticAt ?? 0)) {
+\t\t\t\t// Pi retries have no prompt boundary. Defer Goal ownership to the
+\t\t\t\t// existing continuation path instead of spending another attempt now.
+\t\t\t\tthis.clearGoalRecoveryForGoal(recovery.goalId);
+\t\t\t\tthis.requestContinuation(this.activeGoal);
+\t\t\t\tabortCurrentTurn(ctx);
+\t\t\t\tthis.dispatchContinuationIfSettled(ctx);
+\t\t\t\treturn;
+\t\t\t}
+\t\t}
+\t\tthis.beginAgentRun(recovery.goalId, recovery.automaticOwner ? "automatic" : "manual");`, 'paced automatic recovery');
   const progressMethod = patched.match(/\trecordAutomaticRunProgress\([\s\S]*?\n\t\}/g);
   if (progressMethod?.length !== 1) throw new Error('automatic progress method drift');
   patched = replaceOnce(patched, progressMethod[0], `\treportGoalProgress(ctx: StatusContext, goalId: unknown, state: unknown, evidence: unknown) {
@@ -1027,7 +1047,7 @@ function patchProgressRuntime(source) {
 \trecordAutomaticRunProgress(ctx: StatusContext, goalId: string, progress: "advanced" | "stalled" | undefined, automatic: boolean) {
 \t\tconst goal = this.activeGoal;
 \t\tif (goal?.id !== goalId || goal.status !== "active" || !this.ownsWorkflow(goal)) return false;
-\t\tgoal.nextAutomaticAt = Date.now() + ${STALL_INTERVAL_MS};
+\t\tgoal.nextAutomaticAt = Date.now() + Math.max(${STALL_INTERVAL_MS}, this.settings.continuationLimits.minIntervalMs);
 \t\tif (progress !== "advanced") {
 \t\t\tgoal.stalledSince ??= Date.now();
 \t\t\tif (automatic) goal.stalledRuns = Math.min(Number.MAX_SAFE_INTEGER, (goal.stalledRuns ?? 0) + 1);
@@ -1095,7 +1115,7 @@ function patchProgressRuntime(source) {
 }
 
 function patchProgressLifecycle(source) {
-  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['if (run.goalId === undefined) return;', 'runtime.recordAutomaticRunProgress(ctx, goalId, run.progress, run.origin === "automatic")', 'if (runtime.enforceNoProgressLimit(ctx, true)) return;'], 'Goal progress lifecycle')) return source;
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['if (run.goalId === undefined) return;', 'runtime.recordAutomaticRunProgress(ctx, goalId, run.progress, run.origin === "automatic")', 'if (runtime.enforceNoProgressLimit(ctx, true)) return;', 'runtime.beginRecoveryRunIfNeeded(_ctx);'], 'Goal progress lifecycle')) return source;
   let patched = replaceOnce(source, 'import { hasAssistantToolCall } from "./safety.js";\n', '', 'remove attempted-tool progress inference');
   patched = replaceOnce(patched, '\t\tconst run = runtime.finishAgentRun();', `\t\tconst run = runtime.finishAgentRun(); // ${PROGRESS_MARKER}
 \t\tif (run.goalId === undefined) return;`, 'completed owned run fence');
@@ -1110,7 +1130,10 @@ function patchProgressLifecycle(source) {
 
 \t\tif (finalAssistant?.stopReason === "error") {`, 'completed run accounting');
   patched = replaceOnce(patched, '\t\truntime.clearGoalRecoveryForGoal(goalId);\n\n\t\tif (runtime.limitActiveGoalForBudget(ctx, false)) return;', '\t\truntime.clearGoalRecoveryForGoal(goalId);', 'preserve budget precedence');
-  patched = replaceOnce(patched, '\t\truntime.beginAgentRun(runtime.activeGoal.id, runOrigin);', '\t\tif (runtime.enforceNoProgressLimit(ctx, true)) return;\n\t\truntime.beginAgentRun(runtime.activeGoal.id, runOrigin);', 'pre-provider deadline fence');
+  // An exact owned resume prompt commits its promised safety reset first;
+  // stale/unowned prompts still pass through the existing rejection gates.
+  patched = replaceOnce(patched, '\t\treturn goalContractBoundaryResult(ctx, runtime.activeGoal);', '\t\tif (runtime.enforceNoProgressLimit(ctx, true)) return;\n\t\treturn goalContractBoundaryResult(ctx, runtime.activeGoal);', 'pre-provider deadline fence');
+  patched = replaceOnce(patched, '\t\truntime.beginRecoveryRunIfNeeded();', '\t\truntime.beginRecoveryRunIfNeeded(_ctx);', 'recovery pacing lifecycle context');
   for (const callback of ['pi.on("context", (event, ctx) => {', 'pi.on("tool_call", (event, ctx) => {', 'pi.on("tool_execution_end", (_event, ctx) => {']) {
     const anchor = `\t${callback}\n${source.includes('let sessionActive = true;') ? '\t\tif (!sessionActive) return;\n' : ''}`;
     patched = replaceOnce(patched, anchor, `${anchor}\t\tif (runtime.enforceNoProgressLimit(ctx, true)) return;\n`, 'active execution deadline fence');
@@ -1158,7 +1181,9 @@ export function patchPiGoalStatusSource(source) {
 // Pure source preparation is shared with the reviewed artifact-metadata step;
 // it never imports or executes the upstream package.
 export function preparePiGoalSources(originals) {
-  const progress = (source, prepare, transform) => transform(source.includes(PROGRESS_MARKER) ? source : prepare(source));
+  // Retain the parent patch's unchanged security/layout anchors on repeat
+  // preparation too; the progress marker is not a bypass for those checks.
+  const progress = (source, prepare, transform) => transform(prepare(source));
   return {
     commands: patchPiGoalCommandsSource(originals.commands),
     goal: patchPiGoalEntrypointSource(originals.goal),

@@ -681,7 +681,7 @@ const PINNED_RUNTIME_STUBS = {
         export const defineTool = (definition) => definition;
         export const getAgentDir = () => process.cwd();
         export const getMarkdownTheme = () => ({});
-        export const isContextOverflow = () => false;
+        export const isContextOverflow = (message) => message.errorMessage === 'input exceeds the context window';
         export const isRetryableAssistantError = () => false;
         export const runMenu = async () => ({ kind: "cancel" });
         export const stripTerminalSequences = (value) => value;
@@ -849,11 +849,12 @@ async function createStallScenario(t, versions, limits = {}) {
     await harness.dispatch('before_agent_start', { prompt, systemPrompt: '' });
     await harness.dispatch('agent_start');
   };
-  const finish = async (text = 'External result is not available yet.', turns = 1) => {
-    const message = { role: 'assistant', content: [{ type: 'text', text }], stopReason: 'stop' };
+  const finish = async (text = 'External result is not available yet.', turns = 1, errorMessage, settle = true) => {
+    const message = { role: 'assistant', content: [{ type: 'text', text }],
+      stopReason: errorMessage ? 'error' : 'stop', ...(errorMessage ? { errorMessage } : {}) };
     for (let index = 0; index < turns; index++) await harness.dispatch('turn_end', { message, toolResults: [] });
     await harness.dispatch('agent_end', { messages: [message] });
-    await harness.dispatch('agent_settled');
+    if (settle) await harness.dispatch('agent_settled');
   };
   const next = async () => {
     assert.equal(harness.messages.length, 0, 'no continuation arrives early');
@@ -1239,11 +1240,19 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     t.after(() => rmSync(root, { recursive: true, force: true }));
     extractPackage(versions.goalArchive, versions.goalIntegrity, root);
     patchPiGoalDirectory(versions.goal, root);
-    const path = join(root, 'src/persistence.ts');
-    writeFileSync(path, readFileSync(path, 'utf8').replace('stalledRuns?: number;', 'stalledRuns?: string;'));
-    const before = readFixturePackage(root);
-    assert.throws(() => patchPiGoalDirectory(versions.goal, root), /marker|source digest/);
-    assert.deepEqual(readFixturePackage(root), before);
+    for (const [name, anchor, damaged] of [
+      ['persistence', 'stalledRuns?: number;', 'stalledRuns?: string;'],
+      ['runtime', 'if (request.abortTurn !== false) abortCurrentTurn(ctx);', 'abortCurrentTurn(ctx);'],
+    ]) {
+      const path = join(root, 'src', `${name}.ts`);
+      const source = readFileSync(path, 'utf8');
+      assert.ok(source.includes(anchor), 'reviewed integrity-contract anchor exists');
+      writeFileSync(path, source.replace(anchor, damaged));
+      const before = readFixturePackage(root);
+      assert.throws(() => patchPiGoalDirectory(versions.goal, root), /marker|source digest/);
+      assert.deepEqual(readFixturePackage(root), before, 'damaged prepared security anchors reject before any write');
+      writeFileSync(path, source);
+    }
   });
 
   it('REQ-AGENT-111/129/178: fifth paraphrased stalled automatic run blocks, cancels queued work and releases workflow', async t => {
@@ -1320,6 +1329,62 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     }
   });
 
+  for (const errorMessage of ['503 service unavailable', 'input exceeds the context window']) {
+  it(`REQ-AGENT-111/129: automatic recovery is paced and each completed error run counts once (${errorMessage})`, async t => {
+    const s = await createStallScenario(t, versions);
+    let aborted = false;
+    s.harness.ctx.abort = () => { aborted = true; };
+    await s.begin();
+    await s.report('advanced');
+    await s.finish();
+    for (let count = 1; count <= 5; count++) {
+      await s.next();
+      await s.finish('Retryable provider failure', 1, errorMessage, false);
+      assert.equal(s.state().toolFreeRepeatCount, count);
+      assert.equal(s.state().status, count === 5 ? 'blocked' : 'active');
+      if (count === 5) break;
+      aborted = false;
+      await s.harness.dispatch('agent_start'); // Pi retries without before_agent_start.
+      assert.equal(aborted, true, 'early Pi-owned automatic recovery is aborted before provider work');
+      const report = await s.report('advanced');
+      assert.match(report.content[0].text, /rejected/, 'deferred recovery does not own a Goal run');
+      await s.harness.dispatch('agent_end', { messages: [{ role: 'assistant', stopReason: 'aborted' }] });
+      await s.harness.dispatch('agent_end', { messages: [{ role: 'assistant', stopReason: 'error', errorMessage }] });
+      await s.harness.dispatch('agent_settled');
+      assert.equal(s.state().status, 'active');
+      assert.equal(s.state().toolFreeRepeatCount, count, 'aborted recovery and duplicate end do not count again');
+      assert.equal(s.harness.messages.length, 0);
+    }
+    t.mock.timers.tick(3_600_000);
+    await s.harness.dispatch('agent_settled');
+    assert.equal(s.harness.messages.length, 0, 'terminal blocking cancels recovery delivery');
+  });
+  }
+
+  it('REQ-AGENT-130 AC2: full preparation respects a configured interval above five minutes and caps stalls at the deadline', async t => {
+    const s = await createStallScenario(t, versions, { minIntervalMs: 600_000 });
+    await s.begin();
+    await s.report('stalled', 'Required external artifact remains unavailable.');
+    await s.finish();
+    for (let count = 1; count <= 2; count++) {
+      t.mock.timers.tick(599_999);
+      assert.equal(s.harness.messages.length, 0, 'no delivery before the complete configured ten-minute interval');
+      t.mock.timers.tick(1);
+      await s.begin();
+      await s.finish(`External artifact still unavailable at attempt ${count}.`);
+      assert.equal(s.state().toolFreeRepeatCount, count);
+      assert.equal(s.state().status, 'active');
+    }
+    t.mock.timers.tick(299_999);
+    assert.equal(s.state().status, 'active');
+    assert.equal(s.harness.messages.length, 0);
+    t.mock.timers.tick(1);
+    assert.equal(s.state().status, 'blocked', '25-minute deadline caps the next ten-minute interval');
+    assert.equal(s.state().toolFreeRepeatCount, 2, 'deadline does not invent attempts');
+    assert.match(JSON.stringify(s.harness.notifications), /deadline|25.minute/i);
+    assert.equal(s.harness.messages.length, 0);
+  });
+
   it('REQ-AGENT-111/129: backward wall-clock correction cannot shorten persisted automatic spacing', async t => {
     const s = await createStallScenario(t, versions);
     await s.begin();
@@ -1336,7 +1401,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(s.state().status, 'active');
   });
 
-  it('REQ-AGENT-130 AC9: late non-goal notification cannot defer the stalled deadline behind persisted spacing', async t => {
+  it('REQ-AGENT-236 AC3: late non-goal notification cannot defer the stalled deadline behind persisted spacing', async t => {
     const s = await createStallScenario(t, versions);
     await s.begin();
     await s.report('stalled', 'External prerequisite remains pending.');
@@ -1388,10 +1453,16 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       await s.next();
       await s.finish(`Stall before restoration ${index}`);
     }
+    assert.equal(s.state().toolFreeRepeatCount, 3);
+    const stalledSince = s.state().stalledSince;
     await s.harness.dispatch('session_before_compact', {});
     await s.harness.dispatch('session_compact', {});
+    assert.equal(s.state().toolFreeRepeatCount, 3);
+    assert.equal(s.state().stalledSince, stalledSince);
     await s.harness.dispatch('session_shutdown');
     await s.harness.startSession();
+    assert.equal(s.state().toolFreeRepeatCount, 3);
+    assert.equal(s.state().stalledSince, stalledSince);
     // Normal restoration preserves the existing count. Compaction may rearm
     // delivery but cannot introduce an unpaced or extra automatic attempt.
     await s.harness.dispatch('agent_settled');
@@ -1404,7 +1475,11 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     await s.harness.commands.get('goal').handler('resume', s.harness.ctx);
     assert.notEqual(s.state().id, stoppedId);
     await s.begin();
-    await s.report('stalled', 'Explicitly retrying the unresolved external prerequisite.');
+    assert.equal(s.state().status, 'active', 'owned resume resets the old epoch before enforcing its limits');
+    assert.equal(s.state().toolFreeRepeatCount, 0);
+    assert.equal(s.state().stalledSince, undefined);
+    const resumed = await s.report('stalled', 'Explicitly retrying the unresolved external prerequisite.');
+    assert.doesNotMatch(resumed.content[0].text, /rejected/);
     await s.finish();
     for (let index = 0; index < 4; index++) {
       await s.next();
@@ -2193,10 +2268,12 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       'abortCurrentTurn(ctx);',
     );
     writeFileSync(join(root, 'src/runtime.ts'), damagedRuntime);
+    const damaged = readFixturePackage(root, 'lifecycle');
     assert.throws(
       () => patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, root),
       /continuation runtime marker is present but 1 patched anchor\(s\) are missing/,
     );
+    assert.deepEqual(readFixturePackage(root, 'lifecycle'), damaged, 'critical abort-guard drift fails before any write');
   });
 
   it('REQ-AGENT-111: version or source drift fails before any package file is written', () => {
