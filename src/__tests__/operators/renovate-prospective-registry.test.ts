@@ -1125,8 +1125,21 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       let queuedPlan: Awaited<ReturnType<OperatorActivity['getRuntimePlan']>>;
       let queuedAdmission: Awaited<ReturnType<OperatorActivity['getAdmission']>>;
       const sensitiveError = 'private-token=never-log-this; body=private-owner-payload';
-      const warnings = vi.spyOn(console, 'warn');
-      if (fault === 'persistence-unavailable') setLogLevel('warn');
+      const observations: Array<Record<string, unknown>> = [];
+      const observationStatuses: string[] = [];
+      const reservationStatuses: string[] = [];
+      const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const logs = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+        try {
+          const entry = JSON.parse(String(line));
+          if (entry?.message !== 'Prospective Renovate observation') return;
+          const { outcome, stage, candidates, reservationDenied, retainedOtherRegistration,
+            retainedExisting, handoffAttempts } = entry.data;
+          observations.push({ outcome, stage, candidates, reservationDenied,
+            retainedOtherRegistration, retainedExisting, handoffAttempts });
+        } catch { /* Unrelated console output is not admission evidence. */ }
+      });
+      setLogLevel('info');
       environment.CONTAINER = { getByName: () => { throw Error('No user Host may be opened'); },
         idFromName: () => { throw Error('No user Host may be selected'); } } as never;
       environment.LOADER = { get: () => { throw Error('Normal Dispatcher must use its installed App'); } } as never;
@@ -1186,6 +1199,18 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         waitUntil: { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } },
       });
       const owner = new OperatorRegistry(native, environment);
+      const observe = owner.observeProspectiveRenovateRegistration.bind(owner);
+      const observation = vi.spyOn(owner, 'observeProspectiveRenovateRegistration').mockImplementation(async id => {
+        const result = await observe(id);
+        observationStatuses.push(result.status);
+        return result;
+      });
+      const reserve = owner.reserveProspectiveRenovateActivity.bind(owner);
+      const reservation = vi.spyOn(owner, 'reserveProspectiveRenovateActivity').mockImplementation(async input => {
+        const result = await reserve(input);
+        reservationStatuses.push(result.ok ? 'admitted' : result.reason);
+        return result;
+      });
       vi.spyOn(owner, 'resolveManagementExecution').mockResolvedValue({ ok: true, value: selected });
       // Same Registry admission/deployment authority seams used by dispatcher-production.ts.
       vi.spyOn(owner, 'admitManagement').mockImplementation(async input => fault === 'admitting-start'
@@ -1237,7 +1262,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         createdAt = new Date(Date.parse(registration.activatedAt) + 1).toISOString();
         clock.mockReturnValue(Date.now() + 900_000);
         await inRegistry(() => owner.alarm()); await drain();
-        if (!activityId) throw Error('No Activity admitted by alarm');
+        if (!activityId) throw Error(`No Activity admitted by alarm: ${JSON.stringify({
+          observations: observations.slice(-4), observationStatuses: observationStatuses.slice(-16),
+          reservationStatuses: reservationStatuses.slice(-8),
+        })}`);
         if (!delegated && ['admission-unavailable', 'profile-unavailable', 'profile-revoked'].includes(fault)) {
           const ownerKey = await operatorOwnerKey(claims('z@example.test'));
           const code = fault === 'profile-revoked' ? 'authority-denied' : 'platform-evidence-required';
@@ -1365,9 +1393,13 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           .toMatchObject({ human: { email: 'a@example.test' } });
         expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
       } finally {
-        if (fault === 'persistence-unavailable') setLogLevel('silent');
-        await drain(); clock.mockRestore(); globalThis.fetch = identityFetch;
-        routing.mockRestore(); groups.mockRestore(); bucket.mockRestore(); warnings.mockRestore();
+        setLogLevel('silent');
+        try { await drain(); }
+        finally {
+          clock.mockRestore(); globalThis.fetch = identityFetch;
+          routing.mockRestore(); groups.mockRestore(); bucket.mockRestore(); warnings.mockRestore();
+          logs.mockRestore(); observation.mockRestore(); reservation.mockRestore();
+        }
       }
     });
   });
