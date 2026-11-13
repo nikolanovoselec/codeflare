@@ -10,6 +10,7 @@ import { authorizeDispatcherPlan, dispatcherRoutingGroups } from './operator-run
 import { OperatorInferenceSelectionError, resolveOperatorInference } from './inference-selection';
 import { operatorOwnerKey } from './browser-activity';
 import { PiAuthRequiredError, safePiAuthFailure } from './pi-auth-failure';
+import { DispatcherRefusal } from './dispatcher-refusal';
 import { inferenceRequestBytes } from './dispatcher-inference-limits';
 import { installedDispatcherConnection, type OperatorRuntimePlan } from './activity';
 import { openOperatorSecret } from './protected-secrets';
@@ -204,16 +205,29 @@ export async function discoverDispatcherOwnerProfile(input: SendInput): Promise<
     const bytes = await readBoundedResponse(response, 1024 * 1024, 'SDK profile', signal);
     emitRaw(logging, 'owner-response', () => ({ pathname: '/control/profile', status: response.status,
       headers: response.headers, body: new TextDecoder().decode(bytes) }));
-    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
     if (!response.ok) {
-      const failure = safePiAuthFailure(value && typeof value === 'object' ? (value as { authFailure?: unknown }).authFailure : undefined);
-      if (context.source === 'pi-native' && failure) throw new PiAuthRequiredError(failure.provider, failure.reason);
-      throw new Error('Configured owner inference unavailable');
+      await dispatcherSdkOwnerContext(input);
+      // Status is authoritative even when the installed service refuses with plain text.
+      // Only the existing closed JSON auth contract can select Pi login recovery.
+      let failure;
+      try {
+        const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+        failure = safePiAuthFailure(value && typeof value === 'object' ? (value as { authFailure?: unknown }).authFailure : undefined);
+      } catch { /* A refusal need not be JSON; discard parser details from bounded failure metadata. */ }
+      const refusal = context.source === 'pi-native' && failure ? new PiAuthRequiredError(failure.provider, failure.reason)
+        : new DispatcherRefusal([401, 403].includes(response.status) ? 'authority-unverified' : 'upstream-unavailable',
+          'Configured owner inference unavailable');
+      throw Object.assign(refusal, { transportStatus: response.status });
     }
-    const parsed = z.strictObject({ selection: z.discriminatedUnion('source', [
+    let value: unknown;
+    try { value = JSON.parse(new TextDecoder().decode(bytes)); }
+    catch { throw new DispatcherRefusal('request-invalid', 'SDK profile response invalid'); }
+    const result = z.strictObject({ selection: z.discriminatedUnion('source', [
       profile.extend({ source: z.literal('pi-native') }),
       profile.extend({ source: z.literal('managed'), routeId: identity }),
-    ]) }).parse(value).selection;
+    ]) }).safeParse(value);
+    if (!result.success) throw new DispatcherRefusal('request-invalid', 'SDK profile response invalid');
+    const parsed = result.data.selection;
     if (parsed.source !== context.source || parsed.source === 'managed' && (!context.managed || parsed.provider !== 'codeflare-gateway'
         || parsed.model !== context.managed.routeId || parsed.routeId !== context.managed.routeId
         || parsed.reasoningLevel !== context.managed.reasoningLevel)) throw new Error('SDK profile selection changed');
@@ -222,9 +236,9 @@ export async function discoverDispatcherOwnerProfile(input: SendInput): Promise<
     const expectedDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
       new TextEncoder().encode(JSON.stringify(canonical)))), byte => byte.toString(16).padStart(2, '0')).join('');
     if (parsed.profileDigest !== expectedDigest) throw new Error('SDK profile digest changed');
-    const result = parsed as ConfiguredDispatcherInference;
-    await dispatcherSdkOwnerContext(input, result);
-    return result;
+    const selection = parsed as ConfiguredDispatcherInference;
+    await dispatcherSdkOwnerContext(input, selection);
+    return selection;
   } catch (error) {
     emitRaw(logging, 'owner-profile-failure', () => error);
     throw error;

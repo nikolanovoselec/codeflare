@@ -1974,7 +1974,9 @@ export class OperatorActivity extends Agent {
         if (inference.inferencePolicies.every(policy => policy.capabilities.includes('inference'))) {
           const profileInput = { generation, plan, env: this.#appEnv, connection,
             waitUntil: (promise: Promise<unknown>) => this.ctx.waitUntil(promise), current: () => this.operatorGenerationCurrent(generation) };
+          boundary = 'model';
           const selection = await discoverDispatcherOwnerProfile(profileInput);
+          boundary = 'authority';
           if (plan.configuredSelection && !sameDispatcherPhaseValue(plan.configuredSelection, selection)) throw new Error('Normal Dispatcher selection changed');
           lease.configuredSelection = selection;
         }
@@ -2085,9 +2087,12 @@ export class OperatorActivity extends Agent {
       return result;
     } catch (error) {
       const metadata = captureError(error);
-      const family: Boundary = boundary === 'artifact' ? 'artifact' : boundary === 'loader' ? 'construction'
+      const profileRefusal = boundary === 'model' && error instanceof DispatcherRefusal
+        && (error.reason === 'upstream-unavailable' || error.reason === 'request-invalid') ? error : undefined;
+      const family: Boundary = profileRefusal ? 'model' : boundary === 'artifact' ? 'artifact' : boundary === 'loader' ? 'construction'
         : boundary === 'scheduling' ? 'scheduling' : ['admission', 'cursor', 'commit'].includes(boundary) ? 'submission' : 'admission';
-      const code: ReasonCode = error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : family === 'artifact' ? (error instanceof Error && error.message === 'Dispatcher artifact unavailable'
+      const code: ReasonCode = profileRefusal ? (profileRefusal.reason === 'upstream-unavailable' ? 'provider-failed' : 'response-unusable')
+        : error instanceof DispatcherAuthorityUnavailable ? 'platform-evidence-required' : family === 'artifact' ? (error instanceof Error && error.message === 'Dispatcher artifact unavailable'
         ? 'artifact-unavailable' : 'artifact-mismatch') : family === 'construction' ? 'startup-failed'
           : family === 'submission' ? 'submission-failed' : family === 'scheduling' ? 'unclassified' : 'authority-denied';
       // Before a lease commits, fenceDrive initializes the ledger before recording

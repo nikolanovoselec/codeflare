@@ -4734,10 +4734,67 @@ describe('original installed Dispatcher logging-policy read', () => {
 // These synthetic failures do not identify the originating cause of 51978c9f.
 describe('configured-owner pre-lease failure evidence', () => {
   it.each([
+    { status: 502, body: 'Configured owner inference unavailable', code: 'provider-failed', boundary: 'model' },
+    { status: 503, body: 'Configured model service unavailable', code: 'provider-failed', boundary: 'model' },
+    { status: 200, body: 'Malformed successful profile', code: 'response-unusable', boundary: 'model' },
+    { status: 200, body: '{"selection":{}}', code: 'response-unusable', boundary: 'model' },
+    { status: 401, body: 'Unauthorized', code: 'authority-denied', boundary: 'admission' },
+    { status: 403, body: 'Forbidden', code: 'authority-denied', boundary: 'admission' },
+  ] as const)('REQ-OPERATOR-007/047/048: profile HTTP $status ($body) fences before SDK admission as $code', ({ status, body, code, boundary }) => fixture(async f => {
+    await start(f); await f.drainBackground(); f.restart(); await f.drainBackground();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.lease).toBeNull();
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
+    expect(await f.readRemoteComments()).toEqual([]);
+    expect((await diagnosticSummary(f)).fence).toMatchObject({ generation: 1, boundary, code });
+    const history = await diagnosticTraversal(diagnosticsBrowser(f));
+    expect(history.records).toContainEqual(expect.objectContaining({ boundary, outcome: 'failed', code,
+      ...(status >= 400 ? { error: expect.objectContaining({ transportStatus: status }) } : {}) }));
+    expect(history.records.some(record => (record.error as { kind?: string } | undefined)?.kind === 'SyntaxError')).toBe(false);
+    expect(JSON.stringify(history)).not.toContain(body);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { normalHosting: true, repositoryOnly: true, normalProfileTransport: async () => new Response(body, { status }) }));
+
+  it.each([401, 403])('REQ-OPERATOR-047: structured Pi login profile refusal HTTP %s retains its closed native recovery contract', status => {
+    let refuse = false;
+    return fixture(async f => {
+      expect(await start(f)).toMatchObject({ ok: true });
+      const plan = (await f.activity.getRuntimePlan())!;
+      const before = structuredClone(plan.configuredSelection);
+      refuse = true;
+      await expect(discoverDispatcherOwnerProfile({ generation: 1, plan, env: f.environment,
+        current: () => f.activity.operatorGenerationCurrent(1), waitUntil: f.waitUntil })).rejects.toMatchObject({
+        authFailure: { code: 'PI_LOGIN_REQUIRED', provider: 'configured-provider', reason: 'missing' },
+        transportStatus: status,
+      });
+      expect((await f.activity.getRuntimePlan())!.configuredSelection).toEqual(before);
+      expect(await f.readRemoteComments()).toEqual([]);
+    }, { normalHosting: true, repositoryOnly: true, nativeInference: true,
+      normalProfileTransport: async () => refuse ? Response.json({ authFailure: {
+        code: 'PI_LOGIN_REQUIRED', provider: 'configured-provider', reason: 'missing' } }, { status }) : undefined });
+  });
+
+  it('REQ-OPERATOR-007/048: successful JSON profile admission retains selection digest and deployment pins across reconstruction', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const selected = { source: 'managed', provider: 'codeflare-gateway', model: 'approved', api: 'openai-completions', reasoningLevel: 'off' };
+    const expected = { ...selected, routeId: 'approved', profileDigest: await digest(JSON.stringify(selected)) };
+    expect((await f.activity.getRuntimePlan())!.configuredSelection).toEqual(expected);
+    const dispatched = [...f.normalTransport!.admissions.values()];
+    expect(dispatched).toHaveLength(1);
+    expect(JSON.parse(dispatched[0].wire)).toMatchObject({ installationId: 'installation', releaseId: 'release',
+      generation: 1, workerVersionId: normalDeployment.workerVersionId, connectionRevision: 1,
+      initialData: { selection: expected } });
+    f.restart(); await f.drainBackground();
+    expect((await f.activity.getRuntimePlan())!.configuredSelection).toEqual(expected);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(dispatched);
+  }, { normalHosting: true, repositoryOnly: true }));
+
+  it.each([
     { failure: 'status', loggingEnabled: true }, { failure: 'status', loggingEnabled: false },
     { failure: 'forward', loggingEnabled: true }, { failure: 'forward', loggingEnabled: false },
     { failure: 'body-read', loggingEnabled: true }, { failure: 'body-read', loggingEnabled: false },
-  ] as const)('REQ-OPERATOR-007/090/081/082/083: profile $failure with logging=$loggingEnabled retains original evidence before generic admission refusal', ({ failure, loggingEnabled }) => {
+  ] as const)('REQ-OPERATOR-007/090/081/082/083: profile $failure with logging=$loggingEnabled retains original evidence and closed failure classification', ({ failure, loggingEnabled }) => {
     const cause = new Error('PRIVATE_PROFILE_ORIGIN'); cause.stack = 'Error: PRIVATE_PROFILE_ORIGIN\n at profileOrigin (configured.ts:3:1)';
     const original = new TypeError('PRIVATE_PROFILE_FORWARD_FAILURE', { cause });
     original.stack = 'TypeError: PRIVATE_PROFILE_FORWARD_FAILURE\n at profileForward (configured.ts:11:4)';
@@ -4753,16 +4810,19 @@ describe('configured-owner pre-lease failure evidence', () => {
       expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.lease).toBeNull();
       expect(f.normalTransport!.admissions.size).toBe(0); expect(f.childSubmissions).toEqual([]);
       const summary = await diagnosticSummary(f);
-      expect(summary.fence).toMatchObject({ generation: 1, code: 'authority-denied' });
+      expect(summary.fence).toMatchObject({ generation: 1, code: failure === 'status' ? 'provider-failed' : 'authority-denied' });
       if (loggingEnabled) {
         const raw = JSON.stringify(records);
-        if (failure === 'status') { expect(raw).toContain(body); expect(raw).toMatch(/"status":502/); }
+        if (failure === 'status') {
+          expect(raw).toContain(body); expect(raw).toMatch(/"status":502/);
+        }
         else {
           for (const retained of [original.message, cause.message, 'profileOrigin (configured.ts:3:1)', 'profileForward (configured.ts:11:4)'])
             expect(raw).toContain(retained);
         }
         const history = await diagnosticTraversal(diagnosticsBrowser(f));
-        const failures = history.records.filter(record => record.outcome === 'failed' && record.code === 'authority-denied');
+        const failures = history.records.filter(record => record.outcome === 'failed'
+          && record.code === (failure === 'status' ? 'provider-failed' : 'authority-denied'));
         expect(failures).toHaveLength(1);
         if (failure !== 'status') expect(failures[0]).toMatchObject({ error: captureError(original) });
         expect(JSON.stringify(history)).not.toMatch(/PRIVATE_PROFILE_|PROFILE_UPSTREAM_/);
