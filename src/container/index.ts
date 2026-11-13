@@ -126,7 +126,7 @@ const liveScanBounds = (pin: RenovateObservationPin | undefined): pin is Renovat
   && Number.isSafeInteger(pin.repetitionIntervalSeconds) && pin.repetitionIntervalSeconds > 0;
 const boundedScan = (pin: RenovateObservationPin | undefined): pin is RenovateObservationPin => liveScanBounds(pin)
   && pin.repetitionIntervalSeconds <= Math.floor((pin.expiresAt * 1000 - Date.now()) / 1000);
-type ExitEvidence = { owner: string; session: string; generation: number };
+type ExitEvidence = { owner: string; session: string; generation: number; terminationIntentId?: string };
 
 export class container extends Container<Env> implements ContainerEnvState {
   #sdkCredentialQueues = new Map<string, Promise<void>>();
@@ -328,6 +328,38 @@ export class container extends Container<Env> implements ContainerEnvState {
   private pendingExit: ExitEvidence | null = null;
   private static readonly EXIT_OBSERVED_KEY = 'monitoredExitGeneration';
 
+  /** Native Stop proof retains its accepted address/intent after operational cleanup. */
+  private async exitEvidenceIsCurrent(evidence: ExitEvidence,
+    storage: DurableObjectStorage | DurableObjectTransaction = this.ctx.storage): Promise<boolean> {
+    const { owner, session, generation } = evidence;
+    if (await storage.get<number>('lifecycleGeneration') !== generation) return false;
+    const storedOwner = await storage.get<string>('bucketName');
+    const storedSession = await storage.get<string>(SESSION_ID_KEY);
+    if (evidence.terminationIntentId !== undefined) {
+      return this.env.CONTAINER.idFromName(`${owner}-${session}`).toString() === this.ctx.id.toString()
+        && (!storedOwner || storedOwner === owner) && (!storedSession || storedSession === session)
+        && (!this._bucketName || this._bucketName === owner) && (!this._sessionId || this._sessionId === session);
+    }
+    return storedOwner === owner && storedSession === session && this._bucketName === owner && this._sessionId === session;
+  }
+
+  /** Own only finite work after success, not a never-settling provider's lifetime. */
+  private recordNativeStopExit(evidence: ExitEvidence): Promise<void> {
+    const epoch = this._teardownEpoch;
+    const work = (async () => {
+      const persisted = await this.ctx.storage.transaction(async txn => {
+        if (!await this.exitEvidenceIsCurrent(evidence, txn)) return false;
+        await txn.put(container.EXIT_OBSERVED_KEY, evidence);
+        return true;
+      });
+      if (!persisted) return;
+      await this.reconcileObservedExit({ ownerKey: evidence.owner, sessionId: evidence.session,
+        generation: evidence.generation }, () => this._teardownEpoch === epoch, false, 'unknown');
+    })();
+    this.ctx.waitUntil(work);
+    return work;
+  }
+
   private async retryObservedExit(
     reason: 'platform' | 'unknown' = 'unknown',
     onObservation?: (incidentId: string | null) => void,
@@ -346,19 +378,14 @@ export class container extends Container<Env> implements ContainerEnvState {
       if (!persisted) return false;
     }
     const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-    if (!evidence || !this._bucketName || !this._sessionId) return false;
+    if (!evidence) return false;
     const { owner, session, generation } = evidence;
-    if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation
-        || await this.ctx.storage.get<string>('bucketName') !== owner
-        || await this.ctx.storage.get<string>(SESSION_ID_KEY) !== session
-        || owner !== this._bucketName || session !== this._sessionId) {
+    if (!await this.exitEvidenceIsCurrent(evidence)) {
       await this.ctx.storage.transaction(async (txn) => {
         const stored = await txn.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
         if (stored?.generation === generation && stored.owner === owner && stored.session === session
-            && (await txn.get<number>('lifecycleGeneration') !== generation
-              || await txn.get<string>('bucketName') !== owner
-              || await txn.get<string>(SESSION_ID_KEY) !== session
-              || owner !== this._bucketName || session !== this._sessionId)) {
+            && stored.terminationIntentId === evidence.terminationIntentId
+            && !await this.exitEvidenceIsCurrent(evidence, txn)) {
           await txn.delete(container.EXIT_OBSERVED_KEY);
         }
       });
@@ -367,18 +394,25 @@ export class container extends Container<Env> implements ContainerEnvState {
     const matchesExpected = !expected || (expected.ownerKey === owner
       && expected.sessionId === session && expected.generation === generation);
     const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation,
-      matchesExpected ? reason : 'unknown', matchesExpected ? onObservation : undefined);
+      matchesExpected ? reason : 'unknown', matchesExpected ? onObservation : undefined, evidence.terminationIntentId);
+    let superseded = false;
     if (!confirmed) {
       const current = await new D1SessionRepository(this.env.USAGE_DB).getSession(owner, session);
-      if (current?.lifecycleState !== 'stopped' || current.lifecycleGeneration !== generation) return false;
+      if (current?.lifecycleState !== 'stopped' || current.lifecycleGeneration !== generation) {
+        superseded = evidence.terminationIntentId !== undefined && (!current
+          || current.lifecycleGeneration !== generation || current.lifecycleState !== 'stopping'
+          || current.terminationGeneration !== generation || current.terminationIntentId !== evidence.terminationIntentId);
+        if (!superseded) return false;
+      }
     }
     await this.ctx.storage.transaction(async (txn) => {
       const stored = await txn.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-      if (stored?.generation === generation && stored.owner === owner && stored.session === session) {
+      if (stored?.generation === generation && stored.owner === owner && stored.session === session
+          && stored.terminationIntentId === evidence.terminationIntentId) {
         await txn.delete(container.EXIT_OBSERVED_KEY);
       }
     });
-    if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
+    if (superseded || await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
     this.monitoredGeneration = generation;
     return true;
   }
@@ -393,6 +427,14 @@ export class container extends Container<Env> implements ContainerEnvState {
     let incidentId: string | null = null;
     let retry = false;
     try {
+      // A deliberate Stop erased the operational keys used to restore a metrics
+      // pin. Its durable positive evidence is sufficient to address retries.
+      if (!pin) {
+        const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+        if (evidence?.terminationIntentId !== undefined) {
+          pin = { ownerKey: evidence.owner, sessionId: evidence.session, generation: evidence.generation };
+        }
+      }
       if (await this.retryObservedExit(reason ?? 'unknown', observed => { incidentId = observed; }, pin)) return true;
       const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
       retry = reason !== undefined || (!!evidence && evidence.generation === pin?.generation);
@@ -1184,11 +1226,19 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   async collectMetrics(delivered?: MetricsPin): Promise<void> {
+    const epoch = this._teardownEpoch;
+    const runtime = this.ctx.container;
+    // Exit-only retries cannot require an operational identity or runtime: Stop
+    // deliberately cleared them before dispatching native destruction.
+    const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+    if (this._teardownEpoch !== epoch || this.ctx.container !== runtime) return;
+    if (evidence?.terminationIntentId !== undefined && (!delivered || (delivered.ownerKey === evidence.owner
+        && delivered.sessionId === evidence.session && delivered.generation === evidence.generation))) {
+      if (await this.reconcileObservedExit(delivered, () => this._teardownEpoch === epoch, true)) return;
+    }
     // Capture generation, native runtime and local teardown epoch before any
     // asynchronous monitor/host observation. A scheduled payload can only join
     // that exact assignment, never the latest generation returned by D1.
-    const epoch = this._teardownEpoch;
-    const runtime = this.ctx.container;
     const execution = await captureMetricsExecution(this.ctx, delivered,
       () => this._teardownEpoch === epoch && this.ctx.container === runtime);
     if (!execution || !execution.isCurrent()) return;
@@ -1218,12 +1268,12 @@ export class container extends Container<Env> implements ContainerEnvState {
     await this.destroyWithContext();
   }
 
-  private async destroyWithContext(context?: LifecycleLogContext): Promise<void> {
+  private async destroyWithContext(context?: LifecycleLogContext, onNativeExit?: () => Promise<void>): Promise<void> {
     if (this.sessionKillInFlight) {
       await this.sessionKillInFlight.completion;
       return;
     }
-    await lifecycleDestroy(this.lifecycleHost, context);
+    await lifecycleDestroy(this.lifecycleHost, context, onNativeExit);
   }
 
   /** Own claim through confirmation even if the invoking Worker disconnects. */
@@ -1247,7 +1297,10 @@ export class container extends Container<Env> implements ContainerEnvState {
       lifecycleStopSession(this.env, input, owned => {
         if (this._teardownEpoch !== epoch) throw new Error('Session stop superseded');
         return this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
-          incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user' });
+          incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user' }, () => this.recordNativeStopExit({
+            owner: input.bucket, session: input.sessionId, generation: input.generation,
+            terminationIntentId: owned.terminationIntentId!,
+          }));
       })
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;

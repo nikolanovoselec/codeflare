@@ -104,6 +104,21 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 1 });
   });
 
+  it('REQ-SESSION-018/040: durable native exit cannot borrow a replacement Stop intent', async () => {
+    await createSession();
+    const repository = new D1SessionRepository(db);
+    await repository.start('owner-a', 'session01', '2027-01-01T00:00:01.000Z');
+    await repository.claimStop('owner-a', 'session01', 'current-intent', '2027-01-01T00:00:02.000Z', 1);
+    const before = await repository.getSession('owner-a', 'session01');
+    const ctx = { storage: { transaction: async () => {} } } as unknown as DurableObjectState;
+    expect(await confirmMonitoredExit(ctx, { USAGE_DB: db } as never, 'owner-a', 'session01', 1,
+      'unknown', undefined, 'old-intent')).toBe(false);
+    expect(await repository.getSession('owner-a', 'session01')).toEqual(before);
+    expect(await confirmMonitoredExit(ctx, { USAGE_DB: db } as never, 'owner-a', 'session01', 1,
+      'unknown', undefined, 'current-intent')).toBe(true);
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 1 });
+  });
+
   it('REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed', async () => {
     const repository = new D1SessionRepository(db);
     for (const [owner, sessionId] of [

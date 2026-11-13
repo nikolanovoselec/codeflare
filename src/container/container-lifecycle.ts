@@ -506,7 +506,8 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
  * identifiers are cleared first so any onStop() racing the exit cannot
  * resurrect the KV entry (REQ-SESSION-009).
  */
-export async function destroy(host: LifecycleHost, context?: LifecycleLogContext): Promise<void> {
+export async function destroy(host: LifecycleHost, context?: LifecycleLogContext,
+  onNativeExit?: () => Promise<void>): Promise<void> {
   const diagnostic: LifecycleLogContext = context ? { ...context } : {
     sessionId: host._sessionId, lifecycleGeneration: host._observedLifecycleGeneration ?? null, incidentId: null, reason: 'unknown',
   };
@@ -673,7 +674,12 @@ export async function destroy(host: LifecycleHost, context?: LifecycleLogContext
   // when it does not, observe the promise in the background so a later provider
   // rejection is handled, then reject the teardown as unconfirmed.
   assertCurrent();
-  const superDestroyPromise = host.superDestroy();
+  // Positive completion remains useful after the caller's shared deadline.
+  // The Stop owner durably records it before using existing reconciliation;
+  // neither the deadline nor a native rejection is exit evidence.
+  const superDestroyPromise = host.superDestroy().then(async () => {
+    if (Date.now() - start >= hardKillMs) await onNativeExit?.();
+  });
   const remaining = hardKillMs - (Date.now() - start);
   if (remaining <= 0) {
     void superDestroyPromise.catch(() => {
@@ -705,10 +711,13 @@ export async function confirmMonitoredExit(
   generation: number,
   reason: 'platform' | 'unknown' = 'unknown',
   onObservation?: (incidentId: string | null) => void,
+  expectedIntentId?: string,
 ): Promise<boolean> {
   const repository = new D1SessionRepository(env.USAGE_DB);
   const current = await repository.getSession(ownerKey, sessionId);
   if (!current || current.lifecycleGeneration !== generation || current.lifecycleState === 'stopped') return false;
+  if (expectedIntentId !== undefined && (current.lifecycleState !== 'stopping'
+      || current.terminationGeneration !== generation || current.terminationIntentId !== expectedIntentId)) return false;
   onObservation?.(current.unreachableIncidentId ?? null);
   const intentId = current.lifecycleState === 'stopping'
     ? current.terminationIntentId

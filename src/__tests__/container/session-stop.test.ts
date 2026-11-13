@@ -5,9 +5,16 @@ import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { D1SessionRepository } from '../../lib/session-repository';
 
 const nativeDestroyByContext = vi.hoisted(() => new WeakMap<object, () => Promise<void>>());
+const schedulesByContext = vi.hoisted(() => new WeakMap<object, Map<string, unknown>>());
+const scheduleFailureByContext = vi.hoisted(() => new WeakMap<object, () => boolean>());
 vi.mock('@cloudflare/containers', () => ({
   Container: class {
     constructor(public ctx: object, public env: unknown) {}
+    deleteSchedules(method: string) { schedulesByContext.get(this.ctx)?.delete(method); }
+    async schedule(_delay: number, method: string, payload: unknown) {
+      if (scheduleFailureByContext.get(this.ctx)?.()) throw Error('exit reconciliation alarm unavailable');
+      schedulesByContext.get(this.ctx)?.set(method, payload);
+    }
     async destroy() {
       const destroy = nativeDestroyByContext.get(this.ctx);
       if (!destroy) throw Error('Missing simulated native destruction');
@@ -75,25 +82,34 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
   let teardownGate: ReturnType<typeof deferred> | undefined;
   let teardownEntered = deferred();
   const protectedWork = new Set<Promise<unknown>>();
+  const workFailures: unknown[] = [];
+  const storage = new Map<string, unknown>([['lifecycleGeneration', ref.generation]]);
+  const schedules = new Map<string, unknown>();
+  let scheduleUnavailable = false;
+  let nativeForbidden = false;
   async function coordinator() {
-    const storage = new Map<string, unknown>(); // operational identity is deliberately absent
+    // Lifecycle proof survives reconstruction; operational identity remains absent.
     let ready: Promise<unknown> = Promise.resolve();
     const ctx = {
       id: { toString: () => `${ref.bucket}-${ref.sessionId}` },
       blockConcurrencyWhile: (fn: () => Promise<unknown>) => { ready = fn(); },
       waitUntil: (task: Promise<unknown>) => {
         protectedWork.add(task);
-        void task.finally(() => protectedWork.delete(task)).catch(() => {});
+        void task.finally(() => protectedWork.delete(task)).catch(error => { workFailures.push(error); });
       },
       storage: {
         get: async (key: string) => storage.get(key),
-        put: async (key: string, value: unknown) => { storage.set(key, value); },
+        put: async (key: string, value: unknown) => { if (key === 'finalSyncAudit') await pause('audit'); storage.set(key, value); },
         delete: async (key: string | string[]) => typeof key === 'string'
           ? storage.delete(key)
           : key.reduce((count, name) => count + Number(storage.delete(name)), 0),
       },
     };
+    Object.assign(ctx.storage, { transaction: async (work: (txn: typeof ctx.storage) => Promise<unknown>) => work(ctx.storage) });
+    schedulesByContext.set(ctx, schedules);
+    scheduleFailureByContext.set(ctx, () => scheduleUnavailable);
     nativeDestroyByContext.set(ctx, async () => {
+      if (nativeForbidden) throw Error('native destruction must not be repeated');
       if (draining) throw Error('duplicate concurrent teardown');
       draining = true;
       teardownEntered.resolve();
@@ -104,9 +120,18 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
     });
     const instance = new SessionContainer(ctx as unknown as DurableObjectState<Env>, env);
     await ready;
-    return instance as unknown as { stopSession(input: StopRef): Promise<void> };
+    return instance as unknown as { stopSession(input: StopRef): Promise<void>; collectMetrics(pin?: StopRef): Promise<void> };
   }
-  return { env, kv, key, repository, coordinator,
+  return { env, kv, key, repository, coordinator, workFailures,
+    forbidNative: () => { nativeForbidden = true; },
+    failSchedule: (fail: boolean) => { scheduleUnavailable = fail; },
+    reconcile: async (instance: Awaited<ReturnType<typeof coordinator>>) => {
+      const payload = schedules.get('collectMetrics');
+      if (!payload) throw Error('no exit reconciliation scheduled');
+      schedules.delete('collectMetrics');
+      await instance.collectMetrics(payload as StopRef);
+    },
+    settleWork: async () => { while (protectedWork.size) await Promise.allSettled([...protectedWork]); },
     read: () => repository.getSession(ref.bucket, ref.sessionId),
     running: () => running,
     holdTeardown: () => { teardownGate = deferred(); teardownEntered = deferred(); return teardownGate; },
@@ -289,5 +314,138 @@ describe('REQ-SESSION-035: caller-independent Stop and manual recovery', () => {
     await expect((await f.coordinator()).stopSession(ref)).rejects.toThrow();
     expect(f.running()).toBe(true);
     expect(await f.read()).toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'pending-activity' });
+  });
+});
+
+// Conditional contract: REQ-SESSION-011 AC5, 018 AC4/7, 026 AC1/2,
+// 035 AC2/4 and 042 AC1/3. Only the already-dispatched native operation's
+// positive completion may release its captured Stop intent after the deadline.
+describe('ordinary Stop late native exit confirmation', () => {
+  async function lateStop(stage: 'provider' | 'audit' = 'provider') {
+    const f = await fixture();
+    const instance = await f.coordinator();
+    const native = f.holdTeardown();
+    const audit = stage === 'audit' ? f.holdIO('audit') : undefined;
+    const result = instance.stopSession(ref).then(() => 'resolved', (error: Error) => error.message);
+    if (audit) await audit.entered;
+    else await f.enteredTeardown();
+    f.disconnect();
+    await vi.advanceTimersByTimeAsync(135_000);
+    expect(await result).toBe('teardown deadline exceeded');
+    await f.enteredTeardown();
+    audit?.resolve();
+    expect(f.running()).toBe(true);
+    expect(await f.read()).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 7 });
+    return { f, instance, native };
+  }
+
+  it.each(['provider', 'audit'] as const)('confirms only positive late native success after the shared deadline is exhausted at %s', async stage => {
+    vi.useFakeTimers();
+    try {
+      const { f, native } = await lateStop(stage);
+      native.resolve();
+      await f.settleWork();
+      await vi.advanceTimersByTimeAsync(0);
+      await f.settleWork();
+      expect(f.running()).toBe(false);
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7, terminationIntentId: undefined });
+      expect(await f.repository.start(ref.bucket, ref.sessionId, new Date().toISOString()))
+        .toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 8 });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('retains stopping without positive native completion and after a late native failure', async () => {
+    vi.useFakeTimers();
+    try {
+      const { f, native } = await lateStop();
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 7 });
+      native.reject(Error('native destruction failed'));
+      await vi.advanceTimersByTimeAsync(0);
+      await f.settleWork();
+      expect(f.running()).toBe(true);
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 7 });
+      expect(await f.repository.start(ref.bucket, ref.sessionId, new Date().toISOString())).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['alarm', 'reconstruction'] as const)('reuses durable positive exit after a D1 outage via %s without another native attempt', async recovery => {
+    vi.useFakeTimers();
+    try {
+      const { f, native, instance } = await lateStop();
+      f.failConfirmation(true);
+      native.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      await f.settleWork();
+      expect(f.running()).toBe(false);
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 7 });
+      f.failConfirmation(false);
+      f.forbidNative();
+      if (recovery === 'alarm') await f.reconcile(instance);
+      else await f.coordinator();
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('retains positive exit and propagates terminal alarm failure for reconstruction recovery', async () => {
+    vi.useFakeTimers();
+    try {
+      const { f, native } = await lateStop();
+      f.failConfirmation(true);
+      f.failSchedule(true);
+      native.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      await f.settleWork();
+      expect(f.workFailures.some(error => error instanceof Error && error.message === 'exit reconciliation alarm unavailable')).toBe(true);
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopping', lifecycleGeneration: 7 });
+      f.failSchedule(false);
+      f.failConfirmation(false);
+      f.forbidNative();
+      await f.coordinator();
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['generation', 'intent', 'other-owner'] as const)('does not release replacement %s authority from late native success', async replacement => {
+    vi.useFakeTimers();
+    try {
+      const { f, native } = await lateStop();
+      const otherKey = `session:other-owner:${ref.sessionId}`;
+      f.kv._set(otherKey, { id: ref.sessionId, status: 'stopping', lifecycleGeneration: 7,
+        terminationIntentId: 'other-intent', terminationGeneration: 7 });
+      if (replacement !== 'other-owner') {
+        f.kv._set(f.key, { id: ref.sessionId, status: replacement === 'generation' ? 'running' : 'stopping',
+          lifecycleGeneration: replacement === 'generation' ? 8 : 7,
+          ...(replacement === 'intent' ? { terminationIntentId: 'replacement-intent', terminationGeneration: 7 } : {}) });
+      }
+      const before = await f.read();
+      const otherBefore = await f.repository.getSession('other-owner', ref.sessionId);
+      native.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      await f.settleWork();
+      if (replacement !== 'other-owner') expect(await f.read()).toEqual(before);
+      else expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });
+      expect(await f.repository.getSession('other-owner', ref.sessionId)).toEqual(otherBefore);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('keeps positive exit pending until Protected Action cancellation is confirmed', async () => {
+    vi.useFakeTimers();
+    try {
+      const { f, native, instance } = await lateStop();
+      const retained = await f.kv.get(f.key, 'json') as Record<string, unknown>;
+      f.kv._set(f.key, { ...retained, boundaryActivityId: 'pending-activity' });
+      native.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      await f.settleWork();
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopping', boundaryActivityId: 'pending-activity' });
+      f.env.OPERATOR_ACTIVITY = { getByName: () => ({
+        getBoundaryStartBinding: async () => ({ session: ref }),
+        cancelBoundaryStart: async () => ({ ok: true }),
+      }) } as unknown as Env['OPERATOR_ACTIVITY'];
+      f.forbidNative();
+      await f.reconcile(instance);
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', boundaryActivityId: undefined });
+    } finally { vi.useRealTimers(); }
   });
 });

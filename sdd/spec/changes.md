@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-13
+
+- Reconcile positive late native Stop completion through the existing durable exit ledger, retaining captured owner/generation/intent and the original 135-second caller deadline. No extra destruction attempt, age-only status repair or new scheduler is introduced ([REQ-SESSION-035](session-lifecycle.md#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced)).
+
 ## 2026-11-11
 
 - Separate Installed manual actions from automatic configuration, add profile-backed Dispatcher/Conductor role help and expose the existing explicit current-session activation flow. Saved settings remain distinct from acknowledgement, which does not confirm displayed settings; automatic activation uses verified package support, not display names, while authority, expiry and no-replay boundaries remain unchanged ([REQ-OPERATOR-099](operators.md#req-operator-099-installed-review-invocation-and-presentation), [REQ-OPERATOR-209](operators.md#req-operator-209-installed-schema-and-scheduling-safeguards), [REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)).
