@@ -131,7 +131,7 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
       schedules.delete('collectMetrics');
       await instance.collectMetrics(payload as StopRef);
     },
-    settleWork: async () => { while (protectedWork.size) await Promise.allSettled([...protectedWork]); },
+    settleWork: async () => { while (protectedWork.size) await Promise.allSettled(protectedWork); },
     read: () => repository.getSession(ref.bucket, ref.sessionId),
     running: () => running,
     holdTeardown: () => { teardownGate = deferred(); teardownEntered = deferred(); return teardownGate; },
