@@ -3938,9 +3938,9 @@ COPILOT_BYOK_EOF
     # worst case was amazon-bedrock, which Pi treated as authenticated from the
     # container's AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY R2 keys and SigV4-signed to
     # Bedrock; those AWS_* vars are no longer emitted in any mode — REQ-ENTERPRISE-005
-    # AC6.) Owner authentication is preserved independently of native permission;
-    # the managed pin remains required unless permitted native startup is selected.
-    # Pinning defaultProvider+defaultModel makes Pi gateway-bound on launch, zero-touch.
+    # AC6 — and auth.json is cleared to {} so no built-in provider stays authed, but
+    # the pin is still required so launch binds to the gateway route.) Pinning
+    # defaultProvider+defaultModel makes Pi gateway-bound on launch, zero-touch.
     # The handles are slash-free (Pi parses a slash as provider/model); the real
     # gateway route is mapped by the Worker interceptor from the slash-free handle.
     PI_GATEWAY_BASE_URL="https://api.openai.com/v1"
@@ -4125,16 +4125,16 @@ COPILOT_BYOK_EOF
         echo "[entrypoint] WARNING: malformed enterprise model catalog; managed Pi routes unavailable"
     fi
 
-    # Owner auth.json is persistent user data, not a permission switch. Preserve its
-    # bytes even when native permission is disabled, missing or malformed; deleting
-    # it here can also propagate credential loss through home-directory sync.
-    # Authenticated providers may remain visible in Pi. Current backend permission
-    # and owner/session/network guards authorize requests, never picker presence.
-    # Operator startup remains isolated and never inherits human authentication.
+    # Routes-only model picker: clear ~/.pi/agent/auth.json so NO built-in provider is
+    # authenticated. Pi only lists a provider in /model when it has auth; codeflare-gateway
+    # authenticates via the models.json apiKey placeholder (NOT auth.json), so emptying
+    # auth.json leaves the dynamic routes as the only selectable models. Authoritative on
+    # every enterprise start so a restored/synced home dir cannot reintroduce a built-in
+    # provider's stored token (e.g. the seeded openai-codex entry).
     ENTERPRISE_PI_PERSONAL_PROVIDERS="${ENTERPRISE_PI_PERSONAL_PROVIDERS:-false}"
-    if [ "${CODEFLARE_OPERATOR_SESSION:-}" != "true" ]; then
+    if [ "$ENTERPRISE_PI_PERSONAL_PROVIDERS" = "true" ] && [ "${CODEFLARE_OPERATOR_SESSION:-}" != "true" ]; then
         [ ! -f "$USER_HOME/.pi/agent/auth.json" ] || chmod 0600 "$USER_HOME/.pi/agent/auth.json"
-        echo "[entrypoint] Enterprise Mode: owner Pi authentication retained; native access requires current permission"
+        echo "[entrypoint] Enterprise Mode: native Pi authentication retained under group policy"
     else
         echo '{}' > "$USER_HOME/.pi/agent/auth.json"
         chmod 0600 "$USER_HOME/.pi/agent/auth.json"

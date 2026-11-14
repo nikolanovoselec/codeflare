@@ -4,10 +4,6 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
-## 2026-11-14
-
-- Preserve ordinary owners' Pi authentication byte-for-byte across native-provider permission toggles instead of syncing an emptied credential file to R2. Managed startup defaults, isolated Operator authentication and current request authorization remain unchanged; previously deleted credentials still require the owner's normal login ([REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-089](models-and-routing.md#req-enterprise-089-human-native-pi-startup)).
-
 ## 2026-11-13
 
 - Retain complete admin-enabled parent and public Flue/SDK evidence without raw-value redaction in existing private Durable Object storage. Authenticated SDK uploads require independent byte reconstruction before completion acknowledgement; console projections remain separate, with original execution, byte limits and cancellation preserved ([REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).

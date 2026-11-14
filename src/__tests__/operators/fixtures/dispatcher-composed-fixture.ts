@@ -1190,7 +1190,7 @@ export class OperatorActivity extends ProductionActivity {
     // Failure-only CI evidence from the existing private archive, not a second runtime probe.
     // Never export arbitrary exception text, payloads, credentials or capture locators.
     const rawFailures: Array<{ name: string; classification: string }> = [];
-    if (detail.executionStatus === 'unknown' && !external.inference.length
+    if (detail?.executionStatus === 'unknown' && !external.inference.length
       && retained.some(row => row.stage === 'inference-attempt' && row.failureClass === 'body-read')) {
       const state = await this.ctx.storage.get<{ ownerKey?: string; intent: { activityId: string };
         drive?: { generation: number } }>('admission');

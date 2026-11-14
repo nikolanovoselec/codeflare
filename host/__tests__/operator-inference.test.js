@@ -32,6 +32,8 @@ async function privateRetentionFixture(t, options = {}) {
     loggingEnabled: true,
   };
   const parentOrigin = await listen(t, async (req, res) => {
+    // Decode incrementally: HTTP chunks may split a retained Unicode code point.
+    req.setEncoding('utf8');
     let raw = ''; for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
     if (req.url === '/v1/dispatcher/owner-raw') {

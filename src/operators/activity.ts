@@ -53,8 +53,8 @@ import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { inferenceDiagnostic, inferenceResponseObservation, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
-import { inferenceArchiveCapability } from '../lib/inference-archive-capability';
-import { emitRaw } from '../../host/src/operator-raw-logging';
+import { inferenceArchiveCapability, type InferenceArchiveBinding, type InferenceArchiveFactory } from '../lib/inference-archive-capability';
+import { emitRaw, captureRawValue } from '../../host/src/operator-raw-logging';
 import { canInvokeOperator, operatorAccessSessionCurrent, requireOperatorHumanContext, resolveOperatorGroupIdentity, resolveBucketName } from '../lib/access';
 import { D1SessionRepository } from '../lib/session-repository';
 import { parsePublishableAssessment, renovateGithub } from './renovate-publication';
@@ -2399,38 +2399,67 @@ export class OperatorActivity extends Agent {
     return capture.finish('complete');
   }
 
+  async #inferenceArchive(context: InferenceDiagnosticContext | undefined, plan: OperatorRuntimePlan) {
+    if (!context?.privateArchive || context.loggingEnabled === false) return undefined;
+    const exports = (this.ctx as unknown as { exports: { OperatorDispatcherCapability: InferenceArchiveFactory } }).exports;
+    return inferenceArchiveCapability(context, { ownerKey: await operatorOwnerKey(plan.executionContext.owner),
+      receiptDigest: await sha256(JSON.stringify(plan.receipt)) }, options => exports.OperatorDispatcherCapability(options));
+  }
+
   /** Existing Root emitters retain their full snapshot before any console projection. */
   #captureTrace<T extends InferenceDiagnosticContext>(context: T): T {
     return { ...context, privateArchive: (stage: string, value: unknown) => {
       if (context.loggingEnabled === false) return;
-      const work = (async () => {
-        const state = await this.ctx.storage.get<AdmissionState>('admission');
-        if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
-          || !executionLoggingEnabled(state.receipt) || state.intent.activityId !== context.activityId) return;
-        const owner = state.executionContext.owner;
-        const ownerKey = await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] });
-        const { installation, release } = state.receipt.selection;
-        const capture = createRawCapture({ enabled: true,
-          binding: { ownerKey, installationId: installation.id, releaseId: release.id, captureId: crypto.randomUUID(),
-            scope: { kind: 'activity', activityId: context.activityId, generation: context.generation } },
-          storage: () => createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, async () => {
-            const current = await this.ctx.storage.get<AdmissionState>('admission');
-            if (!current?.executionContext || !current.receipt || current.intent.activityId !== context.activityId
-              || current.receipt.intentDigest !== state.receipt!.intentDigest
-              || current.executionContext.artifactDigest !== state.executionContext!.artifactDigest
-              || !sameDispatcherPhaseValue(current.executionContext.owner, owner)) throw new Error('Raw capture unavailable');
-          }), schedule: pending => this.ctx.waitUntil(pending) });
-        capture.record(stage, () => value);
-        const receipt = await capture.finish('complete');
-        try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-receipt', data: receipt })); }
-        catch { /* Private retention does not depend on console availability. */ }
-      })().catch(() => {
+      const work = this.#retainRawObservation(context, stage, value).catch(() => {
         try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-incomplete',
           data: { activityId: context.activityId, generation: context.generation, status: 'incomplete' } })); }
         catch { /* No capture failure can replace execution. */ }
       });
       this.ctx.waitUntil(work);
     } };
+  }
+
+  async #retainRawObservation(context: InferenceDiagnosticContext, stage: string, value: unknown,
+    authorize?: () => Promise<void>) {
+    await authorize?.();
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+      || !executionLoggingEnabled(state.receipt) || state.intent.activityId !== context.activityId) return;
+    const owner = state.executionContext.owner;
+    const ownerKey = await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] });
+    const { installation, release } = state.receipt.selection;
+    const capture = createRawCapture({ enabled: true,
+      binding: { ownerKey, installationId: installation.id, releaseId: release.id, captureId: crypto.randomUUID(),
+        scope: { kind: 'activity', activityId: context.activityId, generation: context.generation } },
+      storage: () => createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, async () => {
+        await authorize?.();
+        const current = await this.ctx.storage.get<AdmissionState>('admission');
+        if (!current?.executionContext || !current.receipt || current.intent.activityId !== context.activityId
+          || current.receipt.intentDigest !== state.receipt!.intentDigest
+          || current.executionContext.artifactDigest !== state.executionContext!.artifactDigest
+          || !sameDispatcherPhaseValue(current.executionContext.owner, owner)) throw new Error('Raw capture unavailable');
+      }), schedule: pending => this.ctx.waitUntil(pending) });
+    capture.record(stage, () => value);
+    const receipt = await capture.finish('complete');
+    try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-receipt', data: receipt })); }
+    catch { /* Private retention does not depend on console availability. */ }
+    return receipt;
+  }
+
+  /** Write-only Root binding; original logging identity never grants execution or renewal. */
+  async retainDispatcherInferenceObservation(input: InferenceArchiveBinding, stage: string, value: unknown): Promise<void> {
+    if (typeof stage !== 'string' || !stage) throw new Error('Raw capture unavailable');
+    const binding = z.strictObject({ activityId: syncIdentity, generation: z.number().int().positive().safe(),
+      ownerKey: syncDigest, receiptDigest: syncDigest }).parse(input);
+    const authorize = async () => {
+      const state = await this.ctx.storage.get<AdmissionState>('admission');
+      if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+        || state.intent.activityId !== binding.activityId || state.ownerKey !== binding.ownerKey
+        || state.drive?.generation !== binding.generation || !executionLoggingEnabled(state.receipt)
+        || await sha256(JSON.stringify(state.receipt)) !== binding.receiptDigest) throw new Error('Raw capture unavailable');
+    };
+    const receipt = await this.#retainRawObservation(binding, stage, captureRawValue(value), authorize);
+    if (receipt?.status !== 'complete') throw new Error('Raw capture unavailable');
   }
 
   /** Original immutable logging proof, never SDK recovery or execution authority. */
@@ -4480,7 +4509,7 @@ export class OperatorActivity extends Agent {
           catch (error) { if (error instanceof PiAuthRequiredError) await this.#nativeLoginStop(generation, error.authFailure); throw error; }
         };
       } else perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation, effectContext, diagnosticContext: trace,
-        privateArchiveSink: inferenceArchiveCapability(trace),
+        privateArchiveSink: await this.#inferenceArchive(trace, plan),
         ...(phaseLease?.serial ? { phase: { repository: JSON.parse(plan.invocationJson).repository,
           value: phaseLease.serial.current.phase } } : {}),
         current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope),
@@ -4762,7 +4791,7 @@ export class OperatorActivity extends Agent {
           || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) throw new Error('Dispatcher inference authority expired');
         return createDispatcherOperation({ plan, env: this.#appEnv, operation: { ...operation, signal: controller.signal },
           current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken), diagnosticContext: attemptTrace,
-          privateArchiveSink: inferenceArchiveCapability(attemptTrace),
+          privateArchiveSink: await this.#inferenceArchive(attemptTrace, plan),
           exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports,
           pinInferenceSelection: !pin ? undefined : async selection => this.ctx.storage.transaction(async tx => {
             await live(tx);
@@ -6206,12 +6235,22 @@ export class OperatorInstalledDispatcherCapability extends WorkerEntrypoint<AppE
 
 /** REQ-OPERATOR-048: the child receives this fetcher, never an Activity stub or namespace. */
 export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
-  #binding() {
-    const props = this.ctx.props as { activityId?: unknown; generation?: unknown };
-    if (!props || typeof props.activityId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(props.activityId)
+  #binding(rawOnly = false) {
+    const props = this.ctx.props as { activityId?: unknown; generation?: unknown; rawOnly?: unknown;
+      ownerKey?: unknown; receiptDigest?: unknown };
+    if (!props || (props.rawOnly !== undefined && typeof props.rawOnly !== 'boolean') || (props.rawOnly === true) !== rawOnly
+      || typeof props.activityId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(props.activityId)
       || typeof props.generation !== 'number' || !Number.isSafeInteger(props.generation) || props.generation < 1
       || !this.env.OPERATOR_ACTIVITY) throw new Error('Dispatcher binding unavailable');
-    return { activity: this.env.OPERATOR_ACTIVITY.getByName(props.activityId), generation: props.generation };
+    const archive = rawOnly ? { activityId: props.activityId, generation: props.generation,
+      ownerKey: syncDigest.parse(props.ownerKey), receiptDigest: syncDigest.parse(props.receiptDigest) } : undefined;
+    return { activity: this.env.OPERATOR_ACTIVITY.getByName(props.activityId), generation: props.generation, archive };
+  }
+
+  async record(stage: string, value: unknown): Promise<void> {
+    const { activity, archive } = this.#binding(true);
+    if (!archive) throw new Error('Raw capture unavailable');
+    await activity.retainDispatcherInferenceObservation(archive, stage, value);
   }
 
   override async fetch(request: Request): Promise<Response> {

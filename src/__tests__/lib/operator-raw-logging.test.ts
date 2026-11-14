@@ -47,7 +47,8 @@ it('REQ-OPERATOR-090: private interceptor observations reach their original owne
   const local = { ...admitted,
     privateArchive: (stage: string, value: unknown) => { retained.push({ stage, value }); },
   };
-  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire(local, inferenceArchiveCapability(local)),
+  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire(local, inferenceArchiveCapability(local,
+    { ownerKey: 'a'.repeat(64), receiptDigest: 'b'.repeat(64) }, () => ({ record: local.privateArchive }))),
     work => { pending.push(work); });
   const source = { password: 'SYNTHETIC_INTERCEPTOR_SECRET', body: '漢🦊'.repeat(70_000),
     error: new Error('SYNTHETIC_INTERCEPTOR_FAILURE', { cause: new Error('SYNTHETIC_ORIGINAL_CAUSE') }) };
@@ -67,7 +68,8 @@ it('REQ-OPERATOR-090: original OFF never delivers an interceptor private observa
   const local = { ...admitted, loggingEnabled: false,
     privateArchive: (_stage: string, value: unknown) => { retained.push(value); },
   };
-  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire(local, inferenceArchiveCapability(local)),
+  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire(local, inferenceArchiveCapability(local,
+    { ownerKey: 'a'.repeat(64), receiptDigest: 'b'.repeat(64) }, () => ({ record: local.privateArchive }))),
     work => { pending.push(work); });
   inferenceDiagnostic(context, metadata, () => { throw new Error('OFF evaluated optional supplier'); });
   await Promise.all(pending);

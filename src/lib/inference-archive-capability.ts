@@ -1,16 +1,17 @@
-import { RpcTarget } from 'cloudflare:workers';
-import type { InferenceDiagnosticContext } from './inference-diagnostics';
+import type { InferenceDiagnosticContext, InferencePrivateArchiveSink } from './inference-diagnostics';
 
-/** Worker-owned capability; the callback is private, never serialized in props. */
-class PrivateArchiveTarget extends RpcTarget {
-  #archive: NonNullable<InferenceDiagnosticContext['privateArchive']>;
-  constructor(archive: NonNullable<InferenceDiagnosticContext['privateArchive']>) { super(); this.#archive = archive; }
-  record(stage: string, value: unknown): void {
-    if (typeof stage !== 'string') throw new Error('Raw observation unavailable');
-    this.#archive(stage, value);
-  }
+export interface InferenceArchiveBinding {
+  activityId: string;
+  generation: number;
+  ownerKey: string;
+  receiptDigest: string;
 }
+export type InferenceArchiveFactory = (input: { props: InferenceArchiveBinding & { rawOnly: true } }) => InferencePrivateArchiveSink;
 
-export function inferenceArchiveCapability(context: InferenceDiagnosticContext | undefined) {
-  return context?.privateArchive && context.loggingEnabled !== false ? new PrivateArchiveTarget(context.privateArchive) : undefined;
+/** ctx.props requires persistent values: use the existing Service Binding, not an ephemeral RpcTarget. */
+export function inferenceArchiveCapability(context: InferenceDiagnosticContext | undefined,
+  identity: Pick<InferenceArchiveBinding, 'ownerKey' | 'receiptDigest'>, create: InferenceArchiveFactory) {
+  return context?.privateArchive && context.loggingEnabled !== false ? create({ props: {
+    activityId: context.activityId, generation: context.generation, ...identity, rawOnly: true,
+  } }) : undefined;
 }

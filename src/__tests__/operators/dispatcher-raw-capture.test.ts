@@ -5,6 +5,8 @@ import { fixture, start, type DispatcherFixture } from './fixtures/dispatcher-pr
 import { normalCallback } from './fixtures/normal-dispatcher';
 import { createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures } from '../../operators/raw-capture-storage';
 import { OperatorOwnerInferenceAuthority } from '../../operators/dispatcher-owner-inference';
+import { OperatorDispatcherCapability } from '../../operators/activity';
+import type { InferenceArchiveBinding } from '../../lib/inference-archive-capability';
 
 const options = { normalHosting: true, repositoryOnly: true };
 const captureId = 'sdk-raw-capture-1';
@@ -60,6 +62,89 @@ async function persistedState(f: DispatcherFixture) {
   await f.mutateEvidence(async storage => { state = structuredClone(await storage.list()); });
   return state;
 }
+
+async function interceptorArchive(f: DispatcherFixture, patch: Partial<InferenceArchiveBinding> = {}) {
+  const plan = await f.activity.getRuntimePlan();
+  if (!plan) throw new Error('Missing original fixture plan');
+  const receiptDigest = Buffer.from(await crypto.subtle.digest('SHA-256',
+    new TextEncoder().encode(JSON.stringify(plan.receipt)))).toString('hex');
+  const binding = { activityId: f.activityId, generation: 1, ownerKey: f.proof.ownerKey, receiptDigest, ...patch };
+  const handle = new OperatorDispatcherCapability({ props: { ...binding, rawOnly: true } } as unknown as ExecutionContext,
+    f.environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
+  return { handle, binding };
+}
+
+it('REQ-OPERATOR-090/091: logging-only interceptor handle durably retains full private evidence without execution authority', () => fixture(async f => {
+  await start(f); await f.drainBackground();
+  const { handle } = await interceptorArchive(f);
+  const before = await persistedState(f);
+  const network = structuredClone(f.normalTransport!.networkRequests);
+  const value = { password: 'SYNTHETIC_INTERCEPTOR_SECRET', bytes: '漢🦊'.repeat(40_000),
+    error: new Error('SYNTHETIC_INTERCEPTOR_ERROR', { cause: new Error('SYNTHETIC_ORIGINAL_CAUSE') }) };
+  await handle.record('interceptor-private-fixture', value);
+  const records = (await discoverRetained(f)).flatMap(archive => archive.records);
+  expect(records).toContainEqual({ stage: 'interceptor-private-fixture', value: expect.objectContaining({
+    password: value.password, bytes: value.bytes, error: expect.objectContaining({ message: value.error.message,
+      cause: expect.objectContaining({ message: 'SYNTHETIC_ORIGINAL_CAUSE' }) }) }) });
+  expect((await handle.fetch(new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: '{}' }))).status).toBe(403);
+  await expect(handle._cf_listSchedulesForFacet([])).rejects.toThrow('Dispatcher binding unavailable');
+  await expect(handle._cf_acquireFacetKeepAlive([])).rejects.toThrow('Dispatcher binding unavailable');
+  await expect(f.capability.record('ungranted-archive', value)).rejects.toThrow('Dispatcher binding unavailable');
+  const after = await persistedState(f);
+  for (const [key, original] of before) expect(after.get(key)).toEqual(original);
+  expect(f.normalTransport!.networkRequests).toEqual(network);
+}, options));
+
+it.each(['owner', 'receipt', 'generation'] as const)('REQ-OPERATOR-090/091: interceptor logging denies foreign %s', fault => fixture(async f => {
+  await start(f); await f.drainBackground();
+  const { handle } = await interceptorArchive(f, fault === 'owner' ? { ownerKey: 'f'.repeat(64) }
+    : fault === 'receipt' ? { receiptDigest: 'e'.repeat(64) } : { generation: 2 });
+  await f.drainBackground();
+  const before = await persistedState(f);
+  await expect(handle.record('foreign-interceptor-value', { password: 'SYNTHETIC_SECRET' })).rejects.toThrow('Raw capture unavailable');
+  expect(await persistedState(f)).toEqual(before);
+}, options));
+
+it.each(['receipt', 'generation'] as const)('REQ-OPERATOR-090/091: previously issued interceptor logging denies replaced %s', fault => fixture(async f => {
+  await start(f); await f.drainBackground();
+  const { handle } = await interceptorArchive(f);
+  await f.mutateEvidence(async storage => {
+    const state = await storage.get<{ receipt: { intentDigest: string }; drive: { generation: number } }>('admission');
+    if (!state) throw new Error('Missing fixture admission');
+    if (fault === 'receipt') state.receipt.intentDigest = 'd'.repeat(64);
+    else state.drive.generation++;
+    await storage.put('admission', state);
+  });
+  const before = await persistedState(f);
+  await expect(handle.record('stale-interceptor-value', { password: 'SYNTHETIC_SECRET' })).rejects.toThrow('Raw capture unavailable');
+  expect(await persistedState(f)).toEqual(before);
+}, options));
+
+it('REQ-OPERATOR-090/091: original logging OFF denies a logging-only interceptor handle', () => fixture(async f => {
+  await start(f); await f.drainBackground();
+  const { handle } = await interceptorArchive(f);
+  const before = await persistedState(f);
+  await expect(handle.record('disabled-interceptor-value', { password: 'SYNTHETIC_SECRET' })).rejects.toThrow('Raw capture unavailable');
+  expect(await persistedState(f)).toEqual(before);
+}, { ...options, loggingEnabled: false }));
+
+it('REQ-OPERATOR-090/091: original logging survives terminal expiry without renewing work', () => fixture(async f => {
+  await start(f); await f.drainBackground();
+  const { handle } = await interceptorArchive(f);
+  await f.mutateEvidence(async storage => {
+    const state = await storage.get<{ intent: { deadline: number }; drive: { status: string } }>('admission');
+    if (!state) throw new Error('Missing fixture admission');
+    state.intent.deadline = Date.now() - 1; state.drive.status = 'failed';
+    await storage.put('admission', state);
+  });
+  const before = await persistedState(f);
+  await handle.record('expired-interceptor-value', { cause: 'SYNTHETIC_ORIGINAL_ERROR' });
+  expect((await discoverRetained(f)).flatMap(archive => archive.records)).toContainEqual({
+    stage: 'expired-interceptor-value', value: { cause: 'SYNTHETIC_ORIGINAL_ERROR' } });
+  const after = await persistedState(f);
+  for (const [key, original] of before) expect(after.get(key)).toEqual(original);
+}, options));
 
 describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention', () => {
   it.each([true, false])('failed profile evidence has exact private readback with original logging=%s', loggingEnabled => {

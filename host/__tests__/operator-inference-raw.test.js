@@ -40,16 +40,35 @@ function* values(value) {
   yield value;
   if (value && typeof value === 'object') for (const child of Object.values(value)) yield* values(child);
 }
-function captured(out) {
-  assert.ok(out.records.length > 0, 'Enabled protected logging must capture actual raw values');
+function captured(out, { archiveFailed = false } = {}) {
+  const raw = [];
+  const incomplete = [];
   for (const record of out.records) {
     assert.equal(typeof record.message, 'string');
     assert.notEqual(record.message, '', 'The existing logger message identifies the stage');
     assert.equal(record.data.activityId, out.binding.activityId);
     assert.equal(record.data.generation, out.binding.generation);
-    assert.ok(Object.hasOwn(record.data, 'value'), 'Raw value is separate from bounded diagnostic metadata');
+    if (record.message === 'raw-capture-incomplete') {
+      // This bounded archive outcome is not a raw value or proof of retention.
+      assert.equal(typeof record.data.stage, 'string');
+      assert.notEqual(record.data.stage, '');
+      assert.deepEqual(record.data, { activityId: out.binding.activityId, generation: out.binding.generation,
+        stage: record.data.stage, status: 'incomplete' });
+      incomplete.push(record.data.stage);
+    } else {
+      assert.ok(Object.hasOwn(record.data, 'value'), 'Raw value is separate from bounded diagnostic metadata');
+      raw.push(record);
+    }
   }
-  return out.records.map(record => record.data.value);
+  assert.ok(raw.length > 0, 'Enabled protected logging must capture actual raw values');
+  const pending = raw.map(record => record.message);
+  for (const stage of incomplete) {
+    const index = pending.indexOf(stage);
+    assert.notEqual(index, -1, 'Each incomplete notice identifies an actual captured stage, without duplicates');
+    pending.splice(index, 1);
+  }
+  if (archiveFailed) assert.deepEqual(pending, [], 'Every failed private archive send must report an incomplete outcome');
+  return raw.map(record => record.data.value);
 }
 function hasExact(raw, expected, why) {
   assert.ok([...values(raw)].some(value => isDeepStrictEqual(value, expected)), why);
@@ -94,7 +113,7 @@ for (const auth of ['missing', 'invalid']) {
 test('REQ-OPERATOR-090: authenticated ON transport captures the first owner lookup original error causes stacks and unbounded detail before the same 403', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'first-lookup-on');
   for (const response of out.responses) safeRefusal(response, 403);
-  const raw = captured(out);
+  const raw = captured(out, { archiveFailed: true });
   for (const expected of [out.expected.outerMessage, out.expected.outerStack, out.expected.childMessage,
     out.expected.childStack, out.expected.aggregateMessage, 'root non-Error cause',
     'literal non-Error cause', out.expected.huge, `${out.expected.safe}-150`]) {
@@ -121,7 +140,7 @@ for (const kind of ['object', 'string']) {
   test(`REQ-OPERATOR-090: first lookup retains a thrown non-Error ${kind} without changing its 403 refusal`, { timeout: 30000 }, async t => {
     const out = await scenario(t, `non-error-${kind}`);
     for (const response of out.responses) safeRefusal(response, 403);
-    const raw = captured(out);
+    const raw = captured(out, { archiveFailed: true });
     if (kind === 'object') {
       hasExact(raw, 'non-Error thrown lookup value', 'Non-Error object failure is not replaced by a fingerprint');
       hasExact(raw, out.expected.huge, 'Non-Error causes have no logging string cap');
@@ -132,7 +151,7 @@ for (const kind of ['object', 'string']) {
 test('REQ-OPERATOR-090: redacts only credentials in headers nested fields signed URLs stringified JSON and literal echoes while preserving private neighbors', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'credentials');
   for (const response of out.responses) safeRefusal(response, 403);
-  const raw = captured(out);
+  const raw = captured(out, { archiveFailed: true });
   const text = JSON.stringify(raw);
   for (const secret of out.expected.secrets) assert.equal(text.includes(secret), false, `Credential must not reach platform logs: ${secret}`);
   hasExact(raw, out.expected.huge, 'Noncredential private payloads must not be removed');
@@ -158,7 +177,7 @@ test('REQ-OPERATOR-090: redacts only credentials in headers nested fields signed
 test('REQ-OPERATOR-082: sanitizer reflection failure leaves the original first lookup refusal intact and marks unavailable evidence', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'sanitizer-failure');
   for (const response of out.responses) safeRefusal(response, 403);
-  const raw = captured(out);
+  const raw = captured(out, { archiveFailed: true });
   hasExact(raw, out.expected.outerMessage, 'Inspectable original error evidence survives one uninspectable member');
   assert.match(JSON.stringify(raw), /unavailable|uninspectable|unsupported|serialization/i,
     'Uninspectable evidence must not be silently advertised as complete');
