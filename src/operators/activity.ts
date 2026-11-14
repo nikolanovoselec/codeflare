@@ -6098,7 +6098,9 @@ export class OperatorActivity extends Agent {
         return value;
       }, value => !loggingEnabled ? { omitted: 'original-logging-policy' }
         : !value || value.ownerKey === observation?.binding.ownerKey ? value : { foreignOwner: true });
-      const trace = loggingEnabled && owned && (!state || state.ownerKey === observation?.binding.ownerKey) ? raw : undefined;
+      // Lease payloads need their own retained receipt policy, not the default used for pre-admission observations.
+      const trace = loggingEnabled && owned && state?.receipt && isManagementReceipt(state.receipt)
+        && state.ownerKey === observation?.binding.ownerKey ? raw : undefined;
       const lease = await captureRawInteraction(trace, 'activity-retry-lease', () => DISPATCHER_LEASE,
         () => tx.get<DispatcherLease>(DISPATCHER_LEASE));
       trace?.record('activity-retry-state', () => ({ state, lease }));

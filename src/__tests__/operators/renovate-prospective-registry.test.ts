@@ -1875,9 +1875,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           }
           if (reconciliation === 'active-original') await inRegistry(() => native.storage.put(
             `renovate-registration:${registration.registrationId}`, originalRegistration));
+          const orphanLease = reconciliation === 'orphan-lease' || reconciliation === 'absent-global-receipt';
           const orphanKey = reconciliation === 'orphan-effect' ? 'dispatcher:operation:orphan'
-            : reconciliation === 'orphan-publication' ? 'renovate:publication' : reconciliation === 'orphan-lease' ? 'dispatcher:lease' : null;
-          const orphanValue = { ...(reconciliation === 'orphan-lease' ? { generation: 1, artifactDigest: persisted.bundleDigest,
+            : reconciliation === 'orphan-publication' ? 'renovate:publication' : orphanLease ? 'dispatcher:lease' : null;
+          const orphanValue = { ...(orphanLease ? { generation: 1, artifactDigest: persisted.bundleDigest,
             inputDigest: originalPreparation![0].intentDigest, expiresAt: Date.now() + 60_000, submissionId: null, status: 'unknown' }
             : reconciliation === 'orphan-publication' ? { ownerKey: original.ownerKey, bucket: original.actor.bucket,
               sessionId: original.actor.sessionId, sessionGeneration: original.actor.sessionGeneration,
@@ -1992,7 +1993,13 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               expect(JSON.stringify(protectedRecords)).not.toContain(legacy.privateOwnerEvidence);
               expect(JSON.stringify(protectedRecords)).not.toContain(original.ownerKey);
             }
-            if (['prepared', 'absent', 'orphan-effect', 'upgrade'].includes(reconciliation) && diagnostics !== 'writer-throws'
+            if (diagnostics === 'rpc-throws') {
+              expect(protectedRecords).toContainEqual({ stage: 'registry-retirement-request', value: original });
+              const error = protectedRecords.find(record => record.stage === 'registry-retirement-error')?.value;
+              expect(error).toMatchObject({ name: 'Error', message: sensitiveError, stack: expect.any(String) });
+            }
+            if (['prepared', 'absent', 'orphan-effect', 'upgrade'].includes(reconciliation)
+              && diagnostics !== 'writer-throws' && diagnostics !== 'rpc-throws'
               && originalLedger?.selection.operator.policy.loggingEnabled !== false) {
               expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-request', value: original });
               expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-ledger-response', value: originalLedger });
@@ -2039,13 +2046,19 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
                 expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-state-read-response', value: originalStoredState });
                 expect(privateRecords).toContain(statePrivateValue);
               }
-              if (orphanKey) expect(protectedRecords).toContainEqual({
+              if (orphanKey && originalState) expect(protectedRecords).toContainEqual({
                 stage: reconciliation === 'orphan-publication' ? 'activity-retirement-publication-response' : 'activity-retirement-runtime-response',
                 value: reconciliation === 'orphan-publication' ? orphanValue : expect.arrayContaining([[orphanKey, orphanValue]]),
               });
               // The real retry proof consults admission and lease even when it cannot authorize a retry.
               if (originalState) expect(protectedRecords).toContainEqual({ stage: 'activity-retry-admission-response', value: originalStoredState });
               if (reconciliation === 'orphan-lease') expect(protectedRecords).toContainEqual({ stage: 'activity-retry-lease-response', value: orphanValue });
+            }
+            if (orphanLease && !originalState) {
+              // A retained SQL receipt is not a local policy proof: retry still reads the orphan but must not archive its payload.
+              expect(privateRecords).not.toContain(runtimePrivateValue);
+              expect(protectedRecords).toContainEqual({ stage: 'registry-retry-proof-response', value: null });
+              expect(await inActivity(() => activityNative.storage.get(orphanKey!))).toEqual(orphanValue);
             }
             if (originalArchive) expect(await readOriginalCapture()).toEqual(originalArchive);
             for (const value of [ledgerPrivateValue, statePrivateValue, runtimePrivateValue]) expect(publicOutputs.join('\n')).not.toContain(value);
