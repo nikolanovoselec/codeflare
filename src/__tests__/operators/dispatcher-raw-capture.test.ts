@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer';
 import { describe, expect, it, vi } from 'vitest';
 import { fixture, start, type DispatcherFixture } from './fixtures/dispatcher-production';
 import { normalCallback } from './fixtures/normal-dispatcher';
-import { createOwnerRawCaptureStorage, readRawCapture } from '../../operators/raw-capture-storage';
+import { createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures } from '../../operators/raw-capture-storage';
 import { OperatorOwnerInferenceAuthority } from '../../operators/dispatcher-owner-inference';
 
 const options = { normalHosting: true, repositoryOnly: true };
@@ -25,6 +25,24 @@ async function retained(f: DispatcherFixture, id = captureId) {
     storage: await createOwnerRawCaptureStorage(f.environment, storage, async () => {}) });
   });
   return result;
+}
+async function discoverRetained(f: DispatcherFixture) {
+  const archives: Array<Awaited<ReturnType<typeof readRawCapture>>> = [];
+  await f.mutateEvidence(async native => {
+    const scope = { ownerKey: f.proof.ownerKey, scope: { kind: 'activity' as const, activityId: f.activityId, generation: 1 } };
+    const storage = await createOwnerRawCaptureStorage(f.environment, native, async () => {});
+    let cursor: string | null = null;
+    do {
+      const page = await discoverRawCaptures({ scope, storage, cursor: cursor ?? undefined, authorize: async requested => {
+        if (requested.ownerKey !== f.proof.ownerKey || requested.scope.kind !== 'activity'
+          || requested.scope.activityId !== f.activityId || requested.scope.generation !== 1) throw new Error('Foreign scope');
+      } });
+      expect(page.status).toBe('complete');
+      for (const binding of page.bindings) archives.push(await readRawCapture({ binding, storage }));
+      cursor = page.cursor;
+    } while (cursor);
+  });
+  return archives;
 }
 function recovered(records: Array<{ stage: string; value: unknown }>): Uint8Array {
   const chunks: Uint8Array[] = [];
@@ -156,6 +174,53 @@ describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention
     } finally { log.mockRestore(); }
   }, options));
 
+  it('discovers and decrypts a real SDK upload after discarding its local ID and response with console unavailable', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const content = payload();
+    const before = structuredClone(f.normalTransport!.networkRequests);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => { throw new Error('Synthetic console loss'); });
+    try {
+      await (async () => {
+        const localId = crypto.randomUUID();
+        const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'diagnostic/raw', content,
+          { 'x-codeflare-raw-capture': localId }));
+        expect(response.status).toBe(200);
+        await response.body?.cancel(); // Neither the producer ID nor the receipt is retained.
+      })();
+      await f.drainBackground();
+      const archives = await discoverRetained(f);
+      const sdk = archives.filter(archive => archive.records.some(record => record.stage === 'installed-sdk-upload'));
+      expect(sdk).toHaveLength(1);
+      expect(sdk[0].status).toBe('complete');
+      expect(recovered(sdk[0].records)).toEqual(new TextEncoder().encode(JSON.stringify(content)));
+      expect(JSON.parse(new TextDecoder().decode(recovered(sdk[0].records)))).toEqual(content);
+      expect(f.normalTransport!.networkRequests).toEqual(before);
+    } finally { log.mockRestore(); }
+  }, options));
+
+  it('discovers ordinary Host observations without their random ID or response despite console loss', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const value = { password: 'SYNTHETIC_HOST_RECOVERY_SECRET', authorization: 'Bearer SYNTHETIC_HOST_RECOVERY_TOKEN',
+      body: '漢🦊é'.repeat(45_000), error: { message: 'original failure', cause: { stack: 'original private stack' } } };
+    const log = vi.spyOn(console, 'log').mockImplementation(() => { throw new Error('Synthetic console loss'); });
+    try {
+      await (async () => {
+        const response = await new OperatorOwnerInferenceAuthority({ props: { bucket: 'owner-bucket',
+          sessionId: 'ownerhost123', email: 'owner@example.test' } } as unknown as ExecutionContext, f.environment)
+          .fetch(new Request('https://operator.internal/v1/dispatcher/owner-raw', { method: 'POST',
+            headers: { 'content-type': 'application/json' }, body: JSON.stringify({ activityId: f.activityId,
+              generation: 1, stage: 'configured-owner-observations', value }) }));
+        expect(response.status).toBe(200);
+        await response.body?.cancel(); // The Host never consumes the generated capture ID.
+      })();
+      await f.drainBackground();
+      const archives = await discoverRetained(f);
+      const host = archives.filter(archive => archive.records.some(record => record.stage === 'configured-owner-observations'));
+      expect(host).toHaveLength(1);
+      expect(host[0]).toMatchObject({ status: 'complete', records: [{ stage: 'configured-owner-observations', value }] });
+    } finally { log.mockRestore(); }
+  }, options));
+
   it('OFF ignores caller logging overrides and never reads the optional raw body or writes capture data', () => fixture(async f => {
     await start(f); await f.drainBackground();
     f.setCurrentLogging(true);
@@ -268,6 +333,42 @@ describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention
       message: 'SYNTHETIC_UPLOAD_STREAM_ERROR', cause: { message: 'SYNTHETIC_UPLOAD_STREAM_CAUSE' },
     });
     expect(f.normalTransport!.networkRequests.some(request => request.url.includes('diagnostic/raw'))).toBe(false);
+  }, options));
+
+  it.each(['write', 'read'] as const)('locator %s failure refuses the SDK acknowledgement even with the archive persisted', fault => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const before = await persistedState(f);
+    const network = structuredClone(f.normalTransport!.networkRequests);
+    await f.mutateEvidence(async storage => {
+      // Fault only the private locator namespace, leaving actual payload retention functional.
+      const get = storage.get.bind(storage);
+      const transaction = storage.transaction.bind(storage);
+      const read = vi.spyOn(storage, 'get').mockImplementation((async (key: string) => {
+        if (fault === 'read' && key.startsWith('operator-raw-index:')) throw new Error('Synthetic locator read failure');
+        return get(key);
+      }) as typeof storage.get);
+      const write = vi.spyOn(storage, 'transaction').mockImplementation(closure => transaction(async tx => {
+        const originalPut = tx.put.bind(tx);
+        const put = vi.spyOn(tx, 'put').mockImplementation((async (key: string, value: unknown) => {
+          if (fault === 'write' && key.startsWith('operator-raw-index:')) throw new Error('Synthetic locator write failure');
+          return originalPut(key, value);
+        }) as typeof tx.put);
+        try { return await closure(tx); }
+        finally { put.mockRestore(); }
+      }));
+      try {
+        const response = await f.installationCapability.fetch(upload(f));
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({ status: 'incomplete', captureId });
+      } finally { read.mockRestore(); write.mockRestore(); }
+    });
+    // Failure is locator durability, not a silently lost or redacted payload.
+    const stored = await retained(f);
+    expect(stored.status).toBe('complete');
+    expect(JSON.parse(new TextDecoder().decode(recovered(stored.records)))).toEqual(payload());
+    const after = await persistedState(f);
+    for (const [key, value] of before) expect(after.get(key)).toEqual(value);
+    expect(f.normalTransport!.networkRequests).toEqual(network);
   }, options));
 
   it('native retention failure cannot mutate original business state or claim a complete capture', () => fixture(async f => {

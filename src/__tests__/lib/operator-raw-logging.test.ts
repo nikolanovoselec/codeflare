@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { inferenceDiagnostic, inferenceDiagnosticLocal, inferenceDiagnosticWire } from '../../lib/inference-diagnostics';
+import { inferenceArchiveCapability } from '../../lib/inference-archive-capability';
 import { setLogLevel } from '../../lib/logger';
 
 // Approved additive runtime-log contract. The bounded metadata channel is unchanged.
@@ -43,9 +44,11 @@ it('REQ-OPERATOR-090: private interceptor observations reach their original owne
   const records = capture();
   const retained: Array<{ stage: string; value: unknown }> = [];
   const pending: Promise<unknown>[] = [];
-  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire({ ...admitted,
-    privateArchive: (stage, value) => { retained.push({ stage, value }); },
-  }), work => { pending.push(work); });
+  const local = { ...admitted,
+    privateArchive: (stage: string, value: unknown) => { retained.push({ stage, value }); },
+  };
+  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire(local, inferenceArchiveCapability(local)),
+    work => { pending.push(work); });
   const source = { password: 'SYNTHETIC_INTERCEPTOR_SECRET', body: '漢🦊'.repeat(70_000),
     error: new Error('SYNTHETIC_INTERCEPTOR_FAILURE', { cause: new Error('SYNTHETIC_ORIGINAL_CAUSE') }) };
   const original = { unchanged: true };
@@ -61,12 +64,31 @@ it('REQ-OPERATOR-090: private interceptor observations reach their original owne
 it('REQ-OPERATOR-090: original OFF never delivers an interceptor private observation', async () => {
   const retained: unknown[] = [];
   const pending: Promise<unknown>[] = [];
-  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire({ ...admitted, loggingEnabled: false,
-    privateArchive: (_stage, value) => { retained.push(value); },
-  }), work => { pending.push(work); });
+  const local = { ...admitted, loggingEnabled: false,
+    privateArchive: (_stage: string, value: unknown) => { retained.push(value); },
+  };
+  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire(local, inferenceArchiveCapability(local)),
+    work => { pending.push(work); });
   inferenceDiagnostic(context, metadata, () => { throw new Error('OFF evaluated optional supplier'); });
   await Promise.all(pending);
   expect(retained).toEqual([]);
+});
+
+it('REQ-OPERATOR-090: missing native archive authority cannot silently drop enabled private evidence', () => {
+  expect(() => inferenceDiagnosticWire({ ...admitted, privateArchive: () => {} }))
+    .toThrow('Raw observation capability unavailable');
+});
+
+it('REQ-OPERATOR-082: private RPC rejection is scheduled without replacing the functional outcome', async () => {
+  const pending: Promise<unknown>[] = [];
+  const local = inferenceDiagnosticLocal({ ...admitted, privateArchiveSink: {
+    record: async () => { throw Error('SYNTHETIC_ARCHIVE_UNAVAILABLE'); },
+  } }, work => { pending.push(work); });
+  const original = new Response('UNCHANGED_NATIVE_RESPONSE', { status: 207 });
+  const execute = () => { inferenceDiagnostic(local, metadata, () => ({ body: 'private evidence' })); return original; };
+  expect(execute()).toBe(original);
+  await expect(Promise.all(pending)).resolves.toEqual([undefined]);
+  expect(await original.text()).toBe('UNCHANGED_NATIVE_RESPONSE');
 });
 
 describe('protected raw execution logging through the existing diagnostic entrypoint', () => {

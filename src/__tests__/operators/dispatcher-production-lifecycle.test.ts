@@ -7,7 +7,8 @@ import * as access from '../../lib/access';
 import activityRoutes from '../../routes/operator-activities';
 import { AppError } from '../../lib/error-types';
 import { OperatorActivity } from '../../operators/activity';
-import { captureError } from '../../operators/dispatcher-diagnostics-wire';
+import { captureError, type DiagnosticEvent } from '../../operators/dispatcher-diagnostics-wire';
+import { appendDiagnostic } from '../../operators/dispatcher-diagnostics-store';
 import { setLogLevel } from '../../lib/logger';
 import type { Env } from '../../types';
 import type { OperatorBrowserSummary } from '../../operators/browser-activity';
@@ -2669,10 +2670,17 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         const failure = initial.records.find(record => record.kind === 'event' && record.code === 'provider-failed');
         expect(failure).toMatchObject({ generation: 1, boundary: 'model', evidence: 'observed' });
         expect(failure!.capsuleId).toMatch(/^f-[0-9]+$/);
-        // Generate ordinary host-owned metadata, not native multi-target SDK workloads.
-        for (let index = 0; index < 1600; index++) expect((await f.capability.fetch(genericWire('source', {
-          operationId: `PRIVATE_RETENTION_${index}`, url: sourceUrl,
-        }))).status).toBe(200);
+        // Exercise the owning retention writer, not 1600 unrelated HTTP/raw-archive uploads.
+        // The real inference and source calls above establish the pinned failure and cursor.
+        const template = initial.records.find((record): record is DiagnosticEvent => record.kind === 'event'
+          && record.owner === 'host' && record.outcome === 'completed' && !record.capsuleId);
+        if (!template) throw new Error('Missing originating routine evidence');
+        const { kind: _kind, id: _id, sequence: _sequence, generation: _generation, capsuleId: _capsule, ...routine } = template;
+        const binding = (await diagnosticSummary(f)).binding;
+        await f.mutateEvidence(async storage => {
+          for (let index = 0; index < 1600; index++) await storage.transaction(tx => appendDiagnostic(tx, binding,
+            { ...routine, timestamp: Date.now() }));
+        });
         await f.drainBackground();
         const after = await diagnosticSummary(f);
         expect(after.retention.evictedRoutine).toBeGreaterThan(0);

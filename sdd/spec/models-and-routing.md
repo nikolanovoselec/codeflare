@@ -1410,7 +1410,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 4. The container never receives the AI Gateway URL, gateway token or mediated Gateway per-session secrets; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
 5. When the Enterprise-mode binding is unset, that binding is not emitted, no agent configuration block runs, and the container env is byte-identical to current behavior. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-005 AC5: outer Enterprise gate skips Pi provider config when mode is unset) -->
 6. No mode receives AWS credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (never emits AWS_* in enterprise; R2_* still emitted (rclone reads creds from rclone.conf)) --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (never emits AWS_* in non-enterprise either (dropped everywhere — no consumer); R2_* still emitted) -->
-7. Pi authentication survives only for permitted human sessions under [REQ-ENTERPRISE-089](#req-enterprise-089-human-native-pi-startup); Operator isolation remains under [REQ-ENTERPRISE-091](#req-enterprise-091-operator-personal-provider-isolation). <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models) -->
+7. Ordinary owner Pi authentication is preserved independently of native permission under [REQ-ENTERPRISE-089](#req-enterprise-089-human-native-pi-startup). <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-089 AC3: disable and re-enable preserve owner credential bytes and private permissions) -->
 
 **Constraints:**
 
@@ -1418,6 +1418,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 - `ENTERPRISE_MODE` rides the existing container env pipeline ([REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)); no per-agent login step is added.
 - Route catalog, default, and reasoning values are non-secret container hints; slash-free handles map Worker-side, and backend keys remain in the gateway.
 - Only the allowlisted enterprise agents ([REQ-ENTERPRISE-003](agents.md#req-enterprise-003-agent-allowlist-in-enterprise-mode)) are configured; `bash` needs no LLM configuration.
+- Operator authentication remains isolated under [REQ-ENTERPRISE-091](#req-enterprise-091-operator-personal-provider-isolation).
 
 **Priority:** P1
 
@@ -1519,7 +1520,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 ### REQ-ENTERPRISE-089: Human native Pi startup
 
-**Intent:** Permitted humans retain native authentication alongside sanctioned models without treating startup hints as authority.
+**Intent:** Human startup preserves owner authentication independently of native permission without treating credentials or startup hints as authority.
 
 **Applies To:** User
 
@@ -1527,18 +1528,18 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 1. Trusted permitted human startup retains owner authentication and saved native provider, model and reasoning when the native source is selected. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (preserves the saved personal provider model and High when native is the permitted startup default) -->
 2. Pinned Pi exposes authenticated built-ins alongside unchanged sanctioned models. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-088 AC4: pinned Pi retains native authenticated providers alongside sanctioned models) -->
-3. Missing or malformed hints remain default off. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: missing false and malformed hints clear personal authentication) -->
+3. Ordinary owner authentication survives disabled, missing, malformed and re-enabled native permission hints byte-for-byte. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-089 AC3: missing false and malformed hints preserve owner credential bytes and managed defaults (${personalProviders})) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-089 AC3: disable and re-enable preserve owner credential bytes and private permissions) -->
 4. Warm internal configuration can emit or revoke independent permission and default-source hints for the next startup. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint) -->
 5. Permitted native startup removes a previous managed Gateway default without changing the sanctioned catalog. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (removes a previous Gateway startup pin when permitted native becomes the default) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-089: pinned Pi selects native) -->
 6. Permitted native startup without saved settings leaves native provider selection to Pi. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (does not create a Gateway startup pin when permitted native has no saved settings) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-089: pinned Pi selects native) -->
 
-**Constraints:** Startup permission changes require container restart; request authorization never relies on picker state, and owner authentication follows the existing storage/governance regime.
+**Constraints:** Startup permission changes require container restart. Missing or malformed hints remain default off; startup without permitted native selection retains configured managed defaults. Owner authentication remains `0600` under the existing storage/governance regime. Credentials and picker visibility grant no authority; requests retain current Administration and owner/session/network checks.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-088](setup.md#req-enterprise-088-group-scoped-native-pi-providers)
 
-**Verification:** Automated: [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [enterprise-routing.test.mjs](../../preseed/agents/pi/test/enterprise-routing.test.mjs), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts)
+**Verification:** Automated: [entrypoint-enterprise-pi-models.test.js](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [enterprise-routing.test.mjs](../../preseed/agents/pi/test/enterprise-routing.test.mjs), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [personal-pi-interception.test.ts](../../src/__tests__/personal-pi-interception.test.ts)
 
 **Status:** Implemented
 

@@ -1,6 +1,6 @@
 import { parseRenovateRunSettings, renovateRepositoryIdentity } from './renovate-run-settings';
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { inferenceDiagnostic, inferenceDiagnosticWire, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
+import { inferenceDiagnostic, inferenceDiagnosticWire, type InferenceDiagnosticContext, type InferencePrivateArchiveSink } from '../lib/inference-diagnostics';
 import { interceptedGithubHosts } from '../github-interceptor';
 import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
@@ -404,6 +404,8 @@ export async function createDispatcherOperation(input: {
   operation: DispatcherOperation; current: () => Promise<boolean>;
   effectContext?: { authorize: () => Promise<void>; reconcileOnly: boolean };
   diagnosticContext?: InferenceDiagnosticContext;
+  /** Native capability injected by the Worker owner; never constructed by Node-bundled code. */
+  privateArchiveSink?: InferencePrivateArchiveSink;
   pinInferenceSelection?: (selection: DispatcherInferenceSelection) => Promise<void>;
   /** Parent-owned serial delivery, not a model/package request field. */
   phase?: { repository: string; value: import('./dispatcher-phases').DispatcherPhase };
@@ -619,7 +621,7 @@ export async function createDispatcherOperation(input: {
         sessionId: plan.activityId,
         gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
         operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted,
-          diagnosticContext: inferenceDiagnosticWire(input.diagnosticContext) } } });
+          diagnosticContext: inferenceDiagnosticWire(input.diagnosticContext, input.privateArchiveSink) } } });
       return await transport.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', signal: operation.signal,
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...value.input,
           max_tokens: value.input.max_tokens ?? limits.inferenceDefaultTokens, model: trusted.routeId, stream: value.input.stream ?? true }) }));

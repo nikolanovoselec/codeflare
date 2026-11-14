@@ -26,7 +26,7 @@ import { Agent, type RetryOptions, type Schedule, type ScheduleCriteria } from '
 import { DISPATCHER_SCHEDULE_CALLBACK, childScheduleRow, dispatcherScheduleEnvelope,
   dispatcherSchedulePath, migrateDispatcherSchedules, parseDispatcherSchedule, projectChildSchedule } from './dispatcher-scheduler';
 import type { Env as AppEnv } from '../types';
-import { getContainerId } from '../lib/container-helpers';
+import { getContainerId, getPersonalPiSession } from '../lib/container-helpers';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
@@ -53,6 +53,7 @@ import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { inferenceDiagnostic, inferenceResponseObservation, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
+import { inferenceArchiveCapability } from '../lib/inference-archive-capability';
 import { emitRaw } from '../../host/src/operator-raw-logging';
 import { canInvokeOperator, operatorAccessSessionCurrent, requireOperatorHumanContext, resolveOperatorGroupIdentity, resolveBucketName } from '../lib/access';
 import { D1SessionRepository } from '../lib/session-repository';
@@ -2385,7 +2386,7 @@ export class OperatorActivity extends Agent {
         || current.executionContext.artifactDigest !== state.executionContext!.artifactDigest || lease?.generation !== generation
         || !sameDispatcherPhaseValue(current.executionContext.owner, owner)) throw new Error('Raw capture unavailable');
       const host = this.#appEnv.CONTAINER.getByName(getContainerId(source.bucket, source.sessionId));
-      const session = await host.getPersonalPiSession({ bucket: source.bucket, sessionId: source.sessionId, email: owner.email }, true);
+      const session = await getPersonalPiSession(host, { bucket: source.bucket, sessionId: source.sessionId, email: owner.email }, true);
       if (session.generation !== source.sessionGeneration) throw new Error('Raw capture unavailable');
     };
     await authorize();
@@ -4479,6 +4480,7 @@ export class OperatorActivity extends Agent {
           catch (error) { if (error instanceof PiAuthRequiredError) await this.#nativeLoginStop(generation, error.authFailure); throw error; }
         };
       } else perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation, effectContext, diagnosticContext: trace,
+        privateArchiveSink: inferenceArchiveCapability(trace),
         ...(phaseLease?.serial ? { phase: { repository: JSON.parse(plan.invocationJson).repository,
           value: phaseLease.serial.current.phase } } : {}),
         current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope),
@@ -4760,6 +4762,7 @@ export class OperatorActivity extends Agent {
           || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) throw new Error('Dispatcher inference authority expired');
         return createDispatcherOperation({ plan, env: this.#appEnv, operation: { ...operation, signal: controller.signal },
           current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken), diagnosticContext: attemptTrace,
+          privateArchiveSink: inferenceArchiveCapability(attemptTrace),
           exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports,
           pinInferenceSelection: !pin ? undefined : async selection => this.ctx.storage.transaction(async tx => {
             await live(tx);

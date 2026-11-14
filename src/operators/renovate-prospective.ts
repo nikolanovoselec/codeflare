@@ -14,12 +14,20 @@ type ScanRequest = { method: string; url: string; path: string };
 const requestFields = ['headers', 'cache', 'credentials', 'destination', 'integrity', 'keepalive', 'mode',
   'referrer', 'referrerPolicy', 'redirect', 'bodyUsed', 'cf'] as const;
 const responseFields = ['url', 'headers', 'status', 'statusText', 'ok', 'redirected', 'type', 'bodyUsed', 'cf', 'webSocket'] as const;
-// Workerd supports native instance-property templates as well as prototype getters.
-// Capture only pristine platform descriptors, never getters supplied by a response.
-const requestDescriptors = { ...Object.getOwnPropertyDescriptors(Request.prototype),
-  ...Object.getOwnPropertyDescriptors(new Request('https://operator.invalid/')) };
-const responseDescriptors = { ...Object.getOwnPropertyDescriptors(Response.prototype),
-  ...Object.getOwnPropertyDescriptors(new Response(null)) };
+// Workerd exposes some fields on native instance templates and bodyUsed on an
+// inherited Body prototype. Capture the entire pristine platform chain, never
+// descriptors from application responses or their replacement prototypes.
+function platformDescriptors(sample: Request | Response): PropertyDescriptorMap {
+  const descriptors: PropertyDescriptorMap = {};
+  for (let owner: object | null = sample; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(owner))) {
+      if (!Object.hasOwn(descriptors, key)) descriptors[key] = descriptor;
+    }
+  }
+  return descriptors;
+}
+const requestDescriptors = platformDescriptors(new Request('https://operator.invalid/'));
+const responseDescriptors = platformDescriptors(new Response(null));
 /** Inspect only captured platform getters or own data; an application accessor is evidence, not executable capture. */
 function transportMetadata(value: Request | Response, fields: readonly string[], native: PropertyDescriptorMap) {
   return Object.fromEntries(fields.map(key => {

@@ -1,8 +1,8 @@
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { encryptForKV, decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
-import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture,
-  type RawCaptureBinding, type RawCaptureStorage, type RawCapture } from '../../operators/raw-capture-storage';
+import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, discoverRawCaptures,
+  type RawCaptureBinding, type RawCaptureScope, type RawCaptureStorage, type RawCapture } from '../../operators/raw-capture-storage';
 
 // Synthetic values only. The native boundary retains ciphertext, never a console facsimile.
 const CANARY = 'SYNTHETIC_RAW_PRIVATE_CANARY_秘密_🦊';
@@ -12,7 +12,7 @@ const binding: RawCaptureBinding = { ownerKey: 'owner@example.test',
   installationId: 'installation-1', releaseId: 'release-1', captureId: 'capture-1',
   scope: { kind: 'observation', observationId: 'observation-1' } };
 
-function boundary(options: { ambiguous?: boolean; replay?: boolean } = {}) {
+function boundary(options: { ambiguous?: boolean; replay?: boolean; rejectWrite?: (key: string) => boolean } = {}) {
   const objects = new Map<string, string>();
   const accesses: string[] = [];
   let authorized = true;
@@ -28,6 +28,14 @@ function boundary(options: { ambiguous?: boolean; replay?: boolean } = {}) {
       completeIo();
       return result as T | undefined;
     },
+    async list<T>(options: { prefix?: string; startAfter?: string; limit?: number } = {}): Promise<Map<string, T>> {
+      accesses.push(options.prefix ?? '');
+      const result = new Map([...objects].filter(([key]) => key.startsWith(options.prefix ?? '')
+        && (!options.startAfter || key > options.startAfter)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+        .slice(0, options.limit ?? objects.size).map(([key, value]) => [key, value as T]));
+      completeIo();
+      return result;
+    },
     transaction<T>(closure: (tx: DurableObjectTransaction) => Promise<T>): Promise<T> {
       const work = transactions.then(async () => {
         const staged = new Map(objects);
@@ -35,6 +43,7 @@ function boundary(options: { ambiguous?: boolean; replay?: boolean } = {}) {
         const tx = {
           async get<V>(key: string): Promise<V | undefined> { accesses.push(key); return staged.get(key) as V | undefined; },
           async put(key: string, value: string) {
+            if (options.rejectWrite?.(key)) throw new Error('Synthetic native write failure');
             // Native KV value limit, including the stored string's serialization overhead.
             if (typeof value !== 'string' || Buffer.byteLength(JSON.stringify(value)) > 128 * 1024)
               throw new Error('Native KV value exceeds 128 KiB');
@@ -68,6 +77,16 @@ function boundary(options: { ambiguous?: boolean; replay?: boolean } = {}) {
 }
 const read = (f: ReturnType<typeof boundary>, scope = binding) => readRawCapture({ binding: scope, storage: f.storage });
 const incomplete = { status: 'incomplete', receipt: null, records: [] };
+const scopeOf = (value: RawCaptureBinding): RawCaptureScope => ({ ownerKey: value.ownerKey, scope: value.scope });
+const scope = scopeOf(binding);
+const undiscoverable = { status: 'incomplete', bindings: [], cursor: null };
+const discover = (f: ReturnType<typeof boundary>, target = scope, cursor?: string) => discoverRawCaptures({
+  scope: target, storage: f.storage, cursor,
+  authorize: async requested => {
+    if (requested.ownerKey !== binding.ownerKey || JSON.stringify(requested.scope) !== JSON.stringify(target.scope))
+      throw new Error('Synthetic owner/scope denied');
+  },
+});
 async function saved(f = boundary(), scope = binding) {
   const capture = f.create(scope);
   capture.record('observed', () => ({ authorization: `Bearer ${CANARY}`, text: 'visible', bytes: [0, 255, 128] }));
@@ -126,7 +145,7 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     }
     // Private namespace contract: no owner identity or raw values in native locator keys.
     for (const key of f.objects.keys()) {
-      expect(key).toMatch(/^operator-raw:v1:[a-f0-9]{64}\/(?:receipt|segment-\d+-\d+-\d+)$/);
+      expect(key).toMatch(/^(?:operator-raw:v1:[a-f0-9]{64}\/(?:receipt|segment-\d+-\d+-\d+)|operator-raw-index:v1:[a-f0-9]{64}\/capture-[a-f0-9]{64})$/);
       expect(key).not.toContain(binding.ownerKey);
       expect(key).not.toContain(CANARY);
     }
@@ -266,7 +285,7 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     'fails closed with no private partial records for %s', async fault => {
       const f = await saved();
       const paths = [...f.objects.keys()];
-      const path = fault.includes('receipt') ? paths[paths.length - 1] : paths[0];
+      const path = paths.find(path => fault.includes('receipt') ? path.endsWith('/receipt') : path.endsWith('/segment-0-0-0'))!;
       if (fault.startsWith('missing')) f.objects.delete(path);
       else if (fault.startsWith('corrupt')) {
         const value = f.objects.get(path)!;
@@ -362,7 +381,7 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     await Promise.all(f.pending);
     capture.record('last', () => `${CANARY}-tail`);
     expect((await capture.finish('eof')).status).toBe('complete');
-    const paths = [...f.objects.keys()]; f.objects.delete(paths[paths.length - 2]);
+    const path = [...f.objects.keys()].find(path => path.endsWith('/segment-1-1-0'))!; f.objects.delete(path);
     expect(await read(f)).toEqual(incomplete);
   });
 
@@ -426,6 +445,178 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
       expect(await read(f)).toEqual(incomplete);
     });
 
+});
+
+describe('REQ-OPERATOR-090/091: scope-discoverable private capture recovery', () => {
+  it.each(['observation', 'activity'] as const)('recovers %s evidence without the producer ID, receipt or console', async kind => {
+    const f = boundary();
+    const known: RawCaptureScope = { ownerKey: binding.ownerKey, scope: kind === 'observation'
+      ? binding.scope : { kind: 'activity', activityId: 'activity-1', generation: 7 } };
+    await (async () => {
+      const capture = f.create({ ...binding, ...known, captureId: crypto.randomUUID() });
+      capture.record('private', () => ({ authorization: `Bearer ${CANARY}`, password: CANARY, bytes: [0, 255] }));
+      expect((await capture.finish('eof')).status).toBe('complete');
+    })(); // Producer-local capture ID, capture and receipt are now gone.
+    const page = await discover(f, known);
+    expect(page).toMatchObject({ status: 'complete', cursor: null });
+    expect(page.bindings).toHaveLength(1);
+    expect(await readRawCapture({ binding: page.bindings[0], storage: f.storage })).toMatchObject({
+      status: 'complete', records: [{ stage: 'private', value: { authorization: `Bearer ${CANARY}`, password: CANARY, bytes: [0, 255] } }],
+    });
+    for (const [key, value] of f.objects) {
+      expect(key).not.toContain(binding.ownerKey);
+      expect(key).not.toContain(page.bindings[0].captureId);
+      expect(value.startsWith('v1:')).toBe(true);
+      expect(value).not.toContain(CANARY);
+      expect(value).not.toContain(page.bindings[0].captureId);
+    }
+  });
+
+  it('retains concurrent captures and pages immutable locators without losing an append', async () => {
+    const f = boundary();
+    const bindings = Array.from({ length: 103 }, () => ({ ...binding, captureId: crypto.randomUUID() }));
+    const receipts = await Promise.all(bindings.map(async (binding, index) => {
+      const capture = f.create(binding); capture.record('event', () => index); return capture.finish('eof');
+    }));
+    expect(receipts.every(receipt => receipt.status === 'complete')).toBe(true);
+    const first = await discover(f);
+    expect(first.status).toBe('complete');
+    expect(first.bindings.length).toBeGreaterThan(0);
+    expect(first.bindings.length).toBeLessThan(bindings.length);
+    expect(first.cursor).not.toBeNull();
+    // A new capture cannot overwrite any previously stored locator.
+    const late = f.create({ ...binding, captureId: crypto.randomUUID() });
+    late.record('late', () => CANARY);
+    expect((await late.finish('eof')).status).toBe('complete');
+    const found = [...first.bindings];
+    let cursor = first.cursor;
+    while (cursor) {
+      const page = await discover(f, scope, cursor);
+      expect(page.status).toBe('complete');
+      found.push(...page.bindings); cursor = page.cursor;
+    }
+    expect(new Set(found.map(binding => binding.captureId)).size).toBe(found.length);
+    for (const binding of bindings) expect(found).toContainEqual(binding);
+    // A fresh traversal also finds a concurrent insert that sorted before the previous cursor.
+    const all: RawCaptureBinding[] = []; cursor = null;
+    do {
+      const page = await discover(f, scope, cursor ?? undefined);
+      expect(page.status).toBe('complete'); all.push(...page.bindings); cursor = page.cursor;
+    } while (cursor);
+    expect(all).toHaveLength(104);
+    const records = (await Promise.all(all.map(binding => readRawCapture({ binding, storage: f.storage })))).flatMap(result => result.records);
+    expect(records).toContainEqual({ stage: 'late', value: CANARY });
+  });
+
+  it.each(['write rejected', 'read rejected', 'missing readback', 'corrupt readback', 'authority revoked'] as const)(
+    'cannot acknowledge complete when the durable locator has %s', async fault => {
+      const f = boundary({ rejectWrite: key => fault === 'write rejected' && key.startsWith('operator-raw-index:') });
+      f.afterCommit(keys => {
+        const path = keys.find(key => key.startsWith('operator-raw-index:'));
+        if (!path) return;
+        if (fault === 'read rejected') f.native.get = async () => { throw new Error('Locator read failed'); };
+        if (fault === 'missing readback') f.objects.delete(path);
+        if (fault === 'corrupt readback') f.objects.set(path, 'v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+        if (fault === 'authority revoked') f.revoke();
+      });
+      const capture = f.create(); capture.record('private', () => CANARY);
+      expect((await capture.finish('eof')).status).toBe('incomplete');
+      if (fault === 'write rejected' || fault === 'missing readback')
+        expect(await discover(f)).toEqual({ status: 'complete', bindings: [], cursor: null });
+      if (fault === 'corrupt readback' || fault === 'authority revoked') expect(await discover(f)).toEqual(undiscoverable);
+    });
+
+  it('never publishes a locator for unfinished or invalid archives', async () => {
+    const f = boundary(); const capture = f.create(); capture.record('private', () => CANARY);
+    await Promise.all(f.pending);
+    expect(await discover(f)).toEqual({ status: 'complete', bindings: [], cursor: null });
+    f.afterCommit(keys => {
+      if (keys.some(key => key.endsWith('/receipt'))) {
+        const path = [...f.objects.keys()].find(key => key.endsWith('/segment-0-0-0'))!;
+        f.objects.delete(path);
+      }
+    });
+    expect((await capture.finish('eof')).status).toBe('incomplete');
+    expect(await discover(f)).toEqual({ status: 'complete', bindings: [], cursor: null });
+  });
+
+  it.each(['owner', 'activity', 'generation', 'observation', 'scope kind'] as const)(
+    'denies unauthorized %s discovery before protected I/O', async field => {
+      const allowed: RawCaptureScope = field === 'activity' || field === 'generation'
+        ? { ownerKey: binding.ownerKey, scope: { kind: 'activity', activityId: 'activity-1', generation: 1 } } : scope;
+      const f = await saved(boundary(), { ...binding, ...allowed }); f.accesses.length = 0;
+      const foreign = structuredClone(allowed);
+      if (field === 'owner') foreign.ownerKey = 'foreign-owner';
+      if (field === 'observation') foreign.scope = { kind: 'observation', observationId: 'foreign-observation' };
+      if (field === 'activity') foreign.scope = { kind: 'activity', activityId: 'foreign-activity', generation: 1 };
+      if (field === 'scope kind') foreign.scope = { kind: 'activity', activityId: 'observation-1', generation: 1 };
+      if (field === 'generation') foreign.scope = { kind: 'activity', activityId: 'activity-1', generation: 2 };
+      expect(await discoverRawCaptures({ scope: foreign, storage: f.storage, authorize: async requested => {
+        if (JSON.stringify(requested) !== JSON.stringify(allowed)) throw new Error('Scope denied');
+      } })).toEqual(undiscoverable);
+      expect(f.accesses).toEqual([]);
+    });
+
+  it('isolates activity generations even when the caller is authorized to inspect both', async () => {
+    const f = boundary();
+    const current: RawCaptureBinding = { ...binding, scope: { kind: 'activity', activityId: 'activity-1', generation: 1 } };
+    await saved(f, current);
+    expect((await discover(f, scopeOf(current))).bindings).toEqual([current]);
+    expect(await discover(f, { ...scopeOf(current), scope: { kind: 'activity', activityId: 'activity-1', generation: 2 } }))
+      .toEqual({ status: 'complete', bindings: [], cursor: null });
+  });
+
+  it.each(['ciphertext', 'locator substitution', 'foreign owner', 'foreign generation'] as const)(
+    'fails closed with no locators on %s tampering', async fault => {
+      const f = await saved();
+      const path = [...f.objects.keys()].find(key => key.startsWith('operator-raw-index:'))!;
+      let target = scope;
+      if (fault === 'ciphertext') f.objects.set(path, 'v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+      if (fault === 'locator substitution') {
+        f.objects.set(`${path.slice(0, -64)}${'a'.repeat(64)}`, f.objects.get(path)!); f.objects.delete(path);
+      }
+      if (fault === 'foreign owner') target = { ...scope, ownerKey: 'foreign-owner' };
+      if (fault === 'foreign generation') target = { ownerKey: scope.ownerKey, scope: { kind: 'activity', activityId: 'activity-1', generation: 2 } };
+      const storage = fault.startsWith('foreign') ? { ...f.storage, storage: { ...f.native,
+        list: async <T>(options: { prefix: string }) => new Map([[`${options.prefix}capture-${path.slice(-64)}`, f.objects.get(path) as T]]),
+      } as unknown as RawCaptureStorage['storage'] } : f.storage;
+      expect(await discoverRawCaptures({ scope: target, storage, authorize: async () => {} })).toEqual(undiscoverable);
+    });
+
+  it.each(['owner', 'scope', 'capture', 'installation', 'release'] as const)(
+    'rejects an authenticated locator containing a mismatched %s binding without releasing earlier locators', async field => {
+      const f = await saved();
+      const second = f.create({ ...binding, captureId: 'capture-2' }); second.record('second', () => CANARY);
+      expect((await second.finish('eof')).status).toBe('complete');
+      const path = [...f.objects.keys()].filter(key => key.startsWith('operator-raw-index:')).sort().at(-1)!;
+      const name = path.split('/').at(-1)!;
+      // Private index v1 wire contract: authenticated but inconsistent bindings must still fail closed.
+      const context = JSON.stringify(['codeflare-operator-raw-index-v1', binding.ownerKey, 'observation', 'observation-1']);
+      const additionalData = JSON.stringify([context, name, null, null]);
+      const key = (await getOrImportKey({ ENCRYPTION_KEY: KEY }))!;
+      const locator = JSON.parse(await decryptFromKV(f.objects.get(path)!.slice(3), key, additionalData)) as { binding: RawCaptureBinding };
+      if (field === 'owner') locator.binding.ownerKey = 'foreign-owner';
+      if (field === 'scope') locator.binding.scope = { kind: 'observation', observationId: 'foreign-observation' };
+      if (field === 'capture') locator.binding.captureId = 'foreign-capture';
+      if (field === 'installation') locator.binding.installationId = 'foreign-installation';
+      if (field === 'release') locator.binding.releaseId = 'foreign-release';
+      f.objects.set(path, await encryptForKV(JSON.stringify(locator), key, additionalData));
+      expect(await discover(f)).toEqual(undiscoverable);
+    });
+
+  it.each(['revocation', 'key rotation', 'list failure'] as const)('withholds discovery after %s at the list boundary', async fault => {
+    const f = await saved();
+    if (fault === 'list failure') f.native.list = async () => { throw new Error('List failed'); };
+    else f.afterIo(fault === 'revocation' ? f.revoke : f.rotate);
+    expect(await discover(f)).toEqual(undiscoverable);
+  });
+
+  it('rejects malformed discovery scope and cursors without protected reads', async () => {
+    const f = boundary();
+    expect(await discover(f, { ownerKey: binding.ownerKey, scope: { kind: 'activity', activityId: 'a', generation: 0 } })).toEqual(undiscoverable);
+    expect(await discover(f, scope, 'foreign-prefix/capture-id')).toEqual(undiscoverable);
+    expect(f.accesses).toEqual([]);
+  });
 });
 
 describe('owner raw storage: existing private DO state and deployment encryption key only', () => {

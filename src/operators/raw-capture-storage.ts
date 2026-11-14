@@ -7,9 +7,11 @@ import { getOrImportKey, encryptForKV, decryptFromKV } from '../lib/kv-crypto';
 const FRAME = 64 * 1024; // Transport framing only; no record or capture length limit.
 const identity = z.string().min(1);
 const count = z.number().int().nonnegative().safe();
-const bindingSchema = z.strictObject({ ownerKey: identity, installationId: identity, releaseId: identity, captureId: identity,
+const scopeSchema = z.strictObject({ ownerKey: identity,
   scope: z.discriminatedUnion('kind', [z.strictObject({ kind: z.literal('observation'), observationId: identity }),
     z.strictObject({ kind: z.literal('activity'), activityId: identity, generation: count.min(1) })]) });
+const bindingSchema = scopeSchema.extend({ installationId: identity, releaseId: identity, captureId: identity });
+const locatorSchema = z.strictObject({ version: z.literal(1), binding: bindingSchema });
 const terminationSchema = z.enum(['complete', 'eof', 'cancelled', 'failed']);
 const receiptSchema = z.strictObject({ status: z.literal('complete'), captureId: identity,
   records: count, segments: count, bytes: count, termination: terminationSchema });
@@ -17,8 +19,9 @@ const frameSchema = z.strictObject({ record: count, part: count, bytes: z.number
   digest: z.string().regex(/^[a-f0-9]{64}$/) });
 const manifestSchema = z.strictObject({ version: z.literal(1), receipt: receiptSchema, frames: z.array(frameSchema) });
 export type RawCaptureBinding = z.infer<typeof bindingSchema>;
+export type RawCaptureScope = z.infer<typeof scopeSchema>;
 export interface RawCaptureStorage {
-  storage: Pick<DurableObjectStorage, 'get' | 'transaction'>;
+  storage: Pick<DurableObjectStorage, 'get' | 'transaction' | 'list'>;
   encryptionKey: string;
   authorize: () => Promise<void>;
 }
@@ -36,9 +39,15 @@ async function digest(value: string): Promise<string> {
   return Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))).toString('hex');
 }
 
+const scopeIdentity = (binding: RawCaptureScope) => binding.scope.kind === 'observation'
+  ? ['observation', binding.scope.observationId] : ['activity', binding.scope.activityId, binding.scope.generation];
+const captureContext = (binding: RawCaptureBinding) => JSON.stringify(['codeflare-operator-raw-v1', binding.ownerKey,
+  binding.installationId, binding.releaseId, binding.captureId, ...scopeIdentity(binding)]);
+const indexContext = (scope: RawCaptureScope) => JSON.stringify(['codeflare-operator-raw-index-v1', scope.ownerKey, ...scopeIdentity(scope)]);
+const locatorName = async (binding: RawCaptureBinding) => `capture-${await digest(captureContext(binding))}`;
+
 /** Private parent DO state only: no exported diagnostics, file namespace or new authority. */
-async function open(bindingInput: RawCaptureBinding, source: RawCaptureStorage) {
-  const binding = bindingSchema.parse(bindingInput);
+async function openNamespace(context: string, namespace: string, source: RawCaptureStorage) {
   const native = source.storage;
   const encryptionKey = source.encryptionKey;
   const authorize = source.authorize;
@@ -49,12 +58,8 @@ async function open(bindingInput: RawCaptureBinding, source: RawCaptureStorage) 
   await guard();
   const key = await getOrImportKey({ ENCRYPTION_KEY: encryptionKey }) ?? denied();
   await guard();
-  const scope = binding.scope.kind === 'observation' ? ['observation', binding.scope.observationId]
-    : ['activity', binding.scope.activityId, binding.scope.generation];
-  const context = JSON.stringify(['codeflare-operator-raw-v1', binding.ownerKey,
-    binding.installationId, binding.releaseId, binding.captureId, ...scope]);
-  const prefix = `operator-raw:v1:${await digest(context)}/`;
-  const aad = (ordinal: number | 'receipt', frame?: Pick<Frame, 'record' | 'part'>) =>
+  const prefix = `${namespace}:v1:${await digest(context)}/`;
+  const aad = (ordinal: number | string, frame?: Pick<Frame, 'record' | 'part'>) =>
     JSON.stringify([context, ordinal, frame?.record ?? null, frame?.part ?? null]);
   const get = async (name: string) => {
     await guard();
@@ -84,13 +89,39 @@ async function open(bindingInput: RawCaptureBinding, source: RawCaptureStorage) 
     if (received !== ciphertext || await digest(received) !== await digest(ciphertext)) denied();
     return digest(ciphertext);
   };
-  const decrypt = (ciphertext: string, additionalData: string) => decryptFromKV(ciphertext.slice(3), key, additionalData);
-  return { get, absent, put, decrypt, guard, aad };
+  const decrypt = (ciphertext: string, additionalData: string) => {
+    if (typeof ciphertext !== 'string' || !/^v1:[A-Za-z0-9+/]+={0,2}$/.test(ciphertext)) denied();
+    return decryptFromKV(ciphertext.slice(3), key, additionalData);
+  };
+  const list = async (cursor?: string) => {
+    await guard();
+    const entries = await native.list<unknown>({ prefix, limit: 100, ...(cursor ? { startAfter: `${prefix}capture-${cursor}` } : {}) });
+    await guard();
+    return new Map([...entries].map(([path, value]) => {
+      if (!path.startsWith(prefix) || !/^capture-[a-f0-9]{64}$/.test(path.slice(prefix.length))) denied();
+      return [path.slice(prefix.length), value] as const;
+    }));
+  };
+  return { get, absent, put, decrypt, guard, aad, list };
+}
+
+function open(binding: RawCaptureBinding, source: RawCaptureStorage) {
+  return openNamespace(captureContext(binding), 'operator-raw', source);
+}
+function openIndex(scope: RawCaptureScope, source: RawCaptureStorage) {
+  return openNamespace(indexContext(scope), 'operator-raw-index', source);
+}
+
+async function readLocator(index: Awaited<ReturnType<typeof openIndex>>, scope: RawCaptureScope, name: string, ciphertext: unknown) {
+  if (typeof ciphertext !== 'string') return denied();
+  const { binding } = locatorSchema.parse(JSON.parse(await index.decrypt(ciphertext, index.aad(name))));
+  if (indexContext(binding) !== indexContext(scope) || await locatorName(binding) !== name) denied();
+  return binding;
 }
 
 /** Caller owns this namespace's existing DO lifecycle, including deleteAll. */
 export async function createOwnerRawCaptureStorage(env: Pick<Env, 'ENCRYPTION_KEY'>,
-  storage: Pick<DurableObjectStorage, 'get' | 'transaction'>,
+  storage: RawCaptureStorage['storage'],
   authorize: () => Promise<void>): Promise<RawCaptureStorage> {
   await authorize();
   const encryptionKey = env.ENCRYPTION_KEY ?? '';
@@ -114,6 +145,7 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
   let queue = Promise.resolve();
   let finished: Promise<RawCaptureReceipt> | undefined;
   let io: ReturnType<typeof open> | undefined;
+  let source: Promise<RawCaptureStorage> | undefined;
   let binding = input.binding;
   if (enabled) {
     try { binding = bindingSchema.parse(input.binding); } catch { failed = true; }
@@ -121,7 +153,8 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
   const frames: Frame[] = [];
   const pending: string[] = [];
   let batches = 0;
-  const storage = () => io ??= resolveStorage().then(value => open(binding, value));
+  const storageSource = () => source ??= resolveStorage();
+  const storage = () => io ??= storageSource().then(value => open(binding, value));
   const enqueue = (work: () => Promise<void>) => {
     queue = queue.then(async () => { if (!failed) await work(); }).catch(() => { failed = true; });
     try { schedule(queue); } catch { failed = true; }
@@ -166,6 +199,14 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
         const verified = await readArchive(sink, binding);
         if (verified.receipt.records !== records || verified.receipt.segments !== segments
           || verified.receipt.bytes !== bytes || verified.receipt.termination !== termination) denied();
+        // One immutable encrypted locator per capture: concurrent finishes cannot lose an append.
+        // Its namespace needs only the known owner/run, never the producer-local random ID.
+        const index = await openIndex(binding, await storageSource());
+        const name = await locatorName(binding);
+        await index.put(name, JSON.stringify({ version: 1, binding }), index.aad(name));
+        const recovered = await readLocator(index, binding, name, await index.get(name));
+        if (captureContext(recovered) !== captureContext(binding)) denied();
+        await sink.guard();
       });
       finished = queue.then(() => receipt(termination, failed ? 'incomplete' : 'complete'), () => receipt(termination, 'incomplete'));
       return finished;
@@ -206,6 +247,33 @@ async function readArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCap
   await io.absent(frameName(receipt.segments, { record: batch, part: 0 }));
   await io.guard();
   return { receipt, records };
+}
+
+/** Private owner-DO discovery only, not a browser/SDK endpoint. The caller must authorize the
+ * requested owner AND activity/generation or observation before any protected I/O. A complete
+ * page authenticates locators; readRawCapture still verifies each archive before releasing data.
+ * Pagination uses immutable native keys, not a shared manifest; concurrent inserts before a
+ * cursor are visible on a fresh traversal. No capture ID, installation or release is required. */
+export async function discoverRawCaptures(input: { scope: RawCaptureScope; storage: RawCaptureStorage;
+  authorize: (scope: RawCaptureScope) => Promise<void>; cursor?: string }):
+Promise<{ status: 'complete' | 'incomplete'; bindings: RawCaptureBinding[]; cursor: string | null }> {
+  try {
+    const scope = scopeSchema.parse(input.scope);
+    const cursor = input.cursor === undefined ? undefined : z.string().regex(/^[a-f0-9]{64}$/).parse(input.cursor);
+    const original = input.storage;
+    const authorize = input.authorize;
+    const storage: RawCaptureStorage = { ...original, authorize: async () => {
+      await authorize(scopeSchema.parse(scope));
+      await original.authorize();
+      if (original.storage !== storage.storage || original.encryptionKey !== storage.encryptionKey) denied();
+    } };
+    const index = await openIndex(scope, storage);
+    const entries = await index.list(cursor);
+    const bindings: RawCaptureBinding[] = [];
+    for (const [name, ciphertext] of entries) bindings.push(await readLocator(index, scope, name, ciphertext));
+    await index.guard();
+    return { status: 'complete', bindings, cursor: entries.size === 100 ? [...entries.keys()].at(-1)!.slice('capture-'.length) : null };
+  } catch { return { status: 'incomplete', bindings: [], cursor: null }; }
 }
 
 /** No private partial records escape until the entire archive authenticates. */

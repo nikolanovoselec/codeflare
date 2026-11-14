@@ -3,7 +3,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { emitRaw, type RawLogContext } from '../../host/src/operator-raw-logging';
-import { getContainerId, forwardExisting } from '../lib/container-helpers';
+import { getContainerId, forwardExisting, getPersonalPiSession } from '../lib/container-helpers';
 import { readBoundedResponse, readBoundedStream } from '../lib/bounded-stream';
 import { loadEnterpriseRouteConfig, resolveSessionAccessGroup, resolveBucketName, operatorAccessSessionCurrent } from '../lib/access';
 import { authorizeDispatcherPlan, dispatcherRoutingGroups } from './operator-runtime-capability';
@@ -112,8 +112,7 @@ async function ownerContext(input: Input, selection?: ConfiguredDispatcherInfere
   if (!ownerSource || ownerSource.bucket !== bucket) throw new Error('Owner source unavailable');
   const reference = { bucket, sessionId: ownerSource.sessionId, email: authority.human.email };
   const container = env.CONTAINER.getByName(getContainerId(bucket, ownerSource.sessionId));
-  const trusted = container as unknown as { getPersonalPiSession(ref: typeof reference, ordinaryOnly?: boolean): Promise<{ generation: number }> };
-  if ((await trusted.getPersonalPiSession(reference, true)).generation !== ownerSource.sessionGeneration
+  if ((await getPersonalPiSession(container, reference, true)).generation !== ownerSource.sessionGeneration
     || input.signal?.aborted || !await input.current()) throw new Error('Owner source changed');
   return { container, reference, source, ownerKey: await operatorOwnerKey(authority.human), sessionId: ownerSource.sessionId,
     loggingEnabled: plan.receipt.selection.operator.policy.loggingEnabled !== false,
@@ -272,7 +271,7 @@ export class OperatorOwnerInferenceAuthority extends WorkerEntrypoint<Env> {
           generation: z.number().int().positive().safe(), stage: z.string().min(1), value: z.unknown() }).parse(await request.json());
         if (!Object.hasOwn(input, 'value')) throw new Error('Denied');
         const container = this.env.CONTAINER.getByName(getContainerId(props.bucket, props.sessionId));
-        const session = await container.getPersonalPiSession(props, true);
+        const session = await getPersonalPiSession(container, props, true);
         const receipt = await this.env.OPERATOR_ACTIVITY!.getByName(input.activityId).retainDispatcherOwnerObservation(
           input.generation, { ...props, sessionGeneration: session.generation }, input.stage, input.value);
         return Response.json(receipt, { status: receipt.status === 'complete' ? 200 : 503,

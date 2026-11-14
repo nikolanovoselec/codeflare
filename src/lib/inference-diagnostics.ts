@@ -1,4 +1,3 @@
-import { RpcTarget } from 'cloudflare:workers';
 import { createLogger } from './logger';
 import { emitRaw, type RawLogContext } from '../../host/src/operator-raw-logging';
 
@@ -12,24 +11,21 @@ export interface InferenceDiagnosticContext {
   operationOrdinal?: number;
   requestDigest?: string;
 }
-class PrivateArchiveTarget extends RpcTarget {
-  #archive: NonNullable<RawLogContext['privateArchive']>;
-  constructor(archive: NonNullable<RawLogContext['privateArchive']>) { super(); this.#archive = archive; }
-  record(stage: string, value: unknown): void {
-    if (typeof stage !== 'string') throw new Error('Raw observation unavailable');
-    this.#archive(stage, value);
-  }
+/** Structural wire only; the Worker owner constructs the native RPC capability. */
+export interface InferencePrivateArchiveSink {
+  record(stage: string, value: unknown): void | Promise<void>;
 }
 export type InferenceDiagnosticWireContext = Omit<InferenceDiagnosticContext, 'privateArchive'> & {
-  privateArchiveSink?: PrivateArchiveTarget;
+  privateArchiveSink?: InferencePrivateArchiveSink;
 };
 
-/** Native RPC carries a scoped target, never a JavaScript callback in props. */
-export function inferenceDiagnosticWire(context: InferenceDiagnosticContext | undefined): InferenceDiagnosticWireContext | undefined {
+/** Never serialize the local callback or silently discard an enabled private archive. */
+export function inferenceDiagnosticWire(context: InferenceDiagnosticContext | undefined,
+  privateArchiveSink?: InferencePrivateArchiveSink): InferenceDiagnosticWireContext | undefined {
   if (!context) return undefined;
   const { privateArchive, ...metadata } = context;
-  return { ...metadata, ...(privateArchive && context.loggingEnabled !== false
-    ? { privateArchiveSink: new PrivateArchiveTarget(privateArchive) } : {}) };
+  if (privateArchive && context.loggingEnabled !== false && !privateArchiveSink) throw new Error('Raw observation capability unavailable');
+  return { ...metadata, ...(privateArchive && context.loggingEnabled !== false ? { privateArchiveSink } : {}) };
 }
 
 /** Recompose only at the receiving private entrypoint, retaining its invocation lifetime. */

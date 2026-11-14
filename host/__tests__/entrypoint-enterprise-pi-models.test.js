@@ -14,12 +14,12 @@
 // configured catalog shape. Revert the fix (def back) and this test fails.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync, statSync, chmodSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider, extractPiCleanup } from '../__fixtures__/enterprise-pi-startup.mjs';
+import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider, extractPiCleanup, systemTrustIsolation } from '../__fixtures__/enterprise-pi-startup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
@@ -44,6 +44,22 @@ function extractEnterpriseBlock() {
   const end = entrypoint.indexOf(endMarker, start);
   if (end === -1) throw new Error('Enterprise block closing marker not found in entrypoint.sh');
   return entrypoint.slice(start, end + '\nfi\n'.length);
+}
+
+// Re-run the real enterprise boundary against the SAME restored home, without
+// launching Pi or touching any provider. Hints are startup input, not authority.
+function restartEnterpriseStartup(fixture, personalProviders) {
+  return spawnSync('bash', ['-c', `set -euo pipefail\n${systemTrustIsolation}\n${extractEnterpriseBlock()}`], {
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: fixture.home, USER_HOME: fixture.home,
+      ENTERPRISE_MODE: 'active', ENTERPRISE_ROUTE_CATALOG: JSON.stringify(authorizedRoutes),
+      ENTERPRISE_DEFAULT_ROUTE: 'bedrock_opus', ENTERPRISE_DEFAULT_REASONING: 'medium',
+      ENTERPRISE_ROUTE_REASONING_LEVELS: JSON.stringify({ bedrock_opus: ['medium'], [nativeHandle]: nativeLevels }),
+      ENTERPRISE_PI_DEFAULT_SOURCE: 'pi-native',
+      ...(personalProviders !== undefined && { ENTERPRISE_PI_PERSONAL_PROVIDERS: String(personalProviders) }),
+    },
+  });
 }
 
 function extractEmptyCatalogBody() {
@@ -290,11 +306,13 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.equal(byId.development, 256000, 'unlisted route falls back to the default');
   });
 
-  it('clears Pi auth.json to {} in enterprise so the model picker is routes-only', () => {
-    const fixture = enterpriseStartup({ auth: { 'openai-codex': { type: 'oauth', access: 'synthetic-seeded', expires: 9999999999999 } } });
+  it('preserves restored Pi authentication when enterprise native permission is absent', () => {
+    const auth = { 'openai-codex': { type: 'oauth', access: 'synthetic-seeded', expires: 9999999999999 } };
+    const fixture = enterpriseStartup({ auth });
     try {
       assert.equal(fixture.result.status, 0, fixture.result.stderr);
-      assert.deepEqual(JSON.parse(readFileSync(join(fixture.agentDir, 'auth.json'), 'utf8')), {});
+      assert.equal(readFileSync(join(fixture.agentDir, 'auth.json'), 'utf8'), JSON.stringify(auth));
+      assert.equal(statSync(join(fixture.agentDir, 'auth.json')).mode & 0o777, 0o600);
     } finally { fixture.cleanup(); }
   });
 
@@ -377,13 +395,43 @@ describe('REQ-ENTERPRISE-088: personal Pi startup authority', () => {
       assert.equal(fixture.readSettings().defaultProvider, 'codeflare-gateway');
     } finally { fixture.cleanup(); }
   });
-  it('REQ-ENTERPRISE-088 AC4: missing false and malformed hints clear personal authentication', () => {
-    for (const personalProviders of [undefined, false, 'yes', '1']) {
-      const fixture = enterpriseStartup({ personalProviders, auth });
-      try {
-        assert.equal(fixture.result.status, 0, fixture.result.stderr);
-        assert.deepEqual(JSON.parse(readFileSync(join(fixture.agentDir, 'auth.json'), 'utf8')), {});
-      } finally { fixture.cleanup(); }
+  // Exact bytes are the credential-preservation contract: include formatting,
+  // OAuth refresh metadata, API keys, unknown fields and non-ASCII JSON content.
+  const authBytes = Buffer.from('{\r\n  "openai-codex": {"type":"oauth","access":"synthetic-access","refresh":"synthetic-refresh","expires":9999999999999,"accountId":"synthetic-owner","metadata":{"label":"proba-č"}},\r\n  "anthropic": {"type":"api_key","key":"synthetic-personal-key","extra":[1,true,null]}\r\n}\r\n');
+  for (const personalProviders of [undefined, false, '', 'yes', '1', 'TRUE']) {
+    it(`REQ-ENTERPRISE-089 AC3: missing false and malformed hints preserve owner credential bytes and managed defaults (${personalProviders})`, t => {
+      const fixture = enterpriseStartup({ personalProviders: true, piDefaultSource: 'pi-native', settings: {
+        defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high', theme: 'dark',
+      } });
+      t.after(fixture.cleanup);
+      assert.equal(fixture.result.status, 0, fixture.result.stderr);
+      const authPath = join(fixture.agentDir, 'auth.json');
+      writeFileSync(authPath, authBytes, { mode: 0o600 });
+      const result = restartEnterpriseStartup(fixture, personalProviders);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(readFileSync(authPath), authBytes);
+      assert.equal(statSync(authPath).mode & 0o777, 0o600);
+      assert.deepEqual(fixture.readSettings(), { defaultProvider: 'codeflare-gateway', defaultModel: 'bedrock_opus',
+        defaultThinkingLevel: 'medium', theme: 'dark' });
+      assert.deepEqual(fixture.readModels().providers['codeflare-gateway'].models.map(model => model.id), authorizedRoutes);
+    });
+  }
+
+  it('REQ-ENTERPRISE-089 AC3: disable and re-enable preserve owner credential bytes and private permissions', t => {
+    const fixture = enterpriseStartup({ personalProviders: true, piDefaultSource: 'pi-native' });
+    t.after(fixture.cleanup);
+    assert.equal(fixture.result.status, 0, fixture.result.stderr);
+    const authPath = join(fixture.agentDir, 'auth.json');
+    writeFileSync(authPath, authBytes, { mode: 0o600 });
+    // Startup also tightens an overly broad restored mode without rewriting data.
+    chmodSync(authPath, 0o644);
+    for (const personalProviders of [false, true, false, true]) {
+      const result = restartEnterpriseStartup(fixture, personalProviders);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(readFileSync(authPath), authBytes);
+      assert.equal(statSync(authPath).mode & 0o777, 0o600);
+      assert.deepEqual(fixture.readSettings(), personalProviders ? { theme: 'dark' }
+        : { defaultProvider: 'codeflare-gateway', defaultModel: 'bedrock_opus', defaultThinkingLevel: 'medium', theme: 'dark' });
     }
   });
 });

@@ -269,7 +269,7 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
     const requests = recorded.events.filter(event => event.stage === 'discovery-request').map(event => event.value);
     expect(requests, JSON.stringify(requests))
       .toEqual([root, pageUrl, next].map(url => expect.objectContaining({ method: 'GET', url,
-        path: url.slice(root.length), redirect: 'manual', headers: expect.arrayContaining([
+        path: url.slice(root.length), redirect: 'manual', bodyUsed: false, headers: expect.arrayContaining([
           ['accept', 'application/vnd.github+json'], ['user-agent', 'Codeflare-Operator-Renovate'],
         ]) })));
     expect(recorded.events.filter(event => event.stage === 'discovery-response').map(event => event.value))
@@ -439,6 +439,22 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
       } else expect(recorded.events).toEqual([]);
       expect(response.body!.locked).toBe(false);
     }
+  });
+
+  it('captures native Body state without executing replacement bodyUsed or toJSON accessors', async () => {
+    const recorded = collector();
+    const bytes = encode(JSON.stringify([row(1)]));
+    const response = new Response(bytes);
+    let state = 'untouched';
+    Object.defineProperty(response, 'bodyUsed', { get() { state = 'body getter executed'; throw Error('Unsafe body metadata'); } });
+    Object.defineProperty(response, 'toJSON', { get() { state = 'toJSON getter executed'; throw Error('Unsafe JSON metadata'); } });
+    expect((await capturedScan([response], recorded.capture)).map(candidate => candidate.pullRequest)).toEqual([1]);
+    expect(state).toBe('untouched');
+    expect(recorded.events.find(event => event.stage === 'discovery-response' && event.value.url === pageUrl)?.value.bodyUsed)
+      .toEqual({ captureUnavailable: 'application-accessor' });
+    expect(recorded.events.filter(event => event.stage === 'discovery-request').map(event => event.value.bodyUsed)).toEqual([false, false]);
+    expect(reassemble(recorded.events, pageUrl)).toEqual(bytes);
+    expect(response.body!.locked).toBe(false);
   });
 
   it('does not add a functional status read through an application-owned response accessor', async () => {
