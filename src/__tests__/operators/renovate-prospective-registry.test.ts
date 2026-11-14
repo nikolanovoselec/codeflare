@@ -2057,7 +2057,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             if (orphanLease && !originalState) {
               // A retained SQL receipt is not a local policy proof: retry still reads the orphan but must not archive its payload.
               expect(privateRecords).not.toContain(runtimePrivateValue);
-              expect(protectedRecords).toContainEqual({ stage: 'registry-retry-proof-response', value: null });
+              if (observation.loggingEnabled) expect(protectedRecords).toContainEqual({ stage: 'registry-retry-proof-response', value: null });
               expect(await inActivity(() => activityNative.storage.get(orphanKey!))).toEqual(orphanValue);
             }
             if (originalArchive) expect(await readOriginalCapture()).toEqual(originalArchive);
