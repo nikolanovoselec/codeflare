@@ -11,6 +11,7 @@ type ParentScanTransport = {
   repository: string; human: { email: string }; bucket: string; current: () => Promise<boolean>; capture?: RawCapture;
 };
 type ScanRequest = { method: string; url: string; path: string };
+type ScanCapture = Pick<RawCapture, 'record' | 'flush'>;
 const requestFields = ['headers', 'cache', 'credentials', 'destination', 'integrity', 'keepalive', 'mode',
   'referrer', 'referrerPolicy', 'redirect', 'bodyUsed', 'cf'] as const;
 const responseFields = ['url', 'headers', 'status', 'statusText', 'ok', 'redirected', 'type', 'bodyUsed', 'cf', 'webSocket'] as const;
@@ -41,13 +42,98 @@ function transportMetadata(value: Request | Response, fields: readonly string[],
     } catch { return [key, { captureUnavailable: 'transport-field' }]; }
   }));
 }
-function record(capture: RawCapture | undefined, stage: string, value: () => unknown): void {
+function record(capture: ScanCapture | undefined, stage: string, value: () => unknown): void {
   try { capture?.record(stage, value); } catch { /* Capture must never change the scan outcome. */ }
 }
-function scanError(capture: RawCapture | undefined, request: ScanRequest, error: unknown): unknown {
+function scanError(capture: ScanCapture | undefined, request: ScanRequest, error: unknown): unknown {
   record(capture, 'discovery-response-error', () => ({ ...request, error }));
   return error;
 }
+// Each wait uses the original request signal, including time already spent waiting for headers.
+async function beforeScanDeadline<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+  if (signal.aborted) throw signal.reason;
+  let abort: () => void = () => {};
+  const stopped = new Promise<never>((_, reject) => {
+    abort = () => { reject(signal.reason); };
+    signal.addEventListener('abort', abort, { once: true });
+  });
+  try { return await Promise.race([work(), stopped]); }
+  finally { signal.removeEventListener('abort', abort); }
+}
+
+/** Only refused responses have an independent reader. Successful JSON consumption stays unchanged. */
+async function readRefusedScanResponse(response: Response, capture: ScanCapture, request: ScanRequest, signal: AbortSignal): Promise<void> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let size = 0, delivered = 0, eof = false, observedError: unknown;
+  try {
+    // Use the pristine native Body getter, not an application-owned diagnostic accessor.
+    const body = responseDescriptors.body?.get?.call(response) as ReadableStream<Uint8Array> | null | undefined;
+    if (!body) throw Error('Renovate page unavailable');
+    reader = body.getReader(); // A foreign lock is evidence of unavailability, never ours to release.
+    for (;;) {
+      const chunk = await beforeScanDeadline(signal, () => reader!.read());
+      if (chunk.done) {
+        eof = true;
+        capture.record('discovery-response-eof', () => ({ ...request, offset: size }));
+        await beforeScanDeadline(signal, () => capture.flush?.() ?? Promise.resolve());
+        break;
+      }
+      delivered += chunk.value.byteLength;
+      // Transport framing, not a payload cutoff: persist each part before expanding another.
+      for (let start = 0; start < chunk.value.byteLength; start += 64 * 1024) {
+        const bytes = chunk.value.subarray(start, start + 64 * 1024), offset = size;
+        size += bytes.byteLength;
+        capture.record('discovery-response-chunk', () => ({ ...request, offset, bytes: Array.from(bytes) }));
+        await beforeScanDeadline(signal, () => capture.flush?.() ?? Promise.resolve());
+      }
+    }
+  } catch (error) {
+    observedError = error;
+    scanError(capture, request, error);
+    record(capture, 'discovery-response-incomplete', () => ({ ...request, offset: size, deliveredOffset: delivered, eof, error }));
+  } finally {
+    if (reader) {
+      if (!eof) {
+        const reason = signal.aborted ? signal.reason : undefined;
+        record(capture, 'discovery-response-cancel', () => ({ ...request, offset: size, deliveredOffset: delivered,
+          eof, action: 'reader.cancel', reason, observedError, pending: true }));
+        try {
+          const cancelled = reader.cancel(reason).then(() => {
+            record(capture, 'discovery-response-cancel-settled', () => ({ ...request, offset: size, eof, reason, pending: false }));
+          }, error => {
+            scanError(capture, request, error);
+            record(capture, 'discovery-response-cancel-settled', () => ({ ...request, offset: size, eof, reason, pending: false, error }));
+          });
+          // Release locally now; observing cancellation cannot extend the original request deadline.
+          reader.releaseLock(); reader = undefined;
+          await beforeScanDeadline(signal, () => cancelled);
+        } catch (error) {
+          scanError(capture, request, error);
+          record(capture, 'discovery-response-incomplete', () => ({ ...request, offset: size, deliveredOffset: delivered,
+            eof, cancellationPending: true, error }));
+        }
+      }
+      reader?.releaseLock();
+    }
+  }
+}
+
+function captureRefusedScanResponse(response: Response, capture: RawCapture | undefined, request: ScanRequest, signal: AbortSignal): void {
+  if (!capture) return;
+  const produce = (writer: ScanCapture) => readRefusedScanResponse(response, writer, request, signal);
+  try {
+    if (capture.defer) capture.defer(produce);
+    else {
+      // Older caller-local sinks can observe bytes, but cannot promise parent-finalization ordering.
+      record(capture, 'discovery-response-incomplete', () => ({ ...request, captureUnavailable: 'producer-lifecycle-unavailable' }));
+      void Promise.resolve().then(() => produce(capture)).catch(error => { scanError(capture, request, error); });
+    }
+  } catch (error) {
+    scanError(capture, request, error);
+    record(capture, 'discovery-response-incomplete', () => ({ ...request, captureUnavailable: 'producer-lifecycle-failed', error }));
+  }
+}
+
 async function readScanPage(response: Response, capture: RawCapture | undefined, request: ScanRequest): Promise<unknown> {
   let reader: ReadableStreamDefaultReader<Uint8Array>, decoder: TextDecoder;
   try {
@@ -111,7 +197,10 @@ function scanTransport(input: ParentScanTransport) {
         const { url: responseUrl, ...metadata } = transportMetadata(response, responseFields, responseDescriptors);
         return { ...correlation, responseUrl, ...metadata };
       });
-      if (response.status !== 200 || response.redirected) throw Error('Incomplete Renovate scan');
+      if (response.status !== 200 || response.redirected) {
+        captureRefusedScanResponse(response, input.capture, correlation, request.signal);
+        throw Error('Incomplete Renovate scan');
+      }
     } catch (error) { throw scanError(input.capture, correlation, error); }
     const value = await readScanPage(response, input.capture, correlation);
     try {

@@ -1021,7 +1021,7 @@ export class OperatorActivity extends Agent {
   async retireProspectiveRenovatePreparation(input: ProspectiveAdmission, observation?: ProspectiveObservationCapture): Promise<boolean> {
     let raw: RawCapture | undefined;
     // Do not fetch policy or other protected evidence solely for optional diagnostics.
-    let loggingEnabled = false;
+    let loggingEnabled: boolean | undefined;
     const refuse = (reason: 'receiver-mismatch' | 'original-admission-mismatch' | 'unsupported-layout'
       | 'binding-mismatch' | 'missing-state-with-ledger' | 'uncertain' | 'collection-consumed'
       | 'binding-intent-pins' | 'owner-mismatch' | 'receipt-mismatch' | 'receipt-selection-mismatch'
@@ -1057,23 +1057,30 @@ export class OperatorActivity extends Agent {
       if (!layout) return refuse('unsupported-layout');
       // Even the original 2160810c start path wrote this immutable ledger before queue/runtime.
       // A later optional reservation timestamp is not admission evidence; local absence alone is not either.
-      const ledger = await captureRawInteraction(raw, 'activity-retirement-ledger', () => original.activityId,
-        () => registry.getManagementAdmission(original.activityId, observation));
-      try { loggingEnabled = executionLoggingEnabled(ledger); }
-      catch { /* Unreadable diagnostic policy cannot change retirement. */ }
+      const ledger = await captureRawInteraction(raw, 'activity-retirement-ledger', () => original.activityId, async () => {
+        const receipt = await registry.getManagementAdmission(original.activityId, observation);
+        try { loggingEnabled = executionLoggingEnabled(receipt); }
+        catch { loggingEnabled = false; }
+        return receipt;
+      }, value => loggingEnabled ? value : { omitted: 'original-logging-policy' });
       const neverAdmitted = ledger === null;
       const retired = await this.ctx.storage.transaction(async tx => {
-        const state = await captureRawInteraction(raw, 'activity-retirement-state-read', () => 'admission',
-          () => tx.get<AdmissionState>('admission'), value => !value || value.ownerKey === input.ownerKey ? value : { foreignOwner: true });
-        const bound = await captureRawInteraction(raw, 'activity-retirement-binding', () => 'prospective-admission',
+        const state = await captureRawInteraction(loggingEnabled ? raw : undefined, 'activity-retirement-state-read', () => 'admission', async () => {
+          const value = await tx.get<AdmissionState>('admission');
+          // Consult only the receipt already required by retirement, before any state snapshot can be serialized.
+          try { loggingEnabled = executionLoggingEnabled(ledger ?? value?.receipt); }
+          catch { loggingEnabled = false; }
+          return value;
+        }, value => !loggingEnabled ? { omitted: 'original-logging-policy' }
+          : !value || value.ownerKey === input.ownerKey ? value : { foreignOwner: true });
+        const trace = loggingEnabled ? raw : undefined;
+        const bound = await captureRawInteraction(trace, 'activity-retirement-binding', () => 'prospective-admission',
           () => tx.get<string>('prospective-admission'));
-        const retirement = await captureRawInteraction(raw, 'activity-retirement-fence', () => 'prospective-retirement',
+        const retirement = await captureRawInteraction(trace, 'activity-retirement-fence', () => 'prospective-retirement',
           () => tx.get<string>('prospective-retirement'));
-        raw?.record('activity-retirement-state', () => state && state.ownerKey !== input.ownerKey
+        trace?.record('activity-retirement-state', () => state && state.ownerKey !== input.ownerKey
           ? { foreignOwner: true } : { state, bound, retirement, layout, neverAdmitted });
-        try { await raw?.flush?.(); } catch { /* Preserve the transaction. */ }
-        try { loggingEnabled = executionLoggingEnabled(ledger ?? state?.receipt); }
-        catch { loggingEnabled = false; }
+        try { await trace?.flush?.(); } catch { /* Preserve the transaction. */ }
         if (bound && bound !== original.activityId || retirement && retirement !== original.activityId) return refuse('binding-mismatch');
         if (!state && !neverAdmitted) return refuse('missing-state-with-ledger');
         if (state?.diagnosticFence?.uncertain) return refuse('uncertain');
@@ -1119,43 +1126,44 @@ export class OperatorActivity extends Agent {
             || state.phase !== 'prepared' && !(state.phase === 'cancelled' && retirement === original.activityId)) return refuse('phase-or-ledger');
         }
         // Check every runtime/effect key, including orphaned legacy records; diagnostics are not effects.
-        if (await captureRawInteraction(raw, 'activity-retirement-publication', () => RENOVATE_PUBLICATION,
+        if (await captureRawInteraction(trace, 'activity-retirement-publication', () => RENOVATE_PUBLICATION,
           () => tx.get(RENOVATE_PUBLICATION))) return refuse('publication-present');
         let cursor: string | undefined;
         for (;;) {
-          raw?.record('activity-retirement-runtime-request', () => ({ prefix: 'dispatcher:', limit: 128, cursor }));
+          trace?.record('activity-retirement-runtime-request', () => ({ prefix: 'dispatcher:', limit: 128, cursor }));
           const entries = await tx.list({ prefix: 'dispatcher:', limit: 128, ...(cursor ? { startAfter: cursor } : {}) });
-          raw?.record('activity-retirement-runtime-response', () => [...entries]);
-          try { await raw?.flush?.(); } catch { /* Keep the original effect guard. */ }
+          trace?.record('activity-retirement-runtime-response', () => [...entries]);
+          try { await trace?.flush?.(); } catch { /* Keep the original effect guard. */ }
           if ([...entries.keys()].some(key => !key.startsWith('dispatcher:diagnostics:'))) return refuse('runtime-effect-present');
           if (entries.size < 128) break;
           cursor = [...entries.keys()].at(-1)!;
         }
         // Shares prepareAuthorized/start/beginDrive ordering, so delayed original work cannot win later.
-        await captureRawInteraction(raw, 'activity-retirement-write', () => ({ key: 'prospective-retirement', value: original.activityId }),
+        await captureRawInteraction(trace, 'activity-retirement-write', () => ({ key: 'prospective-retirement', value: original.activityId }),
           () => tx.put('prospective-retirement', original.activityId));
         if (!state || state.drive) return true;
         const now = Date.now();
         if (state.phase !== 'queued') {
           const value: AdmissionState = { ...state, phase: 'cancelled',
             intent: { ...state.intent, startVerifier: '' }, updatedAt: now };
-          await captureRawInteraction(raw, 'activity-retirement-write', () => ({ key: 'admission', value }), () => tx.put('admission', value));
+          await captureRawInteraction(trace, 'activity-retirement-write', () => ({ key: 'admission', value }), () => tx.put('admission', value));
         } else {
           const value: AdmissionState = { ...state,
             drive: { generation: 1, status: 'cancel-requested', checkpoint: null, result: null },
             diagnosticFence: { generation: 0, timestamp: now, boundary: 'fence', code: 'cancelled', uncertain: false },
             diagnosticsVersion: 1, diagnosticBinding: { generation: 0,
               artifactDigest: state.executionContext!.artifactDigest, inputDigest: state.receipt!.intentDigest }, updatedAt: now };
-          await captureRawInteraction(raw, 'activity-retirement-write', () => ({ key: 'admission', value }), () => tx.put('admission', value));
+          await captureRawInteraction(trace, 'activity-retirement-write', () => ({ key: 'admission', value }), () => tx.put('admission', value));
         }
         return true;
       });
-      if (retired) await captureRawInteraction(raw, 'activity-retirement-publication-summary', () => ({ activityId: original.activityId }),
-        () => this.publishBrowserSummary(undefined, undefined, undefined, raw));
+      const trace = loggingEnabled ? raw : undefined;
+      if (retired) await captureRawInteraction(trace, 'activity-retirement-publication-summary', () => ({ activityId: original.activityId }),
+        () => this.publishBrowserSummary(undefined, undefined, undefined, trace));
       raw?.record('activity-retirement-response', () => retired);
       return retired;
     } catch (error) {
-      raw?.record('activity-retirement-error', () => error);
+      raw?.record('activity-retirement-error', () => loggingEnabled === false ? { omitted: 'original-logging-policy' } : error);
       return refuse('evidence-unavailable'); // Unavailable evidence cannot authorize a replacement.
     } finally { try { await raw?.finish('complete'); } catch { /* Retention cannot change retirement. */ } }
   }
@@ -6065,8 +6073,11 @@ export class OperatorActivity extends Agent {
     } catch { observation = undefined; }
     const archive = this.prospectiveObservationRelay(observation);
     let owned = true;
+    let loggingEnabled: boolean | undefined;
     const raw = archive && { ...archive, record: (stage: string, value: () => unknown) => {
-      if (stage === 'activity-retry-proof-response' && !owned) archive.record(stage, () => ({ foreignOwner: true }));
+      if (loggingEnabled === false && (stage === 'activity-retry-proof-response' || stage === 'activity-retry-proof-error')) {
+        archive.record(stage, () => ({ omitted: 'original-logging-policy' }));
+      } else if (stage === 'activity-retry-proof-response' && !owned) archive.record(stage, () => ({ foreignOwner: true }));
       else archive.record(stage, value);
     } };
     try { return await captureRawInteraction(raw, 'activity-retry-proof', () => input, async () => {
@@ -6080,9 +6091,14 @@ export class OperatorActivity extends Agent {
     if (!original || original.repositoryId !== input.repositoryId || original.pullRequest !== input.pullRequest
       || original.head !== input.head) return null;
     return this.ctx.storage.transaction(async tx => {
-      const state = await captureRawInteraction(owned ? raw : undefined, 'activity-retry-admission', () => 'admission',
-        () => tx.get<AdmissionState>('admission'), value => !value || value.ownerKey === observation?.binding.ownerKey ? value : { foreignOwner: true });
-      const trace = owned && (!state || state.ownerKey === observation?.binding.ownerKey) ? raw : undefined;
+      const state = await captureRawInteraction(owned ? raw : undefined, 'activity-retry-admission', () => 'admission', async () => {
+        const value = await tx.get<AdmissionState>('admission');
+        try { loggingEnabled = executionLoggingEnabled(value?.receipt); }
+        catch { loggingEnabled = false; }
+        return value;
+      }, value => !loggingEnabled ? { omitted: 'original-logging-policy' }
+        : !value || value.ownerKey === observation?.binding.ownerKey ? value : { foreignOwner: true });
+      const trace = loggingEnabled && owned && (!state || state.ownerKey === observation?.binding.ownerKey) ? raw : undefined;
       const lease = await captureRawInteraction(trace, 'activity-retry-lease', () => DISPATCHER_LEASE,
         () => tx.get<DispatcherLease>(DISPATCHER_LEASE));
       trace?.record('activity-retry-state', () => ({ state, lease }));

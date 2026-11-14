@@ -1732,15 +1732,26 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
 
   /** Reconciliation is read-only and grants no new human authority. */
   async getManagementAdmission(activityId: string, observation?: ProspectiveObservationCapture): Promise<ManagementAdmissionReceipt | null> {
-    const capture = this.prospectiveObservationCapture(observation);
+    const archive = this.prospectiveObservationCapture(observation);
+    let loggingEnabled = false;
+    const capture = archive && { ...archive, record: (stage: string, value: () => unknown) => {
+      // Requests belong to the current observation; historical row/result/error payloads need their original policy first.
+      if (!loggingEnabled && (stage === 'registry-management-admission-row'
+        || stage === 'registry-management-admission-response' || stage === 'registry-management-admission-error')) {
+        archive.record(stage, () => ({ omitted: 'original-logging-policy' }));
+      } else archive.record(stage, value);
+    } };
     try { return await captureRawInteraction(capture, 'registry-management-admission', () => ({ activityId }), async () => {
       this.managementSchema();
       const query = 'SELECT data FROM operator_admissions WHERE activity_id=?';
       capture?.record('registry-management-admission-query', () => ({ query, parameters: [activityId] }));
       const row = this.ctx.storage.sql.exec<{ data: string }>(query, activityId).toArray()[0];
+      const receipt: ManagementAdmissionReceipt | null = row ? JSON.parse(row.data) : null;
+      try { loggingEnabled = !receipt || receipt.selection.operator.policy.loggingEnabled !== false; }
+      catch { /* An unreadable original policy cannot authorize optional historical payload retention. */ }
       capture?.record('registry-management-admission-row', () => row);
-      return row ? JSON.parse(row.data) : null;
-    }); } finally { try { await capture?.finish('complete'); } catch { /* Preserve immutable ledger read. */ } }
+      return receipt;
+    }); } finally { try { await archive?.finish('complete'); } catch { /* Preserve immutable ledger read. */ } }
   }
 
   /** Parent-only pinned bytes; never exposed through management/user storage APIs or refreshed from latest. */

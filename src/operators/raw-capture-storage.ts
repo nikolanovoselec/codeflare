@@ -32,6 +32,8 @@ export interface RawCapture {
   finish(termination: Termination): Promise<RawCaptureReceipt>;
   /** Optional backpressure for local writers and data-only Root RPC relays. */
   flush?(): Promise<void>;
+  /** Caller-local producer only, never an RPC field. Finish joins admitted producers before sealing their writes. */
+  defer?(produce: (writer: Pick<RawCapture, 'record' | 'flush'>) => Promise<void>): void;
 }
 type Frame = z.infer<typeof frameSchema>;
 // Preserve authenticated frame coordinates in locators even without a final receipt.
@@ -183,6 +185,7 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
   let records = 0; let segments = 0; let bytes = 0;
   let queue = Promise.resolve();
   let finished: Promise<RawCaptureReceipt> | undefined;
+  const producers = new Set<Promise<void>>();
   let io: ReturnType<typeof open> | undefined;
   let source: Promise<RawCaptureStorage> | undefined;
   let binding = input.binding;
@@ -200,58 +203,75 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
   };
   const receipt = (termination: Termination, status: RawCaptureReceipt['status']): RawCaptureReceipt =>
     ({ status, captureId: binding.captureId, records, segments, bytes, termination });
+  const write: RawCapture['record'] = (stage, lazy) => {
+    if (!enabled || failed) return;
+    try {
+      if (typeof stage !== 'string') denied();
+      // Only inert snapshot data reaches JSON serialization, never application toJSON/getters.
+      pending.push(JSON.stringify({ stage, value: captureRawValue(lazy()) }));
+      records++;
+      enqueue(async () => {
+        const sink = await storage();
+        if (!pending.length) return;
+        // Coalesce available records without dropping small events or imposing an event budget.
+        const encoded = new TextEncoder().encode(`[${pending.splice(0).join(',')}]`);
+        const record = batches++;
+        bytes += encoded.length;
+        segments += Math.ceil(encoded.length / FRAME);
+        for (let offset = 0, part = 0; offset < encoded.length; offset += FRAME, part++) {
+          if (failed) denied();
+          const chunk = encoded.subarray(offset, offset + FRAME);
+          const frame = { record, part, bytes: chunk.length };
+          const ordinal = frames.length;
+          const checksum = await sink.put(frameName(ordinal, frame), Buffer.from(chunk).toString('base64'), sink.aad(ordinal, frame));
+          frames.push({ ...frame, digest: checksum });
+        }
+      });
+    } catch { failed = true; }
+  };
+  const flush = async () => {
+    await queue;
+    if (failed) denied();
+  };
   return {
-    record(stage, lazy) {
+    record(stage, lazy) { if (!finished) write(stage, lazy); },
+    flush,
+    defer(produce) {
       if (!enabled || finished || failed) return;
-      try {
-        if (typeof stage !== 'string') denied();
-        // Only inert snapshot data reaches JSON serialization, never application toJSON/getters.
-        pending.push(JSON.stringify({ stage, value: captureRawValue(lazy()) }));
-        records++;
-        enqueue(async () => {
-          const sink = await storage();
-          if (!pending.length) return;
-          // Coalesce available records without dropping small events or imposing an event budget.
-          const encoded = new TextEncoder().encode(`[${pending.splice(0).join(',')}]`);
-          const record = batches++;
-          bytes += encoded.length;
-          segments += Math.ceil(encoded.length / FRAME);
-          for (let offset = 0, part = 0; offset < encoded.length; offset += FRAME, part++) {
-            if (failed) denied();
-            const chunk = encoded.subarray(offset, offset + FRAME);
-            const frame = { record, part, bytes: chunk.length };
-            const ordinal = frames.length;
-            const checksum = await sink.put(frameName(ordinal, frame), Buffer.from(chunk).toString('base64'), sink.aad(ordinal, frame));
-            frames.push({ ...frame, digest: checksum });
-          }
-        });
-      } catch { failed = true; }
-    },
-    async flush() {
-      await queue;
-      if (failed) denied();
+      let active = true;
+      const writer = { record: (stage: string, lazy: () => unknown) => { if (active) write(stage, lazy); }, flush };
+      const work: Promise<void> = Promise.resolve().then(() => { if (!failed) return produce(writer); })
+        .catch(() => { failed = true; }).finally(() => { active = false; producers.delete(work); });
+      producers.add(work);
+      try { schedule(work); } catch { failed = true; }
     },
     finish(termination) {
       if (finished) return finished;
       if (!enabled) return finished = Promise.resolve(receipt(termination, 'disabled'));
-      enqueue(async () => {
-        const sink = await storage();
-        if (frames.length !== segments || pending.length || failed) denied();
-        await sink.put('receipt', JSON.stringify({ version: 1, receipt: receipt(termination, 'complete'), frames }), sink.aad('receipt'));
-        // Revalidate all earlier frames as well as the final receipt, not just the last write.
-        const verified = await walkArchive(sink, binding);
-        if (verified.receipt.records !== records || verified.receipt.segments !== segments
-          || verified.receipt.bytes !== bytes || verified.receipt.termination !== termination) denied();
-        // One immutable encrypted locator per capture: concurrent finishes cannot lose an append.
-        // Its namespace needs only the known owner/run, never the producer-local random ID.
-        const index = await openIndex(binding, await storageSource());
-        const name = await locatorName(binding);
-        await index.put(name, JSON.stringify({ version: 1, binding }), index.aad(name));
-        const recovered = await readLocator(index, binding, name, await index.get(name));
-        if (captureContext(recovered) !== captureContext(binding)) denied();
-        await sink.guard();
-      });
-      finished = queue.then(() => receipt(termination, failed ? 'incomplete' : 'complete'), () => receipt(termination, 'incomplete'));
+      finished = (async () => {
+        // Producer flushes use the ordinary write queue, so join them before enqueuing the receipt.
+        // Only their scoped writers remain live; the public record/defer entry points are sealed now.
+        await Promise.all(producers);
+        enqueue(async () => {
+          const sink = await storage();
+          if (frames.length !== segments || pending.length || failed) denied();
+          await sink.put('receipt', JSON.stringify({ version: 1, receipt: receipt(termination, 'complete'), frames }), sink.aad('receipt'));
+          // Revalidate all earlier frames as well as the final receipt, not just the last write.
+          const verified = await walkArchive(sink, binding);
+          if (verified.receipt.records !== records || verified.receipt.segments !== segments
+            || verified.receipt.bytes !== bytes || verified.receipt.termination !== termination) denied();
+          // One immutable encrypted locator per capture: concurrent finishes cannot lose an append.
+          // Its namespace needs only the known owner/run, never the producer-local random ID.
+          const index = await openIndex(binding, await storageSource());
+          const name = await locatorName(binding);
+          await index.put(name, JSON.stringify({ version: 1, binding }), index.aad(name));
+          const recovered = await readLocator(index, binding, name, await index.get(name));
+          if (captureContext(recovered) !== captureContext(binding)) denied();
+          await sink.guard();
+        });
+        await queue;
+        return receipt(termination, failed ? 'incomplete' : 'complete');
+      })();
       return finished;
     },
   };

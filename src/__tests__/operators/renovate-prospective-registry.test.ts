@@ -1552,7 +1552,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     'partial-pins', 'invalid-pins', 'mismatched-pins', 'invalid-admittedAt', 'legacy-full-ledger-missing', 'legacy-full-ledger-mismatch',
     'orphan-effect', 'orphan-publication', 'orphan-lease', 'active-original', 'head-boundary'] as const;
   const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none', delegated = false,
-    reconciliation?: typeof reconciliationCases[number], diagnostics: 'on' | 'off' | 'throws' | 'rpc-throws' | 'writer-throws' | 'foreign-scope' = 'on') => fixture(async ({ native, environment, selection, state }) => {
+    reconciliation?: typeof reconciliationCases[number], diagnostics: 'on' | 'off' | 'throws' | 'rpc-throws' | 'writer-throws' | 'foreign-scope' = 'on',
+    loggingPolicy?: { original: boolean; current: boolean }) => fixture(async ({ native, environment, selection, state }) => {
     // 2160810c's complete persisted layout used a fixed numeric repository and session authority.
     const historical = reconciliation?.startsWith('legacy-full-') === true;
     const sessionScoped = historical || reconciliation === 'session-pinned';
@@ -1580,7 +1581,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         reasoningLevels: ['off'] as Array<'off'>, defaultReasoningLevel: 'off' as const, inheritUserDefaults: false };
       selected.installation.policy = { capabilities: ['fetch', 'inference'], resourceProfileId: null, inference };
       selected.operator.policy = selected.installation.policy;
-      if (diagnostics === 'off') selected.operator.policy.loggingEnabled = false;
+      if (loggingPolicy) selected.operator.policy.loggingEnabled = loggingPolicy.original;
+      else if (diagnostics === 'off') selected.operator.policy.loggingEnabled = false;
       Object.assign(selected.release, { bundleDigest, sourceCommit: approved.sourceCommit, manifestDigest: 'd'.repeat(64),
         intentVersion: '3', coreVersion: '1', provenance: { compilerCommit: normalDeployment.compilerCommit } });
       const transport = createNormalDispatcherTransport();
@@ -1605,6 +1607,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       let missingPreparationProof = fault === 'preparation-proof-missing';
       let ledgerUnavailable = false;
       const sensitiveError = 'private-token=never-log-this; body=private-owner-payload';
+      const ledgerPrivateValue = 'SYNTHETIC_IMMUTABLE_RECEIPT_秘密🧪'.repeat(6000);
+      const statePrivateValue = 'SYNTHETIC_ORIGINAL_ACTIVITY_STATE_秘密🧪'.repeat(6000);
+      const runtimePrivateValue = 'SYNTHETIC_ORIGINAL_RUNTIME_秘密🧪'.repeat(6000);
+      let originalObservation: ProspectiveObservationCapture | undefined;
       const observations: Array<Record<string, unknown>> = [];
       const refusals: Array<{ module: string; data: Record<string, unknown> }> = [];
       const publicOutputs: string[] = [];
@@ -1703,8 +1709,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         return result;
       });
       const reserve = owner.reserveProspectiveRenovateActivity.bind(owner);
-      const reservation = vi.spyOn(owner, 'reserveProspectiveRenovateActivity').mockImplementation(async input => {
-        const result = await reserve(input);
+      const reservation = vi.spyOn(owner, 'reserveProspectiveRenovateActivity').mockImplementation(async (input, capture) => {
+        originalObservation ??= capture && structuredClone(capture);
+        const result = await reserve(input, capture);
         reservationStatuses.push(result.ok ? 'admitted' : result.reason);
         return result;
       });
@@ -1712,7 +1719,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       // Same Registry admission/deployment authority seams used by dispatcher-production.ts.
       vi.spyOn(owner, 'admitManagement').mockImplementation(async input => {
         if (fault === 'admitting-start') return { ok: false, reason: 'disabled' };
-        const receipt = { ...input, admittedAt: Date.now(), selection: selected };
+        // Snapshot the actual at-admission switch; later settings must not mutate the local receipt by alias.
+        const receipt = { ...input, admittedAt: Date.now(), selection: structuredClone(selected),
+          ...(loggingPolicy ? { privateAdmissionEvidence: ledgerPrivateValue } : {}) };
         if (reconciliation) {
           // Preserve the real immutable ledger behind getManagementAdmission, even if local state is lost.
           await owner.getManagementAdmission(input.activityId);
@@ -1782,6 +1791,18 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         })}`);
         if (reconciliation) {
           const originalId = activityId;
+          const originalBinding = originalObservation?.binding;
+          const readOriginalCapture = () => inRegistry(async () => {
+            if (!originalBinding) throw Error('Missing original enabled observation binding');
+            const storage = await createOwnerRawCaptureStorage(environment, native.storage, async () => {});
+            return readRawCapture({ binding: originalBinding, storage });
+          });
+          const originalArchive = loggingPolicy?.original ? await readOriginalCapture() : undefined;
+          if (originalArchive) {
+            expect(originalArchive.status).toBe('complete');
+            expect(originalArchive.records).toContainEqual({ stage: 'discovery-observation',
+              value: expect.objectContaining({ accessJwt: 'z-jwt', loggingEnabled: true }) });
+          }
           const persisted = await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId)) as ProspectiveAdmission;
           const legacy: Record<string, unknown> = historical ? {
             activityId: persisted.activityId, installationId: persisted.installationId, repositoryId: repoId,
@@ -1833,6 +1854,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           bytes = new TextEncoder().encode(JSON.stringify(approved));
           const upgradedDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
           selected.installation.revision++;
+          if (loggingPolicy) selected.operator.policy = { ...selected.operator.policy, loggingEnabled: loggingPolicy.current };
           selected.installation.releaseId = selected.release.id = 'upgraded-release';
           selected.release.bundleDigest = connection.bundleDigest = upgradedDigest;
           connection.releaseId = selected.release.id;
@@ -1855,21 +1877,42 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             `renovate-registration:${registration.registrationId}`, originalRegistration));
           const orphanKey = reconciliation === 'orphan-effect' ? 'dispatcher:operation:orphan'
             : reconciliation === 'orphan-publication' ? 'renovate:publication' : reconciliation === 'orphan-lease' ? 'dispatcher:lease' : null;
-          if (orphanKey) await inActivity(() => activityNative.storage.put(orphanKey,
-            reconciliation === 'orphan-lease' ? { generation: 1, artifactDigest: persisted.bundleDigest,
-              inputDigest: originalPreparation![0].intentDigest, expiresAt: Date.now() + 60_000, submissionId: null, status: 'unknown' }
-              : reconciliation === 'orphan-publication' ? { ownerKey: original.ownerKey, bucket: original.actor.bucket,
-                sessionId: original.actor.sessionId, sessionGeneration: original.actor.sessionGeneration,
-                activityGeneration: 1, assessmentDigest: 'd'.repeat(64), operationId: 'old-publication', effects: { comment: { phase: 'unknown' } } }
-                : { generation: 1, requestDigest: 'd'.repeat(64), phase: 'unknown' }));
+          const orphanValue = { ...(reconciliation === 'orphan-lease' ? { generation: 1, artifactDigest: persisted.bundleDigest,
+            inputDigest: originalPreparation![0].intentDigest, expiresAt: Date.now() + 60_000, submissionId: null, status: 'unknown' }
+            : reconciliation === 'orphan-publication' ? { ownerKey: original.ownerKey, bucket: original.actor.bucket,
+              sessionId: original.actor.sessionId, sessionGeneration: original.actor.sessionGeneration,
+              activityGeneration: 1, assessmentDigest: 'd'.repeat(64), operationId: 'old-publication', effects: { comment: { phase: 'unknown' } } }
+              : { generation: 1, requestDigest: 'd'.repeat(64), phase: 'unknown' }),
+            ...(loggingPolicy ? { privateRuntimeEvidence: runtimePrivateValue } : {}) };
+          if (orphanKey) await inActivity(() => activityNative.storage.put(orphanKey, orphanValue));
           if (['prepared', 'orphan-effect', 'upgrade'].includes(reconciliation)) await inActivity(async () => {
             const state = await activityNative.storage.get<Record<string, unknown>>('admission');
             await activityNative.storage.put('admission', { ...state, privateEvidence });
           });
+          if (loggingPolicy && reconciliation !== 'absent-global-receipt' && reconciliation !== 'absent') await inActivity(async () => {
+            const saved = await activityNative.storage.get<Record<string, unknown>>('admission');
+            if (!saved) throw Error('Missing original Activity state');
+            await activityNative.storage.put('admission', { ...saved, privateActivityEvidence: statePrivateValue });
+          });
+          const originalStoredState = loggingPolicy ? await inActivity(() => activityNative.storage.get('admission')) : undefined;
           const originalState = await inActivity(() => originalActivity.getAdmission());
           const originalDetail = await inActivity(() => originalActivity.getBrowserDetail());
           const originalLedger = await inRegistry(() => owner.getManagementAdmission(originalId));
           if (['absent', 'prepared', 'legacy-no-admittedAt', 'legacy-full-absent', 'legacy-full-prepared'].includes(reconciliation)) expect(originalLedger).toBeNull();
+          if (loggingPolicy) {
+            expect(selected.operator.policy.loggingEnabled).toBe(loggingPolicy.current);
+            if (reconciliation === 'absent' || reconciliation === 'prepared') {
+              // No immutable receipt exists yet: current owner-bound observation policy applies, without an invented generation.
+              expect(originalLedger).toBeNull();
+              expect(originalState?.receipt ?? null).toBeNull();
+            } else {
+              expect(originalLedger).toMatchObject({ selection: { operator: { policy: { loggingEnabled: loggingPolicy.original } } },
+                privateAdmissionEvidence: ledgerPrivateValue });
+              if (originalState) expect(originalState.receipt).toEqual(originalLedger);
+              if (originalArchive) expect(originalArchive.records).toContainEqual({ stage: 'prospective-plan-response',
+                value: expect.objectContaining({ receipt: originalLedger }) });
+            }
+          }
           ledgerUnavailable = reconciliation === 'ledger-unavailable';
           let racedDrive = false;
           environment.OPERATOR_ACTIVITY = { idFromName: () => activityNative.id, getByName: (id: string) => {
@@ -1901,7 +1944,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           refusals.length = 0;
           const captureId = crypto.randomUUID();
           const observation: ProspectiveObservationCapture = { registrationId: current.registrationId,
-            loggingEnabled: diagnostics !== 'off', binding: { ownerKey: await operatorOwnerKey(consent.human),
+            loggingEnabled: diagnostics !== 'off' && loggingPolicy?.current !== false, binding: { ownerKey: await operatorOwnerKey(consent.human),
               installationId: consent.installationId, releaseId: selected.release.id, captureId,
               scope: { kind: 'observation', observationId: captureId } } };
           if (diagnostics === 'foreign-scope') observation.binding.ownerKey = 'f'.repeat(64);
@@ -1915,10 +1958,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             const sequences = new Map<string, number[]>();
             let cursor: string | undefined;
             do {
-              const page = await discoverRawCaptures({ scope: observation.binding, storage, authorize: async () => {}, cursor });
+              const page = await discoverRawCaptures({ scope: { ownerKey: observation.binding.ownerKey,
+                scope: observation.binding.scope }, storage, authorize: async () => {}, cursor });
               expect(page.status).toBe('complete');
               for (const binding of page.bindings) {
                 expect(binding.captureId).not.toBe(captureId); // Independent writers, shared authorized observation.
+                expect(binding.scope).toEqual(observation.binding.scope);
                 const archive = await readRawCapture({ binding, storage });
                 expect(archive.status).toBe('complete');
                 const parent = archive.records.find(record => record.stage === 'observation-parent')?.value as ProspectiveObservationCapture;
@@ -1937,7 +1982,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             }
             return records;
           });
-          if (diagnostics === 'off' || diagnostics === 'foreign-scope') expect(protectedRecords).toEqual([]);
+          if (!observation.loggingEnabled || diagnostics === 'foreign-scope') expect(protectedRecords).toEqual([]);
           else {
             expect(protectedRecords).toContainEqual({ stage: 'registry-reservation-request', value: target });
             expect(protectedRecords.some(record => record.stage === 'registry-reservation-response')).toBe(true);
@@ -1947,7 +1992,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               expect(JSON.stringify(protectedRecords)).not.toContain(legacy.privateOwnerEvidence);
               expect(JSON.stringify(protectedRecords)).not.toContain(original.ownerKey);
             }
-            if (['prepared', 'absent', 'orphan-effect', 'upgrade'].includes(reconciliation) && diagnostics !== 'writer-throws') {
+            if (['prepared', 'absent', 'orphan-effect', 'upgrade'].includes(reconciliation) && diagnostics !== 'writer-throws'
+              && originalLedger?.selection.operator.policy.loggingEnabled !== false) {
               expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-request', value: original });
               expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-ledger-response', value: originalLedger });
               if (originalLedger) {
@@ -1960,7 +2006,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               expect(protectedRecords.some(record => record.stage === 'registry-retry-proof-response')).toBe(true);
               if (reconciliation === 'orphan-effect') {
                 expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-runtime-response', value: expect.arrayContaining([[orphanKey,
-                  { generation: 1, requestDigest: 'd'.repeat(64), phase: 'unknown' }]]) });
+                  orphanValue]]) });
               } else {
                 expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-write-request',
                   value: { key: 'prospective-retirement', value: originalId } });
@@ -1973,6 +2019,36 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               expect(error).toMatchObject({ message: 'Admission ledger unavailable', stack: expect.any(String),
                 cause: { message: sensitiveError, stack: expect.any(String) } });
             }
+          }
+          if (loggingPolicy) {
+            const historyEnabled = observation.loggingEnabled && originalLedger?.selection.operator.policy.loggingEnabled !== false;
+            const privateRecords = JSON.stringify(protectedRecords);
+            if (!historyEnabled) {
+              // Omission metadata is allowed, but none of the already-consulted historical private values may escape.
+              for (const value of [ledgerPrivateValue, statePrivateValue, runtimePrivateValue]) expect(privateRecords).not.toContain(value);
+              if (originalLedger) expect(protectedRecords).not.toContainEqual({ stage: 'registry-management-admission-row',
+                value: { data: JSON.stringify(originalLedger) } });
+            } else {
+              if (originalLedger) {
+                const row = protectedRecords.find(record => record.stage === 'registry-management-admission-row')?.value as { data: string };
+                expect(JSON.parse(row.data)).toEqual(originalLedger);
+                expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-ledger-response', value: originalLedger });
+                expect(privateRecords).toContain(ledgerPrivateValue);
+              }
+              if (originalState) {
+                expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-state-read-response', value: originalStoredState });
+                expect(privateRecords).toContain(statePrivateValue);
+              }
+              if (orphanKey) expect(protectedRecords).toContainEqual({
+                stage: reconciliation === 'orphan-publication' ? 'activity-retirement-publication-response' : 'activity-retirement-runtime-response',
+                value: reconciliation === 'orphan-publication' ? orphanValue : expect.arrayContaining([[orphanKey, orphanValue]]),
+              });
+              // The real retry proof consults admission and lease even when it cannot authorize a retry.
+              if (originalState) expect(protectedRecords).toContainEqual({ stage: 'activity-retry-admission-response', value: originalStoredState });
+              if (reconciliation === 'orphan-lease') expect(protectedRecords).toContainEqual({ stage: 'activity-retry-lease-response', value: orphanValue });
+            }
+            if (originalArchive) expect(await readOriginalCapture()).toEqual(originalArchive);
+            for (const value of [ledgerPrivateValue, statePrivateValue, runtimePrivateValue]) expect(publicOutputs.join('\n')).not.toContain(value);
           }
           expect(publicOutputs.join('\n')).not.toContain(privateEvidence.token);
           expect(publicOutputs.join('\n')).not.toContain(legacy.privateOwnerEvidence);
@@ -2004,8 +2080,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             'active-original': ['operator-registry', 'original-registration-present'],
             'head-boundary': ['operator-registry', 'head-mismatch'],
           };
-          const expected = diagnostics === 'rpc-throws' ? ['operator-registry', 'retirement-rpc-failed'] : expectedRefusal[reconciliation];
-          if (diagnostics === 'off' || !expected) expect(refusals).toEqual([]);
+          const expected = diagnostics === 'rpc-throws' ? ['operator-registry', 'retirement-rpc-failed']
+            : loggingPolicy?.original === false && originalLedger && expectedRefusal[reconciliation]
+              ? ['operator-registry', 'retirement-refused'] : expectedRefusal[reconciliation];
+          if (!observation.loggingEnabled || !expected) expect(refusals).toEqual([]);
           else {
             const admissionDigest = hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', originalId]));
             expect(refusals).toContainEqual(expect.objectContaining({ module: expected[0],
@@ -2254,6 +2332,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       : ['absent', 'ledger-unavailable', 'legacy-no-admittedAt', 'legacy-full-absent'].includes(reconciliation) ? 'preparation-proof-missing'
         : reconciliation === 'prepared' || reconciliation === 'legacy-full-prepared' ? 'prepared-start' : reconciliation === 'admitting' ? 'admitting-start'
           : 'persistence-unavailable', false, reconciliation));
+  it.each((['upgrade', 'orphan-effect', 'orphan-publication', 'orphan-lease', 'absent-global-receipt', 'absent', 'prepared'] as const)
+    .flatMap(reconciliation => [{ original: false, current: true }, { original: true, current: false },
+      { original: true, current: true }].map(policy => ({ reconciliation, ...policy }))))(
+    'REQ-OPERATOR-061/079/090/091: $reconciliation original logging=$original/current=$current preserves immutable private policy and business outcomes',
+    ({ reconciliation, original, current }) => normalAlarmHandoff(reconciliation === 'absent' ? 'preparation-proof-missing'
+      : reconciliation === 'prepared' ? 'prepared-start' : 'persistence-unavailable', false, reconciliation, 'on', { original, current }));
   it.each(['off', 'throws', 'rpc-throws', 'writer-throws', 'foreign-scope'] as const)(
     'REQ-OPERATOR-063/079: stale reservation diagnostics %s preserve the original effect fence and election',
     diagnostics => normalAlarmHandoff('persistence-unavailable', false, 'orphan-effect', diagnostics));

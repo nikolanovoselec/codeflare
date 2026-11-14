@@ -1,6 +1,8 @@
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { encryptForKV, decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
+import { resolveProspectiveRenovateRepository } from '../../operators/renovate-prospective';
+import type { Env } from '../../types';
 import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, verifyRawCapture, discoverRawCaptures, captureRawInteraction, captureRawTransaction,
   type RawCaptureBinding, type RawCaptureScope, type RawCaptureStorage, type RawCapture } from '../../operators/raw-capture-storage';
 
@@ -93,6 +95,41 @@ async function saved(f = boundary(), scope = binding) {
   expect((await capture.finish('eof')).status).toBe('complete');
   return f;
 }
+
+it('immediate parent finalization retains the refused HTTP body through its delayed EOF', async () => {
+  const f = boundary();
+  const capture = f.create();
+  const prefix = new TextEncoder().encode(`${CANARY}:prefix 漢🎉`);
+  const tail = new TextEncoder().encode(`${CANARY}:delayed tail`);
+  let first = true;
+  const gate: { release?: () => void } = {};
+  const delayed = new Promise<void>(resolve => { gate.release = resolve; });
+  const response = new Response(new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (first) { first = false; controller.enqueue(prefix); return; }
+      await delayed; controller.enqueue(tail); controller.close();
+    },
+  }, { highWaterMark: 0 }), { status: 403 });
+  try {
+    await expect(resolveProspectiveRenovateRepository({ env: {} as Env,
+      exports: { GitHubInterceptor: () => ({ fetch: async () => response,
+        connect: () => { throw Error('No sockets'); } }) },
+      repository: 'acme/updates', human: { email: 'owner@example.test' }, bucket: 'owner',
+      current: async () => true, capture,
+    })).rejects.toThrow('Incomplete Renovate scan');
+    const finished = capture.finish('failed');
+    gate.release?.();
+    expect((await finished).status).toBe('complete');
+    const archive = await read(f);
+    expect(archive.status).toBe('complete');
+    const chunks = archive.records.filter(record => record.stage === 'discovery-response-chunk')
+      .map(record => record.value as { offset: number; bytes: number[] }).sort((a, b) => a.offset - b.offset);
+    expect(Buffer.concat(chunks.map(chunk => Buffer.from(chunk.bytes)))).toEqual(Buffer.concat([prefix, tail]));
+    expect(archive.records).toContainEqual({ stage: 'discovery-response-eof',
+      value: expect.objectContaining({ offset: prefix.length + tail.length }) });
+    expect([...f.objects.values()].join('')).not.toContain(CANARY);
+  } finally { gate.release?.(); }
+});
 
 it('retains complete interaction inputs/results/original errors before projections, with no private truncation', async () => {
   const f = boundary();
@@ -340,6 +377,7 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     const forbidden = (name: string): never => { evaluated.add(name); throw new Error('OFF evaluated a forbidden boundary'); };
     const off = f.create(binding, { enabled: false, storage: () => forbidden('storage'), schedule: () => forbidden('schedule') });
     off.record('secret', () => forbidden('supplier'));
+    off.defer?.(async () => forbidden('producer'));
     expect(await off.finish('cancelled')).toEqual({ status: 'disabled', captureId: binding.captureId,
       records: 0, segments: 0, bytes: 0, termination: 'cancelled' });
     expect(f.objects.size).toBe(0);
@@ -364,6 +402,28 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     expect(await firstFinish).toMatchObject({ status: 'complete', termination, records: 1 });
     expect(await capture.finish('failed')).toEqual(await firstFinish);
     expect((await read(f)).receipt).toEqual(await firstFinish);
+  });
+
+  it('seals parent admission immediately while retaining only already admitted producer writes through finalization', async () => {
+    const f = boundary();
+    const capture = f.create();
+    const gate: { release?: () => void } = {};
+    const ready = new Promise<void>(resolve => { gate.release = resolve; });
+    const state: { producer?: Pick<RawCapture, 'record' | 'flush'> } = {};
+    capture.defer?.(async writer => {
+      state.producer = writer;
+      await ready;
+      writer.record('admitted-tail', () => CANARY);
+      await writer.flush?.();
+    });
+    const finished = capture.finish('failed');
+    capture.record('late-parent', () => { throw Error('Sealed parent supplier executed'); });
+    capture.defer?.(async () => { throw Error('Late producer executed'); });
+    gate.release?.();
+    expect(await finished).toMatchObject({ status: 'complete', records: 1 });
+    state.producer?.record('late-producer', () => { throw Error('Settled producer supplier executed'); });
+    expect(capture.finish('complete')).toBe(finished);
+    expect((await read(f)).records).toEqual([{ stage: 'admitted-tail', value: CANARY }]);
   });
 
   it('an unfinished capture is incomplete, while a verified zero-record finish is explicitly complete', async () => {

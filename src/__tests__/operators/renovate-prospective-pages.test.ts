@@ -215,7 +215,7 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
     env: {} as Env, exports: scanExports([], response), repository: 'acme/updates',
     human: { email: 'owner@example.test' }, bucket: 'owner', current: async () => true, capture,
   });
-  function responseBytes(bytes: Uint8Array, width = 8191): Response {
+  function responseBytes(bytes: Uint8Array, width = 8191, init?: ResponseInit): Response {
     let offset = 0;
     return new Response(new ReadableStream<Uint8Array>({
       pull(controller) {
@@ -223,7 +223,7 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
         const end = Math.min(bytes.length, offset + width);
         controller.enqueue(bytes.slice(offset, end)); offset = end;
       },
-    }, { highWaterMark: 0 }));
+    }, { highWaterMark: 0 }), init);
   }
   function reassemble(events: Event[], url: string): Uint8Array {
     const chunks = events.filter(event => event.stage === 'discovery-response-chunk' && event.value.url === url);
@@ -343,23 +343,325 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
     expect(recorded.events[0].value).toMatchObject({ method: 'GET', url: root, path: '', redirect: 'manual' });
   });
 
-  it('captures manual redirect metadata while refusing to read or follow its body', async () => {
+  it.each([
+    { status: 403, redirected: false, path: 'metadata' },
+    { status: 503, redirected: false, path: 'later PR page' },
+    { status: 302, redirected: false, path: 'metadata' },
+    { status: 307, redirected: false, path: 'later PR page' },
+    { status: 200, redirected: true, path: 'metadata' },
+  ])('captures the entire available $status response ($path, redirected=$redirected) without admitting or following it', async ({ status, redirected, path }) => {
     const recorded = collector();
-    let cancelled = false, consumed = false;
-    const response = new Response(new ReadableStream<Uint8Array>({
-      pull(controller) { consumed = true; controller.enqueue(encode('unread redirect')); },
-      cancel() { cancelled = true; },
-    }, { highWaterMark: 0 }), { status: 302, statusText: 'Found', headers: {
+    const bytes = encode('SYNTHETIC_PRIVATE_REFUSAL Authorization=synthetic-token owner@synthetic.test 漢🎉');
+    const response = responseBytes(bytes, 7, { status, headers: {
       location: 'https://attacker.example/collect', 'x-synthetic-evidence': 'literal-placeholder',
     } });
-    const error = await failure(resolve(response, recorded.capture), 'Incomplete Renovate scan');
-    expect(recorded.events.find(event => event.stage === 'discovery-response')?.value).toMatchObject({
-      method: 'GET', url: root, path: '', status: 302, statusText: 'Found', ok: false,
+    if (redirected) Object.defineProperty(response, 'redirected', { value: true });
+    const destinations: string[] = [];
+    const url = path === 'metadata' ? root : next;
+    const pages: Page[] = path === 'metadata' ? [] : [
+      { rows: Array.from({ length: 100 }, (_, index) => row(index + 1)), link: `<${next}>; rel="next"` }, response,
+    ];
+    const error = await failure(scan(pages, path === 'metadata' ? response : undefined, undefined,
+      request => { destinations.push(request.url); }, undefined, recorded.capture), 'Incomplete Renovate scan');
+    await vi.waitFor(() => expect(recorded.events.filter(event => event.stage === 'discovery-response-eof' && event.value.url === url)
+      .map(event => event.value.offset)).toEqual([bytes.length]));
+    expect(reassemble(recorded.events, url)).toEqual(bytes);
+    expect(recorded.events.find(event => event.stage === 'discovery-response' && event.value.url === url)?.value).toMatchObject({
+      method: 'GET', url, status, redirected,
       headers: expect.arrayContaining([['location', 'https://attacker.example/collect'], ['x-synthetic-evidence', 'literal-placeholder']]),
     });
+    expect(errors(recorded.events, url)).toContain(error);
+    expect(errors(recorded.events, url).find(value => value === error)).toBe(error);
+    expect(error.cause).toBeUndefined();
+    expect(destinations).toEqual(path === 'metadata' ? [root] : [root, pageUrl, next]);
+    const stages = recorded.events.filter(event => event.value.url === url).map(event => event.stage);
+    expect(stages.indexOf('discovery-request')).toBeLessThan(stages.indexOf('discovery-response'));
+    expect(stages.indexOf('discovery-response')).toBeLessThan(stages.indexOf('discovery-response-chunk'));
+    expect(stages.lastIndexOf('discovery-response-chunk')).toBeLessThan(stages.indexOf('discovery-response-eof'));
+    expect(recorded.events.some(event => event.stage === 'discovery-response-cancel' && event.value.url === url)).toBe(false);
+    expect(response.body!.locked).toBe(false);
+    expect(recorded.finished).toBe(false);
+  });
+
+  it('retains deep private Unicode refusal bytes beyond 2 MiB without applying the functional JSON bound to capture', async () => {
+    const recorded = collector();
+    const secret = 'SYNTHETIC_PRIVATE_REFUSAL Authorization=synthetic-token owner@synthetic.test';
+    let deep: unknown = { secret, text: '漢🎉☃'.repeat(220000), entries: Array.from({ length: 1500 }, (_, index) => ({ index, secret })) };
+    for (let depth = 0; depth < 100; depth++) deep = { child: deep };
+    const bytes = encode(JSON.stringify(deep));
+    expect(bytes.length).toBeGreaterThan(2 * 1024 * 1024);
+    const response = responseBytes(bytes, 32749, { status: 403 });
+    const error = await failure(resolve(response, recorded.capture), 'Incomplete Renovate scan');
+    await vi.waitFor(() => expect(recorded.events.filter(event => event.stage === 'discovery-response-eof')
+      .map(event => event.value.offset)).toEqual([bytes.length]));
+    expect(reassemble(recorded.events, root)).toEqual(bytes);
     expect(errors(recorded.events, root)).toEqual([error]);
-    expect(recorded.events.some(event => ['discovery-response-chunk', 'discovery-response-eof', 'discovery-response-cancel'].includes(event.stage))).toBe(false);
+    expect(error.cause).toBeUndefined();
+    expect(response.body!.locked).toBe(false);
+  });
+
+  it('retains every binary redirect byte without interpreting JSON or UTF-8 and never contacts the advertised host', async () => {
+    const recorded = collector();
+    const bytes = Uint8Array.from({ length: 256 * 1024 + 513 }, (_, index) => index % 256);
+    const destinations: string[] = [];
+    const response = responseBytes(bytes, 8191, { status: 302, headers: { location: 'https://attacker.example/collect' } });
+    const error = await failure(scan([], response, undefined, request => { destinations.push(request.url); }, undefined, recorded.capture),
+      'Incomplete Renovate scan');
+    await vi.waitFor(() => expect(recorded.events.filter(event => event.stage === 'discovery-response-eof')
+      .map(event => event.value.offset)).toEqual([bytes.length]));
+    expect(reassemble(recorded.events, root)).toEqual(bytes);
+    expect(errors(recorded.events, root)).toEqual([error]);
+    expect(destinations).toEqual([root]);
+    expect(response.body!.locked).toBe(false);
+  });
+
+  it.each([403, 302])('retains a failing %s body and its original nested error without replacing the HTTP refusal or inventing EOF', async status => {
+    const recorded = collector();
+    const bytes = new Uint8Array([0x00, 0xff, 0x80, 0x5b]);
+    const original = Error('SYNTHETIC_PRIVATE_BODY_FAILURE', { cause: Error('SYNTHETIC_PRIVATE_NESTED_CAUSE') });
+    let delivered = false;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (delivered) controller.error(original);
+        else { delivered = true; controller.enqueue(bytes); }
+      },
+    }, { highWaterMark: 0 }), { status, headers: { location: 'https://attacker.example/collect' } });
+    const error = await failure(resolve(response, recorded.capture), 'Incomplete Renovate scan');
+    await vi.waitFor(() => expect(errors(recorded.events, root)).toContain(original));
+    expect(errors(recorded.events, root)).toContain(error);
+    expect(errors(recorded.events, root).find(value => value === original)).toBe(original);
+    expect(original.stack).toEqual(expect.any(String));
+    const retained = errors(recorded.events, root).find(value => value === original) as Error;
+    expect(retained.stack).toBe(original.stack);
+    expect(retained.cause).toBe(original.cause);
+    expect((retained.cause as Error).stack).toBe((original.cause as Error).stack);
+    expect(error.cause).toBeUndefined();
+    expect(reassemble(recorded.events, root)).toEqual(bytes);
+    expect(recorded.events.some(event => event.stage === 'discovery-response-eof')).toBe(false);
+    await vi.waitFor(() => expect(recorded.events.filter(event => event.stage === 'discovery-response-cancel')
+      .map(event => event.value)).toEqual([expect.objectContaining({ url: root, offset: bytes.length, eof: false, observedError: original })]));
+    expect(response.body!.locked).toBe(false);
+    expect(recorded.finished).toBe(false);
+  });
+
+  it.each([403, 302])('OFF leaves the %s body unread and uncancelled while preserving the refusal', async status => {
+    let consumed = false, cancelled = false;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      pull(controller) { consumed = true; controller.enqueue(encode('unreceived private tail')); },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 }), { status, headers: { location: 'https://attacker.example/collect' } });
+    const error = await failure(resolve(response), 'Incomplete Renovate scan');
+    expect(error.cause).toBeUndefined();
     expect({ consumed, cancelled, locked: response.body!.locked }).toEqual({ consumed: false, cancelled: false, locked: false });
+  });
+
+  it('a refused response respects capture backpressure without delaying the original refusal', async () => {
+    const recorded = collector();
+    const first = encode('SYNTHETIC_PRIVATE_FIRST_CHUNK 漢🎉');
+    const last = encode('SYNTHETIC_PRIVATE_LAST_CHUNK');
+    const gate: { release?: () => void } = {};
+    const blocked = new Promise<void>(resolve => { gate.release = resolve; });
+    let tailDelivered = false, firstDelivered = false;
+    recorded.capture.flush = () => recorded.events.some(event => event.stage === 'discovery-response-chunk') ? blocked : Promise.resolve();
+    const response = new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!firstDelivered) { firstDelivered = true; controller.enqueue(first); }
+        else { tailDelivered = true; controller.enqueue(last); controller.close(); }
+      },
+    }, { highWaterMark: 0 }), { status: 403 });
+    try {
+      const error = await failure(resolve(response, recorded.capture), 'Incomplete Renovate scan');
+      await vi.waitFor(() => expect(reassemble(recorded.events, root)).toEqual(first));
+      expect(tailDelivered).toBe(false);
+      expect(errors(recorded.events, root)).toContain(error);
+      gate.release?.();
+      await vi.waitFor(() => expect(recorded.events.filter(event => event.stage === 'discovery-response-eof')
+        .map(event => event.value.offset)).toEqual([first.length + last.length]));
+      const bytes = new Uint8Array(first.length + last.length);
+      bytes.set(first); bytes.set(last, first.length);
+      expect(reassemble(recorded.events, root)).toEqual(bytes);
+      expect(response.body!.locked).toBe(false);
+    } finally { gate.release?.(); }
+  });
+
+  it.each(['stalled body', 'throwing recorder', 'rejected flush', 'stalled flush'] as const)(
+    '%s cannot delay the refusal, renew the original eight-second deadline or claim an unreceived tail', async fault => {
+      vi.useFakeTimers();
+      const deadlineError = new DOMException('SYNTHETIC_PRIVATE_ORIGINAL_DEADLINE', 'TimeoutError');
+      // Drive the platform timeout deterministically; behavior is checked at the original absolute deadline.
+      const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+        const controller = new AbortController();
+        setTimeout(() => { controller.abort(deadlineError); }, milliseconds);
+        return controller.signal;
+      });
+      const recorded = collector();
+      const bytes = encode('SYNTHETIC_PRIVATE_AVAILABLE_PREFIX 漢🎉');
+      const sinkError = Error('SYNTHETIC_PRIVATE_CAPTURE_FAILURE');
+      const flush: { release?: () => void } = {};
+      const blockedFlush = new Promise<void>(resolve => { flush.release = resolve; });
+      if (fault === 'throwing recorder') {
+        const originalRecord = recorded.capture.record;
+        recorded.capture.record = (stage, value) => {
+          originalRecord(stage, value);
+          if (stage === 'discovery-response-chunk') throw sinkError;
+        };
+      }
+      recorded.capture.flush = () => {
+        if (!recorded.events.some(event => event.stage === 'discovery-response-chunk')) return Promise.resolve();
+        if (fault === 'rejected flush') return Promise.reject(sinkError);
+        return fault === 'stalled flush' ? blockedFlush : Promise.resolve();
+      };
+      const cancellation: { settle?: () => void; observed?: { reason: unknown } } = {};
+      let prefixDelivered = false;
+      const response = new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (!prefixDelivered) { prefixDelivered = true; controller.enqueue(bytes); return; }
+          return new Promise<void>(() => {}); // No further bytes have arrived from upstream.
+        },
+        cancel(reason) {
+          cancellation.observed = { reason };
+          return new Promise<void>(resolve => { cancellation.settle = resolve; });
+        },
+      }, { highWaterMark: 0 }), { status: 403 });
+      const transportState: { signal?: AbortSignal } = {};
+      let outward: unknown;
+      const destinations: string[] = [];
+      const result = resolveProspectiveRenovateRepository({ env: {} as Env,
+        repository: 'acme/updates', human: { email: 'owner@example.test' }, bucket: 'owner', current: async () => true,
+        capture: recorded.capture, exports: { GitHubInterceptor: () => ({
+          fetch: async (request: Request) => {
+            transportState.signal = request.signal; destinations.push(request.url);
+            await new Promise<void>(resolve => { setTimeout(resolve, 6000); });
+            return response;
+          }, connect: () => { throw Error('No sockets'); },
+        }) },
+      });
+      const observed = result.catch((error: unknown) => { outward = error; });
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(6000);
+        expect(outward).toMatchObject({ name: 'Error', message: 'Incomplete Renovate scan' });
+        expect(errors(recorded.events, root)).toContain(outward);
+        expect(reassemble(recorded.events, root)).toEqual(bytes);
+        await vi.advanceTimersByTimeAsync(1999);
+        expect(transportState.signal?.aborted).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(transportState.signal?.aborted).toBe(true);
+        expect(transportState.signal?.reason).toBe(deadlineError);
+        expect(cancellation.observed).toBeDefined();
+        expect(response.body!.locked).toBe(false);
+        expect(recorded.events.filter(event => event.stage === 'discovery-response-cancel').map(event => event.value))
+          .toEqual([expect.objectContaining({ url: root, offset: bytes.length, eof: false, reason: cancellation.observed?.reason })]);
+        expect(recorded.events.some(event => event.stage === 'discovery-response-eof')).toBe(false);
+        if (fault === 'stalled body') expect(errors(recorded.events, root)).toContain(deadlineError);
+        expect((outward as Error).cause).toBeUndefined();
+        expect(destinations).toEqual([root]);
+        expect(recorded.finished).toBe(false);
+        await observed;
+      } finally {
+        flush.release?.(); cancellation.settle?.();
+        await vi.advanceTimersByTimeAsync(8000);
+        cancellation.settle?.();
+        timeout.mockRestore(); vi.useRealTimers();
+      }
+    });
+
+  it('retains an available cancellation rejection and its original cause without delaying or replacing the HTTP refusal', async () => {
+    vi.useFakeTimers();
+    const recorded = collector();
+    const original = Error('SYNTHETIC_PRIVATE_CANCEL_ERROR', { cause: Error('SYNTHETIC_PRIVATE_CANCEL_CAUSE') });
+    const bytes = encode('available bytes before capture delivery failed');
+    recorded.capture.flush = async () => {
+      if (recorded.events.some(event => event.stage === 'discovery-response-chunk')) throw Error('Synthetic capture delivery failure');
+    };
+    const response = new Response(new ReadableStream<Uint8Array>({
+      pull(controller) { controller.enqueue(bytes); },
+      cancel() { return new Promise<void>((_, reject) => { setTimeout(() => { reject(original); }, 100); }); },
+    }, { highWaterMark: 0 }), { status: 403 });
+    try {
+      const refused = await failure(resolve(response, recorded.capture), 'Incomplete Renovate scan');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(response.body!.locked).toBe(false);
+      await vi.advanceTimersByTimeAsync(100);
+      const retained = errors(recorded.events, root).find(value => value === original) as Error;
+      expect(retained).toBe(original);
+      expect(retained.cause).toBe(original.cause);
+      expect(retained.stack).toBe(original.stack);
+      expect(errors(recorded.events, root)).toContain(refused);
+      expect(refused.cause).toBeUndefined();
+      expect(reassemble(recorded.events, root)).toEqual(bytes);
+      expect(recorded.events.some(event => event.stage === 'discovery-response-eof')).toBe(false);
+      expect(recorded.events.find(event => event.stage === 'discovery-response-cancel-settled')?.value)
+        .toMatchObject({ offset: bytes.length, eof: false, pending: false, error: original });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['null body', 'locked body'] as const)('keeps the HTTP refusal when its %s cannot supply captured bytes', async fault => {
+    const recorded = collector();
+    const response = fault === 'null body' ? new Response(null, { status: 403 })
+      : responseBytes(encode('unavailable private bytes'), 8191, { status: 403 });
+    const lock = fault === 'locked body' ? response.body!.getReader() : undefined;
+    try {
+      const error = await failure(resolve(response, recorded.capture), 'Incomplete Renovate scan');
+      expect(error.cause).toBeUndefined();
+      expect(errors(recorded.events, root)).toContain(error);
+      if (fault === 'locked body') {
+        await vi.waitFor(() => expect(errors(recorded.events, root).some(value => value instanceof TypeError)).toBe(true));
+        expect(response.body!.locked).toBe(true); // Capture cannot release another consumer's lock.
+      }
+      expect(recorded.events.some(event => event.stage === 'discovery-response-chunk' || event.stage === 'discovery-response-eof')).toBe(false);
+    } finally { lock?.releaseLock(); }
+  });
+
+  it('retains the available successful page before the unchanged post-I/O authority refusal without replacement reads', async () => {
+    const recorded = collector();
+    const bytes = encode(JSON.stringify([row(1)]));
+    const response = responseBytes(bytes);
+    const destinations: string[] = [];
+    let authorized = true;
+    const error = await failure(scan([response], undefined, async () => authorized, request => {
+      destinations.push(request.url);
+      if (request.url === pageUrl) authorized = false;
+    }, undefined, recorded.capture), 'Scan session changed');
+    expect(reassemble(recorded.events, pageUrl)).toEqual(bytes);
+    expect(recorded.events.filter(event => event.stage === 'discovery-response-eof' && event.value.url === pageUrl)
+      .map(event => event.value.offset)).toEqual([bytes.length]);
+    expect(errors(recorded.events, pageUrl)).toEqual([error]);
+    expect(destinations).toEqual([root, pageUrl]);
+  });
+
+  it('preserves the original authority exception before any GitHub I/O rather than using capture as fallback authority', async () => {
+    const recorded = collector();
+    const original = Error('SYNTHETIC_PRIVATE_AUTHORITY_ERROR', { cause: Error('SYNTHETIC_PRIVATE_AUTHORITY_CAUSE') });
+    const destinations: string[] = [];
+    const result = scan([{ rows: [row(1)] }], undefined, async () => { throw original; },
+      request => { destinations.push(request.url); }, undefined, recorded.capture);
+    await expect(result).rejects.toBe(original);
+    expect(errors(recorded.events, root)).toEqual([original]);
+    expect(destinations).toEqual([]);
+    expect(recorded.events.some(event => event.stage === 'discovery-response' || event.stage === 'discovery-response-eof')).toBe(false);
+  });
+
+  it('keeps unredacted refusal evidence private while the production error formatter exposes only the generic refusal', async () => {
+    const recorded = collector();
+    const privateValues = ['SYNTHETIC_PRIVATE_HTTP_REFUSAL', 'Authorization', 'synthetic-token', 'owner@synthetic.test'];
+    const bytes = encode(privateValues.join(' '));
+    const response = responseBytes(bytes, 7, { status: 403, headers: { 'x-private-evidence': privateValues.join(' ') } });
+    const error = await failure(resolve(response, recorded.capture), 'Incomplete Renovate scan');
+    await vi.waitFor(() => expect(recorded.events.some(event => event.stage === 'discovery-response-eof')).toBe(true));
+    expect(reassemble(recorded.events, root)).toEqual(bytes);
+    expect(recorded.events.find(event => event.stage === 'discovery-response')?.value.headers)
+      .toContainEqual(['x-private-evidence', privateValues.join(' ')]);
+    const outputs: string[] = [];
+    const output = vi.spyOn(console, 'error').mockImplementation((line: unknown) => { outputs.push(String(line)); });
+    setLogLevel('error');
+    try {
+      createLogger('index').error('Unexpected error', toError(error), { requestId: 'synthetic-request-id' });
+      expect(outputs.map(line => JSON.parse(line))).toEqual([expect.objectContaining({
+        error: { name: 'Error', message: 'Incomplete Renovate scan', stack: expect.any(String) },
+      })]);
+      for (const value of privateValues) expect(outputs.join('\n')).not.toContain(value);
+    } finally { output.mockRestore(); setLogLevel('silent'); }
   });
 
   it.each(['UTF-8', 'oversize'] as const)(
@@ -465,6 +767,23 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
     expect((await capturedScan([response], recorded.capture)).map(candidate => candidate.pullRequest)).toEqual([1]);
     expect(recorded.events.find(event => event.stage === 'discovery-response' && event.value.url === pageUrl)?.value.status)
       .toEqual({ captureUnavailable: 'application-accessor' });
+  });
+
+  it.each(['rejected', 'stalled'] as const)('a %s capture flush cannot block functional metadata and PR stream consumption', async fault => {
+    const recorded = collector();
+    const gate: { release?: () => void } = {};
+    const blocked = new Promise<void>(resolve => { gate.release = resolve; });
+    recorded.capture.flush = () => fault === 'rejected' ? Promise.reject(Error('Synthetic sink failure')) : blocked;
+    const bytes = encode(JSON.stringify([row(1)]));
+    const response = responseBytes(bytes, 7);
+    const state: { candidates?: Awaited<ReturnType<typeof scan>> } = {};
+    const result = capturedScan([response], recorded.capture).then(value => { state.candidates = value; });
+    try {
+      await vi.waitFor(() => expect(state.candidates?.map(candidate => candidate.pullRequest)).toEqual([1]));
+      expect(reassemble(recorded.events, pageUrl)).toEqual(bytes);
+      expect(response.body!.locked).toBe(false);
+      await result;
+    } finally { gate.release?.(); }
   });
 
   it('leaves capture absent by default and preserves success and original failures even when record throws', async () => {
