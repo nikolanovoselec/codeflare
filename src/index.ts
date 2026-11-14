@@ -123,6 +123,15 @@ export function redirectWithHeaders(location: string, status: 301 | 302 | 307 | 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 const logger = createLogger('index');
+const ownerRawReadPath = /^\/api\/operator-activities\/diagnostics\/v2\/raw(?:\/export)?$/;
+
+// Raw archives must remain uncached even when outer middleware rejects the request.
+app.use('*', async (c, next) => {
+  const rawRead = ownerRawReadPath.test(c.req.path);
+  if (rawRead) c.header('Cache-Control', 'no-store');
+  await next();
+  if (rawRead) c.header('Cache-Control', 'no-store');
+});
 
 // ============================================================================
 // Request Tracing Middleware
@@ -330,6 +339,13 @@ app.notFound((c) => c.json({ error: 'Not found' }, 404));
 type AppStatusCode = 400 | 401 | 402 | 403 | 404 | 409 | 429 | 500 | 503;
 
 app.onError((err, c) => {
+  if (ownerRawReadPath.test(c.req.path)) {
+    // Do not serialize or log private auth/storage failures on this read surface.
+    if (err instanceof HTTPException) return err.getResponse();
+    const status = err instanceof AppError && (err.statusCode === 400 || err.statusCode === 401
+      || err.statusCode === 403 || err.statusCode === 404) ? err.statusCode : 503;
+    return c.json({ code: 'RAW_CAPTURE_UNAVAILABLE' }, status);
+  }
   const requestId = c.get('requestId') || 'unknown';
   const lifecycleFailure = c.req.method === 'POST' && c.req.path === '/api/container/start' ? 'start_failed'
     : c.req.method === 'DELETE' && /^\/api\/sessions\/[^/]+$/.test(c.req.path) ? 'native_destroy_failed' : undefined;

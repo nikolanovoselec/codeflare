@@ -24,12 +24,18 @@ export interface RawCaptureStorage {
   storage: Pick<DurableObjectStorage, 'get' | 'transaction' | 'list'>;
   encryptionKey: string;
   authorize: () => Promise<void>;
+  /** Caller-local fresh session check at export pass boundaries; never an RPC field. */
+  authorizePass?: () => Promise<void>;
 }
 type Termination = z.infer<typeof terminationSchema>;
 export type RawCaptureReceipt = Omit<z.infer<typeof receiptSchema>, 'status'> & { status: 'complete' | 'incomplete' | 'disabled' };
 export interface RawCapture {
   record(stage: string, lazy: () => unknown): void;
   finish(termination: Termination): Promise<RawCaptureReceipt>;
+  /** Optional backpressure for local writers and data-only Root RPC relays. */
+  flush?(): Promise<void>;
+  /** Caller-local producer only, never an RPC field. Finish joins admitted producers before sealing their writes. */
+  defer?(produce: (writer: Pick<RawCapture, 'record' | 'flush'>) => Promise<void>): void;
 }
 type Frame = z.infer<typeof frameSchema>;
 // Preserve authenticated frame coordinates in locators even without a final receipt.
@@ -134,6 +140,43 @@ export async function createOwnerRawCaptureStorage(env: Pick<Env, 'ENCRYPTION_KE
   return { storage, encryptionKey, authorize: guard };
 }
 
+/** Retain the full interaction without changing its result or original thrown value.
+ * Suppliers are never evaluated without a capture; flushing uses the existing framed sink. */
+export async function captureRawInteraction<T>(capture: RawCapture | undefined, stage: string,
+  request: () => unknown, work: () => Promise<T>, ownerSnapshot?: (value: T) => unknown): Promise<T> {
+  if (!capture) return work();
+  const record = async (suffix: string, value: () => unknown) => {
+    try { capture?.record(`${stage}-${suffix}`, value); await capture?.flush?.(); }
+    catch { /* Evidence delivery cannot replace business I/O. */ }
+  };
+  try { capture.record(`${stage}-request`, request); } catch { /* Preserve business I/O. */ }
+  try {
+    const result = await work();
+    await record('response', () => ownerSnapshot ? ownerSnapshot(result) : result);
+    return result;
+  } catch (error) {
+    await record('error', () => error);
+    throw error;
+  }
+}
+
+/** A native business transaction must not await capture transactions in the same DO.
+ * Snapshot only that transaction's already-consulted inputs, then drain after it closes.
+ * No retries, detached request payloads, or additional business reads are retained. */
+export async function captureRawTransaction<T>(capture: RawCapture | undefined,
+  work: (transactionCapture: RawCapture | undefined) => Promise<T>): Promise<T> {
+  if (!capture) return work(undefined);
+  const records: Array<{ stage: string; value: unknown }> = [];
+  const pending: RawCapture = { record: (stage, lazy) => {
+    try { records.push({ stage, value: captureRawValue(lazy()) }); } catch { /* Preserve transaction. */ }
+  }, finish: termination => capture.finish(termination) };
+  try { return await work(pending); }
+  finally {
+    for (const record of records) try { capture.record(record.stage, () => record.value); await capture.flush?.(); }
+    catch { /* Retention cannot replace commit, rollback, or its original error. */ }
+  }
+}
+
 /** Snapshots synchronously, persists only on the caller-local scheduled queue. */
 export function createRawCapture(input: { binding: RawCaptureBinding; enabled: boolean;
   storage: () => Promise<RawCaptureStorage>; schedule: (work: Promise<unknown>) => void }): RawCapture & { flush(): Promise<void> } {
@@ -144,6 +187,7 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
   let records = 0; let segments = 0; let bytes = 0;
   let queue = Promise.resolve();
   let finished: Promise<RawCaptureReceipt> | undefined;
+  const producers = new Set<Promise<void>>();
   let io: ReturnType<typeof open> | undefined;
   let source: Promise<RawCaptureStorage> | undefined;
   let binding = input.binding;
@@ -161,71 +205,90 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
   };
   const receipt = (termination: Termination, status: RawCaptureReceipt['status']): RawCaptureReceipt =>
     ({ status, captureId: binding.captureId, records, segments, bytes, termination });
+  const write: RawCapture['record'] = (stage, lazy) => {
+    if (!enabled || failed) return;
+    try {
+      if (typeof stage !== 'string') denied();
+      // Only inert snapshot data reaches JSON serialization, never application toJSON/getters.
+      pending.push(JSON.stringify({ stage, value: captureRawValue(lazy()) }));
+      records++;
+      enqueue(async () => {
+        const sink = await storage();
+        if (!pending.length) return;
+        // Coalesce available records without dropping small events or imposing an event budget.
+        const encoded = new TextEncoder().encode(`[${pending.splice(0).join(',')}]`);
+        const record = batches++;
+        bytes += encoded.length;
+        segments += Math.ceil(encoded.length / FRAME);
+        for (let offset = 0, part = 0; offset < encoded.length; offset += FRAME, part++) {
+          if (failed) denied();
+          const chunk = encoded.subarray(offset, offset + FRAME);
+          const frame = { record, part, bytes: chunk.length };
+          const ordinal = frames.length;
+          const checksum = await sink.put(frameName(ordinal, frame), Buffer.from(chunk).toString('base64'), sink.aad(ordinal, frame));
+          frames.push({ ...frame, digest: checksum });
+        }
+      });
+    } catch { failed = true; }
+  };
+  const flush = async () => {
+    await queue;
+    if (failed) denied();
+  };
   return {
-    record(stage, lazy) {
+    record(stage, lazy) { if (!finished) write(stage, lazy); },
+    flush,
+    defer(produce) {
       if (!enabled || finished || failed) return;
-      try {
-        if (typeof stage !== 'string') denied();
-        // Only inert snapshot data reaches JSON serialization, never application toJSON/getters.
-        pending.push(JSON.stringify({ stage, value: captureRawValue(lazy()) }));
-        records++;
-        enqueue(async () => {
-          const sink = await storage();
-          if (!pending.length) return;
-          // Coalesce available records without dropping small events or imposing an event budget.
-          const encoded = new TextEncoder().encode(`[${pending.splice(0).join(',')}]`);
-          const record = batches++;
-          bytes += encoded.length;
-          segments += Math.ceil(encoded.length / FRAME);
-          for (let offset = 0, part = 0; offset < encoded.length; offset += FRAME, part++) {
-            if (failed) denied();
-            const chunk = encoded.subarray(offset, offset + FRAME);
-            const frame = { record, part, bytes: chunk.length };
-            const ordinal = frames.length;
-            const checksum = await sink.put(frameName(ordinal, frame), Buffer.from(chunk).toString('base64'), sink.aad(ordinal, frame));
-            frames.push({ ...frame, digest: checksum });
-          }
-        });
-      } catch { failed = true; }
-    },
-    async flush() {
-      await queue;
-      if (failed) denied();
+      let active = true;
+      const writer = { record: (stage: string, lazy: () => unknown) => { if (active) write(stage, lazy); }, flush };
+      const work: Promise<void> = Promise.resolve().then(() => { if (!failed) return produce(writer); })
+        .catch(() => { failed = true; }).finally(() => { active = false; producers.delete(work); });
+      producers.add(work);
+      try { schedule(work); } catch { failed = true; }
     },
     finish(termination) {
       if (finished) return finished;
       if (!enabled) return finished = Promise.resolve(receipt(termination, 'disabled'));
-      enqueue(async () => {
-        const sink = await storage();
-        if (frames.length !== segments || pending.length || failed) denied();
-        await sink.put('receipt', JSON.stringify({ version: 1, receipt: receipt(termination, 'complete'), frames }), sink.aad('receipt'));
-        // Revalidate all earlier frames as well as the final receipt, not just the last write.
-        const verified = await walkArchive(sink, binding);
-        if (verified.receipt.records !== records || verified.receipt.segments !== segments
-          || verified.receipt.bytes !== bytes || verified.receipt.termination !== termination) denied();
-        // One immutable encrypted locator per capture: concurrent finishes cannot lose an append.
-        // Its namespace needs only the known owner/run, never the producer-local random ID.
-        const index = await openIndex(binding, await storageSource());
-        const name = await locatorName(binding);
-        await index.put(name, JSON.stringify({ version: 1, binding }), index.aad(name));
-        const recovered = await readLocator(index, binding, name, await index.get(name));
-        if (captureContext(recovered) !== captureContext(binding)) denied();
-        await sink.guard();
-      });
-      finished = queue.then(() => receipt(termination, failed ? 'incomplete' : 'complete'), () => receipt(termination, 'incomplete'));
+      finished = (async () => {
+        // Producer flushes use the ordinary write queue, so join them before enqueuing the receipt.
+        // Only their scoped writers remain live; the public record/defer entry points are sealed now.
+        await Promise.all(producers);
+        enqueue(async () => {
+          const sink = await storage();
+          if (frames.length !== segments || pending.length || failed) denied();
+          await sink.put('receipt', JSON.stringify({ version: 1, receipt: receipt(termination, 'complete'), frames }), sink.aad('receipt'));
+          // Revalidate all earlier frames as well as the final receipt, not just the last write.
+          const verified = await walkArchive(sink, binding);
+          if (verified.receipt.records !== records || verified.receipt.segments !== segments
+            || verified.receipt.bytes !== bytes || verified.receipt.termination !== termination) denied();
+          // One immutable encrypted locator per capture: concurrent finishes cannot lose an append.
+          // Its namespace needs only the known owner/run, never the producer-local random ID.
+          const index = await openIndex(binding, await storageSource());
+          const name = await locatorName(binding);
+          await index.put(name, JSON.stringify({ version: 1, binding }), index.aad(name));
+          const recovered = await readLocator(index, binding, name, await index.get(name));
+          if (captureContext(recovered) !== captureContext(binding)) denied();
+          await sink.guard();
+        });
+        await queue;
+        return receipt(termination, failed ? 'incomplete' : 'complete');
+      })();
       return finished;
     },
   };
 }
 
 async function walkArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCaptureBinding,
-  onRecord?: (record: { stage: string; value: unknown }) => void) {
+  onRecord?: (record: { stage: string; value: unknown }) => void | Promise<void>, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const manifest = manifestSchema.parse(JSON.parse(await io.decrypt(await io.get('receipt'), io.aad('receipt'))));
   const receipt = manifest.receipt;
   if (receipt.captureId !== binding.captureId || receipt.segments !== manifest.frames.length) denied();
   let records = 0;
   let chunks: Uint8Array[] = []; let length = 0; let total = 0; let part = 0; let batch = 0;
   for (const [ordinal, frame] of manifest.frames.entries()) {
+    signal?.throwIfAborted();
     if (frame.record !== batch || frame.part !== part++) denied();
     const ciphertext = await io.get(frameName(ordinal, frame));
     if (await digest(ciphertext) !== frame.digest) denied();
@@ -241,7 +304,8 @@ async function walkArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCap
       for (const record of decoded) {
         if (!Object.hasOwn(record, 'value')) denied();
         records++;
-        onRecord?.({ stage: record.stage, value: record.value });
+        signal?.throwIfAborted();
+        await onRecord?.({ stage: record.stage, value: record.value });
       }
       chunks = []; length = 0; part = 0; batch++;
     }
@@ -249,8 +313,11 @@ async function walkArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCap
   if (records !== receipt.records || total !== receipt.bytes) denied();
   // A valid append has only two possible next coordinates: a continuation or the next batch.
   const last = manifest.frames.at(-1);
+  signal?.throwIfAborted();
   if (last) await io.absent(frameName(receipt.segments, { record: last.record, part: last.part + 1 }));
+  signal?.throwIfAborted();
   await io.absent(frameName(receipt.segments, { record: batch, part: 0 }));
+  signal?.throwIfAborted();
   await io.guard();
   return { receipt };
 }
@@ -292,6 +359,50 @@ Promise<{ status: 'complete' | 'incomplete'; receipt: RawCaptureReceipt | null }
     const archive = await walkArchive(await open(binding, input.storage), binding, onRecord);
     return { status: 'complete', ...archive };
   } catch { return { status: 'incomplete', receipt: null }; }
+}
+
+/** Private streaming read, not a completion proof until the final receipt arrives.
+ * Preflight retains only the manifest/current persisted batch. The second pass
+ * awaits each local write; cancellation stops it rather than draining the archive. */
+export async function exportRawCapture(input: { binding: RawCaptureBinding; storage: RawCaptureStorage }): Promise<Response> {
+  try {
+    const binding = bindingSchema.parse(input.binding);
+    const storage = input.storage;
+    await storage.authorizePass?.();
+    const io = await open(binding, storage);
+    await walkArchive(io, binding);
+    const encoder = new TextEncoder();
+    const stream = new TransformStream<
+      { type: 'record'; stage: string; value: unknown } | { type: 'complete'; receipt: RawCaptureReceipt }, Uint8Array>({
+      async transform(frame, controller) {
+        // Recheck the live session on footer demand, not before a backpressured write.
+        try {
+          if (frame.type === 'complete') await storage.authorizePass?.();
+          await io.guard();
+          controller.enqueue(encoder.encode(`${JSON.stringify(frame)}\n`));
+        } catch { throw new Error('RAW_CAPTURE_UNAVAILABLE'); }
+      },
+    });
+    const writer = stream.writable.getWriter();
+    const cancellation = new AbortController();
+    void writer.closed.catch(() => { cancellation.abort(); });
+    void (async () => {
+      try {
+        await storage.authorizePass?.();
+        const archive = await walkArchive(io, binding,
+          record => writer.write({ type: 'record', ...record }), cancellation.signal);
+        await writer.write({ type: 'complete', receipt: archive.receipt });
+        await writer.close();
+      } catch {
+        await writer.abort(new Error('RAW_CAPTURE_UNAVAILABLE')).catch(() => {});
+      } finally { writer.releaseLock(); }
+    })().catch(() => {});
+    return new Response(stream.readable, { headers: {
+      'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store',
+    } });
+  } catch {
+    return Response.json({ error: 'RAW_CAPTURE_UNAVAILABLE' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }
 }
 
 /** No private partial records escape until the entire archive authenticates. */

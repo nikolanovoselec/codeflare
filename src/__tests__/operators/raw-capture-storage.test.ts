@@ -1,8 +1,10 @@
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { encryptForKV, decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
-import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, verifyRawCapture, discoverRawCaptures,
-  type RawCaptureBinding, type RawCaptureScope, type RawCaptureStorage, type RawCapture } from '../../operators/raw-capture-storage';
+import { resolveProspectiveRenovateRepository } from '../../operators/renovate-prospective';
+import type { Env } from '../../types';
+import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, verifyRawCapture, discoverRawCaptures, exportRawCapture, captureRawInteraction, captureRawTransaction,
+  type RawCaptureBinding, type RawCaptureScope, type RawCaptureStorage, type RawCapture, type RawCaptureReceipt } from '../../operators/raw-capture-storage';
 
 // Synthetic values only. The native boundary retains ciphertext, never a console facsimile.
 const CANARY = 'SYNTHETIC_RAW_PRIVATE_CANARY_秘密_🦊';
@@ -93,6 +95,100 @@ async function saved(f = boundary(), scope = binding) {
   expect((await capture.finish('eof')).status).toBe('complete');
   return f;
 }
+
+it('immediate parent finalization retains the refused HTTP body through its delayed EOF', async () => {
+  const f = boundary();
+  const capture = f.create();
+  const prefix = new TextEncoder().encode(`${CANARY}:prefix 漢🎉`);
+  const tail = new TextEncoder().encode(`${CANARY}:delayed tail`);
+  let first = true;
+  const gate: { release?: () => void } = {};
+  const delayed = new Promise<void>(resolve => { gate.release = resolve; });
+  const response = new Response(new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (first) { first = false; controller.enqueue(prefix); return; }
+      await delayed; controller.enqueue(tail); controller.close();
+    },
+  }, { highWaterMark: 0 }), { status: 403 });
+  try {
+    await expect(resolveProspectiveRenovateRepository({ env: {} as Env,
+      exports: { GitHubInterceptor: () => ({ fetch: async () => response,
+        connect: () => { throw Error('No sockets'); } }) },
+      repository: 'acme/updates', human: { email: 'owner@example.test' }, bucket: 'owner',
+      current: async () => true, capture,
+    })).rejects.toThrow('Incomplete Renovate scan');
+    const finished = capture.finish('failed');
+    gate.release?.();
+    expect((await finished).status).toBe('complete');
+    const archive = await read(f);
+    expect(archive.status).toBe('complete');
+    const chunks = archive.records.filter(record => record.stage === 'discovery-response-chunk')
+      .map(record => record.value as { offset: number; bytes: number[] }).sort((a, b) => a.offset - b.offset);
+    expect(Buffer.concat(chunks.map(chunk => Buffer.from(chunk.bytes)))).toEqual(Buffer.concat([prefix, tail]));
+    expect(archive.records).toContainEqual({ stage: 'discovery-response-eof',
+      value: expect.objectContaining({ offset: prefix.length + tail.length }) });
+    expect([...f.objects.values()].join('')).not.toContain(CANARY);
+  } finally { gate.release?.(); }
+});
+
+it('retains complete interaction inputs/results/original errors before projections, with no private truncation', async () => {
+  const f = boundary();
+  const capture = f.create();
+  let deep: unknown = { secret: CANARY };
+  for (let index = 0; index < 80; index++) deep = { child: deep };
+  const request = { token: CANARY.repeat(12000), deep, values: Array.from({ length: 1500 }, (_, index) => ({ index, text: CANARY })) };
+  const response = { ...request, result: 'original result' };
+  const original = new Error(CANARY, { cause: new Error(`Cause ${CANARY}`) });
+  expect(await captureRawInteraction(capture, 'success', () => request, async () => response)).toBe(response);
+  await expect(captureRawInteraction(capture, 'failure', () => request, async () => { throw original; })).rejects.toBe(original);
+  expect((await capture.finish('failed')).status).toBe('complete');
+  const archive = await read(f);
+  expect(archive.status).toBe('complete');
+  expect(archive.records).toContainEqual({ stage: 'success-request', value: request });
+  expect(archive.records).toContainEqual({ stage: 'success-response', value: response });
+  expect(archive.records).toContainEqual({ stage: 'failure-request', value: request });
+  expect(archive.records.find(record => record.stage === 'failure-error')?.value).toMatchObject({
+    message: CANARY, stack: original.stack, cause: { message: `Cause ${CANARY}`, stack: original.cause instanceof Error ? original.cause.stack : undefined },
+  });
+  expect([...f.objects.values()].join('')).not.toContain(CANARY);
+});
+
+it('OFF never evaluates interaction suppliers and diagnostic failure preserves results and identical throws', async () => {
+  const f = boundary();
+  const off = f.create(binding, { enabled: false });
+  const supplier = () => { throw Error('Optional supplier must not execute'); };
+  const result = { original: true };
+  expect(await captureRawInteraction(off, 'off', supplier, async () => result)).toBe(result);
+  expect(await captureRawInteraction(undefined, 'absent', supplier, async () => result)).toBe(result);
+  expect((await off.finish('complete')).status).toBe('disabled');
+  expect(f.objects.size).toBe(0);
+  const failed = boundary({ rejectWrite: () => true }).create();
+  const original = Error(CANARY);
+  expect(await captureRawInteraction(failed, 'success', () => result, async () => result)).toBe(result);
+  await expect(captureRawInteraction(failed, 'failure', () => result, async () => { throw original; })).rejects.toBe(original);
+  expect((await failed.finish('failed')).status).toBe('incomplete');
+});
+
+it('captures business transaction reads and computed writes without entering its capture sink before commit', async () => {
+  const f = boundary();
+  let businessTransactionOpen = false;
+  const capture = f.create(binding, { storage: async () => {
+    if (businessTransactionOpen) throw Error('Capture cannot nest its transaction in the business transaction');
+    return f.storage;
+  } });
+  const original = { secret: CANARY, revision: 1 };
+  const updated = { ...original, revision: 2 };
+  expect(await captureRawTransaction(capture, async trace => {
+    businessTransactionOpen = true;
+    try {
+      trace?.record('read', () => original);
+      trace?.record('write', () => updated);
+      return updated;
+    } finally { businessTransactionOpen = false; }
+  })).toBe(updated);
+  expect((await capture.finish('complete')).status).toBe('complete');
+  expect((await read(f)).records).toEqual([{ stage: 'read', value: original }, { stage: 'write', value: updated }]);
+});
 
 // Private v1 codec contract, used to construct authenticated malformed archives, not to bypass the reader.
 const aad = (scope: RawCaptureBinding, ordinal: number | 'receipt', frame?: { record: number; part: number }) => {
@@ -281,6 +377,7 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     const forbidden = (name: string): never => { evaluated.add(name); throw new Error('OFF evaluated a forbidden boundary'); };
     const off = f.create(binding, { enabled: false, storage: () => forbidden('storage'), schedule: () => forbidden('schedule') });
     off.record('secret', () => forbidden('supplier'));
+    off.defer?.(async () => forbidden('producer'));
     expect(await off.finish('cancelled')).toEqual({ status: 'disabled', captureId: binding.captureId,
       records: 0, segments: 0, bytes: 0, termination: 'cancelled' });
     expect(f.objects.size).toBe(0);
@@ -305,6 +402,28 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     expect(await firstFinish).toMatchObject({ status: 'complete', termination, records: 1 });
     expect(await capture.finish('failed')).toEqual(await firstFinish);
     expect((await read(f)).receipt).toEqual(await firstFinish);
+  });
+
+  it('seals parent admission immediately while retaining only already admitted producer writes through finalization', async () => {
+    const f = boundary();
+    const capture = f.create();
+    const gate: { release?: () => void } = {};
+    const ready = new Promise<void>(resolve => { gate.release = resolve; });
+    const state: { producer?: Pick<RawCapture, 'record' | 'flush'> } = {};
+    capture.defer?.(async writer => {
+      state.producer = writer;
+      await ready;
+      writer.record('admitted-tail', () => CANARY);
+      await writer.flush?.();
+    });
+    const finished = capture.finish('failed');
+    capture.record('late-parent', () => { throw Error('Sealed parent supplier executed'); });
+    capture.defer?.(async () => { throw Error('Late producer executed'); });
+    gate.release?.();
+    expect(await finished).toMatchObject({ status: 'complete', records: 1 });
+    state.producer?.record('late-producer', () => { throw Error('Settled producer supplier executed'); });
+    expect(capture.finish('complete')).toBe(finished);
+    expect((await read(f)).records).toEqual([{ stage: 'admitted-tail', value: CANARY }]);
   });
 
   it('an unfinished capture is incomplete, while a verified zero-record finish is explicitly complete', async () => {
@@ -504,6 +623,296 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
       expect(await read(f)).toEqual(incomplete);
     });
 
+});
+
+// Private export NDJSON wire contract: record order and a final verified receipt,
+// independent of how UTF-8 bytes or JSON lines are chunked by the stream.
+type ExportFrame = { type: 'record'; stage: string; value: unknown } | { type: 'complete'; receipt: RawCaptureReceipt };
+async function* exportFrames(response: Response): AsyncGenerator<ExportFrame> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let pending = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      pending += decoder.decode(value, { stream: !done });
+      let newline: number;
+      while ((newline = pending.indexOf('\n')) !== -1) {
+        const line = pending.slice(0, newline);
+        pending = pending.slice(newline + 1);
+        yield JSON.parse(line) as ExportFrame;
+      }
+      if (done) {
+        expect(pending).toBe('');
+        return;
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
+describe('REQ-OPERATOR-091 AC6/7: bounded private raw READ export', () => {
+  it('exports ordered multi-batch >256 KiB original stages, deep Unicode, binary and full error causes/stacks without private redaction', async () => {
+    const f = boundary();
+    const capture = f.create();
+    let deep: unknown = { token: CANARY, literal: '[REDACTED]', placeholder: 'CF_TOKEN' };
+    for (let index = 0; index < 80; index++) deep = { child: deep };
+    let error = new Error(`${CANARY}-root`);
+    let errorValue: unknown = { name: error.name, message: error.message, stack: error.stack };
+    for (let index = 0; index < 24; index++) {
+      error = new Error(`${CANARY}-cause-${index}`, { cause: error });
+      errorValue = { name: error.name, message: error.message, stack: error.stack, cause: errorValue };
+    }
+    const records = [
+      { stage: 'pre-admission\n秘密🦊', value: { deep, authorization: `Bearer ${CANARY}`, unicode: '漢🦊é'.repeat(40_000) } },
+      { stage: 'delivered-binary', value: { bytes: Array.from({ length: 90_000 }, (_, index) => index % 256) } },
+      { stage: 'original-error', value: errorValue },
+      { stage: 'eof', value: { original: true, password: CANARY } },
+    ];
+    for (const record of records) {
+      capture.record(record.stage, () => record.stage === 'original-error' ? error : record.value);
+      await capture.flush();
+    }
+    const receipt = await capture.finish('failed');
+    expect(receipt.status).toBe('complete');
+    expect(receipt.bytes).toBeGreaterThan(256 * 1024);
+    const encrypted = new Map(f.objects);
+    const response = await exportRawCapture({ binding, storage: f.storage });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const frames: ExportFrame[] = [];
+    for await (const frame of exportFrames(response)) frames.push(frame);
+    // Named wire contract: exact full reconstruction followed by the sole completion frame.
+    expect(frames).toEqual([...records.map(record => ({ type: 'record', ...record })), { type: 'complete', receipt }]);
+    expect(await read(f)).toEqual({ status: 'complete', receipt, records });
+    expect(f.objects).toEqual(encrypted);
+    expect([...f.objects.values()].every(value => value.startsWith('v1:') && !value.includes(CANARY))).toBe(true);
+  });
+
+  it.each(['missing receipt', 'missing frame', 'corrupt receipt', 'corrupt ciphertext', 'invalid manifest', 'storage failure', 'revoked authority'] as const)(
+    'refuses %s during full preflight before returning a successful data response', async fault => {
+      const f = boundary(); const capture = f.create();
+      for (let index = 0; index < 3; index++) {
+        capture.record('observed', () => ({ index, token: CANARY }));
+        await capture.flush();
+      }
+      expect((await capture.finish('eof')).status).toBe('complete');
+      if (fault === 'invalid manifest') await rewriteManifest(f, manifest => { manifest.receipt.records++; });
+      if (fault.startsWith('missing') || fault.startsWith('corrupt')) {
+        const path = [...f.objects.keys()].find(path => fault.includes('receipt')
+          ? path.endsWith('/receipt') : /\/segment-\d+-2-0$/.test(path))!;
+        if (fault.startsWith('missing')) f.objects.delete(path);
+        else {
+          const value = f.objects.get(path)!;
+          f.objects.set(path, `${value.slice(0, 10)}${value[10] === 'A' ? 'B' : 'A'}${value.slice(11)}`);
+        }
+      }
+      if (fault === 'storage failure') f.native.get = async () => { throw new Error(`Private storage failure ${CANARY}`); };
+      if (fault === 'revoked authority') f.revoke();
+      const response = await exportRawCapture({ binding, storage: f.storage });
+      expect(response.ok).toBe(false);
+      const body = await response.text();
+      expect(body).not.toContain(CANARY);
+      expect(body).not.toContain(binding.ownerKey);
+      expect(body).not.toContain(binding.captureId);
+      expect(body).not.toContain('Private storage failure');
+      expect(body).not.toContain('"type":"complete"');
+    });
+
+  it('backpressures separate persisted batches instead of prebuffering the full export before consumer demand', async () => {
+    const f = boundary(); const capture = f.create();
+    const records = Array.from({ length: 6 }, (_, index) => ({ stage: 'sdk-event',
+      value: { index, unicode: '秘密🦊'.repeat(12_000), token: CANARY } }));
+    for (const record of records) { capture.record(record.stage, () => record.value); await capture.flush(); }
+    expect((await capture.finish('eof')).status).toBe('complete');
+    const response = await exportRawCapture({ binding, storage: f.storage });
+    expect(response.status).toBe(200);
+    const frames = exportFrames(response);
+    try {
+      expect(await frames.next()).toEqual({ done: false, value: { type: 'record', ...records[0] } });
+      // The consumer pauses after one record. A far-future persisted batch must
+      // still be needed, not already collected into a whole-archive data response.
+      const tail = [...f.objects.keys()].find(path => /\/segment-\d+-5-0$/.test(path))!;
+      f.objects.delete(tail);
+      const delivered: ExportFrame[] = [];
+      let failed = false;
+      try { for await (const frame of frames) delivered.push(frame); } catch { failed = true; }
+      expect(failed).toBe(true);
+      expect(delivered.some(frame => frame.type === 'complete')).toBe(false);
+    } finally { await frames.return(undefined); }
+  });
+
+  it.each(['storage failure', 'authority revoked', 'key rotated'] as const)(
+    'errors the second-pass stream without completion after %s despite HTTP 200 and an authenticated prefix', async fault => {
+      const f = boundary(); const capture = f.create();
+      for (let index = 0; index < 6; index++) {
+        capture.record('observed', () => ({ index, token: CANARY }));
+        await capture.flush();
+      }
+      expect((await capture.finish('eof')).status).toBe('complete');
+      const response = await exportRawCapture({ binding, storage: f.storage });
+      expect(response.status).toBe(200);
+      const frames = exportFrames(response);
+      try {
+        expect(await frames.next()).toEqual({ done: false,
+          value: { type: 'record', stage: 'observed', value: { index: 0, token: CANARY } } });
+        if (fault === 'storage failure') f.native.get = async () => { throw new Error(`Private read failed ${CANARY}`); };
+        if (fault === 'authority revoked') f.revoke();
+        if (fault === 'key rotated') f.rotate();
+        const delivered: ExportFrame[] = [];
+        let failed = false;
+        try { for await (const frame of frames) delivered.push(frame); } catch { failed = true; }
+        expect(failed).toBe(true);
+        expect(delivered.some(frame => frame.type === 'complete')).toBe(false);
+      } finally { await frames.return(undefined); }
+    });
+
+  it('denies an initially invalid live session before private export even while local read authority remains valid', async () => {
+    const f = await saved();
+    f.storage.authorizePass = async () => { throw new Error(`Private session expired ${CANARY}`); };
+    const response = await exportRawCapture({ binding, storage: f.storage });
+    expect(response.status).toBe(503);
+    const body = await response.text();
+    expect(body).not.toContain(CANARY);
+    expect(body).not.toContain(binding.ownerKey);
+    expect(body).not.toContain('Private session expired');
+    expect(body).not.toContain('"type":"record"');
+    expect(body).not.toContain('"type":"complete"');
+    expect((await read(f)).status).toBe('complete');
+  });
+
+  it.each(['after preflight', 'after the first exported record'] as const)(
+    'withholds completion when the live session is revoked %s despite continued local read authority', async timing => {
+      const f = boundary(); const capture = f.create();
+      for (let index = 0; index < 3; index++) {
+        capture.record('observed', () => ({ index, token: CANARY }));
+        await capture.flush();
+      }
+      const receipt = await capture.finish('eof');
+      expect(receipt.status).toBe('complete');
+      let live = true;
+      f.storage.authorizePass = async () => {
+        if (!live) throw new Error(`Private session revoked ${CANARY}`);
+      };
+      if (timing === 'after preflight') {
+        const get = f.native.get.bind(f.native);
+        f.native.get = (async (key: string) => {
+          const value = await get<unknown>(key);
+          // Private v1 wire contract: revoke after the preflight's final native read.
+          if (key.endsWith('/segment-3-3-0')) live = false;
+          return value;
+        }) as typeof f.native.get;
+      }
+      const response = await exportRawCapture({ binding, storage: f.storage });
+      expect(response.status).toBe(200);
+      const frames = exportFrames(response);
+      const delivered: ExportFrame[] = [];
+      try {
+        if (timing === 'after the first exported record') {
+          expect(await frames.next()).toEqual({ done: false,
+            value: { type: 'record', stage: 'observed', value: { index: 0, token: CANARY } } });
+          live = false;
+        }
+        let failed = false;
+        try { for await (const frame of frames) delivered.push(frame); } catch { failed = true; }
+        expect(failed).toBe(true);
+        expect(delivered.some(frame => frame.type === 'complete')).toBe(false);
+        if (timing === 'after preflight') expect(delivered).toEqual([]);
+      } finally { await frames.return(undefined); }
+      expect((await read(f)).receipt).toEqual(receipt);
+    });
+
+  it('denies a live-session revocation while verified completion is waiting for consumer demand', async () => {
+    const f = await saved();
+    let live = true;
+    f.storage.authorizePass = async () => {
+      if (!live) throw new Error(`Private session revoked ${CANARY}`);
+    };
+    const response = await exportRawCapture({ binding, storage: f.storage });
+    expect(response.status).toBe(200);
+    const frames = exportFrames(response);
+    try {
+      expect(await frames.next()).toEqual({ done: false, value: { type: 'record', stage: 'observed',
+        value: { authorization: `Bearer ${CANARY}`, text: 'visible', bytes: [0, 255, 128] } } });
+      // Remaining in-memory absence/role checks settle in microtasks. Yield a
+      // turn without demanding the footer, then revoke the live session.
+      await new Promise<void>(resolve => { setTimeout(resolve, 0); });
+      live = false;
+      const delivered: ExportFrame[] = [];
+      let failed = false;
+      try { for await (const frame of frames) delivered.push(frame); } catch { failed = true; }
+      expect(failed).toBe(true);
+      expect(delivered.some(frame => frame.type === 'complete')).toBe(false);
+      expect((await read(f)).status).toBe('complete');
+    } finally { await frames.return(undefined); }
+  });
+
+  it('rechecks authority at the final second-pass storage boundary before emitting a completion receipt', async () => {
+    const f = await saved();
+    const response = await exportRawCapture({ binding, storage: f.storage });
+    expect(response.status).toBe(200);
+    const get = f.native.get.bind(f.native);
+    f.native.get = (async (key: string) => {
+      const value = await get<unknown>(key);
+      // Private v1 wire contract: absence of the next batch is the final read.
+      if (key.endsWith('/segment-1-1-0')) f.revoke();
+      return value;
+    }) as typeof f.native.get;
+    const delivered: ExportFrame[] = [];
+    let failed = false;
+    try { for await (const frame of exportFrames(response)) delivered.push(frame); } catch { failed = true; }
+    expect(failed).toBe(true);
+    expect(delivered.some(frame => frame.type === 'complete')).toBe(false);
+  });
+
+  it('allows consumer interruption without delivering completion or mutating the retained archive', async () => {
+    const f = boundary(); const capture = f.create();
+    for (let index = 0; index < 6; index++) {
+      capture.record('observed', () => ({ index, token: CANARY }));
+      await capture.flush();
+    }
+    const receipt = await capture.finish('eof');
+    expect(receipt.status).toBe('complete');
+    const encrypted = new Map(f.objects);
+    const response = await exportRawCapture({ binding, storage: f.storage });
+    const frames = exportFrames(response);
+    expect(await frames.next()).toEqual({ done: false,
+      value: { type: 'record', stage: 'observed', value: { index: 0, token: CANARY } } });
+    // Returning the reader cancels its body rather than draining/acknowledging it.
+    await frames.return(undefined);
+    expect(response.body!.locked).toBe(false);
+    const cancelled = response.body!.getReader();
+    try { expect(await cancelled.read()).toEqual({ done: true, value: undefined }); }
+    finally { cancelled.releaseLock(); }
+    expect(f.objects).toEqual(encrypted);
+    expect((await read(f)).receipt).toEqual(receipt);
+  });
+
+  it('exports a verified zero-record completed archive as completion, not missing evidence', async () => {
+    const f = boundary();
+    const receipt = await f.create().finish('eof');
+    expect(receipt).toMatchObject({ status: 'complete', records: 0, segments: 0, bytes: 0 });
+    const response = await exportRawCapture({ binding, storage: f.storage });
+    expect(response.status).toBe(200);
+    const frames: ExportFrame[] = [];
+    for await (const frame of exportFrames(response)) frames.push(frame);
+    expect(frames).toEqual([{ type: 'complete', receipt }]);
+  });
+
+  it('OFF never manufactures a capture or completion when the private read surface is requested', async () => {
+    const f = boundary();
+    const off = f.create(binding, { enabled: false });
+    off.record('must-not-exist', () => { throw new Error('OFF supplier evaluated'); });
+    expect((await off.finish('eof')).status).toBe('disabled');
+    const response = await exportRawCapture({ binding, storage: f.storage });
+    expect(response.ok).toBe(false);
+    expect(await response.text()).not.toContain(CANARY);
+    expect(f.objects.size).toBe(0);
+    expect(await discover(f)).toEqual({ status: 'complete', bindings: [], cursor: null });
+  });
 });
 
 describe('REQ-OPERATOR-090/091: scope-discoverable private capture recovery', () => {

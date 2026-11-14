@@ -8,7 +8,9 @@
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { createRawCapture, createOwnerRawCaptureStorage, verifyRawCapture, type RawCaptureBinding } from './raw-capture-storage';
+import { createRawCapture, createOwnerRawCaptureStorage, verifyRawCapture, captureRawInteraction, type RawCaptureBinding, type RawCapture, type RawCaptureReceipt } from './raw-capture-storage';
+import { requireOwnerRawReader, parseOwnerRawReadRequest, readOwnerRawCapturePage, ownerRawReadUnavailable,
+  type OwnerRawReadCredential, type OwnerRawReadRequest } from './raw-capture-read';
 import { projectDispatcherOperationEvidence } from './dispatcher-runtime-diagnostics';
 import { publicSdkReportSchema, projectPublicSdkRecords, readPublicSdkDiagnostics } from './dispatcher-public-diagnostics';
 import { readBoundedResponse } from '../lib/bounded-stream';
@@ -49,7 +51,7 @@ import { createDispatcherPhaseState, dispatcherPhaseWire, bindDispatcherPhaseRec
   advanceDispatcherPhase, collectDispatcherFinal, sameDispatcherPhaseValue, DISPATCHER_JOURNEY_RESULT_BYTES,
   bindNormalDispatcherPhaseReceipt, type DispatcherPhaseState, type DispatcherPhaseAuthority, type DispatcherPhaseReply } from './dispatcher-phases';
 import { prospectiveAdmissionLayout, type OperatorAdmissionRequest, type OperatorAdmissionReceipt,
-  type ManagementAdmissionReceipt, type ProspectiveAdmission } from './registry';
+  type ManagementAdmissionReceipt, type ProspectiveAdmission, type ProspectiveObservationCapture } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -984,28 +986,107 @@ export class OperatorActivity extends Agent {
     return state?.ownerKey === ownerKey && (state.phase === 'prepared' || state.phase === 'admitting');
   }
 
+  /** Root-local snapshots; only inert data crosses RPC, never this writer or callbacks. */
+  private prospectiveObservationRelay(observation?: ProspectiveObservationCapture): RawCapture | undefined {
+    if (observation?.loggingEnabled !== true || observation.binding.scope.kind !== 'observation') return;
+    try {
+    const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
+    let records: Array<{ stage: string; value: unknown }> = [];
+    let receipt: RawCaptureReceipt = { status: 'disabled', captureId: observation.binding.captureId,
+      records: 0, segments: 0, bytes: 0, termination: 'complete' };
+    let failed = false;
+    let sequence = 0;
+    const flush = async () => {
+      if (failed || !records.length) return;
+      const batch = records; records = [];
+      try {
+        receipt = await registry.retainRawObservation({ binding: { ...observation.binding, captureId: crypto.randomUUID() },
+          observation, records: [{ stage: 'interaction-sequence', value: sequence++ }, ...batch], termination: 'complete', failed: false });
+        if (receipt.status !== 'complete') failed = true;
+      } catch { failed = true; }
+    };
+    return { record: (stage, lazy) => {
+      if (!failed) try { records.push({ stage, value: captureRawValue(lazy()) }); } catch { failed = true; }
+    }, flush, finish: async () => {
+      await flush();
+      if (failed) {
+        try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-incomplete',
+          data: { captureId: observation.binding.captureId, status: 'incomplete' } })); } catch { /* Preserve original result. */ }
+        return { ...receipt, status: 'incomplete' };
+      }
+      return receipt;
+    } };
+    } catch { return; } // Optional setup must not affect an original call.
+  }
+
   /** Retire exact original never-driven work without SDK observation, abort or recovery. */
-  async retireProspectiveRenovatePreparation(input: ProspectiveAdmission): Promise<boolean> {
+  async retireProspectiveRenovatePreparation(input: ProspectiveAdmission, observation?: ProspectiveObservationCapture): Promise<boolean> {
+    let raw: RawCapture | undefined;
+    // Do not fetch policy or other protected evidence solely for optional diagnostics.
+    let loggingEnabled: boolean | undefined;
+    const refuse = (reason: 'receiver-mismatch' | 'original-admission-mismatch' | 'unsupported-layout'
+      | 'binding-mismatch' | 'missing-state-with-ledger' | 'uncertain' | 'collection-consumed'
+      | 'binding-intent-pins' | 'owner-mismatch' | 'receipt-mismatch' | 'receipt-selection-mismatch'
+      | 'drive-started' | 'phase-or-ledger' | 'publication-present' | 'runtime-effect-present' | 'evidence-unavailable') => {
+      raw?.record('activity-retirement-refusal', () => ({ reason }));
+      raw?.record('activity-retirement-response', () => false);
+      if (loggingEnabled && observation?.loggingEnabled !== false) try {
+        createLogger('operator-activity').info('Prospective Renovate preparation retained', {
+          reason, admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', input.activityId])),
+        });
+      } catch { /* Optional diagnostics cannot authorize retirement or replace its result. */ }
+      return false;
+    };
     try {
       if (!syncIdentity.safeParse(input.activityId).success || !this.#appEnv.OPERATOR_ACTIVITY
-        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(input.activityId).toString() !== this.ctx.id.toString()) return false;
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(input.activityId).toString() !== this.ctx.id.toString()) return refuse('receiver-mismatch');
       const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
-      const original = await registry.readProspectiveRenovateAdmission(input.activityId);
-      if (!original || !sameDispatcherPhaseValue(original, input)) return false;
+      if (observation?.loggingEnabled === true && observation.binding.scope.kind === 'observation'
+        && observation.binding.ownerKey === input.ownerKey && observation.binding.installationId === input.installationId) try {
+        observation = { ...observation, parentCaptureId: observation.binding.captureId,
+          binding: { ...observation.binding, captureId: crypto.randomUUID() } };
+        raw = this.prospectiveObservationRelay(observation);
+        raw?.record('activity-retirement-request', () => input);
+      } catch { /* Optional span setup cannot change retirement. */ }
+      let original: ProspectiveAdmission | null;
+      raw?.record('activity-retirement-original-request', () => ({ activityId: input.activityId }));
+      try { original = await registry.readProspectiveRenovateAdmission(input.activityId, observation); }
+      catch (error) { raw?.record('activity-retirement-original-error', () => error); throw error; }
+      raw?.record('activity-retirement-original-response', () => !original || original.ownerKey === observation?.binding.ownerKey
+        ? original : { foreignOwner: true });
+      if (!original || !sameDispatcherPhaseValue(original, input)) return refuse('original-admission-mismatch');
       const layout = prospectiveAdmissionLayout(original);
-      if (!layout) return false;
+      if (!layout) return refuse('unsupported-layout');
       // Even the original 2160810c start path wrote this immutable ledger before queue/runtime.
       // A later optional reservation timestamp is not admission evidence; local absence alone is not either.
-      const ledger = await registry.getManagementAdmission(original.activityId);
+      const ledger = await captureRawInteraction(raw, 'activity-retirement-ledger', () => original.activityId, async () => {
+        const receipt = await registry.getManagementAdmission(original.activityId, observation);
+        try { loggingEnabled = executionLoggingEnabled(receipt); }
+        catch { loggingEnabled = false; }
+        return receipt;
+      }, value => loggingEnabled ? value : { omitted: 'original-logging-policy' });
       const neverAdmitted = ledger === null;
       const retired = await this.ctx.storage.transaction(async tx => {
-        const state = await tx.get<AdmissionState>('admission');
-        const bound = await tx.get<string>('prospective-admission');
-        const retirement = await tx.get<string>('prospective-retirement');
-        if (bound && bound !== original.activityId || retirement && retirement !== original.activityId) return false;
-        if (!state && !neverAdmitted) return false;
-        if (state?.diagnosticFence?.uncertain
-          || state?.browserCollectionConsumed && !neverStartedDispatcherCancellation(state)) return false;
+        const state = await captureRawInteraction(loggingEnabled ? raw : undefined, 'activity-retirement-state-read', () => 'admission', async () => {
+          const value = await tx.get<AdmissionState>('admission');
+          // Consult only the receipt already required by retirement, before any state snapshot can be serialized.
+          try { loggingEnabled = executionLoggingEnabled(ledger ?? value?.receipt); }
+          catch { loggingEnabled = false; }
+          return value;
+        }, value => !loggingEnabled ? { omitted: 'original-logging-policy' }
+          : !value || value.ownerKey === input.ownerKey ? value : { foreignOwner: true });
+        const trace = loggingEnabled ? raw : undefined;
+        const bound = await captureRawInteraction(trace, 'activity-retirement-binding', () => 'prospective-admission',
+          () => tx.get<string>('prospective-admission'));
+        const retirement = await captureRawInteraction(trace, 'activity-retirement-fence', () => 'prospective-retirement',
+          () => tx.get<string>('prospective-retirement'));
+        trace?.record('activity-retirement-state', () => state && state.ownerKey !== input.ownerKey
+          ? { foreignOwner: true } : { state, bound, retirement, layout, neverAdmitted });
+        try { await trace?.flush?.(); } catch { /* Preserve the transaction. */ }
+        if (bound && bound !== original.activityId || retirement && retirement !== original.activityId) return refuse('binding-mismatch');
+        if (!state && !neverAdmitted) return refuse('missing-state-with-ledger');
+        if (state?.diagnosticFence?.uncertain) return refuse('uncertain');
+        if (state?.browserCollectionConsumed && !neverStartedDispatcherCancellation(state)) return refuse('collection-consumed');
         if (state) {
           if (!state.executionContext || !('installationId' in state.intent) || bound !== original.activityId
             || state.intent.activityId !== original.activityId || state.ownerKey !== original.ownerKey
@@ -1019,11 +1100,11 @@ export class OperatorActivity extends Agent {
               || state.executionContext.artifactDigest !== original.bundleDigest))
             || state.invocationJson !== JSON.stringify(layout === 'legacy'
               ? { repository: 'nikolanovoselec/komodo', pullRequest: original.pullRequest }
-              : { repository: original.repository })) return false;
+              : { repository: original.repository })) return refuse('binding-intent-pins');
           const owner = state.executionContext.owner;
           if (owner.subject !== original.actor.subject || owner.issuer !== original.actor.issuer
             || owner.email.toLowerCase() !== original.actor.email.toLowerCase()
-            || !sameDispatcherPhaseValue(owner.audiences, original.actor.audiences)) return false;
+            || !sameDispatcherPhaseValue(owner.audiences, original.actor.audiences)) return refuse('owner-mismatch');
           if (state.phase === 'queued') {
             if (!ledger || !state.receipt || !isManagementReceipt(state.receipt)
               || !sameDispatcherPhaseValue(state.receipt, ledger)
@@ -1031,7 +1112,7 @@ export class OperatorActivity extends Agent {
               || ledger.intentDigest !== state.intent.intentDigest || ledger.deadline !== state.intent.deadline
               || ledger.expectedInstallationRevision !== state.intent.expectedInstallationRevision
               || ledger.expectedOperatorRevision !== state.intent.expectedRevision
-              || ledger.expectedControlsRevision !== state.intent.expectedControlsRevision) return false;
+              || ledger.expectedControlsRevision !== state.intent.expectedControlsRevision) return refuse('receipt-mismatch');
             const { selection } = ledger;
             if (selection.operator.profile !== 'dispatcher' || selection.installation.policy.resourceProfileId !== null
               || selection.installation.id !== original.installationId
@@ -1041,39 +1122,52 @@ export class OperatorActivity extends Agent {
               || selection.operator.revision !== state.intent.expectedRevision || selection.controlsRevision !== state.intent.expectedControlsRevision
               || selection.release.bundleDigest !== state.executionContext.artifactDigest
               || await sha256(JSON.stringify(selection.installation.policy)) !== state.executionContext.policyDigest
-              || layout === 'pinned' && selection.release.id !== original.releaseId
-              || state.drive && !neverStartedDispatcherCancellation(state)) return false;
+              || layout === 'pinned' && selection.release.id !== original.releaseId) return refuse('receipt-selection-mismatch');
+            if (state.drive && !neverStartedDispatcherCancellation(state)) return refuse('drive-started');
           } else if (!neverAdmitted || state.receipt || state.drive
-            || state.phase !== 'prepared' && !(state.phase === 'cancelled' && retirement === original.activityId)) return false;
+            || state.phase !== 'prepared' && !(state.phase === 'cancelled' && retirement === original.activityId)) return refuse('phase-or-ledger');
         }
         // Check every runtime/effect key, including orphaned legacy records; diagnostics are not effects.
-        if (await tx.get(RENOVATE_PUBLICATION)) return false;
+        if (await captureRawInteraction(trace, 'activity-retirement-publication', () => RENOVATE_PUBLICATION,
+          () => tx.get(RENOVATE_PUBLICATION))) return refuse('publication-present');
         let cursor: string | undefined;
         for (;;) {
+          trace?.record('activity-retirement-runtime-request', () => ({ prefix: 'dispatcher:', limit: 128, cursor }));
           const entries = await tx.list({ prefix: 'dispatcher:', limit: 128, ...(cursor ? { startAfter: cursor } : {}) });
-          if ([...entries.keys()].some(key => !key.startsWith('dispatcher:diagnostics:'))) return false;
+          trace?.record('activity-retirement-runtime-response', () => [...entries]);
+          try { await trace?.flush?.(); } catch { /* Keep the original effect guard. */ }
+          if ([...entries.keys()].some(key => !key.startsWith('dispatcher:diagnostics:'))) return refuse('runtime-effect-present');
           if (entries.size < 128) break;
           cursor = [...entries.keys()].at(-1)!;
         }
         // Shares prepareAuthorized/start/beginDrive ordering, so delayed original work cannot win later.
-        await tx.put('prospective-retirement', original.activityId);
+        await captureRawInteraction(trace, 'activity-retirement-write', () => ({ key: 'prospective-retirement', value: original.activityId }),
+          () => tx.put('prospective-retirement', original.activityId));
         if (!state || state.drive) return true;
         const now = Date.now();
         if (state.phase !== 'queued') {
-          await tx.put<AdmissionState>('admission', { ...state, phase: 'cancelled',
-            intent: { ...state.intent, startVerifier: '' }, updatedAt: now });
+          const value: AdmissionState = { ...state, phase: 'cancelled',
+            intent: { ...state.intent, startVerifier: '' }, updatedAt: now };
+          await captureRawInteraction(trace, 'activity-retirement-write', () => ({ key: 'admission', value }), () => tx.put('admission', value));
         } else {
-          await tx.put<AdmissionState>('admission', { ...state,
+          const value: AdmissionState = { ...state,
             drive: { generation: 1, status: 'cancel-requested', checkpoint: null, result: null },
             diagnosticFence: { generation: 0, timestamp: now, boundary: 'fence', code: 'cancelled', uncertain: false },
             diagnosticsVersion: 1, diagnosticBinding: { generation: 0,
-              artifactDigest: state.executionContext!.artifactDigest, inputDigest: state.receipt!.intentDigest }, updatedAt: now });
+              artifactDigest: state.executionContext!.artifactDigest, inputDigest: state.receipt!.intentDigest }, updatedAt: now };
+          await captureRawInteraction(trace, 'activity-retirement-write', () => ({ key: 'admission', value }), () => tx.put('admission', value));
         }
         return true;
       });
-      if (retired) await this.publishBrowserSummary();
+      const trace = loggingEnabled ? raw : undefined;
+      if (retired) await captureRawInteraction(trace, 'activity-retirement-publication-summary', () => ({ activityId: original.activityId }),
+        () => this.publishBrowserSummary(undefined, undefined, undefined, trace));
+      raw?.record('activity-retirement-response', () => retired);
       return retired;
-    } catch { return false; } // Unavailable evidence cannot authorize a replacement.
+    } catch (error) {
+      raw?.record('activity-retirement-error', () => loggingEnabled === false ? { omitted: 'original-logging-policy' } : error);
+      return refuse('evidence-unavailable'); // Unavailable evidence cannot authorize a replacement.
+    } finally { try { await raw?.finish('complete'); } catch { /* Retention cannot change retirement. */ } }
   }
 
   /** Parent-safe discriminator used to require live installation authorization at start. */
@@ -2498,6 +2592,62 @@ export class OperatorActivity extends Agent {
     const exports = (this.ctx as unknown as { exports: { OperatorDispatcherCapability: InferenceArchiveFactory } }).exports;
     return inferenceArchiveCapability(context, { ownerKey: await operatorOwnerKey(plan.executionContext.owner),
       receiptDigest: await sha256(JSON.stringify(plan.receipt)) }, options => exports.OperatorDispatcherCapability(options));
+  }
+
+  /** Passive private history: no lease, runtime-plan recovery, current policy or deadline authority. */
+  async readOwnerRawCaptures(credential: OwnerRawReadCredential, input: OwnerRawReadRequest): Promise<Response> {
+    try {
+      const request = parseOwnerRawReadRequest(input);
+      const reader = await requireOwnerRawReader(this.#appEnv, credential);
+      const scope = request.scope;
+      if (scope.kind !== 'activity' || !this.#appEnv.OPERATOR_ACTIVITY
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(scope.activityId).toString() !== this.ctx.id.toString()) {
+        return ownerRawReadUnavailable();
+      }
+      const retained = async (): Promise<ManagementAdmissionReceipt> => {
+        const state = await this.ctx.storage.get<AdmissionState>('admission');
+        if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+          || state.ownerKey !== reader.ownerKey || state.intent.activityId !== scope.activityId
+          || !('installationId' in state.intent) || state.executionContext.activityId !== scope.activityId
+          || state.executionContext.schemaVersion !== 1 || state.executionContext.principal !== 'operator'
+          || state.executionContext.operatorId !== state.intent.operatorId
+          || await operatorOwnerKey(state.executionContext.owner) !== reader.ownerKey) throw new Error('Raw capture unavailable');
+        const receipt = state.receipt;
+        const { installation, operator, release, controlsRevision } = receipt.selection;
+        if (!Number.isSafeInteger(receipt.admittedAt) || receipt.admittedAt <= 0
+          || [receipt.expectedInstallationRevision, receipt.expectedOperatorRevision]
+            .some(revision => !Number.isSafeInteger(revision) || revision < 1)
+          || !Number.isSafeInteger(receipt.expectedControlsRevision) || receipt.expectedControlsRevision < 0
+          || !syncIdentity.safeParse(installation.id).success || !syncIdentity.safeParse(release.id).success
+          || !syncDigest.safeParse(release.bundleDigest).success || !executionLoggingEnabled(receipt)
+          || operator.policy.loggingEnabled !== undefined && typeof operator.policy.loggingEnabled !== 'boolean'
+          || receipt.activityId !== scope.activityId || receipt.installationId !== state.intent.installationId
+          || receipt.intentDigest !== state.intent.intentDigest
+          || receipt.intentDigest !== await createOperatorIntentDigest(state.intent.operatorId, scope.activityId, state.invocationJson ?? 'null')
+          || installation.id !== receipt.installationId || installation.releaseId !== release.id
+          || installation.operatorId !== state.intent.operatorId || operator.operatorId !== state.intent.operatorId
+          || release.operatorId !== state.intent.operatorId || release.bundleDigest !== state.executionContext.artifactDigest
+          || receipt.expectedInstallationRevision !== state.intent.expectedInstallationRevision
+          || receipt.expectedInstallationRevision !== installation.revision
+          || receipt.expectedOperatorRevision !== state.intent.expectedRevision || receipt.expectedOperatorRevision !== operator.revision
+          || receipt.expectedControlsRevision !== state.intent.expectedControlsRevision || receipt.expectedControlsRevision !== controlsRevision) {
+          throw new Error('Raw capture unavailable');
+        }
+        return receipt;
+      };
+      const receipt = await retained();
+      const original = JSON.stringify(receipt);
+      const checkRetained = async () => {
+        if (JSON.stringify(await retained()) !== original) throw new Error('Raw capture unavailable');
+      };
+      const guard = async () => { await reader.guard(); await checkRetained(); };
+      const authorizePass = async () => { await reader.authorize(); await checkRetained(); };
+      const storage = await createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, guard);
+      // Generation comes from the authenticated scoped locator, not the current drive/lease.
+      // Every locator on the selected page must agree with the retained original receipt.
+      return await readOwnerRawCapturePage({ request, ownerKey: reader.ownerKey, storage: { ...storage, authorizePass },
+        bindingPins: { installationId: receipt.selection.installation.id, releaseId: receipt.selection.release.id } });
+    } catch { return ownerRawReadUnavailable(); }
   }
 
   /** Existing Root emitters retain their full snapshot before any console projection. */
@@ -5420,15 +5570,21 @@ export class OperatorActivity extends Agent {
   }
 
   private async publishBrowserSummary(state?: AdmissionState, summary?: OperatorBrowserSummary,
-    observed?: OperatorBrowserSummary): Promise<void> {
-    state ??= await this.ctx.storage.get<AdmissionState>('admission');
+    observed?: OperatorBrowserSummary, raw?: RawCapture): Promise<void> {
+    state ??= await captureRawInteraction(raw, 'activity-summary-state', () => 'admission',
+      () => this.ctx.storage.get<AdmissionState>('admission'));
     if (!state?.ownerKey) return;
+    const ownerKey = state.ownerKey;
     try {
-      const projection = summary ?? this.browserSummary(state, await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE));
+      const projection = summary ?? this.browserSummary(state, await captureRawInteraction(raw, 'activity-summary-lease',
+        () => DISPATCHER_LEASE, () => this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)));
       const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
-      if (observed) await registry.upsertOwnedActivity(state.ownerKey, projection, observed);
-      else await registry.upsertOwnedActivity(state.ownerKey, projection);
-    } catch { /* execution state remains authoritative; the safe index can reconcile later */ }
+      await captureRawInteraction(raw, 'activity-summary-rpc', () => ({ ownerKey, projection, observed }),
+        () => observed ? registry.upsertOwnedActivity(ownerKey, projection, observed) : registry.upsertOwnedActivity(ownerKey, projection));
+    } catch (error) {
+      raw?.record('activity-summary-error', () => error);
+      /* execution state remains authoritative; the safe index can reconcile later */
+    }
   }
 
   private sdkCleanupReleased(state: AdmissionState, lease?: DispatcherLease): boolean | undefined {
@@ -5967,18 +6123,46 @@ export class OperatorActivity extends Agent {
   }
 
   /** Existing Registry reads original terminal proof. Never drives, re-admits or collects history. */
-  async readProspectiveRenovateRetryProof(input: { repositoryId: number; pullRequest: number; head: string }):
+  async readProspectiveRenovateRetryProof(input: { repositoryId: number; pullRequest: number; head: string }, observation?: ProspectiveObservationCapture):
     Promise<ProspectiveRenovateRetryProof | null> {
+    try {
+      if (observation?.loggingEnabled === true) observation = { ...observation, parentCaptureId: observation.binding.captureId,
+        binding: { ...observation.binding, captureId: crypto.randomUUID() } };
+    } catch { observation = undefined; }
+    const archive = this.prospectiveObservationRelay(observation);
+    let owned = true;
+    let loggingEnabled: boolean | undefined;
+    const raw = archive && { ...archive, record: (stage: string, value: () => unknown) => {
+      if (loggingEnabled === false && (stage === 'activity-retry-proof-response' || stage === 'activity-retry-proof-error')) {
+        archive.record(stage, () => ({ omitted: 'original-logging-policy' }));
+      } else if (stage === 'activity-retry-proof-response' && !owned) archive.record(stage, () => ({ foreignOwner: true }));
+      else archive.record(stage, value);
+    } };
+    try { return await captureRawInteraction(raw, 'activity-retry-proof', () => input, async () => {
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest < 1 || !/^[a-f0-9]{40}$/.test(input.head)) return null;
     const bound = await this.ctx.storage.get<string>('prospective-admission');
-    if (!bound) return null;
-    const original = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').readProspectiveRenovateAdmission(bound);
+    if (!bound) { raw?.record('activity-retry-bound', () => bound); return null; }
+    const original = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').readProspectiveRenovateAdmission(bound, observation);
+    owned = !original || !observation || original.ownerKey === observation.binding.ownerKey;
+    raw?.record('activity-retry-original', () => owned ? { bound, original } : { foreignOwner: true });
     if (!original || original.repositoryId !== input.repositoryId || original.pullRequest !== input.pullRequest
       || original.head !== input.head) return null;
     return this.ctx.storage.transaction(async tx => {
-      const state = await tx.get<AdmissionState>('admission');
-      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      const state = await captureRawInteraction(owned ? raw : undefined, 'activity-retry-admission', () => 'admission', async () => {
+        const value = await tx.get<AdmissionState>('admission');
+        try { loggingEnabled = executionLoggingEnabled(value?.receipt); }
+        catch { loggingEnabled = false; }
+        return value;
+      }, value => !loggingEnabled ? { omitted: 'original-logging-policy' }
+        : !value || value.ownerKey === observation?.binding.ownerKey ? value : { foreignOwner: true });
+      // Lease payloads need their own retained receipt policy, not the default used for pre-admission observations.
+      const trace = loggingEnabled && owned && state?.receipt && isManagementReceipt(state.receipt)
+        && state.ownerKey === observation?.binding.ownerKey ? raw : undefined;
+      const lease = await captureRawInteraction(trace, 'activity-retry-lease', () => DISPATCHER_LEASE,
+        () => tx.get<DispatcherLease>(DISPATCHER_LEASE));
+      trace?.record('activity-retry-state', () => ({ state, lease }));
+      try { await trace?.flush?.(); } catch { /* Preserve the exact proof read. */ }
       if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.browserCollectionConsumed
         || state.drive?.status !== 'completed' || !lease?.serial || lease.status !== 'settled'
         || (lease.hosting === 'normal' ? !this.#normalSettlementObserved(lease) : !lease.sdkReleased)
@@ -5987,7 +6171,8 @@ export class OperatorActivity extends Agent {
         || lease.serial.current.receipt?.submissionId !== lease.submissionId
         || state.intent.activityId !== original.activityId || state.ownerKey !== original.ownerKey
         || lease.artifactDigest !== original.bundleDigest || lease.inputDigest !== state.receipt.intentDigest
-        || JSON.stringify(state.drive.result) !== JSON.stringify(await tx.get(`dispatcher:result:${lease.generation}`))) return null;
+        || JSON.stringify(state.drive.result) !== JSON.stringify(await captureRawInteraction(trace, 'activity-retry-result',
+          () => `dispatcher:result:${lease.generation}`, () => tx.get(`dispatcher:result:${lease.generation}`)))) return null;
       const result = state.drive.result as { repository?: string; results?: Array<{ pullRequest: number; headSha: string; outcome: string; reason?: string }> };
       const row = result?.results?.length === 1 ? result.results[0] : undefined;
       if (result?.repository !== original.repository || !row || row.pullRequest !== input.pullRequest
@@ -5999,8 +6184,11 @@ export class OperatorActivity extends Agent {
       if (['comment-uncertain', 'merge-uncertain', 'prior-effect-uncertain'].includes(row.reason ?? '')) return null;
       let startAfter: string | undefined;
       for (;;) {
+        trace?.record('activity-retry-operations-request', () => ({ prefix: `dispatcher:operation:${lease.generation}:`, limit: 128, startAfter }));
         const entries = await tx.list<DispatcherOperationRecord>({ prefix: `dispatcher:operation:${lease.generation}:`, limit: 128,
           ...(startAfter ? { startAfter } : {}) });
+        trace?.record('activity-retry-operations-response', () => [...entries]);
+        try { await trace?.flush?.(); } catch { /* No evidence outage authorizes retry. */ }
         for (const [key, entry] of entries) {
           startAfter = key;
           if (entry.phase !== 'completed' && entry.request && entry.request.method !== 'GET') return null;
@@ -6011,8 +6199,10 @@ export class OperatorActivity extends Agent {
         repository: original.repository, repositoryId: original.repositoryId, baseBranch: original.baseBranch,
         pullRequest: original.pullRequest, head: original.head, createdAt: original.createdAt, artifactDigest: lease.artifactDigest,
         terminalAt: lease.terminalAt, collected: true, settled: true, sdkSubmissionId: lease.submissionId, disposition: row.outcome });
+      trace?.record('activity-retry-validation', () => parsed);
       return parsed.success ? parsed.data : null;
     });
+    }); } finally { try { await raw?.finish('complete'); } catch { /* Preserve proof or its original throw. */ } }
   }
 
   /** Explicit parent-only publication; result collection and child operations never call this method. */
