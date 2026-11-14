@@ -7,6 +7,8 @@ export interface RawLogContext {
   generation: number;
   loggingEnabled?: boolean;
   credentials?: readonly string[];
+  /** Caller-local protected retention, never an exported/RPC context field. */
+  privateArchive?: (stage: string, value: unknown) => void;
 }
 const REDACTED = '[REDACTED]';
 const unavailable = (reason: string) => `[capture unavailable: ${reason}]`;
@@ -22,6 +24,12 @@ const credentialKey = (key: string) => {
 // Recognize that exact getter, never an application-supplied replacement.
 const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), 'stack')?.get;
 const bootstrapFormatter = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+const domFields: Record<string, (() => unknown) | undefined> = typeof DOMException === 'undefined' ? {} : Object.fromEntries(
+  ['name', 'message', 'code'].map(key => [key, Object.getOwnPropertyDescriptor(DOMException.prototype, key)?.get]));
+function nativeDomException(value: object): boolean {
+  try { return typeof DOMException !== 'undefined' && value instanceof DOMException
+    && !!domFields.name && typeof domFields.name.call(value) === 'string'; } catch { return false; }
+}
 function safeStackFormatter(): boolean {
   let owner: object | null = Error;
   let current: PropertyDescriptor | undefined;
@@ -36,7 +44,7 @@ function safeStackFormatter(): boolean {
   return !current || 'value' in current && (current.value === undefined
     || !!bootstrapFormatter && 'value' in bootstrapFormatter && current.value === bootstrapFormatter.value);
 }
-function safeStackFormatting(error: object): boolean {
+function safeStackFormatting(error: object, domException = false): boolean {
   for (const key of ['name', 'message']) {
     let current: object | null = error;
     const seen = new Set<object>();
@@ -44,7 +52,9 @@ function safeStackFormatting(error: object): boolean {
       seen.add(current);
       const descriptor = Object.getOwnPropertyDescriptor(current, key);
       if (descriptor) {
-        if (!('value' in descriptor) || descriptor.value !== undefined && typeof descriptor.value !== 'string') return false;
+        if (!('value' in descriptor)) {
+          if (!domException || !descriptor.get || descriptor.get !== domFields[key]) return false;
+        } else if (descriptor.value !== undefined && typeof descriptor.value !== 'string') return false;
         break;
       }
       current = Object.getPrototypeOf(current);
@@ -64,9 +74,10 @@ function snapshot(value: unknown, ancestors = new Map<object, string>(), path = 
   try {
     ancestors.set(value, path);
     if (value instanceof Headers) return snapshot(Object.fromEntries(Headers.prototype.entries.call(value)), ancestors, path);
-    const error = value instanceof Error;
+    const domException = nativeDomException(value);
+    const error = value instanceof Error || domException;
     const names = Object.getOwnPropertyNames(value);
-    const stackSafe = names.includes('stack') && safeStackFormatter() && safeStackFormatting(value);
+    const stackSafe = names.includes('stack') && safeStackFormatter() && safeStackFormatting(value, domException);
     // Older V8 may materialize stack while retrieving its descriptor, which
     // itself would coerce a hostile name/message. Inspect those fields first,
     // including non-Error targets populated by public Error.captureStackTrace.
@@ -74,7 +85,13 @@ function snapshot(value: unknown, ancestors = new Map<object, string>(), path = 
       key === 'stack' && !stackSafe && !nativeStackGetter ? { value: unavailable('unsafe Error stack formatting') }
         : Object.getOwnPropertyDescriptor(value, key) ?? { value: unavailable('missing descriptor') }]));
     const result: Record<string, unknown> | unknown[] = Array.isArray(value) ? new Array(descriptors.length.value) : Object.create(null);
-    if (error && !descriptors.name) {
+    if (domException) for (const key of ['name', 'message', 'code']) {
+      const getter = domFields[key];
+      if (!descriptors[key] && getter) Object.defineProperty(result, key, {
+        enumerable: true, configurable: true, writable: true, value: getter.call(value),
+      });
+    }
+    if (error && !domException && !descriptors.name) {
       const name = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(value), 'name');
       Object.defineProperty(result, 'name', { enumerable: true, configurable: true, writable: true,
         value: name && 'value' in name ? snapshot(name.value, ancestors, `${path}.name`) : 'Error' });
@@ -82,8 +99,9 @@ function snapshot(value: unknown, ancestors = new Map<object, string>(), path = 
     for (const [key, descriptor] of Object.entries(descriptors)) {
       if (Array.isArray(value) && key === 'length') continue;
       const original = 'value' in descriptor ? descriptor.value
-        : key === 'stack' && stackSafe && nativeStackGetter && descriptor.get === nativeStackGetter
-          ? nativeStackGetter.call(value) : unavailable('accessor');
+        : domException && descriptor.get && descriptor.get === domFields[key] ? descriptor.get.call(value)
+          : key === 'stack' && stackSafe && nativeStackGetter && descriptor.get === nativeStackGetter
+            ? nativeStackGetter.call(value) : unavailable('accessor');
       Object.defineProperty(result, key, { enumerable: true, configurable: true, writable: true,
         value: snapshot(original, ancestors, `${path}.${key}`) });
     }
@@ -308,10 +326,12 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
 export function captureRawValue(value: unknown): unknown { return snapshot(value); }
 
 /** Never mutate the input, throw into execution, or route through SDK ctx.log. */
-export function emitRaw(context: RawLogContext | undefined, stage: string, value: () => unknown): void {
+export function emitRaw(context: RawLogContext | undefined, stage: string, value: () => unknown, consoleValue?: () => unknown): void {
   if (!context || context.loggingEnabled === false) return;
   try {
-    const captured = redact(snapshot(value()), context.credentials ?? []);
+    const full = snapshot(value());
+    try { context.privateArchive?.(stage, full); } catch { /* Console and functional outcomes remain independent. */ }
+    const captured = redact(consoleValue ? snapshot(consoleValue()) : full, context.credentials ?? []);
     console.log(JSON.stringify({ module: 'operator-execution', message: stage,
       data: { activityId: context.activityId, generation: context.generation, value: captured } }));
   } catch {

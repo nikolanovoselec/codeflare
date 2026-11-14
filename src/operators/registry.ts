@@ -27,6 +27,7 @@ import { z } from 'zod';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { canInvokeOperator, observeOperatorAccessIdentity, parseAccessGroups } from '../lib/access';
 import { listProspectiveRenovatePrs } from './renovate-prospective';
+import { createRawCapture, createOwnerRawCaptureStorage, type RawCapture, type RawCaptureBinding, type RawCaptureReceipt } from './raw-capture-storage';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from './orchestrator';
 import { captureError, hashDiagnostic, activityRpcReceiverDigest } from './dispatcher-diagnostics-wire';
 import type { FailureObservation } from './dispatcher-diagnostics-store';
@@ -218,12 +219,14 @@ export interface CurrentProspectiveRegistration extends RenovateRepositoryIdenti
   scope?: 'installation'; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; activatedAt: string; bucket: string;
   sessionId: string; sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string; repetitionIntervalSeconds: number;
+  /** Parent-validated original policy; an absent older RPC field never enables capture. */
+  loggingEnabled?: boolean;
 }
 export type ProspectiveRegistrationObservation =
   | { status: 'current'; registration: CurrentProspectiveRegistration }
   | { status: 'unavailable' } | { status: 'denied' };
 type ProspectiveAuthorityObservation =
-  | { status: 'current'; authority: { human: VerifiedHumanAccessClaims; accessJwt: string }; routingGroups?: string[] }
+  | { status: 'current'; authority: { human: VerifiedHumanAccessClaims; accessJwt: string }; loggingEnabled: boolean; routingGroups?: string[] }
   | { status: 'unavailable' } | { status: 'denied' };
 interface ProspectiveObservationDiagnostic {
   outcome: 'authority-denied' | 'authority-unavailable' | 'claim-lost' | 'binding-unavailable'
@@ -1905,6 +1908,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         || final.value.release.bundleDigest !== registration.bundleDigest) return { status: 'denied' };
       return expiresAt * 1000 > Date.now() && canInvokeOperator(human, final.value.operator)
         ? { status: 'current', authority: { human, accessJwt: authority.accessJwt },
+          loggingEnabled: final.value.operator.policy.loggingEnabled !== false,
           ...(captureRoutingGroups ? { routingGroups: refreshed.routingGroups } : {}) }
         : { status: 'denied' };
     } catch (error) {
@@ -2007,6 +2011,18 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     });
   }
 
+  /** Trusted Root-only persistence for pre-admission observations; never an installed SDK/browser capability. */
+  async retainRawObservation(input: { binding: RawCaptureBinding; records: Array<{ stage: string; value: unknown }>;
+    termination: RawCaptureReceipt['termination']; failed: boolean }): Promise<RawCaptureReceipt> {
+    if (input.binding.scope.kind !== 'observation') throw new Error('Raw observation unavailable');
+    const capture = createRawCapture({ enabled: true, binding: input.binding,
+      storage: () => createOwnerRawCaptureStorage(this.env as Env, this.ctx.storage, async () => {}),
+      schedule: work => this.ctx.waitUntil(work) });
+    for (const record of input.records) capture.record(record.stage, () => record.value);
+    const receipt = await capture.finish(input.termination);
+    return input.failed ? { ...receipt, status: 'incomplete' } : receipt;
+  }
+
   private async observeProspectiveWork(initial: CurrentProspectiveRegistration, diagnostic: ProspectiveObservationDiagnostic): Promise<void> {
     const app = this.env as Env;
     const exports = (this.ctx as unknown as { exports?: Record<string,
@@ -2014,111 +2030,168 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     diagnostic.stage = 'binding';
     if (!exports || !app.OPERATOR_ACTIVITY) { diagnostic.outcome = 'binding-unavailable'; return; }
     diagnostic.stage = 'discovery';
-    const current = () => this.currentProspectiveRenovateRegistration(initial.registrationId);
-    const retainedRetryTargets = await this.retainedProspectiveRenovateRetryTargets(initial.registrationId);
-    const candidates = await listProspectiveRenovatePrs({ env: app, exports, registration: initial,
-      retainedRetryTargets, current: async () => !!await current() });
-    diagnostic.candidates = candidates.length;
-    diagnostic.outcome = 'observed';
-    for (const candidate of candidates) {
-      diagnostic.stage = 'reservation';
-      if (!await current()) { diagnostic.outcome = 'stale-authority'; return; }
-      const activityId = `scan-${crypto.randomUUID()}`;
-      const reserved = await this.reserveProspectiveRenovateActivity({ ...candidate,
-        registrationId: initial.registrationId, activityId });
-      if (!reserved.ok) { diagnostic.reservationDenied++; continue; }
-      if (reserved.actor.registrationId !== initial.registrationId) { diagnostic.retainedOtherRegistration++; continue; }
-      if (reserved.activityId !== activityId) diagnostic.retainedExisting++;
-      diagnostic.stage = 'handoff';
-      const activity = app.OPERATOR_ACTIVITY.getByName(reserved.activityId);
-      let stage: NonNullable<ProspectiveObservationDiagnostic['failureStage']> = 'authority';
-      let admissionDigest: string | undefined;
-      let receiverDigest: string | undefined;
-      try {
-        if (scanId.test(reserved.activityId)) admissionDigest = hashDiagnostic(JSON.stringify([
-          'prospective-renovate-admission:v1', reserved.activityId,
-        ]));
-        receiverDigest = activityRpcReceiverDigest(activity.id);
-      } catch { /* Correlation is best-effort, never admission authority. */ }
-      const fenceHandoff = async (failure: FailureObservation) => {
+    let capture: RawCapture | undefined;
+    if (initial.loggingEnabled === true) try {
+      const captureId = crypto.randomUUID();
+      const ownerKey = await operatorOwnerKey(initial.human);
+      capture = createRawCapture({ enabled: true,
+        binding: { ownerKey, installationId: initial.installationId,
+          releaseId: initial.releaseId, captureId, scope: { kind: 'observation', observationId: captureId } },
+        storage: () => createOwnerRawCaptureStorage(app, this.ctx.storage, async () => {
+          // Retaining already observed evidence grants no new execution or human authority.
+          const owned = await this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${initial.registrationId}`);
+          if (!owned || owned.ownerKey !== ownerKey || owned.bucket !== initial.bucket
+            || owned.installationId !== initial.installationId || owned.releaseId !== initial.releaseId
+            || owned.bundleDigest !== initial.bundleDigest || owned.operatorRevision !== initial.operatorRevision) {
+            throw Error('Raw capture owner changed');
+          }
+        }), schedule: work => this.ctx.waitUntil(work) });
+      capture.record('discovery-observation', () => initial);
+    } catch { /* Capture setup cannot change authorized observation. */ }
+    const observe = (stage: string, value: () => unknown) => {
+      try { capture?.record(stage, value); } catch { /* Preserve the original observation and handoff. */ }
+    };
+    const invoke = async <T>(boundary: string, request: unknown, work: () => Promise<T>): Promise<T> => {
+      observe(`${boundary}-request`, () => request);
+      try { const result = await work(); observe(`${boundary}-response`, () => result); return result; }
+      catch (error) { observe(`${boundary}-error`, () => error); throw error; }
+    };
+    const current = () => invoke('prospective-current', { registrationId: initial.registrationId },
+      () => this.currentProspectiveRenovateRegistration(initial.registrationId));
+    const inFlight: Promise<unknown>[] = [];
+    let terminal: 'complete' | 'failed' = 'failed';
+    let backgroundFailed = false;
+    let candidates: Awaited<ReturnType<typeof listProspectiveRenovatePrs>>;
+    try {
+      const retainedRetryTargets = await invoke('prospective-retained-history', { registrationId: initial.registrationId },
+        () => this.retainedProspectiveRenovateRetryTargets(initial.registrationId));
+      candidates = await listProspectiveRenovatePrs({ env: app, exports, registration: initial,
+        retainedRetryTargets, capture, current: async () => !!await current() });
+      diagnostic.candidates = candidates.length;
+      diagnostic.outcome = 'observed';
+      for (const candidate of candidates) {
+        diagnostic.stage = 'reservation';
+        if (!await current()) { diagnostic.outcome = 'stale-authority'; return; }
+        const activityId = `scan-${crypto.randomUUID()}`;
+        const reservation = { ...candidate, registrationId: initial.registrationId, activityId };
+        const reserved = await invoke('prospective-reservation', reservation, () => this.reserveProspectiveRenovateActivity(reservation));
+        if (!reserved.ok) { diagnostic.reservationDenied++; continue; }
+        if (reserved.actor.registrationId !== initial.registrationId) { diagnostic.retainedOtherRegistration++; continue; }
+        if (reserved.activityId !== activityId) diagnostic.retainedExisting++;
+        diagnostic.stage = 'handoff';
+        const activity = app.OPERATOR_ACTIVITY.getByName(reserved.activityId);
+        let stage: NonNullable<ProspectiveObservationDiagnostic['failureStage']> = 'authority';
+        let admissionDigest: string | undefined;
+        let receiverDigest: string | undefined;
         try {
-          // The Activity atomically refuses this fence once any drive has begun, including a concurrent winner.
-          await activity.fenceRuntimeFailure(undefined, failure, { onlyBeforeDrive: true });
-        } catch (error) {
+          if (scanId.test(reserved.activityId)) admissionDigest = hashDiagnostic(JSON.stringify([
+            'prospective-renovate-admission:v1', reserved.activityId,
+          ]));
+          receiverDigest = activityRpcReceiverDigest(activity.id);
+        } catch { /* Correlation is best-effort, never admission authority. */ }
+        const fenceHandoff = async (failure: FailureObservation) => {
           try {
-            createLogger('operator-registry').warn('Prospective Renovate handoff fence unavailable', {
-              stage, category: 'fence-unavailable', admissionDigest,
-              ...(receiverDigest ? { receiverDigest } : {}), error: captureError(error),
-            });
-          } catch { /* A secondary fence/logging failure cannot replace the original handoff outcome. */ }
-        }
-      };
-      const handoffCurrent = async () => {
-        stage = 'authority';
-        const observed = await this.observeProspectiveRenovateRegistration(initial.registrationId);
-        if (observed.status === 'current') return observed.registration;
-        diagnostic.outcome = 'stale-authority';
-        await fenceHandoff({ boundary: 'admission',
-          code: observed.status === 'denied' ? 'authority-denied' : 'platform-evidence-required' });
-        return null;
-      };
-      try {
-        const winner = await handoffCurrent(); if (!winner) return;
-        stage = 'plan';
-        let plan = await activity.getRuntimePlan();
-        // Unknown/prepared outcomes belong to the original Activity; never prepare a replacement.
-        if (!plan && !await activity.getBrowserDetail()) {
-          stage = 'preparation';
-          const prepared = await prepareOperatorActivity({ installationId: initial.installationId,
-            invocation: { repository: winner.repository } }, { human: winner.human, accessJwt: winner.accessJwt }, app,
-          { activityId: reserved.activityId, prospectiveAdmissionId: reserved.activityId,
-            expectedManagement: { controlsRevision: winner.controlsRevision,
-            installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
-            releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
-          if (!await handoffCurrent()) return;
-          try { await activity.start(prepared.startCapability); } catch { /* Read the same Activity below. */ }
+            // The Activity atomically refuses this fence once any drive has begun, including a concurrent winner.
+            await invoke('prospective-fence', { activityId: reserved.activityId, failure },
+              () => activity.fenceRuntimeFailure(undefined, failure, { onlyBeforeDrive: true }));
+          } catch (error) {
+            try {
+              createLogger('operator-registry').warn('Prospective Renovate handoff fence unavailable', {
+                stage, category: 'fence-unavailable', admissionDigest,
+                ...(receiverDigest ? { receiverDigest } : {}), error: captureError(error),
+              });
+            } catch { /* A secondary fence/logging failure cannot replace the original handoff outcome. */ }
+          }
+        };
+        const handoffCurrent = async () => {
+          stage = 'authority';
+          const observed = await invoke('prospective-authority', { registrationId: initial.registrationId },
+            () => this.observeProspectiveRenovateRegistration(initial.registrationId));
+          if (observed.status === 'current') return observed.registration;
+          diagnostic.outcome = 'stale-authority';
+          await fenceHandoff({ boundary: 'admission',
+            code: observed.status === 'denied' ? 'authority-denied' : 'platform-evidence-required' });
+          return null;
+        };
+        try {
+          const winner = await handoffCurrent(); if (!winner) return;
           stage = 'plan';
-          plan = await activity.getRuntimePlan();
+          let plan = await invoke('prospective-plan', { activityId: reserved.activityId }, () => activity.getRuntimePlan());
+          // Unknown/prepared outcomes belong to the original Activity; never prepare a replacement.
+          if (!plan && !await invoke('prospective-detail', { activityId: reserved.activityId }, () => activity.getBrowserDetail())) {
+            stage = 'preparation';
+            observe('prospective-preparation-request', () => ({ activityId: reserved.activityId, winner }));
+            const prepared = await prepareOperatorActivity({ installationId: initial.installationId,
+              invocation: { repository: winner.repository } }, { human: winner.human, accessJwt: winner.accessJwt }, app,
+            { activityId: reserved.activityId, prospectiveAdmissionId: reserved.activityId,
+              expectedManagement: { controlsRevision: winner.controlsRevision,
+              installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
+              releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
+            if (!await handoffCurrent()) return;
+            observe('prospective-preparation-response', () => prepared);
+            try { await invoke('prospective-start', { activityId: reserved.activityId, capability: prepared.startCapability },
+              () => activity.start(prepared.startCapability)); } catch { /* Read the same Activity below. */ }
+            stage = 'plan';
+            plan = await invoke('prospective-plan', { activityId: reserved.activityId }, () => activity.getRuntimePlan());
+          }
+          if (!plan || plan.activityId !== reserved.activityId) {
+            await fenceHandoff({ boundary: 'construction', code: 'startup-failed' }); continue;
+          }
+          if (!await handoffCurrent()) continue;
+          stage = 'detail';
+          let detail = await invoke('prospective-detail', { activityId: reserved.activityId },
+            () => activity.getBrowserDetail()) as { executionStatus: string } | null;
+          if (detail?.executionStatus === 'waiting') {
+            await invoke('prospective-collection', { activityId: reserved.activityId }, () => activity.collectBrowserResult());
+            detail = await invoke('prospective-detail', { activityId: reserved.activityId },
+              () => activity.getBrowserDetail()) as { executionStatus: string } | null;
+          }
+          if (!detail) {
+            await fenceHandoff({ boundary: 'construction', code: 'startup-failed' }); continue;
+          }
+          if (detail.executionStatus === 'queued' && await handoffCurrent()) {
+            stage = 'binding';
+            const bindCapability = bindOperatorRuntimeCapability(this.ctx);
+            stage = 'drive';
+            // Count the handoff attempt, not background SDK admission or completion.
+            diagnostic.handoffAttempts++;
+            const work = invoke('prospective-drive', { activityId: reserved.activityId },
+              () => runOperatorActivity(reserved.activityId, app, bindCapability)).then(
+              // A null runtime plan is also a refused handoff. A begun drive makes this fence a no-op.
+              () => fenceHandoff({ boundary: 'construction', code: 'startup-failed' }),
+              error => { backgroundFailed = true; terminal = 'failed'; return fenceHandoff({ boundary: 'construction', code: 'startup-failed',
+                error: captureError(error), origin: 'catching' }); },
+            );
+            inFlight.push(work);
+            this.ctx.waitUntil(work);
+          }
+        } catch (error) {
+          observe('prospective-handoff-error', () => ({ activityId: reserved.activityId, stage, error }));
+          const captured = captureError(error);
+          diagnostic.outcome = 'handoff-failure';
+          if (diagnostic.error === undefined) {
+            diagnostic.error = captured;
+            diagnostic.failureStage = stage;
+            diagnostic.admissionDigest = admissionDigest;
+            if (receiverDigest) diagnostic.receiverDigest = receiverDigest;
+          }
+          await fenceHandoff({ boundary: stage === 'authority' ? 'admission' : 'construction',
+            code: stage === 'authority' ? 'platform-evidence-required' : 'startup-failed',
+            error: captured, origin: 'catching' });
         }
-        if (!plan || plan.activityId !== reserved.activityId) {
-          await fenceHandoff({ boundary: 'construction', code: 'startup-failed' }); continue;
-        }
-        if (!await handoffCurrent()) continue;
-        stage = 'detail';
-        let detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
-        if (detail?.executionStatus === 'waiting') {
-          await activity.collectBrowserResult();
-          detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
-        }
-        if (!detail) {
-          await fenceHandoff({ boundary: 'construction', code: 'startup-failed' }); continue;
-        }
-        if (detail.executionStatus === 'queued' && await handoffCurrent()) {
-          stage = 'binding';
-          const bindCapability = bindOperatorRuntimeCapability(this.ctx);
-          stage = 'drive';
-          // Count the handoff attempt, not background SDK admission or completion.
-          diagnostic.handoffAttempts++;
-          this.ctx.waitUntil(runOperatorActivity(reserved.activityId, app, bindCapability).then(
-            // A null runtime plan is also a refused handoff. A begun drive makes this fence a no-op.
-            () => fenceHandoff({ boundary: 'construction', code: 'startup-failed' }),
-            error => fenceHandoff({ boundary: 'construction', code: 'startup-failed',
-              error: captureError(error), origin: 'catching' }),
-          ));
-        }
-      } catch (error) {
-        const captured = captureError(error);
-        diagnostic.outcome = 'handoff-failure';
-        if (diagnostic.error === undefined) {
-          diagnostic.error = captured;
-          diagnostic.failureStage = stage;
-          diagnostic.admissionDigest = admissionDigest;
-          if (receiverDigest) diagnostic.receiverDigest = receiverDigest;
-        }
-        await fenceHandoff({ boundary: stage === 'authority' ? 'admission' : 'construction',
-          code: stage === 'authority' ? 'platform-evidence-required' : 'startup-failed',
-          error: captured, origin: 'catching' });
       }
+      terminal = diagnostic.outcome === 'observed' && !backgroundFailed ? 'complete' : 'failed';
+    } catch (error) {
+      observe('prospective-observation-error', () => error);
+      throw error;
+    } finally {
+      if (capture) try {
+        const archive = capture;
+        this.ctx.waitUntil(Promise.allSettled(inFlight).then(() => archive.finish(terminal)).then(receipt => {
+          try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-receipt', data: receipt })); }
+          catch { /* A receipt is not execution or persistence authority. */ }
+        }).catch(() => {}));
+      } catch { /* Persistence lifetime cannot replace the original observation. */ }
     }
   }
 
@@ -2272,7 +2345,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         bucket: record.bucket, sessionId: record.sessionId, sessionGeneration: record.sessionGeneration,
         controlsRevision: record.controlsRevision, installationRevision: record.installationRevision,
         operatorRevision: record.operatorRevision, releaseId: record.releaseId, bundleDigest: record.bundleDigest,
-        ...current } };
+        loggingEnabled: observed.loggingEnabled, ...current } };
     } catch (error) {
       return { status: error instanceof ProspectiveDependencyUnavailable ? 'unavailable' : 'denied' };
     }

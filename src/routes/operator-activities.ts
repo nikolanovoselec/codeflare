@@ -1,5 +1,7 @@
 import { parseRenovateRunSettings, prospectiveRenovatePackageSupported } from '../operators/renovate-run-settings';
 import { resolveProspectiveRenovateRepository } from '../operators/renovate-prospective';
+import type { RawCapture, RawCaptureBinding, RawCaptureReceipt } from '../operators/raw-capture-storage';
+import { captureRawValue } from '../../host/src/operator-raw-logging';
 /** Authenticated browser adapter for owner-scoped operator activity projections. */
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
@@ -283,8 +285,43 @@ app.post('/renovate/activation', async c => {
   const exports = (c.executionCtx as unknown as { exports?: Record<string,
     (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
   if (!exports) throw new AppError('UNAVAILABLE', 503, 'Repository transport unavailable');
-  const repository = await resolveProspectiveRenovateRepository({ env: c.env, exports,
-    repository: configured.repository, human: authority.human, bucket: authenticated.bucketName, current });
+  let capture: RawCapture | undefined;
+  if (selected.value.operator.policy.loggingEnabled !== false) try {
+    const captureId = crypto.randomUUID();
+    const binding: RawCaptureBinding = { ownerKey: c.get('ownerKey'),
+      installationId: command.installationId, releaseId: selected.value.release.id,
+      captureId, scope: { kind: 'observation', observationId: captureId } };
+    const records: Array<{ stage: string; value: unknown }> = [];
+    let failed = false;
+    let finished: Promise<RawCaptureReceipt> | undefined;
+    capture = {
+      record(stage, lazy) {
+        if (finished) return;
+        try { records.push({ stage, value: captureRawValue(lazy()) }); } catch { failed = true; }
+      },
+      finish(termination) {
+        // Route authorization above owns the evidence; only Root can call this Registry persistence RPC.
+        return finished ??= c.get('registry').retainRawObservation({ binding, records, termination, failed });
+      },
+    };
+  } catch { /* Diagnostic setup cannot replace repository resolution. */ }
+  let terminal: 'complete' | 'failed' = 'failed';
+  let repository: Awaited<ReturnType<typeof resolveProspectiveRenovateRepository>>;
+  try {
+    repository = await resolveProspectiveRenovateRepository({ env: c.env, exports,
+      repository: configured.repository, human: authority.human, bucket: authenticated.bucketName, current, capture });
+    terminal = 'complete';
+  } catch (error) {
+    try { capture?.record('prospective-repository-error', () => error); } catch { /* Preserve original failure. */ }
+    throw error;
+  } finally {
+    if (capture) try {
+      c.executionCtx.waitUntil(capture.finish(terminal).then(receipt => {
+        try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-receipt', data: receipt })); }
+        catch { /* Capture delivery is independent of activation. */ }
+      }).catch(() => {}));
+    } catch { /* Preserve the original resolution outcome. */ }
+  }
   if (!await current()) throw new AppError('FORBIDDEN', 403, 'Prospective authority changed');
   const registration = await c.get('registry').activateProspectiveRenovate({ ...command,
     ...(installationScope ? { scope: 'installation' as const, sessionId: '', sessionGeneration: 0 } : command),

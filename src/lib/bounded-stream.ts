@@ -1,8 +1,15 @@
+export type BoundedStreamObservation = { type: 'chunk'; offset: number; bytes: Uint8Array }
+  | { type: 'eof'; bytes: number } | { type: 'error'; error: unknown } | { type: 'cancel'; reason: string };
+const observeSafely = (observe: ((event: BoundedStreamObservation) => void) | undefined, event: BoundedStreamObservation) => {
+  try { observe?.(event); } catch { /* Observation never replaces the read, refusal or cancellation. */ }
+};
+
 export async function readBoundedStream(
   body: ReadableStream<Uint8Array> | null,
   limit: number,
   label: string,
   signal?: AbortSignal,
+  observe?: (event: BoundedStreamObservation) => void,
 ): Promise<Uint8Array> {
   if (signal?.aborted) throw new Error(`${label} aborted`);
   if (!body) return new Uint8Array();
@@ -12,6 +19,7 @@ export async function readBoundedStream(
   let abort: (() => void) | undefined;
   const aborted = signal && new Promise<never>((_, reject) => {
     abort = () => {
+      observeSafely(observe, { type: 'cancel', reason: `${label} aborted` });
       void reader.cancel(`${label} aborted`).catch(() => undefined);
       reject(new Error(`${label} aborted`));
     };
@@ -21,15 +29,20 @@ export async function readBoundedStream(
   try {
     for (;;) {
       const { done, value } = await (aborted ? Promise.race([reader.read(), aborted]) : reader.read());
-      if (done) break;
+      if (done) { observeSafely(observe, { type: 'eof', bytes: total }); break; }
+      if (observe) observeSafely(observe, { type: 'chunk', offset: total, bytes: value.slice() });
       total += value.byteLength;
       if (total > limit) {
+        observeSafely(observe, { type: 'cancel', reason: `${label} exceeds ${limit} bytes` });
         void reader.cancel(`${label} exceeds ${limit} bytes`).catch(() => undefined);
         throw new Error(`${label} exceeds ${limit} bytes`);
       }
       chunks.push(value);
     }
     if (signal?.aborted) throw new Error(`${label} aborted`);
+  } catch (error) {
+    observeSafely(observe, { type: 'error', error });
+    throw error;
   } finally {
     if (abort) signal?.removeEventListener('abort', abort);
     reader.releaseLock();
@@ -48,11 +61,13 @@ export async function readBoundedResponse(
   limit: number,
   label: string,
   signal?: AbortSignal,
+  observe?: (event: BoundedStreamObservation) => void,
 ): Promise<Uint8Array> {
   const declaredLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(declaredLength) && declaredLength > limit) {
+    observeSafely(observe, { type: 'cancel', reason: `${label} exceeds ${limit} bytes` });
     void response.body?.cancel(`${label} exceeds ${limit} bytes`).catch(() => undefined);
     throw new Error(`${label} exceeds ${limit} bytes`);
   }
-  return readBoundedStream(response.body, limit, label, signal);
+  return readBoundedStream(response.body, limit, label, signal, observe);
 }

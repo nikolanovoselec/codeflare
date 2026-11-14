@@ -24,6 +24,21 @@ function valueOf(records: RawRecord[]) {
 }
 afterEach(() => { vi.restoreAllMocks(); setLogLevel('silent'); });
 
+it.each([false, true])('REQ-OPERATOR-090/091: private capture stays unredacted when console failure=%s', consoleFailure => {
+  const retained: Array<{ stage: string; value: unknown }> = [];
+  const records = capture();
+  const source = { password: 'SYNTHETIC_RAW_PASSWORD', token: 'SYNTHETIC_RAW_TOKEN',
+    thinking: 'FULL_REASONING_EVIDENCE', thoughtSignature: 'FULL_REPLAY_SIGNATURE',
+    body: '漢🦊'.repeat(70_000), error: new Error('FULL_EXCEPTION_EVIDENCE', { cause: new Error('FULL_NESTED_CAUSE') }) };
+  if (consoleFailure) vi.spyOn(console, 'log').mockImplementation(() => { throw new Error('CONSOLE_UNAVAILABLE'); });
+  inferenceDiagnostic({ ...admitted, privateArchive: (stage, value) => { retained.push({ stage, value }); } },
+    metadata, () => source);
+  expect(retained).toEqual([{ stage: metadata.stage, value: expect.objectContaining({ password: source.password,
+    token: source.token, thinking: source.thinking, thoughtSignature: source.thoughtSignature, body: source.body,
+    error: expect.objectContaining({ message: 'FULL_EXCEPTION_EVIDENCE', cause: expect.objectContaining({ message: 'FULL_NESTED_CAUSE' }) }) }) }]);
+  if (!consoleFailure) expect(JSON.stringify(records())).not.toMatch(/SYNTHETIC_RAW_PASSWORD|SYNTHETIC_RAW_TOKEN|FULL_REASONING_EVIDENCE/);
+});
+
 describe('protected raw execution logging through the existing diagnostic entrypoint', () => {
   it.each(['info', 'error', 'silent'] as const)('REQ-OPERATOR-090: AC1/4/5 admitted raw capture survives global level %s with complete large Unicode and noncredential data', level => {
     const records = capture(); setLogLevel(level);
@@ -76,6 +91,28 @@ describe('protected raw execution logging through the existing diagnostic entryp
       ] });
     expect(error.errors[0]).toBe(nested);
     expect(nested.cause).toMatchObject({ cause: origin });
+  });
+
+  it('REQ-OPERATOR-090: AC4 retains native DOMException name, message and code instead of losing timeout evidence behind accessors', () => {
+    const records = capture();
+    const cause = new DOMException('SYNTHETIC_NATIVE_TIMEOUT_EVIDENCE', 'TimeoutError');
+    emit(new Error('Outer discovery failure', { cause }));
+    expect(valueOf(records())).toMatchObject({ message: 'Outer discovery failure', cause: {
+      name: 'TimeoutError', message: 'SYNTHETIC_NATIVE_TIMEOUT_EVIDENCE', code: cause.code,
+    } });
+  });
+
+  it('REQ-OPERATOR-082: native DOMException recognition never executes application name or message accessors', () => {
+    const records = capture();
+    const error = new DOMException('Original native message', 'AbortError');
+    let state = 'untouched';
+    for (const key of ['name', 'message']) Object.defineProperty(error, key, { configurable: true,
+      get() { state = 'application getter executed'; throw new Error('Must not inspect application accessors'); } });
+    emit({ error, neighbor: 'RETAIN_DOM_NEIGHBOR' });
+    expect(state).toBe('untouched');
+    expect(valueOf(records())).toMatchObject({ neighbor: 'RETAIN_DOM_NEIGHBOR', error: {
+      name: '[capture unavailable: accessor]', message: '[capture unavailable: accessor]',
+    } });
   });
 
   it.each([null, undefined, 'plain thrown value', 73, false, { reason: 'nonError', nested: { original: true } }])(

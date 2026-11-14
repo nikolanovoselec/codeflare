@@ -6,6 +6,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-13
 
+- Retain complete admin-enabled parent and public Flue/SDK evidence without raw-value redaction in existing private Durable Object storage. Authenticated SDK uploads require independent byte reconstruction before completion acknowledgement; console projections remain separate, with original execution, byte limits and cancellation preserved ([REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).
+
 - Retain discovery body-error causes for existing bounded fingerprints without changing public errors, read limits, authority or scheduling ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)).
 
 - Add four privacy-safe, best-effort receiver checkpoints and first-failure receiver correlation; diagnostics remain non-authorizing and establish neither a runtime repair nor SDK acceptance ([REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics)).

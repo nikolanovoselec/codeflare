@@ -16,6 +16,7 @@ import * as access from '../../lib/access';
 import { openOperatorExecutionAccess } from '../../operators/execution-context';
 import activityRoutes from '../../routes/operator-activities';
 import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
+import { createOwnerRawCaptureStorage, readRawCapture, type RawCaptureReceipt } from '../../operators/raw-capture-storage';
 import type { Env } from '../../types';
 import type { ProspectiveRenovateRetryProof } from '../../operators/renovate-retry-proof';
 
@@ -1191,6 +1192,85 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     scope: 'installation', bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
     human: claims(`${user}@example.test`, lifetimeSeconds), accessJwt: `${user}-jwt`,
     repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } });
+  it.each([true, false, undefined])('REQ-OPERATOR-090/091: validated prospective logging=%s is parent-owned and pinned', loggingEnabled => fixture(async ({ registry, selection }) => {
+    const selected = selection as ManagementExecutionSelection;
+    if (loggingEnabled !== undefined) selected.operator.policy.loggingEnabled = loggingEnabled;
+    const first = await activate(registry);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw Error('No activation');
+    expect(await registry.observeProspectiveRenovateRegistration(first.registrationId)).toMatchObject({
+      status: 'current', registration: { registrationId: first.registrationId, loggingEnabled: loggingEnabled !== false },
+    });
+    // A changed setting/revision cannot become a fresh capture or execution grant for this registration.
+    selected.operator.policy.loggingEnabled = loggingEnabled === false;
+    selected.operator.revision++;
+    expect(await registry.observeProspectiveRenovateRegistration(first.registrationId)).toEqual({ status: 'denied' });
+  }));
+  it.each([{ loggingEnabled: true, planFailure: false }, { loggingEnabled: true, planFailure: true },
+    { loggingEnabled: false, planFailure: false }])('REQ-OPERATOR-090/091: alarm raw logging=$loggingEnabled plan failure=$planFailure preserves complete private evidence and original admission', ({ loggingEnabled, planFailure }) => fixture(async ({ registry, native, environment, selection }) => {
+    (selection as ManagementExecutionSelection).operator.policy.loggingEnabled = loggingEnabled;
+    let body = new TextEncoder().encode('[]' + ' '.repeat(300_000));
+    const originalError = new Error('SYNTHETIC_ORIGINAL_PLAN_FAILURE', {
+      cause: new DOMException('SYNTHETIC_NATIVE_PLAN_TIMEOUT', 'TimeoutError'),
+    });
+    if (planFailure) environment.OPERATOR_ACTIVITY = { getByName: () => ({
+      getRuntimePlan: async () => { throw originalError; },
+      fenceRuntimeFailure: async () => {}, readProspectiveRenovateRetryProof: async () => null,
+    }) } as never;
+    Object.defineProperty(native, 'exports', { configurable: true, value: {
+      GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?') ? new Response(body)
+        : Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' }) }),
+    } });
+    const first = await activate(registry);
+    if (!first.ok) throw Error('No activation');
+    if (planFailure) body = new TextEncoder().encode(JSON.stringify([{ number: 1300, state: 'open', draft: false,
+      created_at: new Date(Date.parse(first.activatedAt) + 1).toISOString(),
+      user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
+      base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } },
+    }]).padEnd(300_000, ' '));
+    const existingKeys = new Set((await native.storage.list()).keys());
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+    const outputs: string[] = [];
+    let retained!: (receipt: RawCaptureReceipt) => void;
+    const published = new Promise<RawCaptureReceipt>(resolve => { retained = resolve; });
+    const log = vi.spyOn(console, 'log').mockImplementation((line: string) => {
+      outputs.push(line);
+      const value = JSON.parse(line);
+      if (value.message === 'raw-capture-receipt') retained(value.data);
+    });
+    try {
+      await expect(registry.alarm()).resolves.toBeUndefined();
+      expect((await native.storage.list({ prefix: 'renovate-admission:' })).size).toBe(planFailure ? 1 : 0);
+      expect(await native.storage.getAlarm()).toBe(Date.now() + 900_000);
+      if (loggingEnabled) {
+        const receipt = await published;
+        expect(receipt).toMatchObject({ status: 'complete', termination: planFailure ? 'failed' : 'complete' });
+        const storage = await createOwnerRawCaptureStorage(environment, native.storage, async () => {});
+        const archive = await readRawCapture({ storage, binding: { ownerKey: await operatorOwnerKey(claims('a@example.test')),
+          installationId: 'dispatcher-install', releaseId: 'release',
+          captureId: receipt.captureId, scope: { kind: 'observation', observationId: receipt.captureId } } });
+        expect(archive.status).toBe('complete');
+        expect(archive.records.find(record => record.stage === 'discovery-observation')?.value).toMatchObject({ accessJwt: 'a-jwt' });
+        if (planFailure) expect(archive.records.find(record => record.stage === 'prospective-plan-error')?.value).toMatchObject({
+          name: 'Error', message: 'SYNTHETIC_ORIGINAL_PLAN_FAILURE', cause: {
+            name: 'TimeoutError', message: 'SYNTHETIC_NATIVE_PLAN_TIMEOUT',
+          },
+        });
+        const chunks = archive.records.filter(record => record.stage === 'discovery-response-chunk'
+          && (record.value as { url: string }).url.includes('/pulls?'));
+        const captured = Uint8Array.from(chunks.flatMap(record => (record.value as { bytes: number[] }).bytes));
+        expect(captured).toEqual(body);
+        expect(archive.records.some(record => record.stage === 'discovery-response-eof'
+          && (record.value as { url: string }).url.includes('/pulls?'))).toBe(true);
+        for (const secret of ['a-jwt', 'SYNTHETIC_ORIGINAL_PLAN_FAILURE', 'SYNTHETIC_NATIVE_PLAN_TIMEOUT']) {
+          expect(outputs.join('\n')).not.toContain(secret);
+        }
+      } else {
+        expect(new Set((await native.storage.list()).keys())).toEqual(existingKeys);
+        expect(outputs.map(line => JSON.parse(line)).some(value => value.message === 'raw-capture-receipt')).toBe(false);
+      }
+    } finally { log.mockRestore(); clock.mockRestore(); }
+  }));
   it('zero sessions: explicit activation persists an alarm and admits only post-cutoff work; duplicate consent retains cutoff and identity', () => fixture(async ({ registry, restart, native, state }) => {
     state.sessions.clear();
     const first = await activate(registry); expect(first).toMatchObject({ ok: true });

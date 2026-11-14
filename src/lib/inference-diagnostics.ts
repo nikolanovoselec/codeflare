@@ -1,5 +1,5 @@
 import { createLogger } from './logger';
-import { emitRaw } from '../../host/src/operator-raw-logging';
+import { emitRaw, type RawLogContext } from '../../host/src/operator-raw-logging';
 
 /** Parent-owned correlation; never populated from model input or operation IDs. */
 export interface InferenceDiagnosticContext {
@@ -7,6 +7,7 @@ export interface InferenceDiagnosticContext {
   generation: number;
   loggingEnabled?: boolean;
   credentials?: readonly string[];
+  privateArchive?: RawLogContext['privateArchive'];
   operationOrdinal?: number;
   requestDigest?: string;
 }
