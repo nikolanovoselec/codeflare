@@ -1,8 +1,10 @@
-import { For, Show, createEffect, createSignal, createUniqueId, onCleanup, untrack, type Component, type JSX } from 'solid-js';
-import { mdiAutorenew, mdiLayersSearch, mdiRepeat } from '@mdi/js';
+import { For, Show, createEffect, createResource, createSignal, createUniqueId, onCleanup, untrack, type Component, type JSX } from 'solid-js';
+import { mdiAutorenew, mdiLayersSearch } from '@mdi/js';
 import * as api from '../api/operator-management';
 import { ApiError, apiErrorMessage } from '../api/fetch-helper';
 import OperatorManagementActivity from './OperatorManagementActivity';
+import { activateRenovateRuns } from '../api/operator-activities';
+import { AutomaticRunsField, RunIntervalField, createRunInterval, validRunSeconds, runSettingsHelp, runSettingsSaved } from './OperatorRunSettings';
 import '../styles/administration.css';
 import '../styles/ai-routing-workspace.css';
 import '../styles/settings-panel.css';
@@ -540,17 +542,16 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       : 'Blocked: the installed configuration is unavailable for execution.';
     return nativeInference() ? 'Native selection' : 'Managed selection';
   };
-  const guidedAssessment = () => operator().profile === 'dispatcher' && currentRelease()?.name === 'Renovate Dispatcher'
+  const guidedAssessment = () => operator().profile === 'dispatcher'
     && operator().repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
   const configuredRuns = () => guidedAssessment() && ['3', '4'].includes(currentRelease()?.intentVersion ?? '')
     && operator().source.repositoryId === operator().repositoryId
     && operator().source.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === operator().repositoryUrl.replace(/\.git$/i, '').toLowerCase();
   const [runRepository, setRunRepository] = createSignal('');
   const [runAutomatic, setRunAutomatic] = createSignal(false);
-  const [runInterval, setRunInterval] = createSignal(3600);
-  const runIntervalId = createUniqueId();
-  const validRunInterval = () => Number.isSafeInteger(runInterval()) && runInterval() > 0
-    && Number.isFinite(new Date(Date.now() + runInterval() * 1000).getTime());
+  const intervalDraft = createRunInterval();
+  const runInterval = intervalDraft.seconds, setRunInterval = intervalDraft.setSeconds;
+  const validRunInterval = intervalDraft.valid;
   const validRunSettings = () => /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(runRepository())
     && runRepository().length <= 201 && runRepository().split('/').every(part => part !== '.' && part !== '..')
     && validRunInterval();
@@ -561,6 +562,55 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     setRunAutomatic(settings.automaticRuns === true);
     setRunInterval(typeof settings.repetitionIntervalSeconds === 'number' ? settings.repetitionIntervalSeconds : 3600);
   });
+  // Management/admin access is not invocation. Read the existing server-verified invoker catalog.
+  const [activationInstallation] = createResource(() => props.isAdmin && configuredRuns() && installation()
+    ? { id: installation()!.id, revision: installation()!.revision } : false, async selected => {
+      let cursor: string | null = null;
+      const seen = new Set<string>();
+      do {
+        const page = await api.listOperatorInstallations(cursor);
+        const item = page.items.find(value => value.id === selected.id);
+        if (item) return item.revision === selected.revision ? item : undefined;
+        cursor = page.cursor;
+        if (cursor && seen.has(cursor)) throw new Error('Installation catalog unavailable');
+        if (cursor) seen.add(cursor);
+      } while (cursor);
+      return undefined;
+    });
+  const verifiedActivation = () => !activationInstallation.loading && !activationInstallation.error ? activationInstallation() : undefined;
+  const dirtyRunSettings = () => {
+    const saved = installation()?.configuration?.renovate;
+    return !saved || typeof saved !== 'object' || Array.isArray(saved)
+      || saved.repository !== runRepository() || saved.automaticRuns !== runAutomatic()
+      || saved.repetitionIntervalSeconds !== runInterval();
+  };
+  const savedAutomatic = () => {
+    const saved = installation()?.configuration?.renovate;
+    return configuredRuns() && !!saved && typeof saved === 'object' && !Array.isArray(saved) && saved.automaticRuns === true;
+  };
+  const automaticStatus = () => verifiedActivation()?.automaticRunStatus ?? 'unconfirmed';
+  const automaticConsentEligible = () => !!props.isAdmin && verifiedActivation()?.canInvoke === true
+    && verifiedActivation()?.canActivateAutomaticRuns === true;
+  const deactivate = () => !!installation()?.enabled
+    && (!savedAutomatic() || automaticStatus() === 'active' || !automaticConsentEligible());
+  const canChangeAvailability = () => !props.locked && !!installation()
+    && (deactivate() || currentRelease()?.approved === true
+      && (!savedAutomatic() || automaticConsentEligible() && validRunSettings() && !dirtyRunSettings()));
+  const changeAvailability = () => {
+    if (!canChangeAvailability()) return;
+    const selected = installation()!;
+    const disabling = deactivate(), automatic = savedAutomatic();
+    const current = () => installation()?.id === selected.id && installation()?.revision === selected.revision;
+    void props.perform(async () => {
+      if (disabling) { await api.enableInstallation(selected.id, false, selected.revision); return; }
+      // Single explicit consent. A lost Enable acknowledgement stops here; never automatically retry either command.
+      const enabled = selected.enabled ? selected : await api.enableInstallation(selected.id, true, selected.revision);
+      if (!current()) throw new Error('Activation scope changed');
+      if (automatic) await activateRenovateRuns({ installationId: selected.id, revision: enabled.revision });
+      if (!current()) throw new Error('Activation scope changed');
+    }, disabling ? 'Installation deactivated. Future automatic observations are fenced.'
+      : automatic ? 'Automatic runs delegated until the original Access expiry.' : 'Installation activated for manual runs only.', 'installed-enable');
+  };
   const purpose = () => installation()?.releaseId
     ? currentRelease()?.description || 'Purpose unavailable for the selected installed version.'
     : props.detail.installations.length > 1 && !installation() ? 'Select an installed configuration to see its verified purpose.'
@@ -665,22 +715,13 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           <button type="button" class="admin-secondary-button" disabled={props.locked} onClick={() => void props.perform(
             () => api.refreshManagedReleases(operator().id, operator().revision), 'Release details refreshed; the installed version and enablement are unchanged.', 'installed-metadata')}>Refresh release details</button>
           {props.feedback('installed-metadata')}</div></Show>
-        <div class="operator-actions"><button class="admin-primary-button" type="button" disabled={props.locked} onClick={() => void props.perform(
-          () => api.enableInstallation(installation()!.id, !installation()!.enabled, installation()!.revision),
-          installation()!.enabled ? 'No new runs will start on this version.' : 'This version is enabled for new runs.', 'installed-enable')}>{installation()?.enabled ? 'Disable' : 'Enable'}</button>
-          <Show when={configuredRuns()}><button class="admin-icon-button operator-repeat-toggle" type="button"
-            aria-label="Automatic runs" aria-pressed={runAutomatic()} aria-describedby={runIntervalId + '-toggle-help'}
-            title="Automatic runs — save run settings to apply" disabled={props.locked}
-            onClick={() => {
-              if (runAutomatic() && !validRunInterval()) {
-                const settings = installation()?.configuration?.renovate as { repetitionIntervalSeconds?: number } | undefined;
-                setRunInterval(settings?.repetitionIntervalSeconds ?? 3600);
-              }
-              setRunAutomatic(value => !value);
-            }}>
-            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d={mdiRepeat} fill="currentColor" /></svg>
-          </button></Show>
-        </div>
+        <div class="operator-actions"><button class="admin-primary-button" type="button" disabled={!canChangeAvailability()}
+          onClick={changeAvailability}>{deactivate() ? 'Deactivate' : 'Activate'}</button></div>
+        <Show when={savedAutomatic()}><p class="admin-help-text" role="status">Automatic runs: {installation()?.enabled ? automaticStatus() : 'inactive'}.
+          New activation delegates your verified permissions until the original Access expiry; no running workspace is required. Use Deactivate to revoke this delegation; Cloudflare sign-out does not revoke it.</p>
+          <Show when={dirtyRunSettings()}><p class="admin-help-text">Save run settings before activating.</p></Show>
+          <Show when={!verifiedActivation()?.canInvoke || !verifiedActivation()?.canActivateAutomaticRuns}><p class="admin-help-text">Invocation permission and admin activation eligibility must be verified separately from management access.</p></Show>
+        </Show>
         <Show when={installation()?.enabled && guidedAssessment() && !configuredRuns()}><div class="admin-form-grid">
           <label class="admin-form-field"><span>Repository to assess</span><input type="text" maxlength="256" autocomplete="off" placeholder="owner/repository" value={assessmentRepository()} onInput={event => setAssessmentRepository(event.currentTarget.value)} /></label>
           <label class="admin-form-field"><span>Pull request to assess</span><input type="number" min="1" step="1" max="9007199254740991" value={assessmentPullRequest()} onInput={event => setAssessmentPullRequest(event.currentTarget.value)} /></label>
@@ -703,29 +744,32 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
 <Show when={configuredRuns() && installation()}><form onSubmit={event => {
   event.preventDefault();
   const selected = installation();
-  if (!selected || !validRunSettings()) return;
+  if (!selected || props.locked || !props.choices || !validRunSettings()) return;
   void props.perform(() => api.configureInstallation(selected.id, {
     revision: selected.revision, policy: selected.policy,
     ...(operator().profile === 'conductor' && selected.piReasoningOverride !== undefined ? { piReasoningOverride: selected.piReasoningOverride } : {}),
     configuration: { ...selected.configuration, renovate: {
+      ...(selected.configuration?.renovate && typeof selected.configuration.renovate === 'object' && !Array.isArray(selected.configuration.renovate) ? selected.configuration.renovate : {}),
       repository: runRepository(), automaticRuns: runAutomatic(), repetitionIntervalSeconds: runInterval(),
     } },
-  }), 'Run settings saved. New runs are disabled; enable them separately when ready. Automatic activation is separate.', 'run-settings');
+  }), runSettingsSaved, 'run-settings');
 }}><fieldset disabled={props.locked}>
   <legend>Run settings</legend>
-  <p class="admin-help-text" id={runIntervalId + '-toggle-help'}>Manual and automatic runs use this repository. Use Save run settings to apply the repeat toggle; saving does not start work or activate a schedule.</p>
+  <p class="admin-help-text">{runSettingsHelp}</p>
+  <AutomaticRunsField checked={runAutomatic()} disabled={props.locked} onChange={value => {
+    if (!value && !validRunInterval()) {
+      const saved = installation()?.configuration?.renovate as { repetitionIntervalSeconds?: number } | undefined;
+      const retained = saved?.repetitionIntervalSeconds ?? 3600;
+      setRunInterval(validRunSeconds(retained) ? retained : 3600);
+    }
+    setRunAutomatic(value);
+  }} />
   <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength="201"
     autocomplete="off" placeholder="owner/repository" value={runRepository()}
     onInput={event => setRunRepository(event.currentTarget.value)} />
     <small class="admin-help-text">The work repository, not the operator package source. No default or manual override.</small>
   </label>
-  <Show when={runAutomatic()}><div class="admin-form-field"><label for={runIntervalId}>Repeat interval (seconds)</label>
-    <div class="operator-value-input"><input id={runIntervalId} type="number" required min="1" step="1"
-      aria-describedby={runIntervalId + '-help'} value={Number.isFinite(runInterval()) ? runInterval() : ''}
-      onInput={event => setRunInterval(event.currentTarget.valueAsNumber)} />
-      <DefaultReset label="Repeat interval (seconds)" onReset={() => setRunInterval(3600)} />
-    </div><small class="admin-help-text" id={runIntervalId + '-help'}>Default: 3,600 seconds (1 hour). Turning automatic runs off retains this interval and leaves manual runs available.</small>
-  </div></Show>
+  <Show when={runAutomatic()}><RunIntervalField interval={intervalDraft} disabled={props.locked} /></Show>
   <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validRunSettings()}>Save run settings</button>
 </fieldset>{props.feedback('run-settings')}</form></Show>
 

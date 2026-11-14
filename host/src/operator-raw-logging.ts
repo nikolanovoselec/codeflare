@@ -7,13 +7,16 @@ export interface RawLogContext {
   generation: number;
   loggingEnabled?: boolean;
   credentials?: readonly string[];
+  /** Caller-local protected retention, never an exported/RPC context field. */
+  privateArchive?: (stage: string, value: unknown) => void;
 }
 const REDACTED = '[REDACTED]';
 const unavailable = (reason: string) => `[capture unavailable: ${reason}]`;
 const credentialKey = (key: string) => {
   const name = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  // SDK thinkingSignature/textSignature fields are transcript data, not credentials.
-  return /(?:authorization|cookie|passwords?|passwd|apikey|accesskeyid|accesskey|secretkey|privatekey|accesstoken|refreshtoken|idtoken|clientsecret|connectionsecret|securitytoken|cfaccessjwtassertion|jwt|token|secret|credentials?)$/.test(name)
+  // Private reasoning and its signatures are observation-only redactions.
+  return /^(?:thinking|thinkingsignature|thoughtsignature|textsignature)$/.test(name)
+    || /(?:authorization|cookie|passwords?|passwd|apikey|accesskeyid|accesskey|secretkey|privatekey|accesstoken|refreshtoken|idtoken|clientsecret|connectionsecret|securitytoken|cfaccessjwtassertion|jwt|token|secret|credentials?)$/.test(name)
     || /^(?:signature|sig|xamzcredential|xamzsignature|xgoogcredential|xgoogsignature)$/.test(name);
 };
 
@@ -21,6 +24,12 @@ const credentialKey = (key: string) => {
 // Recognize that exact getter, never an application-supplied replacement.
 const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), 'stack')?.get;
 const bootstrapFormatter = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+const domFields: Record<string, (() => unknown) | undefined> = typeof DOMException === 'undefined' ? {} : Object.fromEntries(
+  ['name', 'message', 'code'].map(key => [key, Object.getOwnPropertyDescriptor(DOMException.prototype, key)?.get]));
+function nativeDomException(value: object): boolean {
+  try { return typeof DOMException !== 'undefined' && value instanceof DOMException
+    && !!domFields.name && typeof domFields.name.call(value) === 'string'; } catch { return false; }
+}
 function safeStackFormatter(): boolean {
   let owner: object | null = Error;
   let current: PropertyDescriptor | undefined;
@@ -35,7 +44,7 @@ function safeStackFormatter(): boolean {
   return !current || 'value' in current && (current.value === undefined
     || !!bootstrapFormatter && 'value' in bootstrapFormatter && current.value === bootstrapFormatter.value);
 }
-function safeStackFormatting(error: object): boolean {
+function safeStackFormatting(error: object, domException = false): boolean {
   for (const key of ['name', 'message']) {
     let current: object | null = error;
     const seen = new Set<object>();
@@ -43,7 +52,9 @@ function safeStackFormatting(error: object): boolean {
       seen.add(current);
       const descriptor = Object.getOwnPropertyDescriptor(current, key);
       if (descriptor) {
-        if (!('value' in descriptor) || descriptor.value !== undefined && typeof descriptor.value !== 'string') return false;
+        if (!('value' in descriptor)) {
+          if (!domException || !descriptor.get || descriptor.get !== domFields[key]) return false;
+        } else if (descriptor.value !== undefined && typeof descriptor.value !== 'string') return false;
         break;
       }
       current = Object.getPrototypeOf(current);
@@ -63,9 +74,10 @@ function snapshot(value: unknown, ancestors = new Map<object, string>(), path = 
   try {
     ancestors.set(value, path);
     if (value instanceof Headers) return snapshot(Object.fromEntries(Headers.prototype.entries.call(value)), ancestors, path);
-    const error = value instanceof Error;
+    const domException = nativeDomException(value);
+    const error = value instanceof Error || domException;
     const names = Object.getOwnPropertyNames(value);
-    const stackSafe = names.includes('stack') && safeStackFormatter() && safeStackFormatting(value);
+    const stackSafe = names.includes('stack') && safeStackFormatter() && safeStackFormatting(value, domException);
     // Older V8 may materialize stack while retrieving its descriptor, which
     // itself would coerce a hostile name/message. Inspect those fields first,
     // including non-Error targets populated by public Error.captureStackTrace.
@@ -73,7 +85,13 @@ function snapshot(value: unknown, ancestors = new Map<object, string>(), path = 
       key === 'stack' && !stackSafe && !nativeStackGetter ? { value: unavailable('unsafe Error stack formatting') }
         : Object.getOwnPropertyDescriptor(value, key) ?? { value: unavailable('missing descriptor') }]));
     const result: Record<string, unknown> | unknown[] = Array.isArray(value) ? new Array(descriptors.length.value) : Object.create(null);
-    if (error && !descriptors.name) {
+    if (domException) for (const key of ['name', 'message', 'code']) {
+      const getter = domFields[key];
+      if (!descriptors[key] && getter) Object.defineProperty(result, key, {
+        enumerable: true, configurable: true, writable: true, value: getter.call(value),
+      });
+    }
+    if (error && !domException && !descriptors.name) {
       const name = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(value), 'name');
       Object.defineProperty(result, 'name', { enumerable: true, configurable: true, writable: true,
         value: name && 'value' in name ? snapshot(name.value, ancestors, `${path}.name`) : 'Error' });
@@ -81,8 +99,9 @@ function snapshot(value: unknown, ancestors = new Map<object, string>(), path = 
     for (const [key, descriptor] of Object.entries(descriptors)) {
       if (Array.isArray(value) && key === 'length') continue;
       const original = 'value' in descriptor ? descriptor.value
-        : key === 'stack' && stackSafe && nativeStackGetter && descriptor.get === nativeStackGetter
-          ? nativeStackGetter.call(value) : unavailable('accessor');
+        : domException && descriptor.get && descriptor.get === domFields[key] ? descriptor.get.call(value)
+          : key === 'stack' && stackSafe && nativeStackGetter && descriptor.get === nativeStackGetter
+            ? nativeStackGetter.call(value) : unavailable('accessor');
       Object.defineProperty(result, key, { enumerable: true, configurable: true, writable: true,
         value: snapshot(original, ancestors, `${path}.${key}`) });
     }
@@ -100,6 +119,7 @@ function jsonValue(text: string): unknown {
 function redact(value: unknown, credentials: readonly string[]): unknown {
   const known = new Set(credentials.filter(Boolean));
   const completedText = new Map<string, string>();
+  const privateText = new Set<string>();
   const streamKey = (message: Record<string, unknown>, index: number) =>
     JSON.stringify([message.provider, message.model, message.timestamp, index]);
   const assistant = (item: unknown): item is Record<string, unknown> & { content: unknown[] } =>
@@ -148,7 +168,10 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
           completedText.set(streamKey(item, index), text);
       });
       for (const [key, child] of Object.entries(item)) {
-        if (credentialKey(key)) collectCredential(child);
+        // Thinking prefixes are not credential literals: a one-character
+        // partial must never become a global character replacement rule.
+        if (key === 'thinking' && typeof child === 'string') privateText.add(child);
+        else if (credentialKey(key) || (key === 'data' && (item as Record<string, unknown>).type === 'redacted_thinking')) collectCredential(child);
         collect(child);
       }
     }
@@ -203,6 +226,10 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     }
     for (const stream of nativeStreams.values()) collect(stream.text);
   }
+  // Only completed private values identify whole-value literal echoes. Native
+  // and SDK public channels are sanitized by credential spans, not by private
+  // prefixes (or characters) that happen to occur in unrelated public text.
+  const privateEchoes = new Set([...privateText].filter(text => text && ![...privateText].some(other => other.length > text.length && other.startsWith(text))));
   const knownByLength = [...known].sort((a, b) => b.length - a.length);
   const intervals = new Map<string, Array<[number, number]>>();
   const credentialIntervals = (full: string): Array<[number, number]> => {
@@ -226,7 +253,8 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     intervals.set(full, merged);
     return merged;
   };
-  const cleanText = (text: string): string => {
+  const cleanText = (text: string, privateEcho = true): string => {
+    if (privateEcho && privateEchoes.has(text)) return REDACTED;
     const parsed = jsonValue(text);
     if (parsed !== undefined) {
       const original = JSON.stringify(parsed), sanitized = JSON.stringify(clean(parsed));
@@ -256,7 +284,7 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
   };
   const nativeText = (parent: object, key: string): string | undefined => {
     const part = nativeLeaves.get(parent)?.get(key);
-    return part ? cleanText(redactSpan(part.text, part.stream.text, part.start)) : undefined;
+    return part ? cleanText(redactSpan(part.text, part.stream.text, part.start), false) : undefined;
   };
   const clean = (item: unknown): unknown => {
     if (typeof item === 'string') return cleanText(item);
@@ -265,7 +293,10 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     if (Array.isArray(item)) return item.map((child, index) => nativeText(item, String(index)) ?? clean(child));
     const data = item as Record<string, unknown>;
     return Object.fromEntries(Object.entries(item).map(([key, child]) => {
-      if (credentialKey(key)) return [cleanText(key), REDACTED];
+      if (credentialKey(key) || (key === 'data' && data.type === 'redacted_thinking')
+        || (key === 'delta' && data.type === 'thinking_delta')
+        || (key === 'content' && data.type === 'thinking_end')) return [cleanText(key), REDACTED];
+      if (key === 'text' && data.type === 'text' && typeof child === 'string') return [cleanText(key), cleanText(child, false)];
       const native = nativeText(item, key);
       if (native !== undefined) return [cleanText(key), native];
       if (key === 'delta' && typeof child === 'string' && assistant(data.partial) && Number.isSafeInteger(data.contentIndex)) {
@@ -295,10 +326,12 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
 export function captureRawValue(value: unknown): unknown { return snapshot(value); }
 
 /** Never mutate the input, throw into execution, or route through SDK ctx.log. */
-export function emitRaw(context: RawLogContext | undefined, stage: string, value: () => unknown): void {
+export function emitRaw(context: RawLogContext | undefined, stage: string, value: () => unknown, consoleValue?: () => unknown): void {
   if (!context || context.loggingEnabled === false) return;
   try {
-    const captured = redact(snapshot(value()), context.credentials ?? []);
+    const full = snapshot(value());
+    try { context.privateArchive?.(stage, full); } catch { /* Console and functional outcomes remain independent. */ }
+    const captured = redact(consoleValue ? snapshot(consoleValue()) : full, context.credentials ?? []);
     console.log(JSON.stringify({ module: 'operator-execution', message: stage,
       data: { activityId: context.activityId, generation: context.generation, value: captured } }));
   } catch {

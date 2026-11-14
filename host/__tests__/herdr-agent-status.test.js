@@ -91,6 +91,8 @@ async function expectResnapshot(trigger, options = {}) {
         } else if (request.method === 'events.subscribe') {
           if (currentConnection > 1) {
             resolveResnapshot();
+          } else if (trigger === 'invalid-frame') {
+            socket.write(`${JSON.stringify(options.invalidFrame)}\n`);
           } else if (trigger === 'malformed-status') {
             socket.write(`${JSON.stringify({
               event: 'pane.agent_status_changed',
@@ -251,6 +253,20 @@ describe('Herdr completion notification authority', () => {
   it('reconnects after a malformed subscribed status event or disconnect', async () => {
     await expectResnapshot('malformed-status');
     await expectResnapshot('disconnect');
+  });
+
+  it('REQ-TERM-038 AC5: reconnects on null and non-object frames without throwing or completing', async () => {
+    for (const invalidFrame of [null, [], 'status', 42]) {
+      let completions = 0;
+      let workingSnapshots = 0;
+      await expectResnapshot('invalid-frame', {
+        invalidFrame,
+        onComplete: () => { completions += 1; },
+        onWorking: () => { workingSnapshots += 1; },
+      });
+      assert.equal(completions, 0);
+      assert.equal(workingSnapshots, 2);
+    }
   });
 
   it('does not notify when the snapshot has no recognized agents', async () => {

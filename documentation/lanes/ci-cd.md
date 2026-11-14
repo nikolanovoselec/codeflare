@@ -24,6 +24,16 @@ GitHub Actions workflows, test verdicts, deployment pipeline, security-probe met
 
 GitHub repository settings separately enable secret scanning with push protection and Dependabot security updates; source cannot prove live settings.
 
+### Repository supply-chain acceptance
+
+Read-only manual method for [REQ-OPS-009](../../sdd/spec/operations.md#req-ops-009-supply-chain-security-monitoring). Do not trigger workflows or change repository controls merely to manufacture evidence.
+
+1. Inspect the Scorecard workflow's main-push and weekly triggers, then inspect existing runs for completed push and scheduled executions. Missing executions are unavailable evidence; configured triggers alone are not execution receipts.
+2. Find the corresponding Scorecard analysis in GitHub Security, matching its repository, commit and tool identity. PASS requires the uploaded analysis, not merely an upload step present in YAML.
+3. Read repository security settings: secret scanning, secret-scanning push protection and Dependabot security updates are explicitly enabled. A disabled value fails its check; an absent/permission-hidden setting is BLOCKED, never assumed enabled.
+
+Retain run/analysis identifiers and observed setting states in existing PR/CI evidence or the applicable audit commit. These manual observations do not replace the linked default/non-default dispatch-routing tests or authorize another scan.
+
 ### Dependabot Configuration
 
 Dependabot runs weekly against `develop` for `/`, `/.github/npm-tools/wrangler`, `/image/oxlint`, `/web-ui`, `/host`, `/landing` and `/openvscode/agent-sidebar`, plus Docker and Actions. Npm cooldown is seven days by default and thirty for majors; Docker/Actions use their supported seven-day default. <!-- @impl: .github/dependabot.yml::updates --> Root npm owns application Wrangler; the dedicated workflow Wrangler manifest/committed lock owns Container Image's privileged pin and is installed by `npm ci`. Stress Test does not install Wrangler or mutate deployment state.
@@ -64,6 +74,20 @@ Pi extension discovery reads the owning preseed manifest except context-mode and
 
 Impeccable's one-minute no-container PR lane verifies pinned source, compiles the exact raster/wait logic into probes, reproduces upstream regressions, and verifies idle-grace/no-symlink fixes. Deployment still compiles/tests the complete binary before publication; bundle refresh rejects an engine the image has not adopted (REQ-AGENT-163/164/181, REQ-OPS-058/059).
 
+### Shadow-pin acceptance record inspection
+
+For [OPS-020/055/025](../../sdd/spec/operations.md), inspect existing shadow-pin runs, generated PRs and exact candidate checks under [pipeline prerequisites](#pipeline-record-inspection). Record owner/matrix leg, upstream identity, candidate/parent revision and outcome. Missing no-op, duplicate or rejected-candidate cases are unavailable. Do not dispatch, create PRs, update pins, install packages or run transforms.
+
+| Scope | Required existing observation |
+|---|---|
+| OPS-020 owners | Enumerate every required dedicated tool/job and applicable matrix leg at that revision. Newer releases produce separate compatibility PRs and owned checks; equal/older versions explicitly no-op. Parallelism needs timestamps, not graph shape. |
+| OPS-020 integrity | Inspect authoritative checksum verification. Where unavailable, invalidate the old checksum for review rather than trust it. Actionlint resolves and verifies `checksums.txt`. Existing same-tool/version branches skip without another branch, PR or mutation. |
+| OPS-055 | Herdr PR couples version, commit, checksum, provenance and launcher without workflow edits. Inspect duplicate skip and exact-version complete-image API checks, including scroll/status schemas. Incompatible-candidate refusal needs an actual retained rejection. |
+| OPS-025 AC1–5 | Compare coupled plugin/runtime/prewarm pins, owning locks, manifest/install identities and embedded seed. Actual commands must show lifecycle-disabled lock generation. Runtime integrity and shared toolchain pins move together; unrelated dependencies remain unchanged. Candidate CI rejects generated drift. |
+| OPS-025 AC6 | Compare actual latest-pinned Goal/Plan transform success and rejection before publication. A rejected candidate leaves no PR. Fake commands, source assertions or accepted-only records do not establish this case. |
+
+Candidate-transform and complete-image qualifications remain distinct from source-shape tests.
+
 <a id="keyless-release-signing"></a>
 <a id="keyless-release-signing-req-ops-034-req-ops-035"></a>
 ### Keyless release signing
@@ -102,9 +126,26 @@ Production's branch policy permits main only and mirrors the workflow guard. It 
 | Branch | Required checks before protected merge/push | History boundary |
 |---|---|---|
 | main | `test`, `CodeQL`, `Property-based fuzzing`, `Develop promotion source` | Squash PR only, complete latest-state checks, stale-review dismissal, no deletion/non-fast-forward or bypass |
-| develop | No pre-push PR/status requirement | Direct fast-forward repair allowed; no deletion/non-fast-forward or bypass |
+| develop | No pre-push PR/status requirement | Direct pushes, including force pushes, are permitted; branch deletion remains blocked. |
 
 Rulesets [13219234](https://github.com/nikolanovoselec/codeflare/settings/rules/13219234) and [19216590](https://github.com/nikolanovoselec/codeflare/settings/rules/19216590) are live authority, inspectable with `gh api repos/nikolanovoselec/codeflare/rulesets/<id>`. Neither requires approving reviews under the current single-maintainer configuration. A feature-to-main or fork-`develop` PR may exist but cannot satisfy canonical promotion (REQ-OPS-036/037). Workflow `uses:` references are repository-wide SHA-required.
+
+### Branch-protection inspection
+
+This read-only check covers [REQ-OPS-036](../../sdd/spec/operations.md#req-ops-036-develop-only-main-promotion) AC3 and [REQ-OPS-037](../../sdd/spec/operations.md#req-ops-037-develop-direct-fast-forward-repairs). Prerequisite: authorized repository-rules read access. Never test enforcement by force-pushing, deleting a branch, changing rules or dispatching CI.
+
+1. Use `gh api 'repos/nikolanovoselec/codeflare/rulesets?includes_parents=true&per_page=100'` and inspect each active applicable ruleset with `gh api repos/nikolanovoselec/codeflare/rulesets/<id>`. Check ref conditions, exclusions and bypass actors; do not infer protection from the ruleset name.
+2. For the fixed branch names `main`, `master` where applicable, and `develop`, read `repos/nikolanovoselec/codeflare/rules/branches/<branch>` and `repos/nikolanovoselec/codeflare/branches/<branch>/protection` with `gh api`. Inspect inherited effective rules plus classic force-push/admin enforcement; an absent field or weaker classic rule is not evidence of a stronger prohibition.
+3. Compare the actual controls with the following outcomes and record only non-secret observations in the existing cleanup/review record. Missing access or uninspected applicable controls are unverified, not passing results.
+
+| Scope | Pass/fail observation |
+|---|---|
+| OPS-036 AC3 | Every applicable existing main/master protection requires `Develop promotion source` with no applicable bypass. A workflow definition alone does not prove this live gate. |
+| OPS-037 AC1/AC2 | Effective develop controls permit direct pushes without a pull-request rule or required pre-push status contexts. |
+| OPS-037 AC3 | Branch deletion is prevented by the effective controls without an applicable bypass. |
+| OPS-037 AC4 | Effective develop controls permit force pushes: classic protection has `allow_force_pushes: true` and no applicable rule prohibits non-fast-forward updates. |
+
+Force pushes on develop are an intentional maintainer policy, not a missing safeguard. This inspection authorizes neither a force push nor any protection change; main/master promotion and history protections remain separate.
 
 `test.yml` supports `merge_group`, but that alone does not make the merge queue usable: other required checks need appropriate queue triggers too. Do not infer queue readiness from the trigger catalogue.
 
@@ -135,11 +176,13 @@ The automatic path already carries its exact green gate. Same-repository success
    - The node-tar and pacote overlays retire only when upstream artifacts carry the source-pinned fixed floors directly. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION --> <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION -->
    - Push retries thirty times at thirty-second intervals. COPY coverage guards reuse; ignore/scan policy is hashed. Registry credentials are masked/step-scoped away from build/scan actions.
 4. **deploy:** downloads assets, resolves/creates KV, prepares one environment-local usage D1 binding and additive migrations, patches Worker/container configuration, and applies reviewed authorization/config before Worker promotion (REQ-OPS-056/060).
-   - `RESSOURCE_TIER`: low 0.25 vCPU/1 GiB/4 GB, default or saas 1 vCPU/3 GiB/6 GB, high 2 vCPU/6 GiB/12 GB; default max instances ten, positive `MAX_INSTANCES` override. This is deployment allocation, not capacity certification.
-   - Binds the selected registry image/digest; Wrangler deploy retries thirty times/thirty seconds without wasting the completed build.
+   - `RESSOURCE_TIER` selects deployment CPU(vCPU)/memory(GiB)/disk(GB): low 0.25/1/4, default or saas 1/3/6, high 2/6/12; default max instances ten, positive `MAX_INSTANCES` override. This is deployment allocation, not capacity certification.
+   - Binds a fresh image by its content-addressed tag, or a retained reused image by its required provenance-verified digest. Downstream digest readback/attestation is separate from that binding choice; neither branch permits an unverified image identity. Wrangler deploy retries thirty times/thirty seconds without wasting the completed build.
    - One secret-bulk call follows Worker creation; optional mode-gated secrets remain Configuration/private-owned. Configured service auth gets bounded fail-closed user seeding; absent service auth skips it. Optional VAPID is all-or-none and validated before promotion.
    - Best-effort registry pruning retains ten newest tags, deployed tag, aliases of its digest and unresolved-creation-time tags. Uncertain creation time never authorizes deletion.
    - Always publishes environment/Worker/image/reuse summary.
+
+User-extension persistence, lazy restoration and warning acknowledgement (REQ-IDE-036–038) use GitHub Actions suites and complete-image smoke, without additional local, browser-automation, Chromium or manual test gates.
 
 Application suites are not rerun after exact-tree verification. Packaged-image smoke is independently deployment-owned because PR Checks builds no image. A green deployment receipt is not proof that every changed protected user path works; [Deployment](deployment.md#standard-deployment) owns post-secrets verification.
 
@@ -157,22 +200,93 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **frontend-tests:** three duration-weighted test groups through the same action. Dispatcher capacity-validation matrices and remaining controls register separately, preserving all373 cases; historical measured weights guide assignment, not a verified post-partition runtime. <!-- @impl: .github/workflows/test.yml::frontend-tests -->
 - **frontend-build:** independent frontend production-build gate, separate from the test matrix. <!-- @impl: .github/workflows/test.yml::frontend-build -->
 - **landing-tests:** rendering/unit tests plus Astro production build.
-- **host-tests:** nonempty, nonzero-assertion Node-runner selection reconciled against `ci-excluded.txt`; rclone for real sync-filter behavior. Approved Ubuntu sandbox package sources and real sandbox probe remain required.
+- **host-tests:** nonempty Node-runner selection with at least one JUnit `<testcase>` across its partitions, reconciled against `ci-excluded.txt` (test-case counting, not assertion-call enforcement); rclone for real sync-filter behavior. Approved Ubuntu sandbox package sources and real sandbox probe remain required.
 - **browser-ide:** clean install with the pinned IDE Node runtime, owned dependency/license audit, typecheck, deterministic bundle, context/RPC/approval and official Claude behavior, coverage and JSON gate.
-- **dependency-review:** fail-closed PR vulnerability/license checks with visible available OpenSSF scores; six exact Codex platform license exceptions backed by Apache-2.0 lock metadata, not future-version exceptions (REQ-OPS-053).
+- **dependency-review:** fail-closed PR vulnerability/license checks with visible available OpenSSF scores; six exact historical Codex 0.147.0 platform-release license exceptions, backed by Apache-2.0 metadata in the historical committed lock, not equivalence to the current 0.166.0 lock or exceptions for future versions (REQ-OPS-053). The historical evidence is `preseed/npm-tools/package-lock.json` at `88a0dddbf2a4da18222ccda21f5a15e2c49d65ea^`, for darwin/linux/win32 × arm64/x64. Versioned PURLs retain future-release review; current-lock integrity checks are a separate assertion, not proof that historical exception identities equal current locked releases.
 - **workflow-audit:** pinned/checksummed zizmor/actionlint over `.github/**` inside required `test`; standalone SARIF is not a bypass (REQ-OPS-021).
 - **impeccable-engine:** pinned-source focused native regressions, one-minute timeout, no image build (REQ-OPS-058).
 - **bundle-size:** Wrangler dry-run with container configuration repointed away from Dockerfile; one unambiguous measurement, valid positive budget or explicit opt-out sentinel (REQ-OPS-024).
 - **coverage:** affected-package and full-run global floors plus bounded changed-production-line LCOV floors, backend 80%, frontend 70% (REQ-OPS-022).
 - **summary:** rejects failed/cancelled relevant lanes, accepts unaffected skipped lanes, reconciles suite evidence and publishes exact-tree receipt.
 
-PR Dependency Review is dependency-security evidence for that reviewed tree and its main squash result; post-merge checks do not repeat registry-backed audits. Explicit full dispatch retains bounded one-minute fail-closed lockfile-only registry audits. Tool archives cache by OS/architecture/version/checksum and reject restored mismatch before execution (REQ-OPS-045).
+PR Dependency Review is dependency-security evidence for that reviewed tree and its main squash result; post-merge checks do not repeat registry-backed audits. Explicit full dispatch retains bounded one-minute fail-closed lockfile-only registry audits. Tool archives cache by OS/architecture/version/checksum and reject restored mismatch before execution ([REQ-OPS-165](../../sdd/spec/operations.md#req-ops-165-cached-external-tool-integrity-and-reuse)).
 
 Shared pipeline/manifests/config/selection rules occur in broad filters so a meaning-changing file reselects all lanes. Container inputs select source IDE/host/shell validation but construction waits for Deploy. Workers are workerd/miniflare isolates; shard parallelism divides per-file setup/transform work that extra local workers cannot eliminate.
 
 Zizmor gate exits nonzero on surviving findings; justified suppressions stay on the finding line. Blocking audit scope remains `.github/`; support JavaScript remains under owning tests. Bundle-size patching avoids duplicated image construction. Summary publishes parsed suite results with `scripts/ci/render-test-summary.mjs` and reconciles coverage of the tree with `scripts/ci/check-suite-completeness.mjs`.
 
 Actionlint 1.7.12 predates GitHub’s `$/…` self-repository syntax. The version-bound input bridge uses the locked YAML parser to change only actual action/reusable-workflow `uses` prefixes from `$` to `.` in memory. Original files, script text, comments and diagnostic positions stay intact; `-stdin-filename` retains original-path local metadata validation. Zizmor still audits untouched sources. There is no diagnostic suppression, binary patch or newer-version fallback. A pin change requires requalification. The audit lane checks valid references and negative target/input/expression/shell cases with the checksum-verified real binary. <!-- @impl: scripts/ci/actionlint-input.mjs::actionlintInput -->
+
+### Pipeline record inspection
+
+Read-only methods for [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) and [REQ-OPS-021](../../sdd/spec/operations.md#req-ops-021-workflow-file-static-analysis). Prerequisites: authorized access to retained Actions logs, artifacts and applicable Security analyses; the exact candidate SHA and workflow/package/tool-pin sources at that revision. Use existing completed records only. Do not dispatch, rerun, install tools, change controls or introduce defects. Existing approved negative-case records are required where rejection behavior is being accepted; this method authorizes no new negative runs.
+
+Record repository, workflow path, run URL/ID, attempt, event, source/checkout SHA, relevant jobs/steps and conclusions in existing PR/CI evidence. PR merge refs and head SHAs are distinct: correlate the checked-out tree rather than treating them as identical. Wrong-tree, unavailable or expired records are BLOCKED; failed positive controls are FAIL. A skipped required observation never passes. Definition is not execution; missing retained evidence blocks acceptance, not a source-backed method definition.
+
+#### PR quality record inspection
+
+For OPS-003 AC2, inspect **Quality (lint / knip / audit)**: **Lint backend**, **Lint frontend**, **Dead code check (backend)** and **Dead code check (frontend)** must execute successfully. Trace `npm run lint` to root `oxlint src/ stress/ --deny-warnings` and frontend `oxlint src/ --deny-warnings`; both dead-code commands resolve to `knip`. For AC4, **Typecheck** must complete **Generate Workers runtime types**, **Type check backend** and **Type check frontend**, resolving both package scripts to `tsc --noEmit`. Inspect logs, not job labels alone. Use a record whose classifier actually selected both lanes; an unaffected skip does not qualify these observations.
+
+For AC5 select an existing PR record with an actual production-lockfile change. Inspect **Dependency Review**'s pinned `actions/dependency-review-action` step and changed-dependency results. Vulnerability/license checks must remain enabled; retain the exact versioned license exceptions and available Scorecard display policy. There is no repository `fail-on-severity` input to invent: inspect the pinned action's effective outcome for a changed high-severity dependency. A clean positive record alone cannot establish rejection.
+
+Correlate an approved retained high-severity rejection with **test** / **Aggregate lane results**: dependency review must fail and the required aggregate must not pass. A passing aggregate despite that failure is FAIL; no retained rejection is BLOCKED for rejection acceptance. Push/dispatch audit results cannot substitute for this PR observation. **Security audit (backend)** and **Security audit (frontend)** are bounded one-minute, lockfile-only, high-level production audits on explicit dispatch only; inspect existing dispatch records if accepting those separate controls. Do not dispatch here or reintroduce registry audits after merge.
+
+The hosted sandbox qualification additionally requires an exact-tree GitHub-hosted **Host tests** record. Inspect **Install and verify Graphify runtime and approved-packet sandbox in parallel** for successful official-Ubuntu package installation, bwrap version, kernel/AppArmor diagnostics, identical final user/PID/network-isolated probe and zero collected setup statuses. Existing custom-runner refusal and existing-profile nonreplacement controls remain unchanged. Diagnostics alone, a fake-apt unit fixture or success on a self-hosted runner is not hosted qualification. Missing hosted apt/probe records leaves this acceptance BLOCKED; historical RED is not current success.
+
+#### Workflow audit record inspection
+
+For OPS-021 AC2 inspect the standalone `.github/workflows/zizmor.yml` **Audit workflows** job, **Resolve the zizmor pin** and **Run zizmor**. The pinned action owns SARIF publication internally; the repository defines no separate upload step or SARIF filename. Correlate its actual upload/processing output with an accepted GitHub Security analysis for the same repository, revision and zizmor tool. A green job, permission or absence of alerts alone is insufficient. Accepted SARIF can contain findings; missing upload/analysis evidence is BLOCKED, rejected upload is FAIL.
+
+For AC3 inspect PR Checks **Workflow audit**: **Resolve the actionlint pin**, archive checksum verification in **Run actionlint (checksum-pinned binary)**, every `.github/workflows/*.yml` input, then **Verify actionlint syntax compatibility**. Require completed positive validation and the named real-binary test with all six negative subcases executed, not skipped. Existing `ACTIONLINT_BINARY` binds the verified binary; this is not a new flag. Retain shellcheck error-only integration and disabled pyflakes. The version-bound input bridge, untouched zizmor sources and requalification boundary remain as described above; no diagnostic suppression is permitted.
+
+For AC4 correlate **Run zizmor (checksum-pinned binary)** with the shared validated pin, checksum/provenance verification and offline `.github/` scan. Inspect an approved retained surviving-finding record: the audit must fail and **test** / **Aggregate lane results** must not pass. A green standalone SARIF workflow is never a merge-gate substitute. Missing negative records blocks rejection acceptance; a surviving finding reaching a passing required aggregate fails. Projection/real-binary fixtures establish their bounded contracts, not completed exact-head CI or live branch protection. Existing suppressions still require inline reasons.
+
+### Bundle-size gate inspection
+
+For [REQ-OPS-024](../../sdd/spec/operations.md#req-ops-024-worker-bundle-size-is-gated-before-it-can-fail-a-deploy), distinguish authentic measurement provenance from controlled negative probes. Prerequisites are an exact-SHA completed CI record and explicit authorization for a disposable checker copy in CI. Do not build locally, modify the tracked budget, dispatch a protected run or invent a new harness to define this method.
+
+1. Inspect that SHA's **Bundle size** job, **Measure the Worker bundle** and **Check against the budget** steps.
+   - Correlate Wrangler's `Total Upload: … / gzip: …` output with the piped log path passed to `node scripts/ci/check-bundle-size.mjs <log>` and the checker's gzip summary.
+   - Require the same value, not an independently compressed estimate. Missing provenance is unverified.
+2. In the authorized disposable copy, use the existing log positional argument and `BUDGETS.worker.budgetKiB` source setting; these are not new CLI flags. Record candidate source identity; never change tracked configuration. Run probes in CI, not this session container.
+3. Record exit status and output for the following cases. Controlled inputs test rejection behavior only; they never prove a real Wrangler measurement, container build or successful deployment.
+
+| Scope | Input/control and required outcome |
+|---|---|
+| AC2 | One well-formed measurement above a positive budget must exit nonzero and report over-budget; an in-budget positive control must succeed. |
+| AC3 | Zero measurements and two measurements must each exit nonzero rather than selecting or estimating a size. |
+| AC4 | Omit the budget property, use a non-number, zero and a negative number in separate disposable configurations: each must fail. Literal `null` must produce the explicit opt-out notice and succeed for an otherwise valid measurement. |
+
+Missing authorized copies or retained outputs blocks those observations, not the procedure definition. Existing CI/type/security gates remain separate; this check grants no budget increase or deployment authorization.
+
+### Image acceptance record inspection
+
+For [OPS-002/046/040/039/050/052](../../sdd/spec/operations.md) and [SEC-011](../../sdd/spec/security.md), use existing completed image records under [pipeline prerequisites](#pipeline-record-inspection). Record source/attempt, selection, registry, tag/digest, reuse and artifact identities. Missing cases are unavailable. Do not dispatch, rebuild, inject defects or publish. Reuse requires original producing/scanned provenance; it is not a new scan.
+
+| Scope | Required existing observation |
+|---|---|
+| OPS-002 cache | Compare same-input/same-week records with and without cache bust, plus a registry-missing tag case. Tag identity stays equal while the cache-busted case rebuilds. Changed inputs/week cannot prove this. |
+| OPS-046 overlays | Correlate integrity verification before extraction with fixed-version/load/operation smoke for every affected overlay. Include both node-tar archive round trips, brace expansion and HTTP-body behavior. Validator fixtures alone do not establish immutable-image acceptance. |
+| OPS-040 selection | Compare `agentVersions`, selected launcher pins and absent omitted launchers, including with/without-Antigravity records and complete-image pruning. |
+| OPS-039 reduced images | For a selection omitting shared Pi, inspect prewarm, native Pi/official Claude inventories, shared tools and selected/omitted launcher results. Record same-image bytes; inspect publication policy for no fixed byte ceiling. A full selection cannot substitute. |
+| OPS-050 caching | Compare exact extension-only and IDE/seed-only diffs with same-cache-scope predecessors. Plain BuildKit logs must show affected late assembly rebuilt and unrelated dependencies cached. Require `buildkit-timing-*` plus plain output; expired fourteen-day evidence or mixed dependency changes cannot qualify. |
+| OPS-052 preparation | Require one Trivy DB preparation, then scan/SBOM/registry preparation completed before enforcement/publication. Actual overlap needs child timing/output, not a background operator or parent duration alone. Missing timing stays unavailable. |
+| OPS-052 cache | Inspect isolated writable scratch/cache, clean daily DB restore without ownership/timestamp warnings or lock collision, bounded enforcement, and uploaded SBOM before push. A cache miss cannot prove restored-cache safety. |
+| OPS-002; SEC-011 gates | Match HIGH/CRITICAL ignore-unfixed scanning, runtime floors and reviewed bounded exceptions to the exact revision; inspect scanner paths/PURLs. Require passing gates before selected-registry publication and downstream digest binding. Retained rejection cases prove refusal; clean scans alone do not. |
+
+Existing prerequisite-failure tests supplement actual failed-image records. Never manufacture a failure. A missing full scan artifact is not supplied by the SBOM, and one registry's publication does not establish another's bypass path. [Security](security.md#container-image-scanning-req-sec-011) owns exception expiry and retired tuples.
+
+### PR Checks timing acceptance
+
+Method for [REQ-OPS-045](../../sdd/spec/operations.md#req-ops-045-parallel-pr-checks-performance). Use an existing completed run; this procedure does not authorize a new workflow, deployment or protected test run.
+
+1. Select the PR Checks run and attempt for the exact candidate SHA. Confirm classification included the affected workloads and their required results completed successfully; a cancelled, wrong-head or skipped-workload run cannot qualify.
+2. Record run ID, attempt, SHA, workflow start/completion and affected-gate durations from GitHub's recorded timing. Report queued time separately and retain the observations with the existing run/PR evidence, not as current-success prose in this lane.
+3. PASS requires both the complete run duration and affected-gate durations below the existing three-minute target. An over-target duration is FAIL; unavailable timing or incomplete affected-workload evidence is BLOCKED. Do not add timeout caps or omit workloads to pass.
+
+### Attached monitor artifact acceptance
+
+For [OPS-049 AC4](../../sdd/spec/operations.md), inspect an existing attached Claude monitor task's exact repo/PR/head, result and before/during/after filesystem/process metadata. Its entry point is the shipped `ci-monitoring/scripts/monitor-ci.mjs monitor` command, not a generated detached script. Require `CI_RESULT` in the attached task with no task-created script, PID or result-log file in its temporary areas. Separate concurrent writers by provenance. Missing during-task inventories or uncertain attribution makes absence unverified. Do not launch the monitor, dump unrelated contents or delete artifacts for this inspection.
 
 ### PR Exact-Head Monitoring
 
@@ -187,6 +301,40 @@ Actionlint 1.7.12 predates GitHub’s `$/…` self-repository syntax. The versio
 ## Security Probes
 
 Distinct named owner for current security-probe methods formerly in `pentest.md` (REQ-OPS-005). Monday 05:00 UTC/manual `pentest.yml` uses a production-environment `PENTEST_TARGET`; one target job normalizes the origin and six external jobs consume that exact output. Probes use lightweight curl, openssl and the owned Python legacy-TLS handshake helper, not a heavy scanner. <!-- @impl: .github/workflows/pentest.yml::jobs -->
+
+### Scheduled workflow record inspection
+
+Read-only methods for [REQ-OPS-005](../../sdd/spec/operations.md#req-ops-005-weekly-pentest) AC1–AC3, [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) AC2–AC4 and [REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows) AC1–AC5. Prerequisites: authorized access to existing Actions metadata, logs and applicable Security analyses; retained completed records for each required native event; workflow/test bodies at each record's exact SHA. Do not dispatch, rerun, attack a target or change settings. Use existing PR/CI records, not a new report lane.
+
+For each execution record repository, workflow path, run URL/ID, attempt, event, branch/SHA, timestamps, conclusion and relevant job/step outcomes. Inspect that revision's workflow, not current YAML. Missing/expired records or denied access leave observations unverified. Failed, cancelled or skipped required execution never passes. Native push/schedule/dispatch records are not interchangeable. Cron is UTC; scheduler delay is not a change of configured cadence.
+
+#### Pentest record inspection
+
+Select separate completed `.github/workflows/pentest.yml` schedule and dispatch records. Verify Monday `0 5 * * 1`, production environment on **Validate target** and all probes, and **Normalize target URL** against the configured production target and consumed normalized output. Retain no private target values. AC1 passes only with both native event records against the intended configured target, not a workflow definition or historical target alone.
+
+In that revision's `.github/workflows/pentest.yml` graph, **Security headers**, **TLS configuration**, **Authentication gate**, **Information disclosure**, **Injection attacks** and **HTTP methods** must depend on **Validate target**, not each other. Correlate timestamps for demonstrated overlap; graph fan-out alone is not executed parallelism. Inspect executed curl, openssl, shell and owned Python-helper commands, not an active scanner. A serialized graph or no observed overlap does not qualify AC2.
+
+For AC3 open each probe's executed step logs and compare outcomes with the [header](#security-header-probe), [TLS](#tls-probe), [authentication](#authentication-gate-probe), [disclosure](#information-disclosure-probe), [injection](#injection-probe) and [method](#http-method-probe) boundaries below. All six categories must execute and pass; green labels or **Report failures** alone are insufficient. These are [REQ-OPS-005](../../sdd/spec/operations.md#req-ops-005-weekly-pentest) observations on one unauthenticated origin, not authenticated/exhaustive certification. Legacy TLS inconclusive results cannot pass. Certificate/CL-TE steps require the intended default HTTPS port; do not infer authenticated storage validation.
+
+#### Fuzz record inspection
+
+Select completed `.github/workflows/fuzz.yml` records with distinct native schedule and dispatch events. Verify Sunday `0 4 * * 0` and completion of **Property-based fuzzing** and all three suites. AC3 requires the native scheduled record; AC4 requires native dispatch. A PR run or YAML alone substitutes for neither.
+
+For AC2 trace `.github/workflows/fuzz.yml`'s `FAST_CHECK_NUM_RUNS: '50000'` through **Run backend fuzz tests (extended iterations)**, **Run frontend fuzz tests** and **Run host fuzz tests**. Inspect root/frontend Vitest commands and host `node --test __tests__/fuzz-host.test.js` following **Build host**. At that SHA verify the actual environment-derived `NUM_RUNS` reaches `fc.assert` as `numRuns`, then correlate completed passing named cases with those suite logs.
+
+Uncapped witnesses are `src/__tests__/fuzz/input-validation.fuzz.test.ts` / **decode(escape(s)) === s for all strings**, `web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts` / **always produces a 32-char hex string**, and `host/__tests__/fuzz-host.test.js` / **returns { command: null } for non-array / empty inputs**. Preserve their source/run/step identity; environment text without executed callers, default local 1,000 runs or a generic green summary cannot establish this chain.
+
+This [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) method establishes the configured budget in completed uncapped calls, not an independently instrumented count. Deterministic/capped input-validation, runtime-config, Vault asynchronous and frontend terminal-link cases retain their limits. It does not establish 50,000 trials for every property. A stronger every-case interpretation needs separate judgment, not invented counters or a silently broadened claim.
+
+#### CodeQL and Scorecard record inspection
+
+For `.github/workflows/codeql.yml`, select separate completed native main-push and schedule records; verify Monday `0 6 * * 1` and push SHA. **Analyze (worker)** and **Analyze (container-ui)** must complete **Initialize CodeQL**, **Autobuild** and **Perform CodeQL Analysis**. The stable **Analyze** gate must require every shard and pass, but is not itself analysis evidence. AC1/AC2 require their respective native routes, not PR evidence. Historical revisions use their actual topology, not today's shard names.
+
+For AC3 correlate `.github/workflows/codeql.yml`'s upload/processing logs with accepted GitHub Security analyses at the same repository/SHA/tool. Current categories are `/language:javascript-typescript/worker` and `/language:javascript-typescript/container-ui`; every configured shard must be processed. A local SARIF filename, permission, green aggregate or absence of alerts does not prove upload. An accepted analysis may contain findings.
+
+For `.github/workflows/scorecard.yml`, select distinct completed native main-push and schedule records; verify Monday `0 6 * * 1`. Inspect **Run Scorecard**, `results.sarif`, SARIF format/publication, then **Upload to GitHub Security** consuming that file. Correlate accepted Security tool/analysis identity and source SHA. AC4/AC5 require completed assessment on the corresponding native route, not a minimum score.
+
+The `.github/workflows/scorecard.yml` **unsupported-ref** / **Explain default-branch requirement** path is a successful no-scan notice, never assessment evidence. Manual default-branch runs or unrelated CodeQL uploads cannot substitute for native Scorecard push/schedule records. These method definitions are not completed-run or Security receipts.
 
 ### Target normalization
 
@@ -308,6 +456,12 @@ Setup normalizes target, requires public provider discovery 200 and authenticate
 <a id="unsupported-all-selector"></a>
 **Unsupported `all`:** Source defaults to and selects all four jobs, which share one unchanged target and opposite intended modes. It cannot prove both intended high-load and enforcement contracts. Load scripts themselves do not assert bypass; their 429 short-circuits/counter floors can allow partial measurements under limits. A green `all` must not be interpreted as high-load saturation plus enforcement proof. No runtime/workflow fix is proposed here.
 
+### Stress acceptance record inspection
+
+For [OPS-008](../../sdd/spec/operations.md), inspect existing authorized Integration records under [Execution Runbooks](#execution-runbooks): target revision/mode/profile, suite, redacted service identity, concurrency, k6 results and summary. Require separate mode-compatible load and limiter records; `all` cannot establish opposing bypass modes. Unset/zero concurrency uses baseline VUs; positive input scales VUs while the existing latency thresholds remain fixed.
+
+For [REQ-OPS-164 AC1–AC3](../../sdd/spec/operations.md#req-ops-164-integration-stress-mode-runtime-boundary), correlate existing bypass-enabled HTTP/WebSocket and warning evidence, plus a separately prepared SaaS-and-stress rejection returning 503. Missing mode or WebSocket cases stay unavailable. Existing authentication-fallback, cleanup and partial-measurement limits remain; this inspection sends no traffic and performs no cleanup.
+
 <a id="test-suites"></a>
 ### Suite Contracts
 
@@ -378,7 +532,7 @@ VU counts are workload inputs. No conversion to real users or supported capacity
 <a id="concurrency-input"></a>
 #### Concurrency Scaling
 
-`CONCURRENCY = parseInt(value || '0', 10)`; per-suite `SCALE = positive ? CONCURRENCY / BASE_VUS : 1`; each target is `max(1, round(vus * SCALE))`. Baselines are ten/three/five. Zero/unset keeps baseline; fifty/two hundred/one thousand scale target VUs proportionally. Current scripts retain all fixed thresholds under positive concurrency; the old prose claiming loosened thresholds contradicts source and REQ-OPS-008 AC3 remains an explicit unresolved normative ambiguity, not silently changed here.
+`CONCURRENCY = parseInt(value || '0', 10)`; per-suite `SCALE = positive ? CONCURRENCY / BASE_VUS : 1`; each target is `max(1, round(vus * SCALE))`. Baselines are ten/three/five. Zero/unset keeps baseline; fifty/two hundred/one thousand scale target VUs proportionally. The override is disabled by default. Positive concurrency changes VU targets only; all existing latency thresholds remain fixed, as required by REQ-OPS-008 AC3. This is the retained approved contract, not an unresolved normative ambiguity or a measured capacity claim.
 
 <a id="rate-limit-bypass"></a>
 ### Target Safety and Rate-Limit Bypass
@@ -430,7 +584,7 @@ Current suites do not exercise subscription/tiers/usage/admin/onboarding-config 
 
 ### Backend Tests
 
-Root `vitest.config.ts` uses real Workers runtime via `@cloudflare/vitest-pool-workers` `cloudflareTest()`, not Node. `npm test`; Istanbul coverage because host V8 cannot profile workerd isolates. Floors remain source-owned in package configs; affected PRs/full runs enforce them before promotion. Changed-line LCOV excludes deletions/test-only changes, follows rename destinations, bounds diff/report/line counts and fails absent production records.
+Root `vitest.config.ts` uses real Workers runtime via `cloudflareTest()` imported from `@cloudflare/vitest-plugin`, not Node. `npm test`; Istanbul coverage because host V8 cannot profile workerd isolates. Floors remain source-owned in package configs; affected PRs/full runs enforce them before promotion. Changed-line LCOV excludes deletions/test-only changes, follows rename destinations, bounds diff/report/line counts and fails absent production records.
 
 Closed Administration material-state owners assigned to user-owned Integration validation are `ActivityPage.tsx`, `AdministrationLayout.tsx`, `AdministrationOverview.tsx`, `AnalyticsPage.tsx`, `AnalyticsUserDetail.tsx`, `EnvironmentAreaFields.tsx`, `EnvironmentIndex.tsx`, `ReportsPage.tsx` and `environment-areas.ts` under `web-ui/src/components/admin/`. Exceptions do not extend to backend/shared infrastructure/other production code (REQ-OPS-022).
 

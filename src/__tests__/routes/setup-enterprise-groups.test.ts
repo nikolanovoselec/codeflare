@@ -1,3 +1,4 @@
+import { createMockSetupNamespace } from '../helpers/mock-factories';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -15,6 +16,36 @@ vi.mock('../../lib/access', async (importOriginal) => {
     resolveBucketName: vi.fn(async (_env: unknown, email: string, workerName?: string) => actual.getBucketName(email, workerName)),
   };
 });
+
+// Same ownership fixture as middleware/auth.test.ts: authenticateRequest uses
+// its module-local resolver, which is not intercepted by the export mock above.
+function createBucketOwnerNamespace(): Env['CONTAINER'] {
+  const owners = new Map<string, string>();
+  return {
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+        const owner = owners.get(id);
+        if (owner === email) return 'owned';
+        if (owner) return 'conflict';
+        if (!allowInitialClaim) return 'ambiguous';
+        owners.set(id, email);
+        return 'owned';
+      },
+    }),
+  } as unknown as Env['CONTAINER'];
+}
+
+// Error-only diagnostics: bounded output, with synthetic credentials redacted.
+async function expectConfigureStatus(res: Response, expected: number) {
+  let diagnostic: string | undefined;
+  if (res.status !== expected) {
+    diagnostic = (await res.clone().text())
+      .replace(/replacement-secret|saved-secret|cf-secret|env-api-token|A{43}=/g, '[redacted]')
+      .slice(0, 512);
+  }
+  expect(res.status, diagnostic).toBe(expected);
+}
 
 // REQ-ENTERPRISE-022: per-route context windows persist, validate, and round-trip through setup.
 // URL-based mock fetch factory - routes requests by URL pattern (and optionally method)
@@ -168,6 +199,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
 
   function createTestApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env }>();
+    const containerNamespace = createBucketOwnerNamespace();
 
     // Error handler
     app.onError((err, c) => {
@@ -190,10 +222,12 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
+        CONTAINER: containerNamespace,
         CLOUDFLARE_API_TOKEN: TEST_TOKEN,
         CLOUDFLARE_WORKER_NAME: TEST_WORKER_NAME,
         ...envOverrides,
       } as Env;
+      c.env.CONTAINER = createMockSetupNamespace(c.env);
       return next();
     });
 
@@ -447,6 +481,19 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         // catches an accidental plaintext-storage regression of the token.
         expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
         expect(mockKV.put).toHaveBeenCalledWith('setup:aig_token', expect.not.stringContaining('aig-secret'));
+        const stored = await mockKV.get('setup:aig_token') as string;
+        expect(stored).toMatch(/^v1:/);
+        const key = await crypto.subtle.importKey(
+          'raw', Uint8Array.from(atob(ENC_KEY), char => char.charCodeAt(0)),
+          { name: 'AES-GCM' }, false, ['decrypt'],
+        );
+        const payload = Uint8Array.from(atob(stored.slice(3)), char => char.charCodeAt(0));
+        const plaintext = await crypto.subtle.decrypt({
+          name: 'AES-GCM', iv: payload.subarray(0, 12),
+          additionalData: new TextEncoder().encode('setup:aig_token'),
+        }, key, payload.subarray(12));
+        expect(JSON.parse(new TextDecoder().decode(plaintext))).toEqual({ token: 'aig-secret' });
+        expect(await mockKV.get('setup:aig_gateway_url')).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
         // WS6: the step surfaces on the progress stream so the configuring screen shows it.
         expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_ai_gateway', status: 'success' }));
       });
@@ -600,35 +647,103 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_provider_type', 'oauth');
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_oauth_client_id', 'oauth-cid');
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_oauth_client_secret', expect.any(String));
+        const stored = await mockKV.get('setup:github_oauth_client_secret') as string;
+        expect(stored).toMatch(/^v1:/);
+        expect(stored).not.toContain('oauth-secret');
+        const key = await crypto.subtle.importKey(
+          'raw', Uint8Array.from(atob(ENC_KEY), char => char.charCodeAt(0)),
+          { name: 'AES-GCM' }, false, ['decrypt'],
+        );
+        const payload = Uint8Array.from(atob(stored.slice(3)), char => char.charCodeAt(0));
+        const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: payload.subarray(0, 12),
+          additionalData: new TextEncoder().encode('setup:github_oauth_client_secret') }, key, payload.subarray(12));
+        expect(JSON.parse(new TextDecoder().decode(plaintext))).toEqual({ secret: 'oauth-secret' });
       });
 
-      it('persists the Cloudflare OAuth client (id plain, secret encrypted) in non-enterprise', async () => {
+      it('REQ-AGENT-230: admin configure persists Cloudflare OAuth ciphertext that independently decrypts with the immutable key', async () => {
         const app = createTestApp({ ENCRYPTION_KEY: ENC_KEY }); // no ENTERPRISE_MODE
+        // Exercise conditional setup auth + requireAdmin, not public bootstrap.
+        // Like the existing auth middleware fixtures, auth domain/aud are unset;
+        // identity uses the pre-auth-configuration email-header fallback.
+        mockKV._store.set('setup:complete', 'true');
+        mockKV._set('user:user@example.com', { addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' });
         mockFullSuccessFlow();
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'cf-access-authenticated-user-email': 'user@example.com' },
           body: JSON.stringify({ ...standardBody, cloudflareOauthClientId: 'cf-cid', cloudflareOauthClientSecret: 'cf-secret' }),
         });
 
-        expect(res.status).toBe(200);
-        await readNdjson(res);
+        await expectConfigureStatus(res, 200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
         expect(mockKV.put).toHaveBeenCalledWith('setup:cloudflare_oauth_client_id', 'cf-cid');
         expect(mockKV.put).toHaveBeenCalledWith('setup:cloudflare_oauth_client_secret', expect.any(String));
+        expect(await mockKV.get('setup:cloudflare_oauth_client_id')).toBe('cf-cid');
+        const stored = mockKV._store.get('setup:cloudflare_oauth_client_secret')!;
+        expect(stored).toMatch(/^v1:/); // documented KV ciphertext wire format
+        expect(stored).not.toContain('cf-secret');
+        expect(stored).not.toBe(JSON.stringify({ secret: 'cf-secret' }));
+        // Independent Web Crypto decode: no production decrypt/import helpers,
+        // getAndDecrypt migration, replacement key, or key-rotation assumption.
+        const key = await crypto.subtle.importKey(
+          'raw', Uint8Array.from(atob(ENC_KEY), char => char.charCodeAt(0)),
+          { name: 'AES-GCM' }, false, ['decrypt'],
+        );
+        const payload = Uint8Array.from(atob(stored.slice(3)), char => char.charCodeAt(0));
+        const plaintext = await crypto.subtle.decrypt({
+          name: 'AES-GCM', iv: payload.subarray(0, 12),
+          additionalData: new TextEncoder().encode('setup:cloudflare_oauth_client_secret'),
+        }, key, payload.subarray(12));
+        expect(JSON.parse(new TextDecoder().decode(plaintext))).toEqual({ secret: 'cf-secret' });
+      });
+
+      it('REQ-AGENT-230: non-admin configure is rejected with the stored configuration unchanged', async () => {
+        const app = createTestApp({ ENCRYPTION_KEY: ENC_KEY });
+        mockKV._store.set('setup:complete', 'true');
+        mockKV._set('user:regular@example.com', { addedBy: 'setup', addedAt: '2024-01-01', role: 'user' });
+        mockKV._store.set('setup:cloudflare_oauth_client_id', 'saved-cid');
+        const ciphertext = await encryptForKV(JSON.stringify({ secret: 'saved-secret' }), await importEncryptionKey(ENC_KEY), 'setup:cloudflare_oauth_client_secret');
+        mockKV._store.set('setup:cloudflare_oauth_client_secret', ciphertext);
+        const before = Array.from(mockKV._store.entries());
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'cf-access-authenticated-user-email': 'regular@example.com' },
+          body: JSON.stringify({ ...standardBody, cloudflareOauthClientId: 'replacement-cid', cloudflareOauthClientSecret: 'replacement-secret' }),
+        });
+
+        await expectConfigureStatus(res, 403);
+        expect(await res.json()).toMatchObject({ code: 'FORBIDDEN', error: 'Access denied' });
+        expect(Array.from(mockKV._store.entries())).toEqual(before);
       });
 
       it('rejects a Cloudflare client secret with no ENCRYPTION_KEY (fail closed, no write)', async () => {
         const app = createTestApp({}); // no ENCRYPTION_KEY, no ENTERPRISE_MODE
+        mockKV._store.set('setup:cloudflare_oauth_client_id', 'saved-cid');
+        const ciphertext = await encryptForKV(JSON.stringify({ secret: 'saved-secret' }), await importEncryptionKey(ENC_KEY), 'setup:cloudflare_oauth_client_secret');
+        mockKV._store.set('setup:cloudflare_oauth_client_secret', ciphertext);
+        const before = Array.from(mockKV._store.entries());
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...standardBody, cloudflareOauthClientSecret: 'cf-secret' }),
+          body: JSON.stringify({ ...standardBody, cloudflareOauthClientId: 'replacement-cid', cloudflareOauthClientSecret: 'cf-secret' }),
         });
 
-        expect(res.status).toBe(400);
+        await expectConfigureStatus(res, 400);
+        expect(await res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:cloudflare_oauth_client_secret', expect.anything());
+        // setup/shared.ts installs setupRateLimiter before body/key validation.
+        // rate-limit.ts selects anonymous (no auth bucket or CF-Connecting-IP);
+        // rate-limit-core.ts persists this counter independently of configuration.
+        const limiterKey = 'setup-configure:anonymous';
+        expect(before.some(([key]) => key === limiterKey)).toBe(false);
+        expect(await mockKV.get(limiterKey, 'json')).toEqual({ count: 1, windowStart: expect.any(Number) });
+        // Exclude ONLY that exact bookkeeping key, not a setup:* allowlist:
+        // all prior values and any added/deleted protected configuration count.
+        expect(Array.from(mockKV._store.entries()).filter(([key]) => key !== limiterKey)).toEqual(before);
       });
 
       // ─── REQ-ENTERPRISE-013: per-group routing ──────────────────────────────
@@ -682,6 +797,24 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
 
         expect(res.status).toBe(400);
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:group_routing', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-013: rejects an unknown Access group without changing the saved routing map', async () => {
+        const saved = { developers: { routes: ['code_review'], defaultRoute: 'code_review', reasoning: 'high' } };
+        mockKV._set('setup:group_routing', saved);
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        const response = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            enterpriseAccessGroup: ['developers'], dynamicRoutes: ['code_review'],
+            groupRouting: { unconfigured: { routes: ['code_review'], defaultRoute: 'code_review', reasoning: 'high' } },
+          })),
+        });
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+        expect(await mockKV.get('setup:group_routing', 'json')).toEqual(saved);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:group_routing', expect.anything());
+        expect(mockKV.delete).not.toHaveBeenCalledWith('setup:group_routing');
       });
 
       it('REQ-ENTERPRISE-013: rejects a group route not in the global catalog', async () => {
@@ -772,6 +905,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       it('clears the default-route key when defaultRoute is null', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
+        mockKV._set('setup:default_route', { route: 'old', reasoning: 'off' });
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
           method: 'POST',
@@ -780,8 +914,38 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         });
 
         expect(res.status).toBe(200);
-        await readNdjson(res);
+        expect(getNdjsonSummary(await readNdjson(res)).success).toBe(true);
         expect(mockKV.delete).toHaveBeenCalledWith('setup:default_route');
+        expect(await mockKV.get('setup:default_route', 'json')).toBeNull();
+      });
+
+      it('REQ-ENTERPRISE-012 AC2: an omitted default stays absent without selecting the first catalog route', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: ['development'] })),
+        });
+        expect(res.status).toBe(200);
+        expect(getNdjsonSummary(await readNdjson(res)).success).toBe(true);
+        expect(await mockKV.get('setup:default_route', 'json')).toBeNull();
+        expect(await mockKV.get('setup:dynamic_routes', 'json')).toEqual(['development']);
+      });
+
+      it('REQ-ENTERPRISE-012 AC2: Setup preserves a saved default when defaultRoute is omitted', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+        const savedDefault = { route: 'development', reasoning: 'medium' };
+        mockKV._set('setup:default_route', savedDefault);
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: ['code_review', 'development'] })),
+        });
+
+        expect(res.status).toBe(200);
+        expect(getNdjsonSummary(await readNdjson(res)).success).toBe(true);
+        expect(await mockKV.get('setup:default_route', 'json')).toEqual(savedDefault);
       });
 
       it('returns 400 when a group name contains a comma', async () => {

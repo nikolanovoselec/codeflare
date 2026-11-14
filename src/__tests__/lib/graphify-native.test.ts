@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickGraphSource } from '../../../preseed/agents/pi/extensions/graphify-helpers';
+import { pickGraphSource, cloneTargetPath } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 
 /**
  * pickGraphSource is the pure precedence behind graphify-native's graph resolution
@@ -29,4 +29,16 @@ describe('pickGraphSource (REQ-AGENT-023)', () => {
   it('returns undefined when no graph exists anywhere', () => {
     expect(pickGraphSource({})).toBeUndefined();
   });
+});
+
+
+describe('REQ-AGENT-025 AC1: clone target parser uses executable commands', () => {
+  it.each(['echo "data; git clone https://x/a.git"', "printf '%s' 'data && gh repo clone owner/a'", "echo 'data | git clone https://x/a.git'"])(
+    'never derives a clone from quoted separator data: %s', (command) => {
+      expect(cloneTargetPath(command, '/repo')).toBeUndefined();
+    });
+  it.each(['git clone https://x/a.git "dest; && | data"', 'echo "data; && |" && git clone https://x/a.git "dest; && | data"'])(
+    'preserves quoted destination characters on an executable clone: %s', (command) => {
+      expect(cloneTargetPath(command, '/repo')).toBe('/repo/dest; && | data');
+    });
 });

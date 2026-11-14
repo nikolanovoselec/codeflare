@@ -140,8 +140,9 @@ function deferred() {
   return { promise, resolve };
 }
 
-// REQ-OPERATOR-046 AC4 is the normal UI's existing Enable API contract; these tests do not add a deploy endpoint.
+// REQ-OPERATOR-107 AC1 is the normal UI's existing Enable API contract; these tests do not add a deploy endpoint.
 describe('approved normal Dispatcher activation through existing management Enable', () => {
+  // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC1; REQ-OPERATOR-107 AC1.
   it('REQ-OPERATOR-046: AC1/4 promotion stays disabled; Enable provisions exact approved bytes without a preconfigured connection', () => withActivation(async f => {
     const logs = captureLogs();
     const before = await f.detail();
@@ -210,6 +211,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
+  // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC2; REQ-OPERATOR-048 unchanged.
   it('REQ-OPERATOR-046/048: AC5 matching connection verifies and reuses its existing Worker, secret and namespace', () => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const active = await first.json() as Installation;
@@ -226,6 +228,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
+  // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC3/AC4; REQ-OPERATOR-107 AC4; REQ-OPERATOR-048 unchanged.
   it('REQ-OPERATOR-046/048: AC3/7 upgrade creates a distinct Worker and SQLite namespace while preserving original runtime and history', () => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const originalInstallation = await first.json() as Installation;
@@ -258,6 +261,7 @@ describe('approved normal Dispatcher activation through existing management Enab
   }));
 
   it.each(['upload-uncertain', 'changed-module'] as const)(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC3/AC4; REQ-OPERATOR-048 unchanged.
     'REQ-OPERATOR-046/048: AC6/7 failed upgrade with %s retains the original connection, Worker, namespace and history', fault => withActivation(async f => {
       const first = await enable(f); expect(first.status).toBe(200);
       const originalInstallation = await first.json() as Installation;
@@ -300,6 +304,7 @@ describe('approved normal Dispatcher activation through existing management Enab
       await expectNoActivity(f.ctx);
     }));
 
+  // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC1; REQ-OPERATOR-048 unchanged.
   it('REQ-OPERATOR-046/048: AC4 separate installations never share deployment storage or connection credentials', () => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const originalInstallation = await first.json() as Installation;
@@ -325,6 +330,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
+  // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC3; REQ-OPERATOR-048 unchanged.
   it('REQ-OPERATOR-046/048: AC6 retry after uncertain upload creates a fresh candidate without mutating the retained orphan', () => withActivation(async f => {
     f.platform.setFault('upload-uncertain');
     expect((await enable(f)).status).toBeGreaterThanOrEqual(400);
@@ -346,6 +352,7 @@ describe('approved normal Dispatcher activation through existing management Enab
 
   it.each<DispatcherPlatformFault>(['upload-denied', 'upload-uncertain', 'active-version-missing', 'subdomain-denied',
     'changed-module', 'foreign-parent', 'non-sqlite', 'active-version-drift', 'version-unavailable', 'wrong-installation', 'wrong-limit'])(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC3; REQ-OPERATOR-030/044/048 unchanged.
     'REQ-OPERATOR-030/044/046/048: AC6 %s cannot enable or expose platform/connection credentials', fault => withActivation(async f => {
       const logs = captureLogs();
       f.platform.setFault(fault);
@@ -372,6 +379,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     }));
 
   it.each<DispatcherPlatformFault>(['changed-module', 'foreign-parent', 'non-sqlite', 'active-version-drift', 'version-unavailable'])(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC2/AC3; REQ-OPERATOR-048 unchanged.
     'REQ-OPERATOR-046/048: AC5/6 matching connection with %s drift fails verification without overwriting the deployment', fault => withActivation(async f => {
       const initial = await enable(f); expect(initial.status).toBe(200);
       const enabled = await initial.json() as Installation;
@@ -389,6 +397,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     }));
 
   it.each(['stale', 'foreign', 'invoker', 'csrf', 'caller-account', 'caller-script', 'caller-url', 'caller-service'] as const)(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC2; REQ-OPERATOR-107 AC3; REQ-OPERATOR-045 unchanged.
     'REQ-OPERATOR-045/046: AC2/6 %s Enable is refused before any protected Cloudflare upload', variant => withActivation(async f => {
       const before = await f.detail();
       const body: Record<string, unknown> = { revision: f.installation.revision, enabled: true };
@@ -411,6 +420,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     }));
 
   it.each(['missing-account', 'invalid-account', 'missing-parent', 'missing-token', 'missing-encryption', 'invalid-encryption'] as const)(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC3; REQ-OPERATOR-030/045 unchanged.
     'REQ-OPERATOR-030/045/046: AC6 %s configuration fails closed without protected upload', variant => withActivation(async f => {
       if (variant === 'missing-account') f.kv._store.delete('setup:account_id');
       if (variant === 'invalid-account') f.kv._store.set('setup:account_id', '../foreign-account');
@@ -433,6 +443,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     }));
 
   it.each(['missing-bytes', 'digest-mismatch', 'invalid-schema', 'unapproved-release', 'source-mismatch', 'missing-compiler'] as const)(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC3; REQ-OPERATOR-030/044 unchanged.
     'REQ-OPERATOR-030/044/046: AC6 %s artifact cannot cause any protected upload', variant => withActivation(async f => {
       if (variant === 'missing-bytes') f.ctx.storage.sql.exec('DELETE FROM operator_bytes WHERE digest=?', f.release.bundleDigest);
       else if (variant === 'digest-mismatch') f.ctx.storage.sql.exec('UPDATE operator_bytes SET bytes=? WHERE digest=?',
@@ -464,6 +475,7 @@ describe('approved normal Dispatcher activation through existing management Enab
       await expectNoActivity(f.ctx);
     }));
 
+  // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC1; REQ-OPERATOR-107 AC3.
   it('REQ-OPERATOR-046: AC1/6 unpromoted acquired release never provisions or becomes enabled', () => withActivation(async f => {
     const before = await f.detail();
     expect(before.releases[0]).toMatchObject({ approved: false });
@@ -474,6 +486,7 @@ describe('approved normal Dispatcher activation through existing management Enab
   }, { promote: false }));
 
   it.each(['identity-revoked', 'identity-expired', 'controls-changed', 'operator-grants-changed', 'installation-changed'] as const)(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC3; REQ-OPERATOR-107 AC3; REQ-OPERATOR-045 unchanged.
     'REQ-OPERATOR-045/046: AC3/6 %s during account lookup is rechecked before protected upload', variant => withActivation(async f => {
       let accountLookupSettled = false;
       f.beforeAccountRead(async () => {
@@ -505,6 +518,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     }));
 
   it.each(['identity-revoked', 'identity-expired', 'controls-changed', 'operator-changed', 'installation-changed'] as const)(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC3; REQ-OPERATOR-107 AC3; REQ-OPERATOR-045 unchanged.
     'REQ-OPERATOR-045/046: AC3/6 %s after upload cannot select a connection or enable late work', variant => withActivation(async f => {
       f.platform.afterUpload(async () => {
         if (variant === 'identity-revoked') identityCurrent = false;
@@ -535,6 +549,7 @@ describe('approved normal Dispatcher activation through existing management Enab
       await expectNoActivity(f.ctx);
     }));
 
+  // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC3; REQ-OPERATOR-107 AC3; REQ-OPERATOR-045 unchanged.
   it('REQ-OPERATOR-045/046: AC3/6 revocation during actual version verification cannot enable an uploaded Worker', () => withActivation(async f => {
     let versionReadSettled = false;
     f.platform.beforeVersionRead(async () => { versionReadSettled = true; identityCurrent = false; });
@@ -548,6 +563,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
+  // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC2; REQ-OPERATOR-107 AC3; REQ-OPERATOR-048 unchanged.
   it('REQ-OPERATOR-046/048: AC2/6 concurrent Enable attempts select one runtime without overwriting selected code or namespace', () => withActivation(async f => {
     const uploaded = deferred(); const release = deferred();
     let firstUpload = true;
@@ -582,6 +598,7 @@ describe('approved normal Dispatcher activation through existing management Enab
   }));
 
   it.each([{ profile: 'conductor' as const }, { historical: true }])(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC1; REQ-OPERATOR-044/048 unchanged.
     'REQ-OPERATOR-044/046/048: AC4 non-normal release %j preserves its original Enable semantics without Cloudflare provisioning', options => withActivation(async f => {
       const response = await enable(f); expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ enabled: true, releaseId: f.release.id, policy, configuration });
@@ -651,6 +668,7 @@ describe('persisted installed Worker execution log configuration', () => {
     });
   }
 
+  // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC3; REQ-OPERATOR-107 AC2/AC3; REQ-OPERATOR-030/044/045/091 unchanged.
   it('REQ-OPERATOR-030/044/045/046/091: AC3 optional settings timeout preserves exact verification with readiness false and runtime reuse', () => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const enabled = await first.json() as Installation;
@@ -673,6 +691,7 @@ describe('persisted installed Worker execution log configuration', () => {
   }));
 
   it.each(['identity-drift', 'authority-revoked'] as const)(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC3; REQ-OPERATOR-107 AC3; REQ-OPERATOR-030/044/045/091 unchanged.
     'REQ-OPERATOR-030/044/045/046/091: AC3 optional settings timeout cannot excuse %s or enable protected work', variant => withActivation(async f => {
       const first = await enable(f); expect(first.status).toBe(200);
       const enabled = await first.json() as Installation;
@@ -693,6 +712,7 @@ describe('persisted installed Worker execution log configuration', () => {
     }));
 
   it.each(['during-settings', 'after-settings-timeout'] as const)(
+    // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC3; REQ-OPERATOR-107 AC3; REQ-OPERATOR-030/044/045/091 unchanged.
     'REQ-OPERATOR-030/044/045/046/091: AC3 deployment drift %s is rejected by the final identity fence', phase => withActivation(async f => {
       const first = await enable(f); expect(first.status).toBe(200);
       const enabled = await first.json() as Installation;

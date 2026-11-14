@@ -5,7 +5,7 @@ description: Run bounded local lint, parse, focused Node test, and package-consi
 
 # Safe local checks
 
-Use this skill only when a bounded local static, syntax, or explicit Node test-file check would give useful feedback. Builds, package test scripts, type checks, dependency-graph analysis, installs, servers, and watch processes remain CI-only.
+Use this skill only when a bounded local static, syntax, or explicit Node test-file check would give useful feedback. This managed wrapper is the only permitted route for local tests in a session container. Builds, package test scripts, type checks, dependency-graph analysis, installs, servers, and watch processes remain CI-only regardless of deployment resource allocation.
 
 ## When it is useful
 

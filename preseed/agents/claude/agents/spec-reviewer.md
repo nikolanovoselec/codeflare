@@ -30,6 +30,10 @@ Apply these directly — every policy you need is embedded and you already hold 
 
 The conditional sub-policies are embedded too, and that is a reversal: they were fetched at runtime because they are large and only sometimes needed. Measured against the runtime that embeds them, fetching lost on every axis — the read costs a turn, and a turn re-sends the whole prompt, while the fetched bytes land after the cached prefix and are re-sent at full price for the rest of the run. On one range the fetching lane spent 6 turns and 349k tokens where the embedding lane spent 4 and 138k, with the larger system prompt. Carrying a policy whose condition did not fire costs its bytes once, in the cached prefix; fetching one costs a turn plus its bytes on every turn after. Never re-fetch any of these.
 
+## Required field checks
+
+Enforce the embedded canonical Verification/Dependencies grammar on every in-scope REQ. Verification names real linked automated suites and/or concrete manual procedures; Dependencies contains only linked prerequisite REQ/CON IDs or `None.`. Legitimate manual verification supports `Implemented`; never demote for missing automation on manual ACs. Mixed REQs retain the embedded coverage rules for non-manual ACs. Report malformed, missing, unrelated or unresolved targets; prose, historical CI receipts and safety boundaries cannot substitute for either field. Preserve the underlying obligations in proposed fixes, and never infer implementation or successful execution from valid formatting.
+
 ## Your lane packet
 
 Your packet is normally already built and inlined in your prompt inside a `<packet>` block: `files` (lane-owned changed files), `patch` (lane-owned hunks), `changedInputs` (cross-lane inputs as `{ path, hunks }` with exact old/new line ranges). Reason from it; rebuilding it or re-reading the diff spends a turn on something you were handed. Only when no `<packet>` block is present — a very large diff, or a direct invocation — build it once in your first Bash call:
@@ -77,13 +81,13 @@ Five manifest rows are already computed and carried in `evidence`; running them 
 
 You own `sdd/` only, both layouts. `documentation/` is doc-updater's lane, source is code-reviewer's, root `README.md` is doc-updater's. You run on PR-boundary events targeting `main`/`master` and only when `sdd/` exists; otherwise exit silently.
 
-1. **Apply the embedded `spec-enforce` policy first.** It orchestrates: the 24-row manifest inline, plus `spec-enforce-ac` when ACs are touched and `spec-enforce-truth` when Implemented or Partial REQs are touched or `scope=all` (Partial included so CQ-SOURCE can validate `@impl` anchors). Parameters: `scope=diff` on a PR boundary, `scope=all` for `/sdd clean --all`, `mode` from config. Skipping it is HIGH `enforcement-skill-not-invoked`, and its execution row is recorded in your report. On follow-up turns it is optional.
+1. **Apply the embedded `spec-enforce` policy first with `purpose=review`.** It supplies the 24-row manifest, `spec-enforce-ac` and triggered truth checks. Use the caller's review scope (`diff` at PR boundaries, `all` only for an explicitly whole-tree review), never cleanup's stage sequence. `mode` does not permit reviewer mutations. Skipping it is HIGH `enforcement-skill-not-invoked`, and its execution row is recorded in your report. On follow-up turns it is optional.
 2. **Detect sync gaps** — for each behavioural change, report (drafted, ready to paste) the spec change it requires: a new endpoint/route/env var with no REQ is `missing-req-for-shipped-feature` with a full drafted REQ; one whose AC no longer matches gets the AC update; a removed feature gets the REQ deletion per the Deprecated rule, naming which clauses fold into a successor or the one-line "Out of Scope" summary if there is none; a changed AC gets its update plus the changelog entry it needs; a new term gets the `sdd/glossary.md` addition; a new cross-cutting constraint gets its `CON-*` entry.
 3. **Validate** the post-gap spec against the manifest. Do not restate the skills' detection logic — trust their output.
 4. **Report every finding** with file/line, the rule that fired, its severity, and a concrete proposed fix. `mode` is a label in your header, never a decision about whether you fix; you always report.
 5. **Draft the changelog entry** in your report when step 2 found behavioural drift — one sentence, user-facing, dated, at the layout-resolved path. Never draft one for cleanup work (forbidden content, length, format); that is git history.
 
-Resolve every packet hunk, manifest row, and directly invalidated anchor to one disposition, then stop.
+Resolve every packet hunk, manifest row and directly invalidated anchor to one disposition, then stop. Reuse actual source/test evidence; reopen only directly invalidated checks, not unrelated baseline debt. ID comments/names locate tests but do not prove outcomes; never rename tests to satisfy traceability. Cleanup's completion-with-escalations outcome does not relax this review's blocked-verdict, scope or consent gates.
 
 ## Verdict gate (binding)
 

@@ -16,8 +16,8 @@
  * AC2. account id + gateway id are derived from AIG_GATEWAY_URL (account in the
  *      URL path; gateway in the cf-aig-gateway-id header).
  * AC3. The upstream response (text/event-stream) is streamed back, status +
- *      content-type preserved; a missing terminal finish_reason chunk is
- *      synthesized before [DONE] (idempotent; tool_calls vs stop).
+ *      content-type preserved. Former AC3 terminator repair is now
+ *      REQ-ENTERPRISE-097 AC1–AC3 (idempotent; tool_calls vs stop).
  * AC4. Authorization: Bearer <AIG_TOKEN> carries the gateway token (standard
  *      header, not cf-aig-authorization); cf-aig-metadata carries props.user
  *      stamped verbatim — the user's email (per-user gateway analytics).
@@ -540,6 +540,7 @@ describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {
   });
 });
 
+// REQ-ENTERPRISE-097 AC1–AC3: extracted from REQ-ENTERPRISE-004 AC3; legacy test titles remain unchanged.
 describe('REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route finish_reason fix)', () => {
   const dataLine = (obj: unknown): string => `data: ${JSON.stringify(obj)}\n\n`;
   const sse = (chunks: string[]): Response => {
@@ -599,17 +600,22 @@ describe('REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route
     );
     const text = await res.text();
     expect(text).toContain('"finish_reason":"tool_calls"');
+    expect(text.indexOf('"finish_reason":"tool_calls"')).toBeLessThan(text.indexOf('data: [DONE]'));
   });
 
   it('does not touch a non-chat-completions stream (e.g. /responses passes through unchanged)', async () => {
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async () =>
-      sse(['data: {"type":"response.output_text.delta"}\n\n', 'data: [DONE]\n\n']),
-    );
+    const chunks = ['data: {"type":"response.output_text.delta","delta":"héllo 🌍"}\n\n', 'data: [DONE]\n\n'];
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      const upstream = sse(chunks);
+      return new Response(upstream.body, { status: 202, headers: { 'content-type': 'text/event-stream', 'x-request-id': 'responses-preserved' } });
+    });
     const res = await makeInterceptor().fetch(
       new Request('https://api.openai.com/v1/responses', { method: 'POST', body: '{}' }),
     );
-    const text = await res.text();
-    expect(text).not.toContain('finish_reason');
+    expect(res.status).toBe(202);
+    expect(res.headers.get('content-type')).toBe('text/event-stream');
+    expect(res.headers.get('x-request-id')).toBe('responses-preserved');
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new TextEncoder().encode(chunks.join('')));
   });
 
   it('reassembles a [DONE] marker split across chunk boundaries (line-buffering)', async () => {
@@ -1063,6 +1069,7 @@ describe('native provider authorization and compat dispatch', () => {
       OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
     } as unknown as Env;
     vi.spyOn(access, 'resolveOperatorGroupIdentity').mockImplementation(async human => human);
+    vi.spyOn(access, 'observeOperatorAccessIdentity').mockImplementation(async human => ({ status: 'current', groups: [...(human.groups ?? [])] }));
     vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue(['engineering']);
     vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: [fixture.handle], defaultRoute: fixture.handle, defaultReasoning: 'medium',
       routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });
@@ -1167,6 +1174,90 @@ describe('native provider authorization and compat dispatch', () => {
     expect(nativeReplayStateKey('two@example.com', 'session-1', 'target-1', 'call_1')).not.toBe(base);
     expect(nativeReplayStateKey('one@example.com', 'session-2', 'target-1', 'call_1')).not.toBe(base);
     expect(nativeReplayStateKey('one@example.com', 'session-1', 'target-1', 'call_1', 'changed-authority')).not.toBe(base);
+  });
+
+  it('REQ-ENTERPRISE-073: refuses authentic ciphertext under changed replay identity and authority, then replays exactly for its owner', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-synthetic-future-2099-v1:0',
+      profileId: 'bedrock-anthropic-native-provider-default', transport: 'aig-bedrock-anthropic-auto',
+      region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v5' });
+    const encryption = Buffer.alloc(32, 7).toString('base64');
+    const props = { user: SESSION_USER, sessionId: 'authority-isolation', groups: ['engineering'] };
+    const content = [{ type: 'thinking', thinking: 'private-authority-reasoning', signature: 'private-authority-signature' },
+      { type: 'tool_use', id: 'call_authority', name: 'lookup', input: { q: 'x' } }];
+    const ciphertext: Record<string, string> = {};
+    const recipients: Array<{ url: string; body: any }> = [];
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      recipients.push({ url: request.url, body: JSON.parse(await request.text()) });
+      return bedrockToolResponse(recipients.length === 1 ? content : [{ type: 'text', text: 'Finished' }], 'eventstream');
+    });
+    const request = (handle: string, messages: unknown[]) => new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({ model: handle, stream: true, messages }),
+    });
+    const question = { role: 'user', content: 'Use a tool' };
+    const seeded = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props,
+      (key, value) => { ciphertext[key] = value; }).fetch(request(fixture.handle, [question]));
+    expect(seeded.status).toBe(200);
+    const turn = await readOpenAiToolTurn(seeded);
+    expect(turn.finishes).toEqual(['tool_calls']);
+    expect(turn.message.tool_calls[0]).toMatchObject({ id: 'call_authority', function: { name: 'lookup', arguments: '{"q":"x"}' } });
+    expect(Object.keys(ciphertext)).toHaveLength(1);
+    for (const privateValue of ['private-authority-reasoning', 'private-authority-signature']) {
+      expect(turn.wire).not.toContain(privateValue);
+      expect(JSON.stringify(ciphertext)).not.toContain(privateValue);
+    }
+    const messages = [question, turn.message, { role: 'tool', tool_call_id: 'call_authority', content: 'found' }];
+    // One field at a time. The first six cases retain current authorization and
+    // reach the real encrypted replay lookup; stale proofs below deny earlier.
+    for (const dimension of ['target', 'tool', 'connection', 'model', 'region', 'transport', 'binding', 'provider-proof', 'profile-revision', 'adapter'] as const) {
+      const document = JSON.parse(fixture.kv['setup:native_ai_targets']);
+      const target = document.targets[0];
+      let changedMessages: unknown[] = messages;
+      let changedToken = AIG_TOKEN;
+      if (dimension === 'target') {
+        target.id = '22222222-2222-4222-8222-222222222222';
+        target.verification.targetId = target.id;
+      }
+      if (dimension === 'tool') changedMessages = [question,
+        { ...turn.message, tool_calls: [{ ...turn.message.tool_calls[0], id: 'another_call' }] },
+        { role: 'tool', tool_call_id: 'another_call', content: 'found' }];
+      if (dimension === 'connection') {
+        changedToken = 'rotated-authority-token';
+        target.verification.connectionFingerprint = connectionFingerprint({ gatewayUrl: GATEWAY, token: changedToken });
+      }
+      if (dimension === 'model') target.model = target.verification.model = 'eu.anthropic.claude-other-synthetic-2099';
+      if (dimension === 'region') target.region = target.verification.region = 'us-east-1';
+      if (dimension === 'transport') target.transport = target.verification.transport = 'aig-bedrock-anthropic-eventstream';
+      if (dimension === 'binding') target.providerConfigId = target.verification.providerConfigId = 'unavailable-binding';
+      if (dimension === 'provider-proof') target.verification.provider = 'openai';
+      if (dimension === 'profile-revision') {
+        target.profileRef = { ...target.profileRef, revision: target.profileRef.revision + 1 };
+        target.verification.profileRef = target.profileRef;
+      }
+      if (dimension === 'adapter') target.verification.adapterVersion = 'bedrock-anthropic-native-v4';
+      const kv = { ...fixture.kv, ...ciphertext, 'setup:native_ai_targets': JSON.stringify(document),
+        'setup:group_routing': JSON.stringify({ engineering: { routes: [], defaultRoute: '', reasoning: 'off',
+          targets: [{ kind: 'native-target', targetId: target.id }], defaultTarget: { kind: 'native-target', targetId: target.id } } }) };
+      const denied = await makeInterceptor({ __kv: kv, ENCRYPTION_KEY: encryption, AIG_TOKEN: changedToken } as Partial<Env>, props)
+        .fetch(request(nativeTargetHandle(target.id), changedMessages));
+      const replayLookup = ['target', 'tool', 'connection', 'model', 'region', 'transport'].includes(dimension);
+      expect(denied.status, dimension).toBe(replayLookup ? 400 : 403);
+      const error = await denied.json() as any;
+      if (replayLookup) expect(error).toMatchObject({ code: 'INVALID_NATIVE_REQUEST' });
+      expect(JSON.stringify(error)).not.toContain('private-authority');
+      expect(recipients.slice(1), dimension).toEqual([]);
+    }
+    const replayed = await makeInterceptor({ __kv: { ...fixture.kv, ...ciphertext }, ENCRYPTION_KEY: encryption } as Partial<Env>, props)
+      .fetch(request(fixture.handle, messages));
+    expect(replayed.status).toBe(200);
+    const final = await readOpenAiToolTurn(replayed);
+    expect(final.message.content).toBe('Finished');
+    expect(final.finishes).toEqual(['stop']);
+    expect(recipients[1].body.messages[1].content).toEqual(content);
+    expect(recipients.map(recipient => recipient.url)).toEqual([
+      `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-synthetic-future-2099-v1%3A0/invoke-with-response-stream`,
+      `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-synthetic-future-2099-v1%3A0/invoke-with-response-stream`,
+    ]);
   });
 
   it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-074: authorized synthetic future model normalizes %s through the shared native boundary', async (level) => {
@@ -1723,6 +1814,30 @@ describe('native provider authorization and compat dispatch', () => {
       ]);
       expect(await response.text()).toContain('Finished');
     });
+  });
+
+  it.each([
+    { label: 'exact 32768-byte signature', signature: 'é'.repeat(16384), exposed: true },
+    { label: 'oversized multibyte signature', signature: 'é'.repeat(16385), exposed: false },
+  ])('REQ-ENTERPRISE-059: exposes only bounded replay metadata for $label without dropping content', async ({ signature, exposed }) => {
+    const fixture = nativeFixture(true, { provider: 'google-ai-studio', model: 'gemini-3.1-pro-preview', profileId: 'native-google-ai-studio-compat', providerConfigId: 'gemini-default', providerConfigAlias: 'default', adapterVersion: 'gemini-openai-compat-v1' });
+    const delta = { content: 'Unrelated content survives', tool_calls: [{ index: 0, id: 'call_bound', type: 'function',
+      function: { name: 'lookup', arguments: '{}' }, extra_content: { google: { thought_signature: signature } } }] };
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(
+      `data: ${JSON.stringify({ choices: [{ delta, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`,
+      { headers: { 'content-type': 'text/event-stream' } }));
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, stream: true, messages: [] }) }));
+    expect(response.status).toBe(200);
+    const wire = await response.text();
+    const event = JSON.parse(wire.split('\n').find(line => line.startsWith('data: {'))!.slice(6));
+    expect(event.choices[0].delta).toMatchObject(delta);
+    if (exposed) expect(event.choices[0].delta.reasoning_details).toEqual([
+      { type: 'reasoning.encrypted', id: 'call_bound', format: 'codeflare.google.thought_signature.v1', data: signature },
+    ]);
+    else expect(event.choices[0].delta.reasoning_details).toBeUndefined();
+    expect(event.choices[0].finish_reason).toBe('tool_calls');
+    expect(wire.match(/data: \[DONE\]/g)).toHaveLength(1);
   });
 
   it('REQ-ENTERPRISE-059: round-trips Gemini thought signatures through Pi replay metadata', async () => {

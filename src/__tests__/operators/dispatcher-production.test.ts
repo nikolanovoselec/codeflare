@@ -6,10 +6,49 @@ import { Agent } from 'agents';
 import { OperatorActivity, OperatorDispatcherTail } from '../../operators/activity';
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
-import { parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
+import { authorizeDispatcherPlan, dispatcherRoutingGroups, parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
 import { captureError } from '../../operators/dispatcher-diagnostics-wire';
 import { setLogLevel } from '../../lib/logger';
+import * as access from '../../lib/access';
 import { pendingRecipient, within } from '../helpers/pending-recipient';
+
+describe('REQ-OPERATOR-047/063: unavailable authority projection', () => {
+  it.each(['entry', 'capability'] as const)(
+    '%s authority outage retains unavailable evidence and the existing refusal without effects', stage => fixture(async f => {
+      await start(f);
+      let unavailable = stage === 'entry';
+      const identity = vi.spyOn(access, 'observeOperatorAccessIdentity').mockImplementation(async human => unavailable
+        ? { status: 'unavailable' as const } : { status: 'current' as const, groups: [...(human.groups ?? [])] });
+      const body = JSON.stringify({ operationId: 'unavailable-authority', method: 'GET',
+        url: 'https://api.github.com/repos/another/service' });
+      const request = new Request('https://operator.internal/v1/dispatcher/source', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        // A loss of identity evidence while reading the body occurs after entry authorization.
+        body: stage === 'entry' ? body : new ReadableStream<Uint8Array>({ pull(controller) {
+          unavailable = true;
+          controller.enqueue(new TextEncoder().encode(body)); controller.close();
+        } }, { highWaterMark: 0 }),
+      });
+      try {
+        const response = await f.capability.fetch(request);
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED',
+          reason: stage === 'entry' ? 'execution-inactive' : 'authority-unverified', disposition: 'authority-denied' });
+        expect(f.sent).toEqual([]);
+        expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+        await f.drainBackground();
+      } finally { identity.mockRestore(); }
+      const summary = await diagnosticSummary(f);
+      expect(summary.diagnosis.code).toBe('platform-evidence-required');
+      expect(summary.health.gaps).not.toContain('recorder-unavailable');
+      const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+      const failures = records.filter(record => record.kind === 'event' && record.boundary === 'admission'
+        && record.outcome === 'failed');
+      expect(failures).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'platform-evidence-required',
+        ...(stage === 'capability' ? { preparation: expect.objectContaining({ step: 'capability' }) } : {}) })]));
+      expect(failures).not.toEqual(expect.arrayContaining([expect.objectContaining({ code: 'authority-denied' })]));
+    }, { normalHosting: true, repositoryOnly: true, loggingEnabled: true }));
+});
 
 // Legacy refusal assertions below preserve code/status compatibility and their related
 // effect/lifecycle outcomes; additive reason/disposition are asserted exactly here.
@@ -27,12 +66,23 @@ describe('REQ-OPERATOR-047: closed protected refusal contract', () => {
     { name: 'invalid JSON', request: () => new Request('https://operator.internal/v1/dispatcher/source', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' }) },
     { name: 'forged authority', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, owner: 'another-user' }) },
+    { name: 'child principal', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, principal: 'another-user' }) },
+    { name: 'child bucket', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, bucket: 'foreign-bucket' }) },
+    { name: 'child policy', request: () => genericWire('source', { operationId: 'forged', url: sourceUrl, policy: { capabilities: ['fetch', 'inference', 'storage'] } }) },
     { name: 'GET with body', request: () => genericWire('source', { operationId: 'get-body', url: sourceUrl, method: 'GET', body: '{}' }) },
     { name: 'unsupported protected route', request: () => genericWire('unsupported', { operationId: 'wrong-route' }) },
   ])('REQ-OPERATOR-047: malformed $name is operation-local and permits a corrected authorized source', ({ request }) => fixture(async f => {
     await start(f);
+    const originalContext = await f.activity.getExecutionContext();
+    const originalAdmission = await f.activity.getAdmission();
+    expect(originalContext).toMatchObject({ principal: 'operator', owner: { subject: 'owner' }, artifactDigest: f.artifactDigest });
+    expect(originalAdmission).toMatchObject({ phase: 'queued', receipt: { activityId: f.activityId } });
     await refusal(await f.capability.fetch(request()), 403, 'OPERATOR_CAPABILITY_DENIED', 'request-invalid', 'operation-local');
     expect(f.sent).toEqual([]);
+    expect(await f.activity.getExecutionContext()).toEqual(originalContext);
+    expect(await f.activity.getAdmission()).toEqual(originalAdmission);
+    await refusal(await f.capability.fetch(genericWire('receipt', { operationId: 'forged' })), 403,
+      'OPERATOR_CAPABILITY_DENIED', 'receipt-unavailable', 'operation-local');
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
     const corrected = await f.capability.fetch(source('corrected-source'));
     expect(corrected.status).toBe(200);
@@ -147,6 +197,7 @@ describe('REQ-OPERATOR-047: closed protected refusal contract', () => {
 
 });
 
+// REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-063: reservation denial private wire', () => {
   const sourceUrl = 'https://api.github.com/repos/another/service';
   const inference = (operationId: string) => genericWire('inference', { operationId,
@@ -342,6 +393,7 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
     }, { repositoryOnly: true, operationLimit: 128 }));
 });
 
+// REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-047: generic Activity mutation receipts and resolution', () => {
   it('exposes the configured API origin only to repository-only Loader code', async () => {
     for (const repositoryOnly of [false, true]) await fixture(async f => {
@@ -1135,6 +1187,7 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
   }, options));
 });
 
+// REQ-OPERATOR-103, REQ-OPERATOR-106: Extracted operation accounting and observation recovery.
 describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
   const accountingRetryPolicy = { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 2 };
   const inference = (text = 'PRIVATE_INFERENCE_PROMPT') => genericWire('inference', { operationId: 'logical-inference',
@@ -1431,6 +1484,7 @@ describe('REQ-OPERATOR-081: host construction source boundary', () => {
   }, { repositoryOnly: true }));
 });
 
+// REQ-OPERATOR-101: Operator budget policy.
 describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effects', () => {
   it.each([true, false])('REQ-OPERATOR-079: the real Tail entrypoint honors logging=%s without forwarding private child records', async loggingEnabled => {
     const records: string[] = [];
@@ -2051,7 +2105,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   }));
   it('does not return late upstream notes even when a transport ignores abort', () => fixture(async f => {
     await start(f); f.files(dozzleFiles()); f.exceedReleaseDeadline();
-    expect((await f.capability.fetch(releaseRead())).status).toBe(409);
+    const response = await f.capability.fetch(releaseRead());
+    expect(response.status).toBe(409);
+    expect(await response.text()).not.toContain('No configuration changes');
   }, { capacityPolicy: { releaseReadTimeoutMs: 8000 } }));
   it.each([
     { files: [], name: 'no matching diff' },
@@ -3474,6 +3530,7 @@ describe('REQ-OPERATOR-047: package-selected research under managed parent autho
 });
 
 
+// REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () => {
   it.each([undefined, 131072])('REQ-OPERATOR-047: exposes source allowance %s only to repository Loader', async sourceResponseBytes => {
     for (const repositoryOnly of [false, true]) await fixture(async f => {
@@ -4064,12 +4121,13 @@ describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent a
     expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
   }, { prospective: true }));
 
-  it('preserves unknown writes without replay, allows closed/moved target readback, and seals only same-generation receipt references', () => fixture(async f => {
+  it.each([false, true])('preserves unknown writes without replay, allows closed/moved target readback, and seals only same-generation receipt references (delegated=%s)', delegated => fixture(async f => {
     await startProspective(f);
     const mutation = prospectiveComment('unknown-admitted-comment');
     f.loseResponse();
     expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
     f.restoreTransport();
+    if (delegated) f.revokeSession();
     f.changeTarget({ state: 'closed', head: { sha: 'c'.repeat(40) } });
     f.restart();
     f.throwTransport();
@@ -4095,5 +4153,80 @@ describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent a
     expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ resolved: true,
       operationId: mutation.operationId, requestDigest: original.requestDigest });
     expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
+  }, { prospective: true, delegated }));
+});
+
+
+describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: explicit automatic delegation', () => {
+  it.each(['grant', 'registration', 'cancel'] as const)(
+    'current local %s loss during awaited delegated mutation preflight prevents the effect', fault => fixture(async f => {
+      await startProspective(f); f.revokeSession();
+      f.afterTargetRead(async () => {
+        if (fault === 'grant') f.revokeGrant();
+        else if (fault === 'registration') f.changeRegistration(null);
+        else await f.activity.cancelDrive();
+      });
+      expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).ok).toBe(false);
+      expect(remoteMutations(f)).toEqual([]);
+    }, { prospective: true, delegated: true }));
+
+  it('retains protected source, receipt, effects and inference after external logout and reconstruction', () => fixture(async f => {
+    await startProspective(f);
+    f.revokeSession();
+    for (const reload of [false, true]) {
+      if (reload) f.restart();
+      const id = `delegated-source-${reload}`;
+      expect((await f.capability.fetch(genericWire('source', { operationId: id, url: `${prospectiveBase}/pulls/17` }))).status).toBe(200);
+      expect((await f.capability.fetch(genericWire('receipt', { operationId: id }))).status).toBe(200);
+      expect((await f.capability.fetch(genericWire('source', prospectiveComment(`delegated-comment-${reload}`)))).status).toBe(200);
+      expect((await f.capability.fetch(genericWire('inference', { operationId: `delegated-inference-${reload}`,
+        input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(200);
+    }
+    expect(remoteMutations(f).map(request => ({ method: request.method, url: request.url }))).toEqual([
+      { method: 'POST', url: `${prospectiveBase}/issues/17/comments` },
+      { method: 'POST', url: 'https://api.openai.com/v1/chat/completions' },
+      { method: 'POST', url: `${prospectiveBase}/issues/17/comments` },
+      { method: 'POST', url: 'https://api.openai.com/v1/chat/completions' },
+    ]);
+  }, { prospective: true, delegated: true, recovery: true,
+    inferenceBody: 'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n' }));
+  it.each(['grant', 'installation', 'registration', 'expiry', 'cancel'] as const)(
+    'fresh local %s loss still fences delegated work after logout', fault => fixture(async f => {
+      await startProspective(f); f.revokeSession();
+      if (fault === 'grant') f.revokeGrant();
+      if (fault === 'installation') f.revoke();
+      if (fault === 'registration') f.changeRegistration(null);
+      if (fault === 'expiry') f.expire();
+      if (fault === 'cancel') await f.activity.cancelDrive();
+      f.restart();
+      expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
+      expect(remoteMutations(f)).toEqual([]);
+    }, { prospective: true, delegated: true }));
+  it.each([{ version: 2, routingGroups: [] }, { version: 1 }, null, { version: 1, routingGroups: 'all' }])(
+    'present invalid trusted delegation metadata denies rather than falling back: %j', delegation => fixture(async f => {
+      await startProspective(f);
+      f.changeRegistration(JSON.parse(JSON.stringify({ delegation })));
+      expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
+      expect(remoteMutations(f)).toEqual([]);
+    }, { prospective: true, delegated: true }));
+  it('client delegation flags cannot upgrade live-bound work', () => fixture(async f => {
+    await start(f); f.revokeSession();
+    expect((await f.capability.fetch(genericWire('source', { ...prospectiveComment(),
+      delegated: true, delegation: { version: 1, routingGroups: [] } }))).status).toBe(403);
+    expect(remoteMutations(f)).toEqual([]);
   }, { prospective: true }));
+});
+
+
+describe('REQ-OPERATOR-047 AC7 /061 AC3: current delegated routing restrictions', () => {
+  it('intersects captured routing labels with current configured groups in current order; never adds a new membership', () => fixture(async f => {
+    f.changeRegistration({ delegation: { version: 1, routingGroups: ['old', 'second', 'first'] } });
+    let configured = 'first,second,new';
+    f.environment.KV = { get: async () => configured } as unknown as KVNamespace;
+    const plan = (await f.activity.getRuntimePlan())!;
+    f.revokeSession();
+    expect(await dispatcherRoutingGroups(await authorizeDispatcherPlan(plan, f.environment), f.environment)).toEqual(['first', 'second']);
+    configured = 'new';
+    expect(await dispatcherRoutingGroups(await authorizeDispatcherPlan(plan, f.environment), f.environment)).toEqual([]);
+  }, { prospective: true, delegated: true }));
 });

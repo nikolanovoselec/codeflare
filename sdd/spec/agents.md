@@ -75,12 +75,38 @@ These compatibility anchors resolve dated changelog references to retired review
 **Acceptance Criteria:**
 
 1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
-2. The supported agent-type values are schema-validated at the request boundary. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
-3. Each coding-agent CLI selected for a deployment is installed in the container image from a committed lock-backed npm tree or a checksum-pinned native artifact; an unspecified selection installs the full supported set. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
-4. Of the Node.js-based agent CLIs, only Pi is pre-warmed at image build time; Codex and Copilot pay the compile cost on first launch. <!-- @impl: Dockerfile::NODE_COMPILE_CACHE --> <!-- @manual -->
+2. The supported agent-type values are schema-validated at the request boundary. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions rejects an invalid agentType with 400) --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions rejects agentType as a number) -->
+3. Each coding-agent CLI selected for a deployment is installed in the container image from a committed lock-backed npm tree or a checksum-pinned native artifact; an unspecified selection installs the full supported set. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: Dockerfile::ANTIGRAVITY_VERSION --> <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::updateShadowImagePins --> <!-- @test: host/__tests__/shadow-image-pin-resolution.test.js (REQ-AGENT-001 AC3: Antigravity resolves the vendor stable native identity, not an installer hash) --> <!-- @test: host/__tests__/shadow-image-pin-update.test.js (REQ-AGENT-001 AC3: Antigravity version, immutable URL and publisher SHA512 advance atomically) --> <!-- @test: host/__tests__/shadow-image-pin-update.test.js (REQ-AGENT-001 AC3: selected native install fixture (${kind}) verifies before extracting or running) --> <!-- @test: host/__tests__/shadow-image-pin-update.test.js (REQ-AGENT-001 AC3: normal helper resolve/apply rejects stale metadata and stale version/digest authorization) --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-038: deployment coding-agent selection) -->
+4. Pi receives dedicated image-build pre-warming. <!-- @impl: Dockerfile::NODE_COMPILE_CACHE --> <!-- @manual -->
 5. Pi extension npm dependencies are available from the image cache without overwriting restored user package metadata. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001: Pi npm warm cache seeds dependencies without overwriting user package metadata) -->
 6. The image build fails if either committed pre-warmed Pi SDK dependency/override pin differs from the lock-backed runtime-agent pin or installed version. <!-- @impl: Dockerfile::verify-pi-lockstep --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyPiLockstep --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-001 AC6: Pi image lockstep fails closed) -->
-7. When Claude Code is selected, the image build verifies that its shared CLI can start; official Claude IDE inventory verification remains unconditional. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Build an image with and without Claude Code and inspect the packaged-image evidence. -->
+7. When Claude Code is selected, the image build verifies that its shared CLI can start. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Build an image with and without Claude Code and inspect the packaged-image evidence. -->
+
+**Constraints:**
+
+- Agent CLI versions move through reviewed lockfile or native-pin bump PRs. Apply cooldown where the owning updater supports publication-age data; Antigravity’s manifest supplies no publication timestamp, so its native-pin updater does not establish an age gate.
+- Major version jumps remain compatibility-sensitive and require normal review and CI.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AGENT-233](#req-agent-233-agent-image-bake-exclusions-and-ide-inventory)
+
+**Verification:** Automated: [shadow-image-pin-resolution.test.js](../../host/__tests__/shadow-image-pin-resolution.test.js), [shadow-image-pin-update.test.js](../../host/__tests__/shadow-image-pin-update.test.js), [agent-config.test.ts](../../src/__tests__/lib/agent-config.test.ts), [session-agent-type.test.ts](../../src/__tests__/routes/session-agent-type.test.ts), [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js); Manual: [Selected agent image acceptance](../../documentation/lanes/container.md#selected-agent-image-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-233: Agent image bake exclusions and IDE inventory
+
+**Intent:** Agent image preparation preserves the Codex/Copilot bake exclusions and unconditional official Claude IDE inventory verification.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Codex and Copilot skip the V8 compile-cache bake. <!-- @impl: Dockerfile::NODE_COMPILE_CACHE --> <!-- @manual -->
+2. Official Claude IDE inventory verification remains unconditional. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Build an image with and without Claude Code and inspect the packaged-image evidence. -->
 
 **Constraints:**
 
@@ -91,7 +117,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Manual: [Selected agent image acceptance](../../documentation/lanes/container.md#selected-agent-image-acceptance)
 
 **Status:** Implemented
 
@@ -105,12 +131,12 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. One five-minute deadline, starting at the first rendered questionnaire or native dialog, completes the invocation with only the first authored option for each unanswered single- or multi-select question and releases its TUI/native-dialog wait. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) -->
-2. An option or custom answer submitted before expiry completes normally without waiting for the deadline. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
-3. Timeout preserves completed answers, manual multiple selections, and saved or currently edited notes. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (TUI timeout preserves completed and currently edited notes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves manual multiple selections while defaulting another question) -->
-4. Automatic answers remain identified individually and at result level and are never represented as manual responses. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
-5. The managed public `tool_result` policy treats successful, non-cancelled `ask_user_question` timeout selections as standing user-delegated authorization without routine re-confirmation only when the actual automatic recommended selection matches the original question and options. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
-6. Non-recommended defaults, cancellation, errors and invalid or unrecognized results gain no authorization. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
+1. One five-minute deadline, starting at the first rendered questionnaire or native dialog, completes the invocation with only the first authored option for each unanswered single- or multi-select question and releases its TUI/native-dialog wait. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC1/AC4 / REQ-AGENT-220 AC2: ${mode} selects option one only after five unanswered minutes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC3: ${mode} retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC1: the five-minute deadline starts at the mounted questionnaire, not the queued host request) -->
+2. An option or custom answer submitted before expiry completes normally without waiting for the deadline. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC2 / REQ-AGENT-219 AC1/AC4: ${mode} preserves ${action} before timeout and isolates the next invocation) -->
+3. Timeout preserves completed answers, manual multiple selections, and saved or currently edited notes. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC3: ${mode} retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC3: TUI timeout preserves completed and currently edited notes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC3: ${mode} preserves manual multiple selections while defaulting another question) -->
+4. Automatic answers remain identified individually and at result level and are never represented as manual responses. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization --> <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC3: ${mode} retains completed answers and defaults only unanswered questions on one deadline) -->
+5. The managed public `tool_result` policy treats successful, non-cancelled `ask_user_question` timeout selections as standing user-delegated authorization without routine re-confirmation only when the actual automatic recommended selection matches the original question and options. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout-authorization.test.mjs (REQ-AGENT-218: automatic questionnaire authorization) -->
+6. Non-recommended defaults, cancellation, errors and invalid or unrecognized results gain no authorization. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout-authorization.test.mjs (REQ-AGENT-218: automatic questionnaire authorization) -->
 
 **Constraints:**
 
@@ -126,7 +152,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Existing actual-package tests cover questionnaire deadlines and automatic-answer provenance, not the managed authorization handler. Handler behavioral coverage is absent under the user-authorized no-new-questionnaire-tests exception; source/seed consistency is not behavioral proof. Signed publication and runtime adoption remain separate gates.
+**Verification:** Automated: [questionnaire-timeout-authorization.test.mjs](../../preseed/agents/pi/test/questionnaire-timeout-authorization.test.mjs), [questionnaire-timeout.test.mjs](../../preseed/agents/pi/test/questionnaire-timeout.test.mjs)
 
 **Status:** Implemented
 
@@ -140,11 +166,11 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Explicit cancellation or execution abort releases the active wait without defaulting unanswered questions. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
-2. An already-aborted execution opens no questionnaire. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
-3. Missing UI and invalid-question outcomes remain errors, never automatic answers. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (absent UI remains an error, not automatic approval) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
-4. One invocation's completion or expiry cannot finish or cancel a questionnaire in another invocation or SDK session. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (independent SDK sessions retain independent deadlines) -->
-5. Cancellation retains answers completed before the execution abort. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (abort preserves completed answers without defaulting unanswered questions) -->
+1. Explicit cancellation or execution abort releases the active wait without defaulting unanswered questions. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC2 / REQ-AGENT-219 AC1/AC4: ${mode} preserves ${action} before timeout and isolates the next invocation) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC1/AC5: ${mode} abort preserves completed answers without defaulting unanswered questions) -->
+2. An already-aborted execution opens no questionnaire. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC2/AC3: ${mode} never manufactures answers for aborted or invalid questions) -->
+3. Missing UI and invalid-question outcomes remain errors, never automatic answers. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC3: absent UI remains an error, not automatic approval) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC2/AC3: ${mode} never manufactures answers for aborted or invalid questions) -->
+4. One invocation's completion or expiry cannot finish or cancel a questionnaire in another invocation or SDK session. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC2 / REQ-AGENT-219 AC1/AC4: ${mode} preserves ${action} before timeout and isolates the next invocation) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-218 AC3: ${mode} retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC4: independent SDK sessions retain independent deadlines) -->
+5. Cancellation retains answers completed before the execution abort. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (REQ-AGENT-219 AC1/AC5: ${mode} abort preserves completed answers without defaulting unanswered questions) -->
 
 **Constraints:**
 
@@ -154,7 +180,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
 
-**Verification:** SDK-wrapped questionnaire tests with actual TUI input, native-dialog responses and a platform clock.
+**Verification:** Automated: [questionnaire-timeout.test.mjs](../../preseed/agents/pi/test/questionnaire-timeout.test.mjs)
 
 **Status:** Implemented
 
@@ -183,7 +209,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation), [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
 
-**Verification:** Actual pinned package, executable startup/shadow-pin fixtures and existing packaged-image gates; final image/deployed acceptance remains separate.
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [rpiv-bump-gate.test.js](../../host/__tests__/rpiv-bump-gate.test.js), [questionnaire-timeout.test.mjs](../../preseed/agents/pi/test/questionnaire-timeout.test.mjs); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -201,11 +227,38 @@ These compatibility anchors resolve dated changelog references to retired review
 
 2. Image construction rejects missing path-correct caches for local TypeScript extensions, Open TUI and the RPIV trio. The native JavaScript web-access entrypoint follows AC4's required native-import evidence. <!-- @impl: Dockerfile::advisor_source --> <!-- @impl: Dockerfile::open_tui_source --> <!-- @impl: Dockerfile::web_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a local cache warmed at the wrong path despite a matching basename) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 3. A second fresh warm-up process must report a JITI cache hit for every TypeScript entrypoint and no cache misses, including imported dependencies; construction fails without that evidence or when either process reports an extension-load error, even with exit code zero. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (REQ-AGENT-210: image extension cache reuse) -->
-4. Native JavaScript entrypoints and declared helper dependencies are warmed without requiring a JITI artifact; their native import must be observed. Helpers are imported through their owning extension, not registered as extension factories, and warming never runs transcript maintenance. <!-- @impl: Dockerfile::context_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (warms native JavaScript without requiring a nonexistent JITI artifact) -->
-5. Managed extension dependency compatibility survives image construction, startup updates and repair without changing unrelated package metadata. <!-- @impl: scripts/patch-rpiv-host-peers.mjs::patchRpivHostPeers --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-host-peers.test.js (REQ-AGENT-210: RPIV declares host TypeBox as a wildcard peer without changing other package contracts) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies) --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump leaves the remote branch absent when shared startup fails:) -->
+4. Native JavaScript entrypoints and declared helper dependencies are warmed without requiring a JITI artifact; their native import must be observed. <!-- @impl: Dockerfile::context_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (warms native JavaScript without requiring a nonexistent JITI artifact) -->
+5. Managed extension dependency compatibility survives image construction, startup updates and repair without changing unrelated package metadata. <!-- @impl: scripts/patch-rpiv-host-peers.mjs::patchRpivHostPeers --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs::verifyRpivExtensionStartup --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-host-peers.test.js (REQ-AGENT-210: RPIV declares host TypeBox as a wildcard peer without changing other package contracts) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies) -->
 
 6. Packaged startup loads advisor, questionnaire and todo tools without dependency warnings or extension errors. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-AGENT-210 AC6: image-prepared RPIV packages load actual pinned tools without warnings) -->
-7. Incompatible managed-extension candidates fail before remote branch publication. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump leaves the remote branch absent when shared startup fails:) -->
+7. Incompatible managed-extension candidates fail before remote branch publication. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump leaves the remote branch absent when shared startup fails: ${failure} (${packageName})) -->
+
+**Constraints:**
+
+- Image warming loads resources without requesting model completions.
+- Native-import evidence is not a V8 cache-hit measurement or an end-to-end startup-time guarantee.
+- Restored user content that differs from the image may legitimately require new compilation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-234](#req-agent-234-managed-warm-helper-ownership-and-maintenance-isolation)
+
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [jiti-warm-reuse.test.js](../../host/__tests__/jiti-warm-reuse.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [rpiv-bump-gate.test.js](../../host/__tests__/rpiv-bump-gate.test.js), [rpiv-host-peers.test.js](../../host/__tests__/rpiv-host-peers.test.js), [enterprise-routing.test.mjs](../../preseed/agents/pi/test/enterprise-routing.test.mjs)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-234: Managed warm helper ownership and maintenance isolation
+
+**Intent:** Managed startup warming imports helpers through their owning extensions without running transcript maintenance.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Helpers are imported through their owning extension, not registered as extension factories. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints -->
+2. Warming never runs transcript maintenance. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints -->
 
 **Constraints:**
 
@@ -217,7 +270,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Real-JITI replay tests, executable image-warming fixture tests and deployment image build
+**Verification:** Automated: [jiti-warm-reuse.test.js](../../host/__tests__/jiti-warm-reuse.test.js)
 
 **Status:** Implemented
 
@@ -235,9 +288,10 @@ These compatibility anchors resolve dated changelog references to retired review
 2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the deployment image build; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
 4. Startup supplies `toolVisibility: "after-first-goal"` only when the Goal visibility preference is missing. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
-5. Goal start, resume, system, waiting-resume, and automatic-continuation prompts share compact completion rules, retain the exact objective and stale-turn completion guard, and do not coach terminal wait or blocked tools. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalPromptsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching) -->
+5. Goal start, resume, system, waiting-resume, and automatic-continuation prompts share compact completion rules, retain the exact objective and stale-turn completion guard, and require evidenced progress reporting plus bounded blocking without goal_wait coaching. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressPrompts --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching) -->
 6. Explicit Goal activation reveals the registered Goal tools after lazy initial filtering. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalToolPolicySource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
 7. Goal's native extension status shows `goal - <state>` and accumulated active duration only while active; it omits automatic-work and budget counters and identifies waiting explicitly. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC7: publishes concise Goal status without changing accounting or continuation details) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC7: unknown Goal status formatter fails before any package bytes are written) -->
+
 
 **Constraints:**
 
@@ -248,7 +302,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Entrypoint runtime behavior and package-transform tests; deployment image verification
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -275,7 +329,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
-**Verification:** Goal control and deployment-image tests
+**Verification:** Automated: [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js)
 
 **Status:** Implemented
 
@@ -289,17 +343,17 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Missing Goal configuration receives lazy tool visibility, 10 automatic turns, and a 300000ms continuation delay. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
-2. Startup replaces any persisted continuation delay with 300000ms while preserving unrelated explicit Goal values. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC2/AC3: enforces five-minute pacing while preserving unrelated preferences) -->
+1. Missing Goal configuration receives lazy tool visibility, unlimited productive automatic turns, a five-stall limit and a 300000ms continuation delay. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
+2. Startup enforces a five-stall limit and 300000ms continuation delay, repairing disabled legacy safety while preserving explicit automatic-work limits and unrelated Goal values. <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129: repairs disabled or legacy stall safety even when cadence is already correct) --> <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC2/AC3: enforces five-minute pacing while preserving unrelated preferences) -->
 3. Startup preserves unknown Goal settings while adding missing owned values. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC2/AC3: enforces five-minute pacing while preserving unrelated preferences) -->
 4. Startup leaves malformed Goal configuration byte-for-byte unchanged. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-129 AC4: preserves malformed Goal config byte-for-byte) -->
 5. `minIntervalMs` accepts only non-negative safe integers. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSettingsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC5: rejects invalid minIntervalMs values) -->
-6. A missing `minIntervalMs` normalizes to zero. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSettingsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC6: defaults a missing delay to zero) -->
-7. Saving `minIntervalMs` persists it without dropping unknown settings. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSettingsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC7: saves the delay without dropping unknown fields) -->
+6. Runtime normalization supplies a five-stall limit, at least 300000ms continuation spacing and unlimited automatic work when no explicit automatic-work preference exists. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressSettings --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC6: defaults missing limits to bounded stalls and five-minute spacing) -->
+7. Saving settings preserves explicit automatic-work limits and unknown settings without disabling five-stall safety or reducing continuation spacing below 300000ms. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressSettings --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-129 AC7: saves the delay without dropping unknown fields) -->
 
 **Constraints:**
 
-- Goal remains the exact-pinned upstream 0.54.8 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
+- Goal remains an exact-pinned reviewed upstream dependency, consistent with the committed package, lockfile, and startup package declaration; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
 - Goal upgrades require exact-version review; the weekly shadow-pin preflights the transform before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-OPS-020: patches the exact latest pi-goal layout without double registration) -->
 - Version, declared-entrypoint, or source-layout drift fails before any package file is written. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: version or source drift fails before any package file is written) -->
 
@@ -307,7 +361,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
-**Verification:** Entrypoint startup tests; executable settings-patch tests; weekly shadow-pin workflow contract
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js)
 
 **Status:** Implemented
 
@@ -315,14 +369,14 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ### REQ-AGENT-130: Goal Continuation Runtime Pacing
 
-**Intent:** Automatic Goal continuation must honor its configured delay without stale or duplicate dispatch.
+**Intent:** Automatic Goal continuation paces work and durably blocks stalled loops without stale dispatch or a blanket productive-work cap.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A zero continuation delay dispatches immediately at an eligible settled boundary. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC1: zero delay dispatches immediately) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC1: successor zero delay dispatches immediately) -->
-2. A configured positive continuation delay waits its full duration before dispatch. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: waits the configured 60 seconds before continuation dispatch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: successor direct dispatch waits the configured interval) -->
+1. Effective Codeflare Goal scheduling observes a five-minute minimum even when legacy settings request zero delay. <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129/178: fifth paraphrased stalled automatic run blocks, cancels queued work and releases workflow) --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime -->
+2. A configured positive continuation delay waits at least five minutes and its effective full duration before dispatch. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: polling, failed tools, extraction and arbitrary notifications cannot reset the stall streak) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC2: full preparation respects a configured interval above five minutes and caps stalls at the deadline) -->
 3. Supported continuation delays above 2147483647ms wait their full duration. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC3: safely re-arms delays beyond the Node timer maximum) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC3: successor scheduler re-arms delays beyond the Node timer maximum) -->
 4. Each later settled boundary restarts one pending continuation timer, so dispatch cannot occur until the configured interval has elapsed after the latest settled activity. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC4: latest settled activity restarts one pending interval) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC4: successor settled activity restarts one pending interval) -->
 5. Existing continuation cancellation owners remove a pending timer. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalRuntimeSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC5: cancellation prevents a delayed continuation) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-130 AC5: successor cancellation clears its pending dispatch) -->
@@ -337,7 +391,36 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-129](#req-agent-129-goal-continuation-settings-policy)
 
-**Verification:** Executable continuation scheduler tests
+**Verification:** Automated: [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-236: Goal stalled-work bound
+
+**Intent:** Pi stops unproductive Goal retry loops without limiting evidenced productive work or replaying overdue attempts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Registered `goal_progress` accepts bounded, nonempty `advanced` or `stalled` evidence only for the current active Goal and owned run; invalid, stale, inactive or replaced-workflow reports cannot mutate Goal state. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressTools --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/178: progress rejects empty, oversized, invalid, stale, inactive and non-owned reports without mutation) -->
+2. Each completed automatic run without accepted evidenced advancement increments persisted stalled history regardless of wording, polling, tool attempts or extraction; the fifth stalled continuation blocks, including paced automatic recovery. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressLifecycle --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129/178: fifth paraphrased stalled automatic run blocks, cancels queued work and releases workflow) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: automatic recovery is paced and each completed error run counts once (${errorMessage})) -->
+3. The first recorded stall starts a persisted 25-minute deadline. Expiry blocks at the first available execution without catch-up dispatch, notification-driven postponement or fabricated attempt counts. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressPersistence --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: persisted deadline survives shutdown and blocks immediately after a wall-clock gap) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-236 AC3: late non-goal notification cannot defer the stalled deadline behind persisted spacing) -->
+4. Accepted evidenced advancement or explicit resume resets stalled history; restoration and compaction preserve it, and unrelated notifications do not reset it. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressPersistence --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressSafety --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressLifecycle --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: evidenced advanced reports reset stalls and permit productive execution beyond old automatic defaults) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129: restart and compaction retain stalls, while explicit resume starts a fresh epoch) -->
+5. Blocking persists terminal `blocked` state, cancels future continuation work and releases workflow ownership without claiming completion. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchProgressRuntime --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/129/178: fifth paraphrased stalled automatic run blocks, cancels queued work and releases workflow) -->
+
+**Constraints:**
+
+- Evidence reports are explicit owned-run assertions, not text-similarity or tool-activity inference.
+- Existing scheduling and terminal-cleanup owners enforce the bound; no companion extension or additional scheduler is introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-129](#req-agent-129-goal-continuation-settings-policy), [REQ-AGENT-130](#req-agent-130-goal-continuation-runtime-pacing), [REQ-AGENT-178](#req-agent-178-goal-and-plan-session-ownership)
+
+**Verification:** Automated: [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js)
 
 **Status:** Implemented
 
@@ -371,7 +454,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Package assembly and JITI cache contract tests; deployment image build
+**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js)
 
 **Status:** Implemented
 
@@ -405,7 +488,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
-**Verification:** Package assembly, startup-policy, JITI cache, and Goal/Plan integration tests; manual reload smoke test; deployment image build
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -429,7 +512,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions)
 
-**Verification:** Entrypoint runtime behavior test; manual Plan Mode completion after disposable temporary-file cleanup
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
 
 **Status:** Implemented
 
@@ -453,7 +536,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -477,7 +560,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
 
-**Verification:** Review-enforcement behavioral tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -501,7 +584,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-112](#req-agent-112-goal-pause-ownership-across-pr-heads)
 
-**Verification:** Review-enforcement behavioral tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -526,7 +609,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-113](#req-agent-113-review-owned-goal-release)
 
-**Verification:** Existing patched-controller and review-enforcement behavioral tests
+**Verification:** Automated: [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -549,7 +632,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-112](#req-agent-112-goal-pause-ownership-across-pr-heads), [REQ-AGENT-113](#req-agent-113-review-owned-goal-release)
 
-**Verification:** Review-enforcement behavioral tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -573,7 +656,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-114](#req-agent-114-review-owned-goal-continuation), [REQ-AGENT-117](#req-agent-117-non-disruptive-review-owned-goal-control)
 
-**Verification:** pi-goal compatibility-transform behavioral tests
+**Verification:** Automated: [pi-goal-review-control-patch.test.js](../../host/__tests__/pi-goal-review-control-patch.test.js)
 
 **Status:** Implemented
 
@@ -597,7 +680,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** Automated container, route, and Settings tests
+**Verification:** Automated: [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [llm-keys.test.ts](../../src/__tests__/routes/llm-keys.test.ts), [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx)
 
 **Status:** Implemented
 
@@ -621,7 +704,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-132](#req-agent-132-pr-delivery-and-existing-head-consent), [REQ-AGENT-122](#req-agent-122-per-pr-review-checkpoints)
 
-**Verification:** Automated Claude Stop-hook behavior tests
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -645,7 +728,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-122](#req-agent-122-per-pr-review-checkpoints), [REQ-AGENT-168](#req-agent-168-review-boundary-classification), [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent)
 
-**Verification:** Automated Pi and Claude boundary behavior tests
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -669,14 +752,14 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Constraints:**
 
-- The user workflow uses a normal checked-out branch.
-- Detached HEAD and linked-worktree execution are unsupported and inert.
+- The user workflow uses an eligible checked-out branch, including in a linked worktree, with local full `HEAD` matching the authoritative remote PR head.
+- Detached HEAD and ineligible branch/PR/head states remain inert; linked worktrees retain the same consent and acknowledgement gates, with completion state stored outside clone-local Git metadata.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-132](#req-agent-132-pr-delivery-and-existing-head-consent), [REQ-AGENT-168](#req-agent-168-review-boundary-classification)
 
-**Verification:** Automated Pi and Claude boundary behavior tests
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -690,9 +773,9 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. Every automatic delivery candidate remains independently pending until its own authoritative reconciliation completes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps concurrent delivery identities independent while suppressing only an active exact round) -->
-2. When one delivery establishes an exact-head plan, duplicate deliveries for that repository, PR, and head reuse it without another launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps concurrent delivery identities independent while suppressing only an active exact round) -->
-3. An ineligible delivery never suppresses another pending delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps concurrent delivery identities independent while suppressing only an active exact round) -->
+1. Every automatic delivery candidate remains independently pending until its own authoritative reconciliation completes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps concurrent delivery identities independent while suppressing only an active exact round) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-153 AC1/3: independent %s delivery never consumes another pending identity) -->
+2. When one delivery establishes an exact-head plan, duplicate deliveries for that repository, PR, and head reuse it without another launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps concurrent delivery identities independent while suppressing only an active exact round) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-153 AC2: overlapping native attempts for one exact identity emit one effective round) -->
+3. An ineligible delivery never suppresses another pending delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps concurrent delivery identities independent while suppressing only an active exact round) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-153 AC1/3: independent %s delivery never consumes another pending identity) -->
 
 **Constraints:** Pending deliveries remain scoped to the repository resolved from their original command invocation.
 
@@ -700,7 +783,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization), [REQ-AGENT-132](#req-agent-132-pr-delivery-and-existing-head-consent), [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent)
 
-**Verification:** Automated Pi review-enforcement tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -715,19 +798,19 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. A Claude PR-boundary lane binds its scope to the newest retained same-PR marker ancestor and current head, overriding a stale full-base argument. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::BOUNDARY_PR --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (selects the newest retained same-PR ancestor and ignores other PRs) -->
+1. Before lane launch, the boundary caller selects the newest retained same-PR completion ancestor of current HEAD, supplying that range or the protected PR base without an ancestor. The runner honors supplied range/base, never selecting checkpoints or overriding stale caller arguments. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::ANCESTOR --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::BOUNDARY_PR --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (selects the newest retained same-PR ancestor and ignores other PRs) --> <!-- @test: host/__tests__/run-review-lane.test.js (keeps caller-supplied PR-boundary range authoritative) -->
 
 **Constraints:**
 
-- Checkpoints do not support detached or linked worktrees.
+- Checkpoints support eligible linked worktrees using external user-scoped completion storage; detached HEAD remains unsupported.
 - Accounting never acknowledges an unreviewed head.
-- A validated normal checkout never enters FIX unless its reviewed-head acknowledgement is readable after write.
+- A validated checkout, including an eligible linked worktree, never enters FIX unless its reviewed-head acknowledgement is readable after write.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent)
 
-**Verification:** Automated Pi and Claude review-enforcement tests
+**Verification:** Automated: [review-completion-state.test.ts](../../src/__tests__/lib/review-completion-state.test.ts)
 
 **Status:** Implemented
 
@@ -740,7 +823,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. `POST /api/sessions` accepts an optional `agentType` field in the request body. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
+1. Session creation accepts an optional coding-agent selection. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
 2. Invalid agent types are rejected at session creation. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
 3. The selected agent type is persisted in the session record. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @manual -->
 4. The UI defaults to the agent type used in the user's most recent session. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) --> <!-- @manual -->
@@ -758,7 +841,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test
+**Verification:** Automated: [session-agent-allowlist.test.ts](../../src/__tests__/routes/session-agent-allowlist.test.ts), [session-agent-type.test.ts](../../src/__tests__/routes/session-agent-type.test.ts), [CreateSessionDialog.test.tsx](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -789,7 +872,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-OPS-040](operations.md#req-ops-040-selected-coding-agent-packaging), [REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)
 
-**Verification:** Automated API, profile, preference, and persisted-session tests
+**Verification:** Automated: [lifecycle.test.ts](../../src/__tests__/routes/container/lifecycle.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [session-agent-allowlist.test.ts](../../src/__tests__/routes/session-agent-allowlist.test.ts), [user-profile-enterprise.test.ts](../../src/__tests__/routes/user-profile-enterprise.test.ts)
 
 **Status:** Implemented
 
@@ -819,7 +902,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-123](#req-agent-123-installed-agent-runtime-availability), [REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)
 
-**Verification:** Automated pre-hydration, resolved-set, and legacy-profile UI tests
+**Verification:** Automated: [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [CreateSessionDialog.test.tsx](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx), [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx)
 
 **Status:** Implemented
 
@@ -851,7 +934,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-tab-autostart.test.js](../../host/__tests__/entrypoint-tab-autostart.test.js), [terminal-mode.test.js](../../host/__tests__/terminal-mode.test.js); Manual: [Both mode fixed settlement acceptance](../../documentation/lanes/terminal-and-ide.md#both-mode-fixed-settlement-acceptance)
 
 **Status:** Implemented
 
@@ -882,7 +965,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated test
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [entrypoint-tab-autostart.test.js](../../host/__tests__/entrypoint-tab-autostart.test.js), [pi-classic-session-binding.test.ts](../../src/__tests__/lib/pi-classic-session-binding.test.ts)
 
 **Status:** Implemented
 
@@ -900,7 +983,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 2. Every body follows the same ordered roles: summary, shipped behavior, linked traceability, verification, boundaries, completion state, and final review record. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Canonical shape --> <!-- @manual -->
 3. Issues, incorporated pull requests, requirements, decisions, commits, runs, releases, deployments, and follow-ups are linked only with their relationship and relevance stated. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Links and traceability --> <!-- @manual -->
 4. Verification identifies exact heads and distinguishes automated, deployed, managed-publication, manual, owner-reported, and pending evidence. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Verification --> <!-- @manual -->
-5. Features and improvements precede secondary corrections; operational boundaries follow verification, and substantive review history stays last. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Core rule --> <!-- @manual -->
+5. Features and improvements precede secondary corrections; operational boundaries follow verification, and substantive review history stays last. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Pull Request Authoring Reference --> <!-- @manual -->
 6. The authoring reference reaches every skill-capable runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::skills/pr-workflow/references/pull-request-authoring.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 7. Native Pi and canonical workflow skills point to the same relative authoring-reference path. <!-- @impl: preseed/agents/claude/skills/pr-workflow/SKILL.md::Pull Request Workflow --> <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md::Pull Request Workflow in Pi --> <!-- @manual -->
 
@@ -914,7 +997,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual content and delivery review
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -929,22 +1012,23 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 **Acceptance Criteria:**
 
 1. Session mode (Standard or Pro) is stored durably in the user's preferences record; the value is absent for users who have never expressed a preference. <!-- @test: src/__tests__/lib/session-mode.test.ts (clampSessionModeToTier / REQ-SEC-015 (AC2 clamp at container start + AC3 canceled-user stale advanced => default)) --> <!-- @manual -->
-2. A single resolver provides the default-to-Standard fallback when no preference is recorded; all callers read through the resolver rather than checking the raw field directly. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) -->
+2. When no preference is recorded, all callers receive the default-to-Standard fallback. Resolution must follow the [mode-resolution contract](../../documentation/lanes/preseed.md#mode-and-manifest-model). <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) -->
 3. Mode selection is available in Settings under the session-defaults area. <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-AGENT-004 AC3: mode selection in Settings session-defaults) --> <!-- @manual -->
 4. Mode takes effect on any of: explicit "Recreate AI agent skills & rules" action, new bucket creation, payment-provider mode change (upgrade or downgrade via webhook), subscription termination, or Settings toggle of the session-mode preference. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
-5. On webhook-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted (see [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) Constraints). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
-6. Reconciliation triggered by webhooks or Settings is non-fatal: failure does not block the webhook response or the preference write. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
+5. Webhook and Settings reconciliation overwrite preseed for the selected mode. Cleanup follows [ownership rules](storage.md#req-stor-021-managed-content-ownership) and [managed-resource policy](../../documentation/lanes/storage-and-sync.md#managed-resource-persistence-modes); user-created files outside their authorized scope are preserved (see [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) Constraints). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
+6. Webhook reconciliation failures do not block responses; Settings reconciliation without a managed environment does not block preference writes. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/routes/preferences.ts::default --> <!-- @manual -->
+7. Managed Settings reconciliation failures propagate: non-conflicts restore prior preferences and retain the target journal; conflicts preserve newer preferences without stale applied-state publication ([AD136](../../documentation/decisions/README.md#ad136-managed-environments-reconcile-signed-releases-before-session-start)). <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-024: a failed managed reconciliation is reported instead of returning success) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC1/AC2: a failed managed mode change records and retains its active target) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC6: aborts stale reconciliation without reverting a concurrent mode update) --> <!-- @manual -->
 
 **Constraints:**
 
 - Only tiers whose allowed-session-modes list includes Pro can use Pro mode (see [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)).
-- When a user is promoted to a Pro-eligible tier, Pro mode becomes their persisted default if they had not already selected a mode.
+- When a user is promoted to a Pro-eligible tier, Pro mode becomes their persisted default if they had not already selected a mode; an existing explicit Standard preference is preserved while Pro entitlement advances. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-AGENT-004: promotion preserves explicit %s preference while granting Pro) -->
 
 **Priority:** P1
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -958,20 +1042,23 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. Pro mode delivers a strict superset of Standard mode's content — memory persistence, language rules, agent definitions, slash commands, skills, the spec/docs/tests discipline triad, and commit-attribution/PR-boundary review hooks. The per-content-category matrix lives in [documentation/preseed.md](../../documentation/lanes/preseed.md#session-modes). <!-- @manual -->
-2. Pro mode enables persistent memory by including the user's Vault directory tree in the R2 sync filters; Standard mode excludes the Vault tree, so memory does not persist across container restarts. The legacy `.memory/` directory is no longer written. <!-- @manual -->
+1. Pro mode delivers a strict superset of Standard mode's content — memory persistence, language rules, agent definitions, slash commands, skills, the spec/docs/tests discipline triad, and commit-attribution/PR-boundary review hooks. <!-- @manual -->
+2. Pro mode enables persistent memory by including the user's Vault directory tree in the R2 sync filters; Standard mode excludes the Vault tree, so memory does not persist across container restarts. <!-- @manual -->
 3. Pro-mode hooks produce identical attribution, review, blocking, and memory behavior across direct and context-mode tool surfaces. <!-- @impl: entrypoint.sh::CONTEXT_MODE_MANIFEST --> <!-- @manual -->
 4. Pi agents remain fully functional whether or not context-mode is active: native Bash/Read/Grep/Find/Edit/Write plus graphify tools suffice alone. Agent definitions declare context-mode helpers under Pi-native names in frontmatter. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::commandText --> <!-- @manual -->
+5. The legacy `.memory/` directory is no longer written. <!-- @manual -->
+
+**Notes:** The per-content-category matrix is documented in [Preseed](../../documentation/lanes/preseed.md#session-modes).
 
 **Constraints:**
 
-- Cleanup on mode switch is scoped strictly to preseed-managed content; user-created files are never deleted.
+- Mode-switch cleanup follows [authorized ownership](storage.md#req-stor-021-managed-content-ownership) and [managed-resource policy](../../documentation/lanes/storage-and-sync.md#managed-resource-persistence-modes); user-created files outside their authorized scope are never deleted.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -985,7 +1072,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. Every manifest-declared Pi target key has exactly one generated owner per applicable mode, and its emitted bytes equal that owner source. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+1. Every manifest-declared Pi target key has exactly one generated owner per applicable mode, and its emitted bytes equal that owner source after declared include expansion and native-catalog visibility normalization. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 2. A declarative manifest maps each preseed file to its applicable session modes (default, advanced, or both). <!-- @impl: scripts/agent-seed-core.mjs::validateModes --> <!-- @manual -->
 3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 4. The generator ignores files absent from the manifest. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
@@ -1001,7 +1088,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** None.
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1018,8 +1105,8 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 1. Every supported non-Claude agent receives an instruction document in both default and advanced modes. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 2. Tool names are remapped per agent (e.g., `Read` -> `read` for Codex and Pi). <!-- @impl: scripts/agent-seed-core.mjs::remapTools --> <!-- @manual -->
-3. Codex, Copilot, OpenCode, and Antigravity receive monolithic transformed instructions, while Pi receives one compact `AGENTS.md` plus grouped native skills for canonical path-scoped rules. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-4. Every Pi manifest entry is emitted once in each declared mode with bytes equal to its canonical Pi source. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+3. Codex, Copilot, OpenCode, and Antigravity receive monolithic transformed instructions, while Pi receives one compact shared instruction document plus grouped native skills for canonical path-scoped rules. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+4. Every Pi manifest entry is emitted once in each declared mode with bytes equal to its canonical Pi source after declared include expansion and native-catalog visibility normalization. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1033,7 +1120,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Manual review
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1047,8 +1134,8 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. On first bucket creation, mode-appropriate preseed files are written to the user's R2 bucket without overwriting any existing objects and without removing anything. <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs --> <!-- @manual -->
-2. During container startup, the initial R2-to-local sync restores preseed files into each supported agent's per-user config directory before the agent launches. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)) -->
+1. On first bucket creation, mode-appropriate preseed files are written to the user's R2 bucket without overwriting any existing objects and without removing anything. <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs --> <!-- @manual --> <!-- @test: src/__tests__/lib/r2-seed.test.ts (seeds only missing agent configs when overwrite=false) -->
+2. Startup waits for initial R2-to-local preseed restore into each supported agent’s per-user config directory before launch, bounded by [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start). Successful sync restores those files; timeout never bypasses required managed-content startup checks. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @manual -->
 
 **Constraints:**
 
@@ -1058,7 +1145,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated test
+**Verification:** Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1089,7 +1176,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-008](#req-agent-008-preseed-deployed-to-container-on-start)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-enforce-ctx-mode-dedup.test.js](../../host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js), [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js)
 
 **Status:** Implemented
 
@@ -1121,7 +1208,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test ([llm-keys](../../src/__tests__/routes/llm-keys.test.ts))
+**Verification:** Automated: [llm-keys.test.ts](../../src/__tests__/routes/llm-keys.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1148,7 +1235,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test ([deploy-keys](../../src/__tests__/routes/deploy-keys.test.ts))
+**Verification:** Automated: [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1156,32 +1243,33 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 ### REQ-AGENT-011: Agent Skills & Rules Manually Recreatable from Settings
 
-**Intent:** Users must be able to reset their agent skills and rules to the platform defaults at any time, recovering from accidental deletion or corruption.
+**Intent:** Recreate is a deliberate, user-triggered rescue that restores managed agent resources after edits, deletion or corruption; it is not an automatic update.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A "Recreate AI agent skills & rules" action in the settings UI triggers a reseed of preseed-managed agent configuration. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
+1. Only an explicit user invocation of "Recreate AI agent skills & rules" starts this rescue; it never runs automatically. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::handleRecreateAgentConfigs --> <!-- @impl: web-ui/src/components/Dashboard.tsx::handleRecreate --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
 2. The reseed performs a full overwrite-and-cleanup of all preseed-managed files for the user's current session mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
-3. Overwrite replaces every preseed-managed file with the current default content. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
+3. Overwrite deliberately replaces user-edited managed agent files with the currently selected curated or baked versions. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
 4. Cleanup removes preseed-managed files that are not part of the user's current session mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
-5. User-created files (files not generated by the preseed pipeline) are never overwritten or deleted. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
+5. User-created Vault files, unrelated user files, and protected runtime paths remain unchanged. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @manual -->
 6. The endpoint is rate-limited (3/min). <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
 7. After seeding, the storage stats KV cache is invalidated. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
 
 **Constraints:**
 
-- Cleanup uses explicit key lists, not bucket listing or prefix scans.
+- Cleanup combines explicit managed-key lists with bounded ownership-scoped scans: generated seed prefixes for stale managed-marker candidates and authorized resource roots under exclusive managed-resource policy. Scans do not authorize broad deletion of unrelated user objects; mode selection, ownership markers, protected runtime paths, and authorized-root limits remain enforced.
 - Partial delete failures produce warnings but do not fail the overall operation.
 - Container must perform a bisync cycle to pull the updated R2 files into the local filesystem.
 - Starter-documentation recreation lives in [REQ-AGENT-032](#req-agent-032-starter-documentation-manually-recreatable-from-settings).
+- Automatic upgrades and mode-change reconciliation are separate actions, not invocations of this rescue.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-010](storage.md#req-stor-010-agent-configs-auto-seeded-based-on-session-mode)
 
-**Verification:** Automated test ([storage-seed](../../src/__tests__/routes/storage-seed.test.ts))
+**Verification:** Automated: [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1209,7 +1297,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1229,7 +1317,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 4. An update failure does not prevent the terminal readiness signal. <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-AGENT-206: executes the update before readiness and continues after failure) -->
 5. Pi runtime validation rejects missing required dependencies or failed image processing. <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyPiRuntime --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects an installed Pi package whose required image dependency is missing) --> <!-- @test: host/__tests__/pi-lockstep.test.js (accepts import-only dependency exports and rejects failed image processing) -->
 6. An incomplete Pi installation receives one lockfile-based dependency repair attempt. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: repairs incomplete dependencies from the lock and isolates the updated cache) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair) -->
-7. Updated Pi processes use a cleared runtime-owned transpile cache without changing the baked image cache. <!-- @impl: scripts/verify-pi-lockstep.mjs::resetRuntimeJitiCache --> <!-- @test: host/__tests__/pi-lockstep.test.js (replaces the runtime jiti link without clearing the image cache) -->
+7. Before updated Pi startup, Codeflare attempts to clear the runtime-owned transpile cache without changing the baked image cache; reset failure is visible and does not block terminal readiness. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @impl: scripts/verify-pi-lockstep.mjs::resetRuntimeJitiCache --> <!-- @test: host/__tests__/pi-lockstep.test.js (replaces the runtime jiti link without clearing the image cache) -->
 
 **Constraints:**
 
@@ -1242,7 +1330,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-012](#req-agent-012-fast-cli-start-configurable), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-pi-warmup-guard.test.js](../../host/__tests__/entrypoint-pi-warmup-guard.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js)
 
 **Status:** Implemented
 
@@ -1271,7 +1359,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test ([terminal-url-detection](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts))
+**Verification:** Automated: [dockerfile-browser-shim-behavior.test.js](../../host/__tests__/dockerfile-browser-shim-behavior.test.js), [terminal-link-provider.test.ts](../../web-ui/src/__tests__/lib/terminal-link-provider.test.ts), [terminal-url-detection.test.ts](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -1302,7 +1390,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Manual review
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1321,14 +1409,14 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Constraints:**
 
-- Directory-shaped keys match by path prefix, mirroring the lookup they drive.
+- Each membership key must exactly match a collected Claude source-rule path; directory-prefix expansion is not supported.
 - Rule-transform collections name Claude rules by path, so renaming or merging a rule must update every collection referencing it in the same change.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Manual review
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1357,7 +1445,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -1382,24 +1470,28 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
 ---
 
-### REQ-AGENT-018: Push & Deploy credential management UI
+<a id="req-agent-018-push--deploy-credential-management-ui"></a>
+### REQ-AGENT-018: Integrations connection management UI
 
-**Intent:** Users connect their GitHub and Cloudflare accounts through a visual interface — OAuth, with no CLI commands and no manual token paste.
+**Intent:** Users authorize their own Cloudflare account through Settings → Integrations, independently of deployment mode or platform credentials; GitHub remains on the dashboard.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Settings "Push & Deploy" accordion presents one shared OAuth connect card per provider (GitHub, Cloudflare) — the same composable card reused by the dashboard panel and Guided Setup ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)). <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx::DeployKeysSection --> <!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (DeployKeysSection (OAuth connect surface)) -->
-2. Connecting runs the provider OAuth flow (no manual token entry); the per-user token is stored encrypted server-side and never reaches the browser, and disconnect revokes + clears it. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
-3. A connected card shows the account identity and (Cloudflare) an account picker; a scope tier can be selected before connecting. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthAccountOption --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) -->
-4. Deploy credentials are propagated into the container environment so the agent CLIs can authenticate to GitHub and Cloudflare without additional configuration. <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) --> <!-- @manual -->
+1. Settings → Integrations lists Cloudflare only when its OAuth client is configured, in every deployment mode. <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx::DeployKeysSection --> <!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (DeployKeysSection (Settings Integrations)) -->
+2. Connecting runs Cloudflare OAuth without manual token entry; owner grants stay server-side, encrypted when deployment encryption is configured, and are never returned to the browser. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (Enterprise encrypted Cloudflare owner grants) --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
+3. Cloudflare Disconnect revokes and clears only the current owner’s stored Cloudflare connection. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (revokes an oauth token at Cloudflare and clears the stored fields) -->
+4. A connected card shows the account identity and (Cloudflare) an account picker. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthAccountOption --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) -->
+5. A scope tier can be selected before connecting. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes / REQ-AGENT-028) -->
+6. Cloudflare OAuth credentials stay Worker-held; containers receive only managed placeholders for owner-bound API interception. <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOwnerApi --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-BROWSER-008/REQ-AGENT-078: Enterprise startup with a connected owner) -->
+7. GitHub connection controls remain on the dashboard, not in Settings. <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx::DeployKeysSection --> <!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (offers only Cloudflare, never GitHub or other provider placeholders) -->
 
 **Constraints:**
 
@@ -1409,7 +1501,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** Automated test
+**Verification:** Automated: [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts), [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [DeployKeysSection.test.tsx](../../web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1424,9 +1516,12 @@ None.
 **Acceptance Criteria:**
 
 1. Settings panel uses accordion groups (appearance, session, deploy, LLM, admin). <!-- @impl: web-ui/src/components/SettingsPanel.tsx::ACCORDION_SUBTITLES --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) -->
-2. Provider rows with SVG brand icons and inline expansion. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (renders OpenAI and Gemini provider rows) --> <!-- @manual -->
+2. Provider rows with SVG brand icons and inline expansion. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (renders OpenAI and Gemini provider rows after saved-key loading succeeds) --> <!-- @manual -->
 3. Appearance section with accent color picker. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) --> <!-- @manual -->
 4. Session section with a session-mode toggle and a sleep-timeout select; agent type is chosen at session creation, not here. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) --> <!-- @manual -->
+5. Fixed MCP return feedback remains visible to the same owner after URL cleanup and owned-session restoration. <!-- @impl: web-ui/src/lib/mcp-portal-recovery.ts::createMcpPortalRecovery --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-AGENT-226 AC3/6 / REQ-AGENT-228 AC4: %s survives pre-mount URL cleanup into owner Settings without an authorization loop) -->
+6. Opening Settings or its MCP section, or returning from authorization, refreshes status; late responses from closed or replaced owner lifetimes cannot overwrite it. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection --> <!-- @test: web-ui/src/__tests__/components/McpSettingsRecovery.test.tsx (REQ-AGENT-228 AC4: mounted Settings MCP status recovery) -->
+7. Saved MCP authorization and successful-return feedback do not certify live tool access or override disconnected API status. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection --> <!-- @test: web-ui/src/__tests__/components/McpPortalsSection.test.tsx (REQ-AGENT-226 AC3/6 / REQ-AGENT-228 AC4: a returned outcome refreshes a mounted section but cannot certify connectivity) -->
 
 **Constraints:**
 
@@ -1436,7 +1531,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([SettingsPanel](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx))
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [MCP status recovery](../../web-ui/src/__tests__/components/McpSettingsRecovery.test.tsx), [MCP presentation](../../web-ui/src/__tests__/components/McpPortalsSection.test.tsx), [App return feedback](../../web-ui/src/__tests__/components/App.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1465,7 +1560,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** Automated test ([llm-keys](../../src/__tests__/routes/llm-keys.test.ts))
+**Verification:** Automated: [llm-keys.test.ts](../../src/__tests__/routes/llm-keys.test.ts), [LlmKeysSection.test.tsx](../../web-ui/src/__tests__/components/settings/LlmKeysSection.test.tsx); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1498,7 +1593,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -1512,22 +1607,22 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/sdd init` Import Mode emits two outputs simultaneously: spec REQs in `sdd/{domain}.md` for anything clearly determinable from the full discovery surface, and triage entries in `sdd/.init-triage.md` for anything unclear. <!-- @manual -->
+1. `/sdd init` Import Mode simultaneously emits domain requirements for anything clearly determinable from the full discovery surface and import-triage entries for anything unclear. <!-- @manual -->
 2. The discovery surface during Import Mode is the full project history, not just source code. <!-- @manual -->
 3. The agent pulls evidence from the working tree (README, configs, source, tests, inline comments, ADR-shaped files) and git history (commit messages on entry-point files, tag annotations). <!-- @manual -->
 4. When a GitHub remote is detected, the agent additionally pulls pull requests with their review comments and inline threads, issues open and closed with their comments, release notes, and the wiki via the GitHub API. <!-- @manual -->
-5. When one artifact references another ("Closes #142"), the agent follows the chain backward through every linked artifact rather than stopping at the first hit. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Traverse linked artifacts backward recursively --> <!-- @manual -->
-6. When the GitHub corpus is unreachable, the agent skips GitHub sources and proceeds with working-tree + git-log evidence only; a one-line notice naming the reason is printed before scaffolding and appended to the `sdd/changes.md` import entry. <!-- @manual -->
+5. Discovery recursively follows supported same-repository links backward beyond one hop, each starting walk bounded to 20 link levels/500 unique artifacts; reached bounds record unvisited links in triage Context, never exhaustive discovery. Unsupported/external-repository links remain cited context, not traversal targets. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::sdd-init --> <!-- @manual -->
+6. When the GitHub corpus is unreachable, the agent skips GitHub sources and proceeds with working-tree + git-log evidence only; a one-line notice naming the reason is printed before scaffolding and appended to the import changelog entry. <!-- @manual -->
 
 **Constraints:**
 
-- GitHub-corpus evidence collection uses `gh pr list --state all`, `gh pr view {n} --comments`, `gh issue list --state all`, `gh issue view {n} --comments`, `gh release list`, and `gh release view {tag}`.
+- GitHub-corpus evidence collection uses supported `gh`/GitHub API retrieval for PRs with reviews and inline threads, open and closed issues with comments, releases, commits, annotated tags, and wiki pages; no single exhaustive CLI command sequence is required. Unreachable-corpus handling and its incomplete-corpus notice remain required by AC6.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Manual check
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -1564,7 +1659,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-008](#req-agent-008-preseed-deployed-to-container-on-start)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [graphify-active-repo.test.js](../../host/__tests__/graphify-active-repo.test.js), [graphify-mcp-lazy.test.js](../../host/__tests__/graphify-mcp-lazy.test.js), [graphify-native.test.ts](../../src/__tests__/lib/graphify-native.test.ts); Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1590,7 +1685,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -1604,7 +1699,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Advanced mode receives the Graphify skill for Claude Code and adapted variants for Codex, Copilot, OpenCode, and Antigravity. <!-- @manual -->
+1. Advanced mode receives the Graphify skill for Claude Code, Codex, Antigravity/Gemini, OpenCode, and Pi through their supported skill paths. Copilot has no skill delivery path and receives no Graphify skill. <!-- @manual -->
 2. The skill documents the safe build path for repositories with more than 2000 files. <!-- @manual -->
 3. First-build guidance adds canonical ignore rules so regenerable outputs and working-tree intermediates stay uncommitted. <!-- @manual -->
 4. First-build guidance adds the attribute rule that keeps the queryable graph under merge control. <!-- @manual -->
@@ -1615,7 +1710,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Manual check
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1640,7 +1735,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch)
 
-**Verification:** Manual check
+**Verification:** Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1659,7 +1754,7 @@ None.
 3. Semantic-merge publication honors the configured visualization node limit. <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @manual -->
 4. Label-apply publication honors the configured visualization node limit. <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @manual -->
 5. An absent visualization node-limit setting defaults to `100000`. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @manual -->
-6. Non-positive or non-integer visualization node limits reject publication. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @manual -->
+6. Non-positive or non-integer visualization node limits reject HTML export. AST, architecture, and semantic-merge flows may already have published `graph.json` and `GRAPH_REPORT.md`; publication is not transactional across those artifacts. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::GRAPHIFY_VIZ_NODE_LIMIT --> <!-- @manual -->
 
 **Constraints:** Publication limits never remove the durable queryable graph.
 
@@ -1667,7 +1762,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch), [REQ-AGENT-127](#req-agent-127-graph-publication-artifacts-and-optional-labels)
 
-**Verification:** Manual check
+**Verification:** Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1692,7 +1787,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-graphify-hooks.test.js](../../host/__tests__/entrypoint-graphify-hooks.test.js)
 
 **Status:** Implemented
 
@@ -1706,11 +1801,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. In advanced session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects real `git clone` and `gh repo clone` invocations using anchored token parsing that rejects quoted or echoed false positives. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh::COMMAND --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::isGitClone --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::shellCommandText --> <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::ENV_PREFIX --> <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::cloneTargetPath --> <!-- @manual: Exercise representative clone commands and inspect the resulting choice set. -->
+1. In advanced session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch` matchers detects real `git clone` and `gh repo clone` invocations using executable argv parsing that rejects quoted or echoed false positives. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh::COMMAND --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::isGitClone --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::shellCommandText --> <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::cloneTargetPath --> <!-- @manual: Exercise representative clone commands and inspect the resulting choice set. --> <!-- @test: src/__tests__/lib/graphify-native.test.ts (REQ-AGENT-025 AC1: clone target parser uses executable commands) --> <!-- @test: host/__tests__/entrypoint-graphify-hooks.test.js (REQ-AGENT-025 AC1: executable clone parsing, not quoted separators) -->
 2. Pi implements clone triage with native tool lifecycle events and Pi follow-up messages. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::graphifyClonePromptDecision --> <!-- @manual -->
 3. Clone destination resolution prefers the tool result's `Cloning into '...'` line before falling back to command parsing, so shell variables such as `$repo` never surface as literal user-facing paths. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::cloneTargetPath --> <!-- @manual: Exercise representative clone outputs and inspect resolved destinations. -->
-4. When `<cloned-dir>/graphify-out/graph.json` is absent, the directive asks which graph action the user wants before any graph work, offering Full repo AST-only, Full repo semantic intent, or no graph action. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::renderGraphifyCloneDirective --> <!-- @manual: Exercise a clone without graph output and inspect offered actions. -->
-5. When `<cloned-dir>/graphify-out/graph.json` exists, fresh graphs are used as-is; a stale graph opens the directive with an explicit STALE warning before the choices, while an unknown-freshness graph asks without the stale flag. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::existingGraphCloneNotice --> <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::renderGraphifyCloneDirective --> <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::graphifyClonePromptDecision --> <!-- @manual -->
+4. When the cloned repository's graph is absent, the directive asks which graph action the user wants before any graph work, offering Full repo AST-only, Full repo semantic intent, or no graph action. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::renderGraphifyCloneDirective --> <!-- @manual: Exercise a clone without graph output and inspect offered actions. -->
+5. When the cloned repository's graph exists, fresh graphs are used as-is; a stale graph opens the directive with an explicit STALE warning before the choices, while an unknown-freshness graph asks without the stale flag. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::existingGraphCloneNotice --> <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::renderGraphifyCloneDirective --> <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::graphifyClonePromptDecision --> <!-- @manual -->
 6. The bounded upstream-update wrapper runs only after the user chooses AST-only, and Full semantic build/refresh must pass through graphify skill detection plus post-detection count confirmation before semantic subagents dispatch. <!-- @manual -->
 7. The hook is idempotent per cloned directory per session via a marker key that includes both the session identifier and cloned repository path; Pi clone triage suppresses follow-up prompts for failed clone commands, skipped/already-cloned targets, and durable PR-boundary review lanes. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::shouldHandleClonePrompt --> <!-- @manual -->
 
@@ -1723,7 +1818,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Manual review
+**Verification:** Automated: [graphify-native.test.ts](../../src/__tests__/lib/graphify-native.test.ts), [entrypoint-graphify-hooks.test.js](../../host/__tests__/entrypoint-graphify-hooks.test.js); Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1752,7 +1847,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Automated test ([entrypoint rclone filter behavior](../../host/__tests__/entrypoint-rclone-filters.test.js))
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js); Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1777,7 +1872,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders)
 
-**Verification:** Automated test ([graph-first-nudge](../../host/__tests__/graph-first-nudge.test.js))
+**Verification:** Automated: [graph-first-nudge.test.js](../../host/__tests__/graph-first-nudge.test.js); Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -1791,20 +1886,20 @@ None.
 
 **Acceptance Criteria:**
 
-1. The GitHub connect card offers three scope tiers (Minimal, Recommended, Advanced) with Recommended pre-selected; the selection is sent to the server as the connect URL's `tier` query param. <!-- @impl: web-ui/src/lib/token-scopes.ts::GITHUB_TIERS --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes) -->
-2. The Cloudflare connect card offers the same three-tier selector with Recommended pre-selected, sent the same way. <!-- @impl: web-ui/src/lib/token-scopes.ts::CLOUDFLARE_TIERS --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes) -->
-3. The server maps the requested tier to the OAuth `scope` parameter from a backend scope catalog (the catalog never leaves the server); higher tiers are supersets of lower tiers, and the Cloudflare scope always includes `offline_access`. <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token template) -->
+1. The GitHub connect card offers three scope tiers (Minimal, Recommended, Advanced) with Recommended pre-selected; the selection is sent to the server as the connect URL's `tier` query param. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (shows the connect affordance (with the connect URL) for both providers when disconnected) --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes / REQ-AGENT-028) -->
+2. The Cloudflare connect card offers the same three-tier selector with Recommended pre-selected, sent the same way. <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx::DeployKeysSection --> <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (requires a user Connect even with a configured client and carries each selected scope tier to OAuth) --> <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (shows the connect affordance (with the connect URL) for both providers when disconnected) --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes / REQ-AGENT-028) -->
+3. The server maps the requested tier to the OAuth `scope` parameter from a backend scope catalog (the catalog never leaves the server); higher tiers are supersets of lower tiers, and the Cloudflare scope always includes `offline_access`. <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (githubScopeForTier) --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (always requests offline_access and escalates capability with tier) --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (normalizeScopeTier) -->
 
 **Constraints:**
 
-- The client sends only the tier name (untrusted, normalized server-side to a known tier; default `recommended`); the concrete scope strings are defined once, server-side ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6, [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)).
+- The client sends only the tier name (untrusted, normalized server-side to a known tier; default `recommended`); the concrete scope strings are defined once, server-side ([REQ-GITHUB-317](github.md#req-github-317-additive-github-connection-and-scope-contract) AC4, [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)).
 - A GitHub App's permissions are fixed at registration, so the tier affects only the OAuth-App path.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-018](#req-agent-018-push--deploy-credential-management-ui), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
 
-**Verification:** Automated test ([Tier catalog test](../../web-ui/src/__tests__/lib/token-scopes.test.ts) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope mapping test](../../src/__tests__/lib/oauth-scopes.test.ts))
+**Verification:** Automated: [token-scopes.test.ts](../../web-ui/src/__tests__/lib/token-scopes.test.ts), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [DeployKeysSection.test.tsx](../../web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx), [OnboardingPage.test.tsx](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx), [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
 
 **Status:** Implemented
 
@@ -1821,7 +1916,7 @@ None.
 1. Stored GitHub and Cloudflare deploy credentials are injected into the container as environment variables on session start. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 2. Credentials are sent as explicit `null` when absent (not omitted) so revocation propagates on session restart. <!-- @impl: src/routes/container/lifecycle-init.ts::buildSetBucketNameBody --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (DEEP-20-002: sends newly absent deploy credentials as explicit null on restart) --> <!-- @test: src/__tests__/container/container-env.test.ts (applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression) / REQ-AGENT-029 (container env vars contract)) -->
 3. When a GitHub credential is present, the container configures git for authenticated HTTPS access. <!-- @test: host/__tests__/entrypoint-credentials.test.js (does NOT configure git credential.helper when GH_TOKEN is unset (REQ-AGENT-029 AC3: guard)) --> <!-- @manual -->
-4. The Cloudflare account ID is resolved automatically from the API token when one is stored, so users need not supply it separately. <!-- @impl: src/routes/setup/account.ts::handleGetAccount --> <!-- @test: src/__tests__/routes/setup/account.test.ts (returns account ID on success) -->
+4. Cloudflare accounts are discovered from the stored token without manual ID entry; a sole account is selected automatically, otherwise account choices are returned and explicit selection is validated against that token. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (stores Cloudflare token and auto-selects single account) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (returns account list when multiple Cloudflare accounts) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (sets cloudflareAccountId after validating it against the stored token) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (rejects a cloudflareAccountId not accessible with the stored token) -->
 
 **Constraints:**
 
@@ -1831,7 +1926,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** Automated test ([container-env](../../src/__tests__/container/container-env.test.ts))
+**Verification:** Automated: [entrypoint-credentials.test.js](../../host/__tests__/entrypoint-credentials.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1845,10 +1940,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array or comma-separated names according to the target schema). <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
+1. Agent definitions use each target’s correct frontmatter format: tool permissions use a record for OpenCode and arrays or comma-separated names where required by the target schema. <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
 2. `model` field is removed from frontmatter for non-CC agents where the target runtime resolves model selection independently. <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
-3. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths, including Pi's `.pi/agent/agents/` subagent path. <!-- @impl: scripts/agent-seed-core.mjs::adaptPaths --> <!-- @manual -->
-4. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents and `.md` for Pi subagents). <!-- @manual -->
+3. Path references use target-specific configuration locations, including Pi's native subagent location. <!-- @impl: scripts/agent-seed-core.mjs::adaptPaths --> <!-- @manual -->
+4. File extensions match each supported agent's conventions. <!-- @manual -->
 5. Pi subagent transforms emit Pi-compatible frontmatter for tools, prompt mode, extension/skill inheritance, context inheritance, and background defaults. <!-- @impl: scripts/agent-seed-core.mjs::adaptPiSkillContent --> <!-- @manual -->
 
 **Constraints:**
@@ -1859,7 +1954,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -1873,7 +1968,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. LLM provider keys are injected ONLY under a `CODEFLARE_`-namespaced name; the bare `OPENAI_API_KEY` / `GEMINI_API_KEY` names NEVER appear in the container's global environment. Keys are read fresh from KV on each container start and are not persisted in DO storage. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+1. OpenAI and Gemini keys enter the global container environment only under Codeflare-specific names, never bare provider names. Keys are read fresh from KV each container start and are not persisted in DO storage. Authoritative startup absence is explicit `null`, clearing warm keys and the emitted environment; omission in partial updates remains no-change. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-AGENT-031 AC1: fresh absent LLM keys are explicit clears) --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-031 AC1: warm credential revocation) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-AGENT-031 AC1: warm HTTP restart replaces the emitted environment after explicit key revocation) --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 2. The entrypoint maps namespaced provider keys to standard names only inside the scoped Claude and Pi `consult-llm-mcp` environments; it never exports them globally. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 3. Pi preserves a provider key beginning with literal `!` as data and never executes it. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 4. Per provider the entrypoint prefers the subscription over the API key: OpenAI uses the Codex CLI backend when the user is logged into Codex, passing the API key only as a fallback; otherwise it uses the API key. Gemini always uses the API key. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @manual -->
@@ -1891,7 +1986,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** Automated test
+**Verification:** Automated: [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [lifecycle.test.ts](../../src/__tests__/container/lifecycle.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts); Manual: [Consultation startup acceptance](../../documentation/lanes/preseed.md#consultation-startup-acceptance)
 
 **Status:** Implemented
 
@@ -1905,7 +2000,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. "Recreate starter documentation" button triggers `POST /api/storage/seed/getting-started`. <!-- @impl: src/routes/storage/seed.ts::app --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable)) -->
+1. The "Recreate starter documentation" button requests recreation of the starter documentation. <!-- @impl: src/routes/storage/seed.ts::app --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable)) -->
 2. The endpoint is rate-limited (3/min). <!-- @impl: src/routes/storage/seed.ts::storageSeedRateLimiter --> <!-- @test: src/__tests__/routes/storage-seed-rate-limit.test.ts (REQ-AGENT-032 AC2: storage-seed rate limiter (3/min)) -->
 3. After seeding, the storage stats KV cache is invalidated. <!-- @test: src/__tests__/routes/storage-seed.test.ts (invalidates storage-stats KV cache after successful getting-started seed) --> <!-- @manual -->
 
@@ -1917,7 +2012,7 @@ None.
 
 **Dependencies:** [REQ-STOR-009](storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session)
 
-**Verification:** Automated test
+**Verification:** Automated: [storage-seed-rate-limit.test.ts](../../src/__tests__/routes/storage-seed-rate-limit.test.ts), [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -1931,13 +2026,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects. <!-- @manual -->
+1. `/sdd init` scaffolds a new specification directory from templates for greenfield projects. <!-- @manual -->
 2. In import mode, `/sdd init` derives a spec from existing source code rather than scaffolding from templates. <!-- @manual -->
 3. Generated package manifests resolve top-level versions from the ecosystem registry; the Cloudflare Workers toolchain resolves as one pinned cohort. <!-- @manual -->
 4. Lockfile generation during `/sdd init` is a scoped carveout to the no-local-builds rule (resolution only, with `--ignore-scripts` on npm; no installs, tests, or builds). <!-- @manual -->
 5. `/sdd init` runs as a lean two-confirm flow: the agent asks one vision question, drafts the entire spec in memory, presents the full draft as one review surface, and applies user edits in place until the user accepts. <!-- @manual -->
 6. Every REQ written by `/sdd init` renders in the canonical shape: ACs numbered (`1.`, `2.`, `3.`), each labeled field on its own line with blank-line separators between trailing fields, and `**Constraints:**` + `**Dependencies:**` always present. <!-- @manual -->
-7. `/sdd init` pre-creates the verification-queue file `sdd/spec/.review-queue.md` at scaffold time with the placeholder `_Awaiting first finding._`; after scaffold the layout-resolved review queue accumulates findings appended by spec-reviewer, `/sdd clean`, or `/sdd init` Import-Mode triage. <!-- @manual -->
+7. `/sdd init` pre-creates the verification queue at scaffold time with the placeholder `_Awaiting first finding._`; afterward the layout-resolved queue accumulates findings from spec-reviewer, `/sdd clean`, or `/sdd init` Import-Mode triage. <!-- @manual -->
 
 **Constraints:** None.
 
@@ -1945,7 +2040,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Manual check
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -1962,8 +2057,8 @@ None.
 1. After the full draft is accepted, an enrichment pass runs before files are written, executing three sub-passes (cross-link, ADR-seed, glossary-seed) in one in-memory cycle with no additional user prompts. <!-- @manual -->
 2. The cross-link sub-pass adds every REQ that references another REQ concept by name to the parent's `Dependencies:` as a linked `REQ-X-NNN` heading anchor. <!-- @manual -->
 3. The ADR-seed sub-pass writes 3-8 founding technology-choice ADRs with an index and per-decision sections. <!-- @manual -->
-4. The glossary-seed sub-pass extracts every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body and gives each a one-line definition in `sdd/spec/glossary.md`. <!-- @manual -->
-5. The enrichment pass queries the project's `graphify-out/graph.json` via the `mcp__graphify__*` MCP tool family: `get_neighbors` drives the cross-link pass, `god_nodes` surfaces ADR-seed candidates, `query_graph` extracts glossary concept-tagged nodes, and `shortest_path` validates non-obvious dependency edges. <!-- @manual -->
+4. The glossary-seed sub-pass gives every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body a one-line definition in the specification glossary. <!-- @manual -->
+5. Enrichment queries the project's graph for cross-links, founding-decision candidates and glossary concepts, and validates non-obvious dependency edges with graph paths. <!-- @manual -->
 6. Missing-graph enrichment prompts once; declining uses the in-memory heuristic and records reduced cross-link density. <!-- @manual -->
 7. Graphify MCP tools are tool-agnostic across Bash and context-mode surfaces; the enrichment-pass contract is identical regardless of which tool surface is active. <!-- @manual -->
 
@@ -1975,7 +2070,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** Manual check
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -1993,9 +2088,9 @@ None.
 2. The verifier resolves every spec and documentation source anchor on disk, checks symbols and local literal values, and counts malformed anchors and unreadable files. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py::main --> <!-- @manual -->
 3. The verifier emits a machine-readable JSON report containing counts of parsed, resolved, orphaned, drifted, malformed, and unreadable anchors, plus per-entry failure details and an exit-code field, written to a Phase-7a evidence file the commit body can reference. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py::main --> <!-- @manual -->
 4. The `[sdd-init]` commit body MUST include the verbatim summary line `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. <!-- @manual -->
-5. A non-zero `exit_code` blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. <!-- @manual -->
+5. A non-zero verifier exit code blocks the commit until every failure is fixed in source or escalated to the live verification queue. <!-- @manual -->
 6. Substitute checks, self-attestation, partial coverage, inverted ordering, tooling bypass, or missing verifier evidence are CRITICAL failures. <!-- @manual -->
-7. After `/sdd init`, steady-state CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON when available rather than re-deriving. <!-- @manual -->
+7. During `/sdd init`, downstream CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON rather than re-deriving anchor resolution. Outside initialization, both perform their source-truth checks inline. <!-- @manual -->
 
 **Constraints:**
 
@@ -2005,7 +2100,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2022,8 +2117,8 @@ None.
 1. Successful executable push, PR-create, and clone boundaries request one authoritative branch-state evaluation. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful PR creation without requiring UI) -->
 2. Evaluation resolves the checked-out branch and local full `HEAD`, then queries that branch's PR without deriving refs from command arguments. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryBranch --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) -->
 3. Review launches only when the PR is open, targets `main`, `master`, or `develop`, names the checked-out branch, and reports local `HEAD` as its exact head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
-4. Failed commands other than bounded ambiguous `gh pr create` reconciliation, quoted examples, absent PRs, detached HEAD, nonstandard worktrees, unsynchronized remote heads, and acknowledged heads request no work. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
-5. Root and nested SDD layouts suppress review only while transition is true and the layout-resolved `.init-triage.md` contains an open item; ordinary review queues never suspend transition review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+4. Failed commands other than bounded ambiguous `gh pr create` reconciliation, quoted examples, absent PRs, detached HEAD, ineligible checkouts, unsynchronized remote heads, and acknowledged heads request no work. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
+5. Root and nested SDD layouts suppress review only while transition is true and the layout-resolved import-triage queue contains an open item; ordinary review queues never suspend transition review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 6. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
 7. Each candidate remains paired with its executable shell segment and resolved repository. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (resolves a successful clone destination before repository lookup) -->
 
@@ -2039,7 +2134,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-168](#req-agent-168-review-boundary-classification)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -2053,7 +2148,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via the layout-resolved config file (`sdd/spec/config.yml` on the nested layout, `sdd/config.yml` on the flat-legacy layout). <!-- @manual: On disposable current branches, exercise `--auto` and `--unleashed`; confirm the root applies repairs in specification-then-documentation order and pushes the checked-out branch without creating a branch or PR. -->
+1. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable through the layout-resolved specification configuration. <!-- @manual: On disposable current branches, exercise `--auto` and `--unleashed`; confirm the root applies repairs in specification-then-documentation order and pushes the checked-out branch without creating a branch or PR. -->
 2. `interactive` and `auto` modes apply fixes on the current branch (auto silently, interactive after confirmation). <!-- @manual -->
 3. `unleashed` mode applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits and uses conservative JUDGMENT auto-resolution that never overwrites intent. <!-- @manual -->
 4. `unleashed` refuses when `enforce_tdd: false`; users must enable TDD or use `auto`. It creates no branch or PR, and per-category commits remain independently revertible. <!-- @manual -->
@@ -2065,12 +2160,13 @@ None.
 
 - Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
 - Inline repair invokes `spec-enforce` before `doc-enforce`; report-only reviewers never own mutations or Git operations.
+- Independent preparation stays parallel while useful work remains; the root validates each completed handoff before applying it or closing findings.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2084,11 +2180,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. Re-invoking `/sdd init` on a project where `sdd/` already exists and `sdd/.init-triage.md` has at least one open item enters Resume Mode. <!-- @manual -->
+1. Re-invoking `/sdd init` on a project with an existing specification directory and at least one open import-triage item enters Resume Mode. <!-- @manual -->
 2. The user chooses one of five decisions per item (`accept`, `correct`, `lost`, `skip`, `quit`); per-decision semantics are enumerated in Constraints. <!-- @manual -->
 3. Only `accept` and `correct` promote behavior; `skip` and `lost` add no behavior, while `lost` may add a transition-gap Note. <!-- @manual -->
 4. Each resolved decision is its own commit with exactly one accepted subject: `[sdd-init] resolve TRIAGE-{NNN}` for `accept` or `correct`, and `[sdd-init] mark lost TRIAGE-{NNN}` for `lost`. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @manual -->
-5. Resume Mode entry refuses to start when the working tree has uncommitted changes and is always interactive regardless of `sdd/config.yml`'s `mode`. <!-- @manual -->
+5. Resume Mode entry refuses to start when the working tree has uncommitted changes and is always interactive regardless of the configured autonomy mode. <!-- @manual -->
 6. Queue-drain closure mechanics are specified in [REQ-AGENT-047](#req-agent-047-resume-mode-closure-and-review-pipeline-gate). <!-- @manual -->
 
 **Constraints:**
@@ -2104,7 +2200,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
-**Verification:** Manual check
+**Verification:** Manual: [Interactive triage and closure](../../preseed/agents/claude/skills/sdd-init/SKILL.md#resume-mode--picking-up-where-you-left-off)
 
 **Status:** Implemented
 
@@ -2119,7 +2215,7 @@ None.
 **Acceptance Criteria:**
 
 1. `/sdd init` runs Phase 7b as a second CRITICAL non-skippable gate AFTER Phase 7a and BEFORE iterate-to-clean. <!-- @manual -->
-2. The verifier walks the working tree, identifies load-bearing source files, and checks each file's repo-relative path against source-anchor paths in `sdd/**/*.md` and `documentation/**/*.md` plus literal mentions in layout-appropriate triage files. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py::main --> <!-- @manual -->
+2. The verifier identifies load-bearing working-tree source files and checks each repo-relative path against source anchors in all SDD and documentation Markdown files, plus literal mentions in layout-appropriate triage files. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py::main --> <!-- @manual -->
 3. The verifier emits a JSON report `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}`. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py::CoverageReport --> <!-- @manual -->
 4. The `[sdd-init]` step-10 commit body MUST include the verbatim summary line `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1` alongside the Phase 7a line. <!-- @manual -->
 5. An empty triage queue on Import Mode with `unaccounted > 0` is CRITICAL `import-mode-narrowed-scope`. <!-- @manual -->
@@ -2134,7 +2230,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2166,7 +2262,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [lane-classifier.test.js](../../host/__tests__/lane-classifier.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -2191,7 +2287,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -2215,7 +2311,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Manual verification
+**Verification:** Automated: [lane-classifier.test.js](../../host/__tests__/lane-classifier.test.js)
 
 **Status:** Implemented
 
@@ -2245,7 +2341,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-205](#req-agent-205-graphify-build-skill-delivery)
 
-**Verification:** Manual review
+**Verification:** Manual: [Graphify workflow acceptance](../../documentation/lanes/preseed.md#graphify-workflow-acceptance)
 
 **Status:** Implemented
 
@@ -2276,7 +2372,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -2296,7 +2392,7 @@ None.
 
 **Constraints:**
 
-- Triage state lives only in `sdd/.init-triage.md` and Git history.
+- Triage state lives in `sdd/spec/.init-triage.md` when the nested `sdd/spec/` layout exists, otherwise `sdd/.init-triage.md`, and Git history; the import-triage validator resolves the same layout.
 - Triage resolution is interactive only.
 - `/sdd init` owns the triage file.
 - spec-reviewer may read the triage file.
@@ -2308,7 +2404,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2322,7 +2418,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Only open Import Mode triage in the layout-resolved `.init-triage.md` suppresses Pi review lanes; `.review-queue.md` and `.review-needed.md` never do. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+1. Only open Import Mode triage in the selected layout suppresses Pi review lanes; ordinary verification queues never do. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 2. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::TRIAGE --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (suppresses review ingress only during an open SDD transition) -->
 
 **Constraints:**
@@ -2333,7 +2429,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -2348,7 +2444,7 @@ None.
 **Acceptance Criteria:**
 
 1. Import Mode with `enforce_tdd: false` marks source-implemented CLEAR requirements Implemented. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
-2. Import Mode with `enforce_tdd: true` marks requirements without REQ-referencing tests Partial. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
+2. Import Mode with `enforce_tdd: true` marks requirements Partial when their non-manual criteria lack required REQ-referencing tests; legitimate manual verification does not trigger demotion. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model --> <!-- @manual -->
 
 **Constraints:**
 
@@ -2358,7 +2454,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state)
 
-**Verification:** Manual check
+**Verification:** Manual: [Import status acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2385,7 +2481,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow)
 
-**Verification:** Automated tests and manual verification ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts); Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -2399,7 +2495,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Doc-updater remains report-only. When its report contains a substantive coverage record worth retaining, the root may lazy-create `documentation/.doc-coverage.md` or place the record in the applicable commit body; no scaffold-time placeholder is created. <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::Output contract --> <!-- @manual -->
+1. Doc-updater remains report-only. When its report contains substantive coverage worth retaining, the root may lazily create the documentation coverage artifact or use the applicable commit body; no scaffold-time placeholder is created. <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::Output contract --> <!-- @manual -->
 2. The `/sdd clean` execution audit lives in per-category commit bodies (recoverable via `git log --grep='\[sdd-clean\]'`), not in a dotfile. <!-- @manual -->
 
 **Constraints:** None.
@@ -2408,7 +2504,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2424,7 +2520,7 @@ None.
 
 1. The preseed generation script computes a deterministic content hash over all preseed documents (sorted by key) and emits it as a build-time constant accessible to the runtime. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: src/lib/agent-seed.generated.ts::PRESEED_CONTENT_HASH --> <!-- @manual -->
 2. After a successful reconcile (manual or auto), the applied hash is persisted in the user's preferences store. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
-3. Initial dashboard load requests an upgrade decision comparing stored preseed identity and enterprise mode with the desired environment. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns preseedNeedsUpgrade true when hash missing from preferences) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (enterprise: returns preseedNeedsUpgrade true when stored sessionMode is not advanced despite matching hash) --> <!-- @manual -->
+3. Initial dashboard load requests an upgrade decision comparing stored preseed identity and enterprise mode with the desired environment. <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (returns preseedNeedsUpgrade true when hash missing from preferences) --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-ENTERPRISE-001 AC6: ancillary polling requires enterprise Pro reconciliation for stored mode %s with current baked inputs) --> <!-- @manual -->
 4. The frontend automatically reconciles each advertised pending target at most once until status reports no upgrade needed. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049: attempts a changed baked target without managed status after target A %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (posts a successful upgrade once while stale true status keeps being observed) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (attempts target B without an intervening false after target A %s, but does not repeat either target) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (allows a later automatic upgrade after false/current, including the same target (%s)) --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true) -->
 5. The dashboard shows an active update for the full automatic reconciliation request and removes that request-scoped indicator when the request settles. <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (should set preseedUpgrading during upgrade and clear after) -->
 6. After upgrade failure, session-creation controls offer explicit retry or stay disabled. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049: clears a failed baked attempt when polling reports no upgrade needed without managed status) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-175: a failed baked upgrade cannot be bypassed through New Session) --> <!-- @impl: web-ui/src/stores/session.ts::performPreseedUpgrade --> <!-- @impl: web-ui/src/stores/session.ts::retryPreseedUpgrade --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not automatically retry a failed upgrade on repeated true polls and exposes recovery) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (manually retries the current need once through the upgrade endpoint, never session creation or full Recreate) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049: offers an actionable Retry upgrade after failure without creating a session or full Recreate) -->
@@ -2442,7 +2538,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-011](#req-agent-011-agent-skills--rules-manually-recreatable-from-settings), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Automated test
+**Verification:** Automated: [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
 **Status:** Implemented
 
@@ -2460,21 +2556,22 @@ None.
 2. While managed reconciliation waits for an owning session to stop, both controls remain disabled, display "Update pending", and expose the accessible label "Session environment update pending until session stops". <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (disables New Session while a managed release is update_pending) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-175 AC2: disables New Session while a managed update waits for sessions to stop) -->
 3. From a pending managed seed update through reconciliation completion, stopped session cards are visually de-emphasized and cannot be opened. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-AGENT-175 AC3: stopped card disabled throughout managed seed update) -->
 4. During managed reconciliation, the session menu disables New Session, displays "Updating", and exposes the accessible label "Updating session environment". <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-175 AC4: disables New Session button and shows Updating during managed reconciliation) -->
-5. For a nonzero reconciliation that finishes between status polls, the dashboard preserves its actual final writing count until finalization becomes visible. <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-175 AC5: mirrors managed release progress on transient polling) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC5 + REQ-AGENT-175 AC5: preserves fast upgrade progress through finalization) --> <!-- @test: web-ui/src/__tests__/api/storage.test.ts (REQ-STOR-033 AC7 + REQ-AGENT-175 AC5: calls the automatic endpoint and preserves completion progress) -->
-6. The dashboard displays planning as "Upgrading", finalization as "Finalizing", and nonzero writing work with completed and total counts between those phases even when reconciliation completes between polls. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175 AC6: shows planning and finalizing managed upgrade phases) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC5 + REQ-AGENT-175 AC5: preserves fast upgrade progress through finalization) -->
+5. For nonzero reconciliation completed between polls, the dashboard can display returned completion counts as writing progress while upgrading. Subsequent upgrading polls may replace them with older, lower, or absent progress; these nonmonotonic observations never authorize publication, readiness, or session launch. <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-175 AC5: mirrors managed release progress on transient polling) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC5 + REQ-AGENT-175 AC5: preserves fast upgrade progress through finalization) --> <!-- @test: web-ui/src/__tests__/api/storage.test.ts (REQ-STOR-033 AC7 + REQ-AGENT-175 AC5: calls the automatic endpoint and preserves completion progress) -->
+6. The dashboard displays observed planning as "Upgrading", finalization as "Finalizing", and nonzero writing work with completed and total counts. These observations need not form a monotonic phase sequence; authoritative status and independent publication/readiness/launch gates remain unchanged. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175 AC6: shows planning and finalizing managed upgrade phases) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC5 + REQ-AGENT-175 AC5: preserves fast upgrade progress through finalization) -->
 7. Managed progress advances across the whole button behind centered accessible text. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175 AC7: whole-button managed upgrade progress preserves centered text and ordinary completion color) -->
 
 **Constraints:**
 
-- Update states reuse existing dashboard polling and add no independent poller.
+- Update states reuse existing dashboard polling; no independent poller.
 - Failed-upgrade recovery follows [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release) AC6.
-- Pending updates, including an unavailable compatible seed, retain “Update pending” in both creation controls without a separate blocked/recovery panel. Existing session ownership still defers reconciliation until the last owner stops. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: preserves the existing pending state without a separate recovery panel (%s)) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175: the existing pending control advances through managed updating to ready) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: runtime incompatibility preserves the existing pending control) -->
+- Pending updates, including unavailable compatible seeds, show “Update pending” in both creation controls without a separate blocked/recovery panel. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: preserves the existing pending state without a separate recovery panel (%s)) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175: the existing pending control advances through managed updating to ready) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: runtime incompatibility preserves the existing pending control) -->
+- Existing session ownership defers reconciliation until the last owner stops.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-STOR-022](storage.md#req-stor-022-managed-reconciliation-admission)
 
-**Verification:** Automated dashboard and session-menu component tests
+**Verification:** Automated: [storage.test.ts](../../web-ui/src/__tests__/api/storage.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -2499,7 +2596,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-175](#req-agent-175-environment-update-ui-lockdown), [REQ-STOR-023](storage.md#req-stor-023-managed-release-status-projection)
 
-**Verification:** Automated session-store tests; deployed reconciliation and hosted acceptance require separate evidence.
+**Verification:** Automated: [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -2517,13 +2614,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. The Pi `/review` command injects a dedicated Pi-native `review` skill that mirrors the Claude `commands/review.md` workflow, instead of injecting the `git-review-pipeline` enforcement skill. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC1/REQ-AGENT-088 AC1: dispatches the dedicated /review workflow contract) -->
+1. The Pi `/review` command injects a dedicated native `review` skill mirroring user-invoked Claude review, rather than PR-boundary enforcement. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC1/REQ-AGENT-088 AC1: dispatches the dedicated /review workflow contract) -->
 2. The Pi `review` skill is the user-invoked review workflow (multi-perspective specialist subagents, cross-reference, architecture-decision filter, optional external verification, interactive triage), explicitly distinct from PR-boundary enforcement; it does not run the `git-review-pipeline`. <!-- @manual: Start Pi from a workspace parent, run `/review --diff`, confirm the dedicated review workflow receives the absolute project root and report-only execution contract, then repeat in a fixture lacking `sdd/` or `documentation/` and confirm the documentation lane produces the stable no-op report. -->
 3. The skill scopes review by `--all` or `--diff` parsed from the appended command line, prints help and runs no phases when neither flag is present, and supports the `--deep` and `--verify-high` flags. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @manual -->
 4. The skill is static-analysis only: it never runs builds, tests, or linters (the container is resource-constrained). <!-- @manual -->
-5. The skill maps Claude primitives to Pi-native ones: subagents spawn via Pi's `Agent` tool with `subagent_type`, graph queries use Pi-native `graphify_query`/`graphify_path`/`graphify_explain`, and plan entry uses the `Plan` agent or an explicit written-and-approved plan. <!-- @manual -->
-6. The skill is delivered advanced-only via the Pi manifest (`skills/review/SKILL.md`) through the standard seed pipeline. <!-- @manual -->
-7. When either `sdd/` or `documentation/` is absent, the documentation lane returns a stable no-op report instead of leaving a missing artifact. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewDocumentationSurfaceDecision --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC7: resolves the documentation lane to a stable no-surface report) -->
+5. The skill maps Claude primitives to Pi-native ones: subagents spawn via Pi's public `subagent` tool with `subagent_type`, graph queries use Pi-native `graphify_query`/`graphify_path`/`graphify_explain`, and plan entry uses the `Plan` agent or an explicit written-and-approved plan. <!-- @manual -->
+6. The native review skill is delivered advanced-only through the manifest-driven seed pipeline. <!-- @manual -->
+7. When either the specification directory or documentation tree is absent, the documentation lane returns a stable no-op report instead of leaving a missing artifact. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewDocumentationSurfaceDecision --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC7: resolves the documentation lane to a stable no-surface report) -->
 
 **Constraints:**
 
@@ -2533,7 +2630,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -2549,7 +2646,7 @@ None.
 **Acceptance Criteria:**
 
 1. A Pi extension registers three native commands: `debug`, `deploy`, and `brainstorm`. <!-- @impl: preseed/agents/pi/extensions/codeflare-commands.ts::dispatchDebug --> <!-- @manual -->
-2. Each command injects its adapted workflow text plus the user's input, rather than loading a SKILL.md, because these workflows have no Pi skill file. <!-- @impl: preseed/agents/pi/extensions/commands-helpers.ts::commandInstructions --> <!-- @manual -->
+2. Each command injects its adapted workflow text plus the user's input instead of loading a separate Pi skill. <!-- @impl: preseed/agents/pi/extensions/commands-helpers.ts::commandInstructions --> <!-- @manual -->
 3. `/debug` runs a systematic root-cause debugging workflow (no fixes before root cause is established; the 3-Fix Rule). <!-- @impl: preseed/agents/pi/extensions/commands-helpers.ts::DEBUG_WORKFLOW --> <!-- @manual -->
 4. `/deploy` runs the push, stale-CI cancellation, CI monitoring, deploy, and live-URL verification workflow. <!-- @impl: preseed/agents/pi/extensions/commands-helpers.ts::DEPLOY_WORKFLOW --> <!-- @manual -->
 5. `/brainstorm` runs a structured option-generation workflow that produces trade-offs and a recommendation. <!-- @impl: preseed/agents/pi/extensions/commands-helpers.ts::BRAINSTORM_WORKFLOW --> <!-- @manual -->
@@ -2563,15 +2660,47 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
 ---
 
-### REQ-AGENT-052: Pi Commit-Attribution and Local-Build Hook Hardening
+<a id="req-agent-052-pi-commit-attribution-and-local-build-hook-hardening"></a>
 
-**Intent:** Pi's PreToolUse guards that block AI attribution and local builds must cover the same surfaces and detection set as the canonical Claude hooks, so no attributed commit, PR, issue, release, or tag can slip through any subcommand and a local build is not silently allowed.
+### REQ-AGENT-052: Pi Local-Execution Guards and Managed Checks
+
+**Intent:** Pi's local-execution guards and managed checks preserve canonical execution restrictions without silently permitting local builds.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Session guards reject build, test, lint, typecheck and development execution, including chained/nested runners, independently of deployment resources; runner names in metadata-only Git pathspecs, paths or package-name arrays neither count as execution nor consume an override. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not staged filenames) -->
+2. The local-build guard honors the documented user-only consume-on-use sentinel: when present, it is deleted before allowing one guarded command; failed consumption keeps blocking, and the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC5: user-only consume-on-use build override) -->
+3. The seeded safe-local-check wrapper runs approved read-only analyzers, Node syntax checks, or explicitly named Node test files from any repository through existing binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) --> <!-- @test: host/__tests__/safe-local-check-image.test.js (uses image-baked Oxlint without dependencies, ignores ancestor/PATH tools, and stays read-only) -->
+4. Session outer guards check analyzer argv against the actual tool cwd and canonical Git root, rejecting absolute, parent, config and symlink escapes and unresolved dynamic paths. The managed wrapper itself remains unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryFiles --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC4: analyzer argv uses actual cwd and canonical repository containment) --> <!-- @test: host/__tests__/context-mode-v2-guards.test.js (REQ-AGENT-052 AC4: Claude analyzer canonical containment) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-052 AC4: uses the native session cwd and cannot exempt a wrapper via graph-query text) -->
+
+**Constraints:**
+
+- The attribution and local-build detection sets are kept aligned with the canonical Claude hook scripts (`block-attributed-commits.sh`, the no-local-builds rule); divergence is a regression, except the documented Pi superset (brain emoji + `ChatGPT`) in [REQ-AGENT-231](#req-agent-231-pi-commit-attribution-guard) AC2.
+- The bypass sentinel is user-only and consume-on-use under [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent).
+- The tuned managed wrapper is the only permitted local-test route; its modes and bounds do not vary with deployment resources.
+- Managed local checks are supplemental preflight evidence; package test scripts, broad integration suites, type checks, dependency-graph analysis, builds, installs, servers and authoritative verification remain CI-only.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
+
+**Verification:** Automated: [context-mode-v2-guards.test.js](../../host/__tests__/context-mode-v2-guards.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [safe-local-check.test.js](../../host/__tests__/safe-local-check.test.js), [pi-local-build-guard.test.ts](../../src/__tests__/lib/pi-local-build-guard.test.ts), [safe-local-check-image.test.js](../../host/__tests__/safe-local-check-image.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-231: Pi Commit-Attribution Guard
+
+**Intent:** Pi's attribution guard covers the canonical Claude command surfaces and detection set, including its documented Pi superset, so attributed commits, PRs, issues, releases and tags cannot slip through a subcommand.
 
 **Applies To:** Agent
 
@@ -2580,25 +2709,18 @@ None.
 1. The attribution guard fires not only on `git commit` and `gh pr create` but across `git merge`, `git tag`, `git notes`, and the `gh pr`, `gh issue`, and `gh release` subcommand families, including accepted global-option forms. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 2. The attribution detection set matches genuine attribution signatures only - the canonical commit-attribution-block set plus the brain emoji and `ChatGPT` as a deliberate Pi-guard superset since a Pi session may run a non-Claude model. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
-4. The guard rejects local build, test, lint, typecheck and development execution, including chained or nested runners; runner names in metadata-only Git pathspecs, directory paths and package-name arrays do not count as execution or consume the user override. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not staged filenames) -->
-5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one guarded command through; failed consumption keeps blocking, and the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC5: user-only consume-on-use build override) -->
-6. The seeded safe-local-check wrapper runs approved read-only analyzers, Node syntax checks, or explicitly named Node test files from any repository through existing binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
-7. Checked paths whose canonical targets leave the current repository directly or through symlinks are rejected. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryFiles --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 
 **Constraints:**
 
 - The attribution and local-build detection sets are kept aligned with the canonical Claude hook scripts (`block-attributed-commits.sh`, the no-local-builds rule); divergence is a regression, except the documented Pi superset (brain emoji + `ChatGPT`) in AC2.
-- The bypass sentinel is user-only and consume-on-use under [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent).
-- Managed local checks are supplemental preflight evidence; package test scripts, broad integration suites, type checks, dependency-graph analysis, builds, installs, servers, and authoritative verification remain CI-only.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
 
-**Verification:** Focused wrapper tests cover managed checks; shared-analyzer coverage is authored, with exact-head CI, consuming-image checks and managed delivery still required. <!-- @test: host/__tests__/safe-local-check-image.test.js (uses image-baked Oxlint without dependencies, ignores ancestor/PATH tools, and stays read-only) -->
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
-**Status:** Planned
-
+**Status:** Implemented
 ---
 
 <a id="req-agent-192-image-baked-typescript-syntax-parser"></a>
@@ -2621,6 +2743,8 @@ None.
 
 7. ESLint runs only from an existing repository installation; without one, the wrapper refuses rather than using an image copy or another analyzer. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check-image.test.js (requires repository-installed ESLint without substituting an image analyzer) -->
 
+**Notes:** Built-image tests cover the unchanged managed wrapper, analyzer image and parser dependencies; skipped host-run image tests are not that evidence. Whole-image qualification and deployment remain separate under [CI/CD](../../documentation/lanes/ci-cd.md).
+
 **Constraints:**
 
 - Image fallbacks use exact manifests/locks: `/opt/codeflare/npm-tools` for esbuild and `/opt/codeflare/oxlint` for analyzers/YAML.
@@ -2632,9 +2756,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-052](#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening), [REQ-OPS-033](operations.md#req-ops-033-build-dependencies-have-committed-integrity)
 
-**Verification:** Dependency-integrity, repository-precedence and built-image analyzer/parser coverage is authored; exact-head CI, consuming-image execution and managed delivery remain required.
+**Verification:** Automated: [safe-local-check.test.js](../../host/__tests__/safe-local-check.test.js), [safe-local-check-image.test.js](../../host/__tests__/safe-local-check-image.test.js)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2658,7 +2782,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite), [REQ-AGENT-185](#req-agent-185-component-system-and-registry-boundaries)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2685,7 +2809,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite), [REQ-AGENT-136](#req-agent-136-design-truth-precedence)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -2712,7 +2836,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-agent-specific-config-generation), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
 
-**Verification:** Automated compiler contract and manual writing review
+**Verification:** Automated: [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js); Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2732,13 +2856,17 @@ None.
 4. Repository source, dependencies, configuration, specifications, tests, documentation, and explicit project instructions govern technology use before general model knowledge. <!-- @manual -->
 5. Focused product, design, tutorial, Humanize, and executable delivery-system skills remain available under their existing activation boundaries. <!-- @manual -->
 
-**Constraints:** Retired skill names remain absent rather than redirecting to replacement skills. License notices required by retained third-party content remain present. Removal is not evidence for weakening the Engineering Constitution, SDD/TDD workflow, review/CI controls, or platform-specific security guidance.
+**Constraints:**
+
+- Retired skill names remain absent rather than redirecting to replacement skills.
+- License notices required by retained third-party content remain present.
+- Removal is not evidence for weakening the Engineering Constitution, SDD/TDD workflow, review/CI controls, or platform-specific security guidance.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-195](#req-agent-195-portable-humanize-writing-guidance)
 
-**Verification:** Deterministic seed generation and manual catalog inspection
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -2752,16 +2880,19 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi `SYSTEM.md` contains only runtime bootstrap guidance and reaches both session modes. <!-- @impl: preseed/agents/pi/manifest.json::SYSTEM.md --> <!-- @manual -->
+1. Pi's system instructions contain only runtime bootstrap guidance and reach both session modes. <!-- @impl: preseed/agents/pi/manifest.json::SYSTEM.md --> <!-- @manual -->
 2. Detailed Git, review, CI, Graphify build, Todo, local-check, design, platform, memory-capture, and enforcement mechanics remain with their existing owners. <!-- @manual -->
 
-**Constraints:** Ambient prose reduction cannot weaken executable guards or remove a required route. Content wording, headings, and byte/token counts remain manual concerns rather than tests.
+**Constraints:**
+
+- Ambient prose reduction cannot weaken executable guards or remove a required route.
+- Content wording, headings, and byte/token counts remain manual concerns rather than tests.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-196](#req-agent-196-repository-led-technology-guidance)
 
-**Verification:** Deterministic seed generation and manual ownership review
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -2788,7 +2919,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2812,7 +2943,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2835,7 +2966,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2862,7 +2993,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -2890,7 +3021,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -2914,7 +3045,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection)
 
-**Verification:** Manual verification
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [operator-review-selector.test.ts](../../src/__tests__/lib/operator-review-selector.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -2939,16 +3070,17 @@ None.
 
 **Constraints:**
 
-- Open TUI alone owns terminal renderers; RPC, print and background sessions do not run its terminal handlers, project probes or settings overlay.
+- Open TUI alone owns terminal renderers; RPC, print and background sessions run no terminal handlers, project probes or settings overlay.
 - Cosmetic metadata/configuration failures must not block agent execution.
 - Unsafe or malformed Open TUI configuration stays unchanged and skips native activation with a content-free warning.
-- Entrypoint alone enforces owned startup preferences; the terminal adapter validates configuration without writing it. Native context/model rendering remains upstream-owned.
+- Entrypoint alone enforces owned startup preferences; the terminal adapter validates configuration without writing it.
+- Native context/model rendering remains upstream-owned.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-221](#req-agent-221-pi-startup-presentation-preferences)
 
-**Verification:** Package-assembly and Codeflare status tests; manual packaged-terminal acceptance for native UI, configuration and widths.
+**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [local-statusline-repo.test.ts](../../src/__tests__/lib/local-statusline-repo.test.ts); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -2973,7 +3105,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated startup-helper tests cover fresh/restored preferences, preservation and unsafe-file handling; deployed startup acceptance remains separate.
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
 
 **Status:** Implemented
 
@@ -2989,13 +3121,9 @@ None.
 
 1. Tool-use-ID correlation leaves each native reviewer result intact for the main session. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-059: correlates successful native notifications by XML tool-use-id) -->
 2. Correlated successful native notifications or public result retrievals are the completion proof. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) -->
-3. Every ranged PR-boundary plan carries the executable diff work-set contract. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-scope.ts::scopeContract --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) -->
-4. `/review` maps diff and all flags to their executable work sets. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewCommandDecision --> <!-- @impl: preseed/agents/pi/extensions/review-scope.ts::scopeContract --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (AC3: resolves /review diff and all into executable work-set contracts) -->
-5. `/sdd clean` rejects invalid scope flags before dispatching its resolved work set. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowScopeText --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (dispatches the resolved /sdd clean work set and rejects ambiguous scope flags) -->
-6. The shared packet builder validates diff ancestry and returns only lane-owned changed hunks. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @manual -->
-7. All scope returns the tracked lane tree without a diff patch. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @manual -->
 
 **Constraints:**
+
 - Main-session rules require waiting for every required reviewer before fixing, committing, or pushing.
 - The main session verifies and fixes legitimate findings unless the latest user instruction says to wait or not autofix.
 - Report-only reviewer types never own a `/review` mutation phase; triage/history/ADR/issue writes route to a non-review mutation agent.
@@ -3004,10 +3132,39 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts), [review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
+---
+
+### REQ-AGENT-232: Executable Review and SDD Work Sets
+
+**Intent:** Review and SDD entry points dispatch executable work sets with validated diff ancestry, lane-owned hunks and explicit all-scope semantics.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every ranged PR-boundary plan carries the executable diff work-set contract. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-scope.ts::scopeContract --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) -->
+2. `/review` maps diff and all flags to their executable work sets. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewCommandDecision --> <!-- @impl: preseed/agents/pi/extensions/review-scope.ts::scopeContract --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (AC3: resolves /review diff and all into executable work-set contracts) -->
+3. `/sdd clean` rejects invalid scope flags before dispatching its resolved work set. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowScopeText --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (dispatches the resolved /sdd clean work set and rejects ambiguous scope flags) -->
+4. The shared packet builder validates diff ancestry and returns only lane-owned changed hunks. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @manual -->
+5. All scope returns the tracked lane tree without a diff patch. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @manual -->
+
+**Constraints:**
+
+- Main-session rules require waiting for every required reviewer before fixing, committing, or pushing.
+- The main session verifies and fixes legitimate findings unless the latest user instruction says to wait or not autofix.
+- Report-only reviewer types never own a `/review` mutation phase; triage/history/ADR/issue writes route to a non-review mutation agent.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
+
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
+
+**Status:** Implemented
 ---
 
 <a id="req-agent-063-pr-boundary-command-parsing"></a>
@@ -3033,26 +3190,54 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated tests and manual verification ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
 ---
 ### REQ-AGENT-064: Connect to Cloudflare via OAuth
 
-**Intent:** In non-enterprise modes a user connects their own Cloudflare account via OAuth — mirroring the GitHub connect — so the per-user deploy token is obtained without pasting a dashboard-created API token. One operator-registered OAuth client serves every user; each user authorizes their own account.
+**Intent:** In every deployment mode, a configured Cloudflare OAuth client lets each user authorize their own account without pasting a token or borrowing platform credentials.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Cloudflare OAuth integration supports authorize, exchange, refresh, and revoke; encrypted OAuth credentials reuse the bucket deploy-key fields without a new key. Exchanges use `client_secret_post` and surface Cloudflare `error_description` on failure. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
-2. `GET /api/cloudflare/connect`, its callback, and `POST /api/cloudflare/disconnect` are gated by authentication only (any authenticated user) — reachable from Guided Setup and the Settings accordion, never tier-gated — and the token never reaches the browser. <!-- @impl: src/routes/cloudflare.ts::app --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
+1. The Cloudflare OAuth integration supports authorize, exchange, refresh, and revoke. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
+2. Cloudflare connection and disconnection APIs require active-user authorization; their callback reauthenticates the live session. Guided Setup and Settings expose connection without an advanced-session entitlement. API access still rejects pending/blocked users in app-owned OIDC modes; credentials never reach the browser. <!-- @impl: src/routes/cloudflare.ts::app --> <!-- @impl: src/middleware/auth.ts::requireActiveUser --> <!-- @impl: src/routes/cloudflare-auth.ts::app --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) --> <!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, PENDING/BLOCKED responses, outside-SaaS and authMiddleware backward compatibility)) -->
 3. The callback binds a signed, single-use state to the initiating user's bucket, rejecting forged, expired, or replayed states without exchanging the code; success stores the token and auto-selects a sole accessible account, else redirects to an account picker. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
 4. A currently valid token is returned, refreshed within the skew window, and fails closed rather than returning a stale token. <!-- @impl: src/lib/cloudflare-token.ts::getValidCloudflareToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (getValidCloudflareToken) -->
 5. The connect URL carries a scope `tier`; the server maps it to the OAuth `scope`, with every tier including `analytics.read` and `offline_access` so zone analytics are readable and a refresh token is issued. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (feeds every scope tier into OAuth with Analytics read and offline access) -->
-6. The operator's Cloudflare OAuth client id + secret are configured in the admin-gated Setup wizard (KV; id plain, secret encrypted at rest, fail-closed without `ENCRYPTION_KEY`), mirroring the GitHub provider config ([REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-7. Enterprise is unchanged: the OAuth provider resolves to none in enterprise, so every Cloudflare-OAuth route fails closed there; enterprise keeps the admin-global Browser Rendering token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). <!-- @impl: src/lib/cloudflare-token.ts::getCloudflareProvider --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, real token never in the container)) -->
+6. Enterprise supports configured owner Cloudflare OAuth independently of its administrator-owned Browser Run credentials ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). <!-- @impl: src/lib/cloudflare-token.ts::getCloudflareProvider --> <!-- @impl: src/routes/cloudflare.ts::app --> <!-- @impl: src/routes/cloudflare-auth.ts::app --> <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (resolves the configured OAuth client in every deployment mode: %j) -->
+
+**Constraints:**
+
+- One OAuth client per operator account; each user authorizes their own Cloudflare account.
+- The operator's OAuth client must be registered with `token_endpoint_auth_method = client_secret_post`.
+- Cloudflare's client-secret **rotation is broken** (Cloudflare-side bug): only the secret returned at client *creation* authenticates.
+- The exact OAuth scope set must be granted on the operator's client — see the [Configuration](../../documentation/lanes/configuration.md) lane and verify against `GET /client/v4/oauth/scopes`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container), [REQ-AGENT-235](#req-agent-235-cloudflare-oauth-storage-and-exchange-compatibility)
+
+**Verification:** Automated: [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [cloudflare-oauth.test.ts](../../src/__tests__/routes/cloudflare-oauth.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-235: Cloudflare OAuth storage and exchange compatibility
+
+**Intent:** Cloudflare OAuth retains existing encrypted deploy-key storage and its token-exchange authentication and failure diagnostics.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Encrypted OAuth credentials reuse the bucket deploy-key fields without a new key.
+2. Exchanges use `client_secret_post`. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
+3. Exchanges surface Cloudflare `error_description` on failure. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 
 **Constraints:**
 
@@ -3065,7 +3250,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container)
 
-**Verification:** Automated test
+**Verification:** Automated: [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [cloudflare-oauth.test.ts](../../src/__tests__/routes/cloudflare-oauth.test.ts)
 
 **Status:** Implemented
 
@@ -3079,32 +3264,29 @@ None.
 
 **Acceptance Criteria:**
 
-1. When the session's Cloudflare token source is `'oauth'`, the container receives only a non-secret placeholder (`CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER`) as `CLOUDFLARE_API_TOKEN` — the real access token never enters the container env. A non-oauth source (PAT / enterprise) is passed through untouched. <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @impl: src/lib/constants.ts::CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, real token never in the container)) -->
-2. OAuth sessions forward `api.cloudflare.com` requests with absent credentials or the exact OAuth placeholder using the bound owner token refreshed within its skew window. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/container/container-interception.ts::cloudflareOauthApi --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (stamps a FRESH refreshed token on ANY api.cloudflare.com path (e.g. wrangler), egress DIRECT) -->
+1. Owner Cloudflare OAuth credentials remain Worker-held; non-enterprise OAuth and Enterprise Browser Run retain their distinct non-secret container placeholders. <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @impl: src/lib/constants.ts::CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, real token never in the container)) -->
+2. Managed Cloudflare API requests in every deployment mode use refreshed session-owner grants only within their declared integration transport. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/container/container-interception.ts::cloudflareOauthApi --> <!-- @impl: src/container/container-interception.ts::browserRendering --> <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOwnerApi --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (stamps a FRESH refreshed token on ANY api.cloudflare.com path (e.g. wrangler), egress DIRECT) --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-AGENT-078/REQ-BROWSER-008: registered Enterprise %s owner grant is independent of admin Browser configuration) -->
 3. Both the REST surface and the CDP WebSocket upgrade (browser-run) are stamped and forwarded via the shared transport, so a session survives past the access-token lifetime for wrangler **and** interactive browser-run. <!-- @impl: src/cloudflare-browser-interceptor.ts::bridge --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-AGENT-078: registered OAuth CDP relays bidirectional text and binary frames with the bound owner token) -->
-4. Managed OAuth requests without valid authorization from their bound session bucket fail closed with `401` before any upstream call. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode (non-enterprise) — REST) -->
-5. Managed OAuth Gateway requests with absent Cloudflare credentials or the exact OAuth placeholder receive refreshed `cf-aig-authorization`. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/cloudflare-browser-interceptor.ts::INTERCEPTED_CF_OAUTH_HOSTS --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: OAuth mode — AI Gateway data-plane (gateway.ai.cloudflare.com)) -->
-6. In an OAuth session the container trusts the platform-mounted intercept CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`) so the intercepted `api.cloudflare.com` / `gateway.ai.cloudflare.com` TLS validates in agent runtimes instead of failing `SELF_SIGNED_CERT_IN_CHAIN`. <!-- @impl: entrypoint.sh::CF_OAUTH_CA_SRC --> <!-- @test: host/__tests__/entrypoint-oauth-ca-trust.test.js (REQ-AGENT-078 AC6: non-enterprise OAuth intercept-CA trust (entrypoint.sh)) -->
+4. Managed OAuth requests without valid authorization from their bound session bucket fail closed with `401` before any upstream call. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode (non-enterprise) — REST) --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-AGENT-078/REQ-BROWSER-008: Enterprise $reason cannot fall back to admin credentials) -->
+5. Non-enterprise OAuth Gateway requests receive refreshed `cf-aig-authorization`; Enterprise Gateway traffic remains owned by its existing LLM interceptor. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/cloudflare-browser-interceptor.ts::INTERCEPTED_CF_OAUTH_HOSTS --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: OAuth mode — AI Gateway data-plane (gateway.ai.cloudflare.com)) -->
+6. In an OAuth session the container trusts the platform-mounted interception CA so intercepted `api.cloudflare.com` / `gateway.ai.cloudflare.com` TLS validates in agent runtimes instead of failing `SELF_SIGNED_CERT_IN_CHAIN`. <!-- @impl: entrypoint.sh::CF_OAUTH_CA_SRC --> <!-- @test: host/__tests__/entrypoint-oauth-ca-trust.test.js (REQ-AGENT-078 AC6: non-enterprise OAuth intercept-CA trust (entrypoint.sh)) -->
 7. Explicit API Bearer, complete key/email and Gateway credentials retain their caller identity regardless of managed credential availability or upstream `401`/`403`. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/lib/cloudflare-credentials.ts::classifyCloudflareCredentials --> <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-AGENT-078: native Cloudflare Gateway preserves caller roles under strict inspection and revocation) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: caller Cloudflare credential precedence) --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008/REQ-AGENT-078: caller identity through registered $mode transport) -->
 
 **Constraints:**
 
-- OAuth registration remains non-enterprise-only and placeholder-guarded.
-- Caller precedence applies across OAuth, PAT/plain and Enterprise.
-- PAT/plain sessions retain their transparent transport.
-- Managed OAuth identity uses only the bound session bucket, never request-supplied identity.
-- Explicit caller credentials bypass managed lookup, refresh and fallback.
-- Gateway provider `Authorization` is never selected or rewritten as Cloudflare authentication.
-- The AI Gateway host lives only in `INTERCEPTED_CF_OAUTH_HOSTS` (never the enterprise browser list), so enterprise never intercepts its own `LlmInterceptor` gateway rewrites.
-- `CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER` must stay distinct from `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER` — the placeholder value is itself the DO's OAuth-mode wiring signal.
-- The GitHub interceptor is not touched — non-enterprise git stays direct (GitHub tokens are long-lived); `api.cloudflare.com` and `gateway.ai.cloudflare.com` are the only hosts newly intercepted (OAuth-mode only).
-- The AC6 CA-trust is an isolated `entrypoint.sh` sibling of the enterprise CA-trust: distinct `CF_OAUTH_CA_SRC` var + `# cf-ca-trust` sentinel, gated `ENTERPRISE_MODE != active` && CA-present; a no-interception deploy is byte-identical to before.
+- Non-enterprise OAuth registration stays placeholder-guarded; Enterprise owner API integration coexists with separately scoped administrator Browser Run, without displacing LLM Gateway routing.
+- GitHub interception stays untouched; PAT/plain transport and non-enterprise direct GitHub remain unchanged (GitHub tokens are long-lived); only `api.cloudflare.com` and `gateway.ai.cloudflare.com` gain OAuth-only interception.
+- Managed OAuth uses only the bound session bucket, never request identity; explicit caller credentials bypass managed lookup, refresh and fallback.
+- Gateway provider `Authorization` is never Cloudflare authentication or rewritten as such.
+- AI Gateway belongs only to `INTERCEPTED_CF_OAUTH_HOSTS`, never the enterprise browser list; Enterprise cannot re-intercept `LlmInterceptor` rewrites.
+- `CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER` stays distinct from `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER`; the OAuth placeholder is the DO’s OAuth-mode wiring signal.
+- OAuth CA trust remains an isolated `entrypoint.sh` enterprise-trust sibling: distinct `CF_OAUTH_CA_SRC`, `# cf-ca-trust` sentinel, `ENTERPRISE_MODE != active` and CA-present gates; no-interception deployments remain byte-identical.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](security.md#req-sec-002-api-tokens-never-enter-containers)
 
-**Verification:** Automated test ([Interceptor test](../../src/__tests__/cloudflare-browser-interceptor.test.ts) + [registered REST/CDP transport](../../src/__tests__/container/browser-interception.test.ts) + [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [OAuth CA-trust test](../../host/__tests__/entrypoint-oauth-ca-trust.test.js))
+**Verification:** Automated: [cloudflare-browser-interceptor.test.ts](../../src/__tests__/cloudflare-browser-interceptor.test.ts), [browser-interception.test.ts](../../src/__tests__/container/browser-interception.test.ts), [cloudflare-token.test.ts](../../src/__tests__/lib/cloudflare-token.test.ts), [entrypoint-oauth-ca-trust.test.js](../../host/__tests__/entrypoint-oauth-ca-trust.test.js)
 
 **Status:** Implemented
 
@@ -3131,7 +3313,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
 
-**Verification:** Automated test ([oauth-scopes](../../src/__tests__/lib/oauth-scopes.test.ts))
+**Verification:** Automated: [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
 
 **Status:** Implemented
 
@@ -3147,19 +3329,22 @@ None.
 
 1. Seed compilation delivers the constitution to every supported runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 2. Repository evidence and explicit constraints outrank generic patterns, and implementation stays within the smallest coherent change. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
-3. Every changed behavior starts with failing behavioral proof and passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+3. Functional behavior specified by actual SDD requirements starts with failing behavioral proof; every behavior change passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 4. Composition and extraction follow explicit ownership, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 5. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
-6. Repositories with `sdd/` keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+6. Repositories with a specification directory keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 7. CI, automated-test, deployment, and log-tail monitoring never blocks the main session; only approved safe local checks run in-session. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 
-**Constraints:** The canonical constitution is authored in Claude preseed and compiled for every supported runtime; transformed files are downstream artifacts. Prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
+**Constraints:**
+
+- The canonical constitution is authored in Claude preseed and compiled for every supported runtime; transformed files are downstream artifacts.
+- Prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3183,7 +3368,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3207,7 +3392,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3233,7 +3418,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3262,7 +3447,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** Manual check
+**Verification:** Manual: [Consultation explicit-user gate](../../preseed/agents/claude/skills/consult-llm/SKILL.md#hard-gate--explicit-user-request-only), [Choose consultation model](../../preseed/agents/claude/skills/consult-llm/SKILL.md#step-1--choose-the-model), [List concrete consultation models](../../preseed/agents/claude/skills/consult-llm/SKILL.md#listing-concrete-models)
 
 **Status:** Implemented
 
@@ -3292,7 +3477,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Automated tests ([pi ci monitor](../../host/__tests__/pi-ci-monitor.test.js))
+**Verification:** Automated: [pi-ci-monitor.test.js](../../host/__tests__/pi-ci-monitor.test.js)
 
 **Status:** Implemented
 
@@ -3316,7 +3501,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-098](#req-agent-098-pi-review-triage-acknowledgement-barrier)
 
-**Verification:** Automated tests ([pi ci monitor](../../host/__tests__/pi-ci-monitor.test.js))
+**Verification:** Automated: [pi-ci-monitor.test.js](../../host/__tests__/pi-ci-monitor.test.js)
 
 **Status:** Implemented
 
@@ -3346,7 +3531,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity), [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior)
 
-**Verification:** Automated bootstrap and actual locked-extension metadata-only discovery/direct-tool regressions cover AC1–2, with existing-user startup-setting preservation. Their execution remains subject to exact-head CI; migration evidence belongs to REQ-AGENT-217. Startup regeneration has anchored host regressions; manual verification remains on AC4–5.
+**Verification:** Automated: [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js), [consult-proxy.test.mjs](../../preseed/agents/pi/test/consult-proxy.test.mjs); Manual: [Consultation startup acceptance](../../documentation/lanes/preseed.md#consultation-startup-acceptance)
 
 **Status:** Implemented
 
@@ -3362,7 +3547,7 @@ None.
 **Acceptance Criteria:**
 
 1. Routine non-boundary pushes do not auto-start Claude `ci-monitoring`. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Review exposure --> <!-- @manual -->
-2. Claude launches one attached background `ci-monitor` Agent for an eligible PR-boundary directive, an explicit user request, or a fresh deploy/merge gate. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Triggers and routes --> <!-- @manual -->
+2. Claude launches one attached background `ci-monitor` Agent for an eligible PR-boundary directive, an explicit user request, or a fresh deploy/merge gate. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Triggers and routes --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Independent CI Monitoring --> <!-- @manual -->
 3. The dedicated Agent returns one native terminal result carrying its repository, PR, and head identity. <!-- @impl: preseed/agents/claude/agents/ci-monitor.md::ci-monitoring/scripts/monitor-ci.mjs --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::summary --> <!-- @manual -->
 4. A Claude terminal result requires a non-empty exact-head workflow/run fingerprint that remains stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
 5. After every observed exact-head workflow is terminal, all failed or cancelled workflow rows return together as terminal failure evidence. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
@@ -3380,7 +3565,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -3403,7 +3588,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-051](#req-agent-051-pi-deploy-and-brainstorm-commands), [REQ-AGENT-070](#req-agent-070-claude-on-demand-ci-monitoring-policy), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3436,21 +3621,21 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
 ---
 ### REQ-AGENT-074: Pi Settled Review Handoff
 
-**Intent:** Pi must hand missing review work back to the main session and reliably acknowledge transcript-proven joint reviewer-and-CI triage when the root agent run ends. It owns no review monitor, durable claim, or restart path.
+**Intent:** Pi must coordinate current review work and reliably acknowledge transcript-proven joint reviewer-and-CI triage when the root agent run ends. It owns no review monitor, durable claim, or restart path.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
 1. An eligible boundary with invalid acknowledgement emits full-PR scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
-2. Unmatched public reviewer calls are not duplicated, while missing peers are requested together. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) -->
+2. Unmatched public reviewer calls are not duplicated. Interrupted rounds produce no missing-work follow-up; later eligible delivery starts a fresh round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (clears stopped work without a recovery message or marker) -->
 
 **Constraints:**
 
@@ -3462,23 +3647,23 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
 ---
 ### REQ-AGENT-075: Cloudflare Platform Skills Bundled into the Advanced Seed
 
-**Intent:** Codeflare is a Cloudflare-native build platform AND an enterprise Zero Trust product, so the official Cloudflare skills ([github.com/cloudflare/skills](https://github.com/cloudflare/skills), Apache-2.0) are vendored into the advanced-mode agent seed via the existing manifest pipeline ([REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)) — giving Pro agents authoritative, retrieval-first guidance for Workers/KV/D1/R2, the Agents SDK, Durable Objects, stable and preview Sandbox SDK lines, Wrangler, Turnstile, email, web performance, and Cloudflare One (Zero Trust / SASE). The bundle is **slimmed for the Worker bundle budget**: the cloudflare mega-skill's 319-file `references/` tree is dropped (it is retrieval-first — agents fetch live docs), keeping only its decision-tree `SKILL.md`. The bundled remote-MCP config is excluded (strict-egress + interactive OAuth incompatible); retrieval is via WebFetch of `developers.cloudflare.com`.
+**Intent:** Codeflare is a Cloudflare-native build platform AND an enterprise Zero Trust product, so the official Cloudflare skills ([github.com/cloudflare/skills](https://github.com/cloudflare/skills), Apache-2.0) are vendored into the advanced-mode agent seed via the existing manifest pipeline ([REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)) — giving Pro agents authoritative, retrieval-first guidance for Workers/KV/D1/R2, the Agents SDK, Durable Objects, stable and preview Sandbox SDK lines, Wrangler, Turnstile, email, web performance, and Cloudflare One (Zero Trust / SASE).
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. All 13 manifest-listed Cloudflare skills and both build commands reach every skill-capable runtime only in advanced mode. <!-- @manual -->
+1. All 13 manifest-listed Cloudflare skills reach Claude Code, Codex, Antigravity/Gemini, OpenCode, and Pi only in advanced mode. The two build command documents (`cloudflare-build-agent` and `cloudflare-build-mcp`) are Claude-only; Copilot has no skill delivery path. <!-- @manual -->
 2. Stable Sandbox work, 1.0-preview work, and migration use distinct `sandbox-stable`, `sandbox-next`, and `sandbox-migrate-to-next` skills; the ambiguous `sandbox-sdk` skill is absent. <!-- @impl: preseed/agents/claude/manifest.json::skills/sandbox-stable/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json::skills/sandbox-next/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json::skills/sandbox-migrate-to-next/SKILL.md --> <!-- @manual -->
-3. The cloudflare mega-skill is slimmed: its `SKILL.md` decision tree is kept (with the dangling `references:` frontmatter removed) but the `references/` tree is NOT bundled, so the Worker bundle does not carry ~2.2 MB × every agent of retrieval-first reference markdown. <!-- @manual -->
-4. Doc retrieval is via WebFetch of `developers.cloudflare.com`: a `paths:`-scoped `rules/cloudflare-workers.md` (loaded only on Workers files, not always-on) carries the retrieval-first guidance, and the upstream remote-MCP config (`.mcp.json`) is NOT bundled. <!-- @manual -->
+3. The Cloudflare mega-skill retains its decision tree without the retrieval-only reference corpus or dangling reference metadata. <!-- @manual -->
+4. Guidance loaded only for Workers files retrieves live documentation from `developers.cloudflare.com`; the upstream remote-MCP configuration is not bundled. <!-- @manual -->
 5. The upstream Apache-2.0 `LICENSE` is vendored alongside the skills for attribution. <!-- @manual -->
 
 **Constraints:**
@@ -3491,7 +3676,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Manual check
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -3518,7 +3703,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-075](#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed)
 
-**Verification:** AC1 and AC2 require manual verification. AC3 and AC4 have offline regressions using the shipped script and a local canonical Git bundle, covering copy failure, successful installation, preservation of an existing destination file, and temporary-clone cleanup.
+**Verification:** Automated: [turnstile-skill-persistence.test.js](../../host/__tests__/turnstile-skill-persistence.test.js); Manual: [Turnstile bounded request source review](../../documentation/lanes/preseed.md#turnstile-bounded-request-source-review)
 
 **Status:** Implemented
 
@@ -3539,13 +3724,17 @@ None.
 5. The unsafe UI UX Pro Max preset corpus, generator, and authoritative persistence path are absent from managed distribution. <!-- @manual: Inspect the authoritative curation manifest and router. -->
 6. Managed distribution does not project this design skill suite to Copilot; Copilot receives compact fallback guidance that does not require an unavailable skill directory. <!-- @manual: Inspect the generated Copilot output and confirm it contains usable fallback guidance but no projected design-skill directory. -->
 
-**Constraints:** Core methodology stays out of Pi's system prompt; Pi receives one minimal conditional route to `design`. Large references load only after selection. Optional capabilities never block an owner.
+**Constraints:**
+
+- Core methodology stays out of Pi's system prompt; Pi receives one minimal conditional route to `design`.
+- Large references load only after selection.
+- Optional capabilities never block an owner.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3569,7 +3758,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual source and routing review
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3593,7 +3782,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3618,7 +3807,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3648,7 +3837,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual managed-projection inspection and fresh-context activation review.
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3684,7 +3873,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing)
 
-**Verification:** Manual portability inspection and fresh-context frontend review.
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3701,7 +3890,7 @@ None.
 1. `frontend-design` is the only managed frontend art-direction entry point. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Frontend Design --> <!-- @manual -->
 2. The retired `design-taste-frontend` compatibility alias is absent from source manifests and generated skill indexes. <!-- @manual -->
 3. The removed UI UX Pro Max preset corpus cannot supply or persist a competing visual thesis. <!-- @manual: Inspect the authoritative managed router and manifest. -->
-4. When Impeccable is installed, implicit discovery remains limited to critique and bounded finishing; new-work methodology requires explicit Impeccable invocation and the selected platform owner retains art direction. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch one art-direction owner --> <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign, explicit Impeccable new-work, and bounded finishing prompts. -->
+4. When Impeccable is installed, implicit discovery remains limited to critique and bounded finishing; new-work methodology requires explicit Impeccable invocation and the selected platform owner retains art direction. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch exactly one owner --> <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign, explicit Impeccable new-work, and bounded finishing prompts. -->
 5. Impeccable refresh preserves its explicit command body, the evidence boundaries in [REQ-AGENT-194](#req-agent-194-evidence-bound-impeccable-policy), platform-neutral Codeflare ownership, and no runtime package self-update permission. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @manual: Inspect refreshed Claude and Pi content before accepting an update. -->
 6. `motion-design` implements motion and interaction only after direction exists. <!-- @manual: Request focused motion refinement after selecting a platform-owner direction. -->
 7. Downloaded Impeccable content that cannot establish one routing description and the managed policy overlay fails before any existing skill target changes. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @impl: scripts/update-impeccable-skill.mjs::replaceImpeccableTargets --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: updater overlay fails before mutating a partial source) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: updater rejects a missing deletion anchor before mutation) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: malformed routing metadata leaves targets unchanged) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: missing mutable package permission leaves targets unchanged) -->
@@ -3718,7 +3907,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-135](#req-agent-135-unsafe-design-preset-exclusion), [REQ-AGENT-194](#req-agent-194-evidence-bound-impeccable-policy)
 
-**Verification:** Automated updater test and manual check
+**Verification:** Automated: [impeccable-runtime-policy.test.js](../../host/__tests__/impeccable-runtime-policy.test.js); Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3732,11 +3921,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. `design` classifies purpose as Persuade, Operate, Read, or Experience. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify on two independent axes --> <!-- @manual: Route one materially different request for each purpose. -->
-2. `design` classifies delivery as responsive web, web product, native iOS, native Android, cross-platform native mobile, desktop-native, or static/canvas. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify on two independent axes --> <!-- @manual: Route one request for each delivery platform. -->
-3. Purpose controls product hierarchy and success criteria while platform controls interaction, accessibility, lifecycle, and implementation constraints. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify on two independent axes --> <!-- @manual: Compare the same purpose across responsive web and native mobile. -->
-4. Native iOS, Android, and cross-platform requests select `native-mobile-design` rather than the web authority. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch one art-direction owner --> <!-- @manual: Evaluate equivalent iOS, Android, and responsive-web requests. -->
-5. Every task receives at most one canonical art-direction authority; additional specialists own only orthogonal concerns. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Compose orthogonal specialists only --> <!-- @manual: Evaluate an operational mobile interface requiring components and motion; verify one visual authority. -->
+1. `design` classifies purpose as Persuade, Operate, Read, or Experience. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify the request --> <!-- @manual: Route one materially different request for each purpose. -->
+2. `design` classifies delivery as responsive web, web product, native iOS, native Android, cross-platform native mobile, desktop-native, or static/canvas. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify the request --> <!-- @manual: Route one request for each delivery platform. -->
+3. Purpose controls product hierarchy and success criteria while platform controls interaction, accessibility, lifecycle, and implementation constraints. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify the request --> <!-- @manual: Compare the same purpose across responsive web and native mobile. -->
+4. Native iOS, Android, and cross-platform requests select `native-mobile-design` rather than the web authority. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch exactly one owner --> <!-- @manual: Evaluate equivalent iOS, Android, and responsive-web requests. -->
+5. Every task receives at most one canonical art-direction authority; additional specialists own only orthogonal concerns. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Add only orthogonal specialists --> <!-- @manual: Evaluate an operational mobile interface requiring components and motion; verify one visual authority. -->
 6. Native-mobile and desktop-native authorities and their focused references project to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/SKILL.md::Native Mobile Design --> <!-- @manual -->
 
 **Constraints:** Native mobile is never treated as responsive web at a smaller width; detailed platform guidance remains lazy.
@@ -3745,7 +3934,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing)
 
-**Verification:** Manual projection inspection and fresh-context dual-axis routing review.
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3773,7 +3962,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3800,7 +3989,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority)
 
-**Verification:** Manual review
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3824,7 +4013,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-181](#req-agent-181-design-specialist-compatibility)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3851,7 +4040,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3879,7 +4068,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-183](#req-agent-183-native-mobile-design-authority), [REQ-AGENT-184](#req-agent-184-operational-information-design), [REQ-AGENT-185](#req-agent-185-component-system-and-registry-boundaries), [REQ-AGENT-186](#req-agent-186-conditional-complex-motion-delegation), [REQ-AGENT-188](#req-agent-188-external-design-dependency-safety)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3896,7 +4085,7 @@ None.
 1. External skills, registries, presets, MCP servers, and package commands are inspected as untrusted dependencies before adoption. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @manual: Evaluate a mutable external registry proposal. -->
 2. Skill activation executes no mutable latest package and no external package code merely to determine applicability; managed Impeccable never grants or recommends in-place package self-update. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Activate design routing and Impeccable without running a package command. -->
 3. Missing registry or MCP access does not block the owning workflow. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Admit a registry conditionally --> <!-- @manual: Run a component task with no registry or MCP capability. -->
-4. External-dependency guidance projects to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Compose orthogonal specialists only --> <!-- @manual -->
+4. External-dependency guidance projects to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Add only orthogonal specialists --> <!-- @manual -->
 
 **Constraints:** Installation, mutation, or repository transmission requires explicit authorization and reviewed provenance.
 
@@ -3904,7 +4093,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-181](#req-agent-181-design-specialist-compatibility)
 
-**Verification:** Manual check
+**Verification:** Manual: [Design guidance and routing review](../../documentation/lanes/preseed.md#design-guidance-and-routing-review)
 
 **Status:** Implemented
 
@@ -3938,7 +4127,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -3970,7 +4159,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-189](#req-agent-189-layered-codeflare-capability-discovery), [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
 
-**Verification:** Manual check
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -4000,7 +4189,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-137](#req-agent-137-design-skill-review-boundary), [REQ-STOR-021](storage.md#req-stor-021-managed-content-ownership)
 
-**Verification:** Automated compiler test and manual check
+**Verification:** Automated: [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js); Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -4015,7 +4204,7 @@ None.
 **Acceptance Criteria:**
 
 1. A fresh lazy session hides registered Goal tools. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC1: hides registered Goal tools for a fresh lazy session) -->
-2. Valid Goal history retains permitted Goal controls under `after-first-goal` when Plan is inactive. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC2: retains terminal Goal tools after the first session Goal) -->
+2. Valid Goal history retains permitted registered Goal controls, including `goal_progress` when available, under `after-first-goal` when Plan is inactive. <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191: exposes only registered progress controls for $label) --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC2: retains terminal Goal tools after the first session Goal) -->
 3. Configured `always` visibility retains permitted Goal controls regardless of Plan state. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC3: preserves Goal tools already active under the always-visible policy) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC3: keeps configured always-visible Goal tools during an active Plan) -->
 4. An active Plan suppresses non-active Goal history under `after-first-goal`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership) -->
 5. An active Goal takes precedence over active Plan selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership) -->
@@ -4033,7 +4222,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions)
 
-**Verification:** Automated capability-filtering tests
+**Verification:** Automated: [pi-tool-exposure-finalizer.test.js](../../host/__tests__/pi-tool-exposure-finalizer.test.js), [pi-capabilities.test.ts](../../src/__tests__/lib/pi-capabilities.test.ts)
 
 **Status:** Implemented
 
@@ -4053,7 +4242,7 @@ None.
 4. The Pi settings required set installs the five always-on tool extensions independently of context-mode state. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 5. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeInstallations --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Context-mode installation patch (createRequire shim + REQ-AGENT-076 AC5 update-check disable)) -->
 6. Pi `web_search` defaults to the headless-safe `auto-summary` workflow. <!-- @impl: entrypoint.sh::PI_WEB_SEARCH_JSON --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (entrypoint.sh Pi web-search workflow default) -->
-7. Enabled context-mode keeps its managed idle policy, preserves a nonzero operator timeout, creates no absent override, and clears stale disabling values. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reaping) -->
+7. Entrypoint leaves inherited `CONTEXT_MODE_BRIDGE_IDLE_MS` untouched and creates no override. Before upstream context-mode initialization, Pi clears the process-wide override so upstream root/subagent ownership and idle-reaping policy apply; inherited values are not preserved end to end. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reaping) -->
 
 **Constraints:**
 
@@ -4072,7 +4261,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [dockerfile-context-mode-patch.test.js](../../host/__tests__/dockerfile-context-mode-patch.test.js), [entrypoint-context-mode-runtime.test.js](../../host/__tests__/entrypoint-context-mode-runtime.test.js), [entrypoint-context-mode.test.js](../../host/__tests__/entrypoint-context-mode.test.js), [entrypoint-pi-web-search.test.js](../../host/__tests__/entrypoint-pi-web-search.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -4099,7 +4288,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Automated package-assembly and settings tests
+**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [pi-smart-compact-config.test.ts](../../src/__tests__/lib/pi-smart-compact-config.test.ts)
 
 **Status:** Implemented
 
@@ -4130,7 +4319,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-222](#req-agent-222-pi-smart-compact-defaults)
 
-**Verification:** Automated settings and R2 round-trip tests
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [pi-smart-compact-config.test.ts](../../src/__tests__/lib/pi-smart-compact-config.test.ts)
 
 **Status:** Implemented
 
@@ -4157,7 +4346,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Manual review
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -4181,7 +4370,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -4211,7 +4400,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -4238,7 +4427,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -4264,9 +4453,9 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-059](#req-agent-059-pi-native-review-findings-handoff)
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-059](#req-agent-059-pi-native-review-findings-handoff), [REQ-AGENT-232](#req-agent-232-executable-review-and-sdd-work-sets)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4293,7 +4482,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Generated-artifact retirement covers AC2. AC1 has a whole pinned-extension regression using real SDK session managers for foreground/child/background task retention and switching back. Lifecycle delivery is host-dispatched, not subprocess acceptance; execution remains subject to exact-head CI.
+**Verification:** Automated: [todo-isolation.test.mjs](../../preseed/agents/pi/test/todo-isolation.test.mjs), [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js)
 
 **Status:** Implemented
 
@@ -4301,28 +4490,28 @@ None.
 
 ### REQ-AGENT-084: Reviewer Policy Contract
 
-**Intent:** Every runtime's reviewers must hold the same policy set and begin a run holding the part of it that applies to almost every run, so no reviewer reads a diff before the rules it is judged against have arrived, and no reviewer spends a turn discovering policy.
+**Intent:** Delivered Claude and Pi reviewers preload canonical policy needed on almost every run; transformed runtime delivery must distinguish retrieval pointers from embedded policy instead of promising equivalent preload.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Every reviewer begins holding the canonical policy that applies to almost every run; a policy gated on a diff condition may instead arrive in the evidence wave the lane was already making. <!-- @impl: scripts/agent-seed-core.mjs::expandSkillIncludes --> <!-- @manual -->
+1. Delivered Claude/Pi reviewers preload canonical policy applicable to almost every run; diff-gated policy may instead arrive in an existing evidence wave. Other runtimes follow the delivery constraints below, not equivalent preload. <!-- @impl: scripts/agent-seed-core.mjs::expandSkillIncludes --> <!-- @manual -->
 2. Reviewer configuration omits unsupported skill-access declarations. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/agent-seed-core.mjs::expandSkillIncludes --> <!-- @manual -->
+3. Embedded canonical policy in delivered Claude and Pi reviewers matches its separately seeded canonical skill; this preload/parity claim does not extend to transformed retrieval-only reviewers or Copilot. <!-- @impl: scripts/agent-seed-core.mjs::expandSkillIncludes --> <!-- @manual -->
 
 **Constraints:**
 
 - Canonical skill files remain the only hand-maintained policy source.
 - Reviewer launch prompts carry only dynamic repository, scope, range, and direct-user override inputs.
 - Preloading changes no review scope, manifest row, or acknowledgement condition.
-- One policy set per reviewer in every runtime; whether a policy is carried or fetched is chosen per lane from measurement, never by default.
+- Claude/Pi preload and diff-gated retrieval remain distinct. Antigravity/Gemini and OpenCode receive retrieval pointers to applicable seeded canonical policy files, not equivalent embedded preload; Copilot receives neither canonical skill files nor a skill-path pointer, so delivery does not establish equivalent policy availability.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -4341,7 +4530,7 @@ None.
 3. A documented name resolves by the strongest form holding it, never a weaker one: path tail, basename, directory, declaration in any repository language, exact npm dependency, registered string, then a token in a dependency manifest. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::quotedLiterals --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declaredDependencies --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::DECL_SHAPES --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a name that appears under more than one directory) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves declarations and dependencies in a repo that is not JavaScript) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not let a control keyword in another language declare a name) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not demote a real declaration that a manifest happens to also mention) -->
 4. Notation that documents an interface rather than naming code is never a resolvable candidate. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::resolveDocReferences --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) -->
 5. The unresolved list carries an explicit bound, and a list reaching that bound is marked truncated so the remainder is known to be outstanding. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports every unresolved reference rather than a capped sample) --> <!-- @test: host/__tests__/lane-evidence.test.js (marks a list that reaches the bound as truncated) -->
-6. A name resolved only on the weakest evidence the resolver accepts -- a registered string, or a token in a dependency manifest -- is reported in its own class rather than as an ordinary pass. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a name known only from a manifest as a weak resolution rather than a pass) --> <!-- @test: host/__tests__/lane-evidence.test.js (retries the last segment for a package but never for a version fragment) -->
+6. A name resolved only on the weakest evidence the resolver accepts -- a registered string, or a token in a dependency manifest -- is reported in its own class rather than as an ordinary pass. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a name known only from a manifest as a weak resolution rather than a pass) --> <!-- @test: host/__tests__/lane-evidence.test.js (retries the last segment for a package but never for a version fragment) --> <!-- @test: host/__tests__/lane-evidence.test.js (slash-command evidence strength) -->
 
 **Constraints:**
 
@@ -4354,7 +4543,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-105](#req-agent-105-review-lane-turn-economy)
 
-**Verification:** Automated tests ([lane evidence](../../host/__tests__/lane-evidence.test.js))
+**Verification:** Automated: [lane-evidence.test.js](../../host/__tests__/lane-evidence.test.js)
 
 **Status:** Implemented
 
@@ -4379,7 +4568,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-108](#req-agent-108-reviewer-evidence-resolution-fidelity)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4393,22 +4582,23 @@ None.
 
 **Acceptance Criteria:**
 
-1. At five or more counted commits, the direct-user fully-autonomous marker changes only the enforced round-limit decision from stop to continue. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @manual -->
+1. At five or more counted commits, the direct-user fully-autonomous marker changes only the enforced round-limit decision from stop to continue. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @manual --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-107 AC1/3/4: pre-triage reports canonical evidence and preserves direct override=%s) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-107 AC1: only direct root input grants fully-autonomous authority (%s)) -->
 2. The agent executing a user-invoked clean reports the round-limit row inert without consulting the gate. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::The 5-round commit cycle limit --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @manual -->
-3. Every reviewer takes both its round count and its round-limit decision from the deterministic gate it is directed to, which counts any agent-authored tag that touched the lane rather than only the reviewer's own. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds --> <!-- @manual -->
-4. Every reviewer reports both the counted total and the gate's decision as enforcement evidence. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @manual -->
-5. A gate that cannot read the commit history fails with a non-zero status and a concise diagnostic rather than a verdict, so an unreadable window is never mistaken for a permissive one. <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount --> <!-- @manual -->
+3. Every reviewer takes both its round count and its round-limit decision from the deterministic gate it is directed to, which counts any agent-authored tag that touched the lane rather than only the reviewer's own. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::countRounds --> <!-- @manual --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-107 AC1/3/4: pre-triage reports canonical evidence and preserves direct override=%s) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-107 AC1/3: canonical %s prefix suppresses both lanes unless direct authority releases the gate) -->
+4. Every reviewer reports both the counted total and the gate's decision as enforcement evidence. <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md::Required execution manifest --> <!-- @manual --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-107 AC1/3/4: pre-triage reports canonical evidence and preserves direct override=%s) -->
+5. A gate that cannot read the commit history fails with a non-zero status and a concise diagnostic rather than a verdict, so an unreadable window is never mistaken for a permissive one. <!-- @impl: preseed/agents/claude/skills/spec-enforce/scripts/round-limit.mjs::resolveCount --> <!-- @manual --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-107 AC5: unavailable canonical gate cannot suppress a lane) -->
 
 **Constraints:**
 
 - The limit binds agent-authored review rounds only; user-invoked runs are released, never counted down.
+- Claude pre-triage and Pi suppression call the unchanged canonical executable; missing/failed gates never suppress review. Only direct current-session root user input grants the fully-autonomous override, never repository config, tool/transcript data or quoted mentions; cancellation or session replacement revokes it.
 - One gate serves every runtime; a reviewer that derives count or verdict itself is in breach.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Manual verification
+**Verification:** Automated: [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [run-review-lane.test.js](../../host/__tests__/run-review-lane.test.js); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4422,11 +4612,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every non-manual AC carries at least one `@test` anchor, and the canonical parser returns every adjacent anchor independently while preserving parentheses inside block titles. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs::parseTestAnchors --> <!-- @test: host/__tests__/test-anchor-parser.test.js (REQ-AGENT-094 AC1: accepts one or more anchors per AC in declaration order) -->
+1. The canonical parser returns every adjacent anchor independently while preserving parentheses inside block titles. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs::parseTestAnchors --> <!-- @test: host/__tests__/test-anchor-parser.test.js (REQ-AGENT-094 AC1: accepts one or more anchors per AC in declaration order) -->
 2. Multiple anchors on one AC are valid, while every declared anchor remains subject to file, named-block, and behavioral-quality verification. <!-- @manual: Add one resolving and one orphaned anchor to a fixture AC, run specification enforcement, and confirm the resolving block counts as coverage while the orphan still emits `spec-test-anchor-orphaned`. -->
 
 **Constraints:**
 
+- Every non-manual AC carries at least one `@test` anchor.
 - Anchor lists provide traceability evidence, not an exhaustive inventory of every test that touches the behavior.
 - Distinct observable behaviors still split under the existing AC-granularity rules; anchor count alone never triggers a split.
 
@@ -4434,7 +4625,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Automated tests and manual verification ([test anchor parser](../../host/__tests__/test-anchor-parser.test.js))
+**Verification:** Automated: [test-anchor-parser.test.js](../../host/__tests__/test-anchor-parser.test.js); Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -4471,7 +4662,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
@@ -4496,30 +4687,22 @@ None.
 
 **Constraints:**
 
-- Activation uses Pi's public API additively.
-- Groups, reset, Goal/Plan/Inline, and context-mode ownership remain unchanged.
-- Exact tool `name` takes precedence over `query`. <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (keeps name precedence, activation groups and idempotence after metadata observation) -->
-- Optional `tool:`/`skill:` prefixes are case-insensitive.
-- Exact eligible names outrank other matches.
-- Whole-token ranking requires two-thirds coverage, a name/purpose hit, score at least 6, and 75% of each kind's best score.
-- No weak-match padding.
-- Metadata refreshes before agent start and clears on session start.
-- Without snapshots, skill-only lookup reports unavailable metadata; tool search remains available.
-- Search preserves prompts, messages, and active tools.
-- No discovery body reads, directory scans, or server connections.
-- Versioned policy reads are bounded to 1 MiB and fail closed.
-- Structured matches retain kind, name, description, and skill-only filePath.
-- Skill paths are JSON-quoted.
+- Activation uses Pi’s public API additively; groups/reset/Goal/Plan/Inline and context-mode ownership stay unchanged.
+- Exact tool `name` precedes `query`; prefixes `tool:`/`skill:` are case-insensitive; exact eligible names rank first. <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (keeps name precedence, activation groups and idempotence after metadata observation) -->
+- Whole-token ranking requires two-thirds coverage, a name/purpose hit, score ≥6 and ≥75% of each kind’s best; no weak padding.
+- Refresh metadata before agent start; clear on session start.
+- Without snapshots, skill-only lookup reports unavailable; tool search remains available.
+- Search preserves prompts/messages/active tools; no body reads, directory scans or server connections.
+- Versioned policy reads cap at 1 MiB, failing closed.
+- Matches retain kind/name/description and skill-only filePath; JSON-quote paths.
 - Purposes cap at 100 code points; identities/paths survive the 600-point target.
-- Pi owns native-read context.
-- Context-mode remains unmodified.
-- Review/CI/memory/Vault requests remain unchanged and exactly once.
+- Pi owns native-read context; context-mode stays unmodified; review/CI/memory/Vault requests remain unchanged and exactly once.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog), [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows)
 
-**Verification:** Automated test ([Pi capability tests](../../src/__tests__/lib/pi-capabilities.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts), [Pi memory/Vault delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+**Verification:** Automated: [pi-capabilities.test.ts](../../src/__tests__/lib/pi-capabilities.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -4545,7 +4728,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Pi prompt and exposure measurement review](../../documentation/lanes/preseed.md#pi-prompt-and-exposure-measurement-review)
 
 **Status:** Implemented
 
@@ -4559,7 +4742,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A reviewer-bearing boundary plan orders `REVIEWERS → CI → JOINT TRIAGE + ACK → FIX`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) -->
+1. A reviewer-bearing boundary plan renders `REVIEWERS → CI → JOINT TRIAGE → FIX`. Joint triage is mutation-free, and the reviewed-head acknowledgement/completion barrier must succeed before FIX; the barrier is not an extra rendered plan label. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) -->
 2. Agent-end enforcement acknowledges and emits one boundary-cycle-correlated FIX follow-up only after every required reviewer result, a terminal exact-head CI result when required, and a structural joint triage table published after both. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) -->
 3. Settled enforcement provides the acknowledgement fallback when agent-end enforcement did not complete it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps a fully terminal round until canonical triage arrives) -->
 
@@ -4569,7 +4752,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-074](#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -4590,7 +4773,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-098](#req-agent-098-pi-review-triage-acknowledgement-barrier)
 
-**Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -4625,7 +4808,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [review-tool-guard.test.ts](../../src/__tests__/lib/review-tool-guard.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4660,7 +4843,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4677,7 +4860,7 @@ None.
 1. Each Claude PR-boundary lane runs as a headless `claude -p` subprocess whose system prompt is the lane's own agent document. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::SYSTEM_PROMPT --> <!-- @test: host/__tests__/run-review-lane.test.js (forwards the model the lane document declares) -->
 2. A lane whose range contains no file it owns returns a no-op report without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::REQUIRED --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — no-op short-circuit) -->
 3. The lane subprocess carries a validated, escalating time bound that a zero, empty, or non-numeric override cannot disable; an unavailable supervisor refuses launch. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::LANE_TIMEOUT --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — timeout bound) --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — supervisor availability) -->
-4. Guard re-injection fails closed on a missing guard, an absent JSON-processing dependency, an empty settings file, or a config path containing a space. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::GUARD_SETTINGS --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — guard settings under a hostile config path) -->
+4. Guard re-injection fails closed on a missing guard, an absent JSON-processing dependency, an empty settings file, or hostile config paths; injected guards still refuse local-test and attribution payloads with spaces, quotes, substitutions or backslashes in the path. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::GUARD_SETTINGS --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — guard settings under a hostile config path) --> <!-- @test: host/__tests__/run-review-lane.test.js (refuses to launch when guard-settings generation produces an empty file) --> <!-- @test: host/__tests__/run-review-lane.test.js (refuses to run at all when a required guard is missing) --> <!-- @test: host/__tests__/run-review-lane.test.js (refuses to launch independently when jq is unavailable) --> <!-- @test: host/__tests__/run-review-lane.test.js (hostile guard launch paths enforce refusal) -->
 
 **Constraints:**
 
@@ -4694,7 +4877,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-086](#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff)
 
-**Verification:** Automated tests ([run review lane](../../host/__tests__/run-review-lane.test.js))
+**Verification:** Automated: [run-review-lane.test.js](../../host/__tests__/run-review-lane.test.js)
 
 **Status:** Implemented
 
@@ -4710,7 +4893,7 @@ None.
 1. Each lane's Phase 0 triage is resolved deterministically before the subprocess starts and handed to it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @manual -->
 2. The pre-computed triage reproduces the bulk-op audit and round-limit gates the reviewer prose defines. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::bulkOpAudit --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @manual -->
 3. A lane whose triage resolves to a no-op returns without invoking a model only when the result carries positive evidence for a supported bootstrap, transition, or round-limit no-op. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_JSON --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
-4. Every triage condition that cannot be resolved, including malformed JSON or a wrong lane/decision/layout shape, resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_JSON --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
+4. Every triage condition that cannot be resolved, including malformed JSON or a wrong lane/decision/layout shape, resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_JSON --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) --> <!-- @test: host/__tests__/run-review-lane.test.js (discards triage with ${label} and performs normal review) -->
 
 5. A config that never mentions `enforce_tdd` resolves to on, not to a silent opt-out. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @manual -->
 
@@ -4725,7 +4908,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
 
-**Verification:** Automated tests and manual verification ([run review lane](../../host/__tests__/run-review-lane.test.js))
+**Verification:** Automated: [run-review-lane.test.js](../../host/__tests__/run-review-lane.test.js); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4740,28 +4923,34 @@ None.
 **Acceptance Criteria:**
 
 1. The verdict demand requires a gate-matching table with one row per finding across all required lanes. A fully clean round still publishes the table shape but does not add redundant clean-lane rows. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (blocks with canonical triage instruction when terminal evidence is untriaged) -->
-2. Acknowledgement is followed by a fix directive that states the head is already acknowledged, then commits and pushes accepted file changes without renewed consent, waiting first for this head's terminal CI result; it never merges or creates a no-op commit. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
+2. After acknowledgement, the Pi FIX directive states that review completion is saved, instructs applying only accepted minimal decisions from the preceding triage, and orders an automatic push once fixes are complete. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
+3. Root commits and pushes accepted file changes without renewed consent under the fix-workflow delivery policy.
+4. Fix-workflow ordering waits first for this head's terminal CI result before committing and pushing accepted changes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
+5. Fix-workflow policy never merges or creates a no-op commit.
 
 **Constraints:**
 
 - A verdict requires the stacked table header, divider, and data row in assistant text; an inline quoted header is insufficient.
 - A terminal record may precede notification delivery; first Stop ends silently so queued reports reach root before triage.
 - Result retrieval may use `Read` or `TaskOutput`; only the final verdict is tool-free and ends the turn.
-- The Pi fix directive orders an automatic push after accepted fixes are complete; it never merges or creates a no-op commit.
+- The Pi fix directive orders an automatic push after accepted fixes are complete.
+- Root delivery policy, not FIX-message copy, owns commit semantics, no renewed consent, and the no-merge/no-no-op-commit restrictions; the [review pipeline](../../preseed/agents/pi/skills/git-review-pipeline/SKILL.md#triage-and-fix) owns root delivery, while [Git workflow policy](../../preseed/agents/claude/rules/git-workflow.md#hard-obligations) keeps merge manual.
+- The [exact-head acknowledgement barrier](#req-agent-098-pi-review-triage-acknowledgement-barrier) owns terminal-CI ordering, not the emitted FIX copy.
 - A successful fix push remains automatic review consent.
-- The verdict demand is counted and rate-limited on its own, never on the counter that limits lane demands.
-- Both runtimes recognise the same table shape, so a verdict is portable between them.
+- Verdict demands have independent counters/rate limits, separate from lane demands.
+- Both runtimes recognise the same portable verdict-table shape.
 - The mid-turn refusal never writes acknowledgement or counter state, reads the bypass sentinel without consuming it, and releases after five refused calls; a lane still in flight or ended without success never triggers it.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
 
-**Verification:** Automated test ([Review spawn gate tests](../../host/__tests__/enforce-review-spawn.test.js))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
 ---
+
 ### REQ-AGENT-105: Review Lane Turn Economy
 
 **Intent:** A lane re-sends its whole prompt every turn, so cost grows with the square of the turn count and the drip — one lookup per turn — is what a review actually pays for.
@@ -4773,8 +4962,8 @@ None.
 1. Lane evidence gathering is structured as waves, each collecting every outstanding question in one call. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @manual: Inspect one completed reviewer transcript and confirm each evidence call batches all questions known at that point. -->
 2. Where a runtime fetches a sub-policy rather than carrying it, the read happens inside a wave that was already being made rather than on a turn of its own. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @manual -->
 3. Policy that applies on almost every run is embedded in the reviewer document, whether or not it is nominally conditional. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Embedded canonical policy --> <!-- @manual -->
-4. Every path that demands a lane passes an incremental range or protected PR base, so the demanded lane receives its packet and ownership short-circuit; the runner refuses a demand carrying neither. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::RANGE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — scope contract) --> <!-- @test: host/__tests__/run-review-lane.test.js (keeps caller-supplied PR-boundary range authoritative) --> <!-- @test: host/__tests__/run-review-lane.test.js (rejects a lane launch with neither range nor protected base) -->
-5. Inlined evidence over its byte cap degrades deterministically by named field, keeping compact resolved answers. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::shed_to_cap --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::bound --> <!-- @test: host/__tests__/run-review-lane.test.js (sheds the verbatim indexes rather than the whole evidence block) -->
+4. Every path that demands a lane passes an incremental range or protected PR base, so the demanded lane receives its packet and ownership short-circuit; the runner refuses a demand carrying neither. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::RANGE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — scope contract) --> <!-- @test: host/__tests__/run-review-lane.test.js (keeps caller-supplied PR-boundary range authoritative) --> <!-- @test: host/__tests__/run-review-lane.test.js (rejects a lane launch with neither range nor protected base) --> <!-- @test: host/__tests__/run-review-lane.test.js (base-only review preparation) -->
+5. Over-cap inlined evidence sheds named fields first, retaining compact resolved answers where possible. If reduced evidence still exceeds a valid cap, the runner omits the block with an explicit diagnostic; the lane gathers missing evidence, never treating absence as delivered resolved JSON. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::shed_to_cap --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::bound --> <!-- @test: host/__tests__/run-review-lane.test.js (sheds the verbatim indexes rather than the whole evidence block) -->
 6. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::rawBudget --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
 7. The lookups a lane checklist would order — index presence, tree layout, anchor resolution, documented-reference resolution, call sites, the decision ledger — are resolved before the lane starts and handed to it. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::EVIDENCE_JSON --> <!-- @test: host/__tests__/lane-evidence.test.js (reports an anchor whose symbol no longer exists as unresolved) --> <!-- @test: host/__tests__/lane-evidence.test.js (carries the diff of each cited file, not just the citation) --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a tracked doc the index does not link, and passes one it does) --> <!-- @test: host/__tests__/run-review-lane.test.js (inlines the evidence block) --> <!-- @test: host/__tests__/run-review-lane.test.js (states the repository root so the lane does not spend a turn finding it) -->
 
@@ -4783,7 +4972,7 @@ None.
 - No hard turn, call, or token cap; truncating a review is worse than paying.
 - A wave never licenses skipping a required check; it batches it.
 - Broad discovery is forbidden: no survey, no indexed search, no re-reading returned evidence, no re-deriving a resolved block.
-- Over-cap evidence degrades by field, never by block, each shed field a named marker stating its recovery.
+- Over-cap evidence sheds named fields first, with recovery markers; the resolver may emit its bounded oversized-evidence failure marker. If the runner still cannot fit the reduced block, it omits the block with a diagnostic. Missing evidence is unknown, never a pass, and must be gathered by the lane.
 - Resolved evidence counts passes and lists failures in full.
 - A resolver failure yields an absent field, never an empty one.
 - Report length is bounded: a finding short, a clean pass a count, the search never narrated.
@@ -4795,7 +4984,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
 
-**Verification:** Automated tests and manual verification ([lane evidence](../../host/__tests__/lane-evidence.test.js), [run review lane](../../host/__tests__/run-review-lane.test.js))
+**Verification:** Automated: [lane-evidence.test.js](../../host/__tests__/lane-evidence.test.js), [run-review-lane.test.js](../../host/__tests__/run-review-lane.test.js); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4820,7 +5009,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Manual check
+**Verification:** Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4839,7 +5028,7 @@ None.
 3. The root session persists every returned review report. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @manual -->
 4. The root applies a review fix only after the user approves it. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @manual -->
 5. Interactive triage records exactly one decision for each surfaced finding. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 8: Interactive Triage --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 8: Interactive triage --> <!-- @manual -->
-6. Defer, ignore, and technical-debt decisions persist to `sdd/.review-decisions.md`. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 9: Save Triage Results + Append to .review-decisions --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 9: Save triage results + append to .review-decisions --> <!-- @manual -->
+6. Defer, ignore, and technical-debt decisions persist in the project's review-decision history. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 9: Save Triage Results + Append to .review-decisions --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 9: Save triage results + append to .review-decisions --> <!-- @manual -->
 7. Technical-debt records preserve optional accepted limits and revisit triggers through triage, history and approved issues; irrelevant fields are omitted and applicable unestablished values remain explicitly unknown. <!-- @impl: preseed/agents/claude/commands/review.md::Optional technical-debt context --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Optional technical-debt context --> <!-- @manual: Check debt output with known, applicable-but-unknown and irrelevant metadata; confirm history and approved issue bodies preserve supplied values without inventing thresholds or adding another tracker. -->
 
 **Constraints:**
@@ -4851,7 +5040,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill)
 
-**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
+**Verification:** Automated: [pi-review-scope.test.ts](../../src/__tests__/lib/pi-review-scope.test.ts); Manual: [Review packet and ownership acceptance](../../documentation/lanes/preseed.md#review-packet-and-ownership-acceptance)
 
 **Status:** Implemented
 
@@ -4879,7 +5068,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 
@@ -4905,7 +5094,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
-**Verification:** Automated tests ([pi ci monitor](../../host/__tests__/pi-ci-monitor.test.js))
+**Verification:** Automated: [pi-ci-monitor.test.js](../../host/__tests__/pi-ci-monitor.test.js)
 
 **Status:** Implemented
 
@@ -4927,13 +5116,18 @@ None.
 6. Checked promotion keeps the live documentation tree restorable until post-promotion validation succeeds. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Greenfield — lean two-confirm flow --> <!-- @manual: On a disposable Import Mode fixture with existing documentation, force post-promotion validation to fail and confirm the original tree is restored from the sibling backup. -->
 7. The renderer and new templates reach Claude and Pi through the canonical manifest and generated-seed pipeline. <!-- @impl: preseed/agents/claude/manifest.json::skills/sdd-init/references/render-documentation-templates.mjs --> <!-- @manual -->
 
-**Constraints:** Existing discovery, Import Mode triage, and review ownership remain unchanged. Architecture and the ADR ledger remain universal; other lanes require source evidence. Project lanes stay first-level, indexed, source-backed, and outside canonical lane ownership. No project schema engine or replacement migration subsystem is introduced.
+**Constraints:**
+
+- Existing discovery, Import Mode triage, and review ownership remain unchanged.
+- Architecture and the ADR ledger remain universal; other lanes require source evidence.
+- Project lanes stay first-level, indexed, source-backed, and outside canonical lane ownership.
+- No project schema engine or replacement migration subsystem is introduced.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -4954,13 +5148,17 @@ None.
 5. The reusable checker contains no product-specific item inventory. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::checkDocuments --> <!-- @manual -->
 6. Indexed first-level project lanes retain the shared ownership, navigation, evidence-map, and related-document envelope. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanProjectLane --> <!-- @manual -->
 
-**Constraints:** Existing cleanup modes, layout migration, and root-owned mutation order remain unchanged. Ambiguous or conflicting content is reported and left intact. No suppression baseline or separate migration subsystem is introduced.
+**Constraints:**
+
+- Existing cleanup modes, layout migration, and root-owned mutation order remain unchanged.
+- Ambiguous or conflicting content is reported and left intact.
+- No suppression baseline or separate migration subsystem is introduced.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-044](#req-agent-044-review-agent-discipline-enforcement), [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -4982,13 +5180,17 @@ None.
 6. A merged or reclassified ADR uses the explicit `Redirect anchor` state instead of parenthetical redirect shorthand. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
 7. A merged or reclassified ADR links its destination from the section status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
 
-**Constraints:** Cleanup never deletes historical ADR bodies or guesses whether a record is fully versus partially superseded. Existing inbound AD anchors remain stable. Strikethrough is allowed only in the ID and decision cells of fully superseded index rows.
+**Constraints:**
+
+- Cleanup never deletes historical ADR bodies or guesses whether a record is fully versus partially superseded.
+- Existing inbound AD anchors remain stable.
+- Strikethrough is allowed only in the ID and decision cells of fully superseded index rows.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -5003,19 +5205,24 @@ None.
 **Acceptance Criteria:**
 
 1. Every ADR index row renders `ID`, `Decision`, `Summary`, `Category`, and `State` on one source line. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
-2. A Decision label is at most 90 rendered characters; its distinct Summary is one sentence of 40–180 rendered characters and starts with a named subject rather than an unexplained pronoun. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::validateAdrIndexRow --> <!-- @manual -->
-3. For an active row, shape enforcement rejects a Summary unrelated to the ADR Decision. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
+2. A Decision label is at most 90 rendered characters. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::validateAdrIndexRow --> <!-- @manual -->
+3. For an active row with a Decision body, shape enforcement rejects a Summary with no shared non-stopword token matching `[a-z0-9][a-z0-9-]{2,}`; documentation review separately verifies semantic support. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
 4. Documentation review verifies that each Summary's driver, consequence, and material trade-off are semantically supported rather than accepted through keywords alone. <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md::ADR index semantic review --> <!-- @manual: During documentation review, cross-check every changed Summary against its ADR body and report unsupported rationale as adr-index-summary-semantic-gap. -->
 5. A historical Summary links its successor, retained scope plus replaced clause, or redirect destination, and its State matches the section Status. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::scanDecisions --> <!-- @manual -->
 6. SDD initialization and shape enforcement use the same ADR index contract. <!-- @impl: preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-decisions-readme.md::Decision Index --> <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/SKILL.md::Decision ledger state rendering --> <!-- @manual -->
+7. A Decision label's distinct Summary is one sentence of 40–180 rendered characters and starts with a named subject rather than an unexplained pronoun. <!-- @impl: preseed/agents/claude/skills/doc-enforce-shape/scripts/check-shape.mjs::validateAdrIndexRow --> <!-- @manual -->
 
-**Constraints:** Existing ADR bodies and stable anchors remain intact. Counts exclude Markdown syntax. Enforcement carries no product-specific ADR inventory, and no new schema, skill, checker, configuration, or framework file is introduced.
+**Constraints:**
+
+- Existing ADR bodies and stable anchors remain intact.
+- Counts exclude Markdown syntax.
+- Enforcement carries no product-specific ADR inventory, and no new schema, skill, checker, configuration, or framework file is introduced.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
 
-**Verification:** Manual review
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -5039,7 +5246,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
 
-**Verification:** Manual verification
+**Verification:** Manual: [SDD bootstrap acceptance](../../documentation/lanes/preseed.md#sdd-bootstrap-acceptance)
 
 **Status:** Implemented
 
@@ -5053,7 +5260,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Image and managed-release generation use one side-effect-free compiler. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+1. Image and managed-release generation use one side-effect-free compiler. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 2. Given an explicit source root and mode, compilation emits deterministic documents with accurate text/script types, retirements, and seed identity. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-core.mjs::inferContentType --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC2: compiles native Impeccable text and launchers into a signed managed release) -->
 3. A release identifies its source, ABI, monotonic sequence, runtime dependencies, unique documents, retirements, and measured extensions. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-147 AC3: accepts one complete signed release contract and rejects an incomplete contract) -->
 4. Compilation rejects traversal, unsupported roots or content types, image-owned paths, duplicate ownership, and undeclared runtime requirements. <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects paths outside the managed release contract) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects invalid modes, duplicate ownership, and live paths listed as retired) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects an undeclared runtime dependency identity) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects unsupported binary document types) -->
@@ -5073,7 +5280,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-AGENT-149](#req-agent-149-shared-compiler-cli-compatibility), [REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)
 
-**Verification:** Automated compiler and release-contract tests
+**Verification:** Automated: [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js), [agent-seed-release.test.js](../../host/__tests__/agent-seed-release.test.js), [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -5089,7 +5296,7 @@ None.
 
 1. Read-only release preparation pins a full compiler commit, rebuilds deterministic gzip bytes, and passes that exact artifact to signing. <!-- @impl: scripts/agent-seed-release.mjs::createReleaseBundle --> <!-- @impl: scripts/agent-seed-release.mjs::signReleaseBundle --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-148 AC1: emits deterministic gzip and signs its exact bytes) -->
 2. Production signing rejects a private key whose derived public key is not the configured active public key. <!-- @manual: Confirm the signing job's configured-public-key comparison in the private release workflow and its green protected run. -->
-3. Publication verifies the exact draft release identity, asset set, and per-asset digests, and re-verifies them immediately before leaving draft. <!-- @manual: Confirm the draft-identity and post-publish recheck steps in the private release workflow and its green protected run. -->
+3. Publication verifies the exact draft release identity, asset set, and per-asset digests, and re-verifies them immediately before leaving draft. <!-- @manual: Confirm draft identity, the immediate pre-publication asset recheck and final immutable-release identity assertion in the private release workflow and its green protected run. -->
 4. Publication succeeds only when the resulting release is immutable at the sequence derived from published history. <!-- @manual: Confirm the immutability assertion and derived-sequence step in the private release workflow and its green protected run. -->
 5. Compiler-pin automation advances only for a changed compiler script or managed npm lockfile among its six inputs from an exact successful Codeflare deployment. <!-- @manual: Inspect codeflare-curation's compiler-pin workflow for a successful main/develop deployment's exact SHA and the three-script/three-lockfile comparison; verify unchanged inputs do not advance the pin. -->
 
@@ -5103,7 +5310,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated deterministic-byte test and protected-environment acceptance
+**Verification:** Automated: [agent-seed-release.test.js](../../host/__tests__/agent-seed-release.test.js); Manual: [Managed release evidence inspection](../../documentation/lanes/preseed.md#managed-release-evidence-inspection)
 
 **Status:** Implemented
 
@@ -5125,7 +5332,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Automated shared-compiler compatibility test
+**Verification:** Automated: [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js)
 
 **Status:** Implemented
 
@@ -5152,7 +5359,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated Worker release-verification tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -5169,7 +5376,7 @@ None.
 1. Discovery examines at most the 1,000 most recent published release records. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records (fresh-required=%s)) -->
 2. A runtime-hash mismatch continues discovery. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
 3. The newest matching signed release activates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
-4. Unrelated published releases are ignored. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
+4. Unrelated published releases are ignored within the runtime-mismatch history search only. Invalid or non-managed latest metadata/assets fail closed rather than triggering that history search; fresh-required resolution fails, while background resolution degrades to an already-verified matching cached active release when available, otherwise no active release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC4 IG0051: %s / fails closed without compatible-history activation (fresh-required=%s, cache=%s)) -->
 5. An advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC5: stops when an advertised history release fails validation (fresh-required=%s)) -->
 6. Discovery fails when the bounded history contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records (fresh-required=%s)) -->
 
@@ -5186,9 +5393,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
 
-**Verification:** Automated Worker release-discovery tests; the shared background-lookup correction is pending behavioral RED/GREEN verification.
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -5209,7 +5416,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-154](#req-agent-154-build-compatible-managed-release-discovery)
 
-**Verification:** Automated Worker snapshot and session-start tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts)
 
 **Status:** Implemented
 
@@ -5232,7 +5439,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Automated package-assembly test
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js)
 
 **Status:** Implemented
 
@@ -5254,7 +5461,7 @@ None.
 
 **Dependencies:** [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
 
-**Verification:** Automated launcher test
+**Verification:** Automated: [herdr-launcher.test.js](../../host/__tests__/herdr-launcher.test.js)
 
 **Status:** Implemented
 
@@ -5286,7 +5493,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-172](#req-agent-172-herdr-preserves-the-canonical-pi-configuration-root), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
 
-**Verification:** Manual check
+**Verification:** Manual: [Herdr projection inspection](../../documentation/lanes/preseed.md#herdr-projection-inspection), [Herdr live-pane gate](../../preseed/agents/pi/skills/herdr/SKILL.md#gate), [Herdr helper orchestration](../../preseed/agents/pi/skills/herdr/SKILL.md#agent-orchestration)
 
 **Status:** Implemented
 
@@ -5314,7 +5521,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-173](#req-agent-173-pi-can-orchestrate-coding-agents-through-herdr), [REQ-TERM-006](terminal.md#req-term-006-herdr-owns-in-session-terminal-topology)
 
-**Verification:** Manual review
+**Verification:** Manual: [Herdr topology operations](../../preseed/agents/pi/skills/herdr/SKILL.md#fast-ui-operations), [Herdr stale-ID recovery](../../preseed/agents/pi/skills/herdr/SKILL.md#avoid-command-discovery-loops)
 
 **Status:** Implemented
 
@@ -5339,7 +5546,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
 
-**Verification:** Automated Pi review-enforcement tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -5364,7 +5571,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -5388,27 +5595,20 @@ None.
 
 **Constraints:**
 
-- Use native SYSTEM/AGENTS instructions, progressive disclosure and invocation metadata.
-- No custom skill executor, hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged mode canary.
-- Discovery uses existing capability and generated policy under [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog).
-- Constitution, eager Git/review/startup/resume safeguards, local-execution gates, Vault guidance and package catalogs remain unchanged.
-- Cap excludes tool schemas/project context; includes owned system/global, winning visible-catalog and isolated-working-directory text/framing.
-- Project context remains additive, byte-unaltered and separately reported.
-- Policy retains original eligibility, false entries and skill files, without descriptions.
-- Guards preserve replaced hard-policy boundaries.
-- Shared fallback changes require matching curation bytes and protected verification.
-- Alignment includes new paths/native Impeccable source.
-- Forbidden context-mode/Pi npm paths remain image-owned, outside managed documents/retirements.
-- Retirements retain provenance; ordinary removals cannot enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
-- Alignment preserves pins, runtime selections, signing history, tenant authorization and ownership guards.
-- No automatic content sync/private reverse-sync.
-- Builds/tests/installation/resource-loader integration/prompt verification remain CI-owned.
+- Native SYSTEM/AGENTS instructions, progressive disclosure and invocation metadata; no custom skill executor/hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged-mode canary.
+- Discovery uses existing capability/generated policy under [REQ-AGENT-095](#req-agent-095-compact-pi-skill-catalog); Constitution, eager Git/review/startup/resume safeguards, local-execution gates, Vault guidance and package catalogs stay unchanged.
+- Cap excludes tool schemas/project context; includes owned system/global, winning visible catalog and isolated-working-directory text/framing.
+- Project context: additive, byte-unaltered, separately reported.
+- Policy retains original eligibility, false entries and skill files without descriptions; guards preserve replaced hard-policy boundaries.
+- Shared fallback changes require curation-byte equality/protected verification; align new paths/native Impeccable source, preserving pins/runtime selections/signing history/tenant authorization/ownership guards.
+- Forbidden context-mode/Pi npm paths stay image-owned, outside managed documents/retirements; retirements retain provenance and ordinary removals cannot enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- CI owns builds/tests/installation/resource-loader integration/prompt verification; no automatic content sync/private reverse-sync.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Manual review
+**Verification:** Manual: [Pi prompt and exposure measurement review](../../documentation/lanes/preseed.md#pi-prompt-and-exposure-measurement-review)
 
 **Status:** Implemented
 
@@ -5443,7 +5643,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions), [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt), [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows)
 
-**Verification:** Automated lifecycle, capability, public fallback, and signed managed projection tests; deployed Standard and Advanced acceptance
+**Verification:** Automated: [pi-capabilities.test.ts](../../src/__tests__/lib/pi-capabilities.test.ts); Manual: [Pi prompt and exposure measurement review](../../documentation/lanes/preseed.md#pi-prompt-and-exposure-measurement-review)
 
 **Status:** Implemented
 
@@ -5470,7 +5670,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-158](#req-agent-158-bounded-initial-pi-tool-exposure)
 
-**Verification:** Automated runtime-guard tests for queued/running refusal and settled/unknown pass-through; deployed managed acceptance
+**Verification:** Automated: [pi-subagent-resume-guard.test.ts](../../src/__tests__/lib/pi-subagent-resume-guard.test.ts)
 
 **Status:** Implemented
 
@@ -5493,7 +5693,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Automated behavioral test
+**Verification:** Automated: [impeccable-engine-source.py](../../scripts/ci/impeccable-engine-source.py), [impeccable-engine.py](../../scripts/ci/impeccable-engine.py)
 
 **Status:** Implemented
 
@@ -5520,7 +5720,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-163](#req-agent-163-impeccable-browser-question-idle-lifecycle)
 
-**Verification:** Manual review ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/serve_question.rs))
+**Verification:** Manual: [Impeccable next hand source review](../../documentation/lanes/preseed.md#impeccable-next-hand-source-review)
 
 **Status:** Implemented
 
@@ -5534,8 +5734,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
-2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/f29cd24fdecfa5612e35e34c1c868d4a3fca930c/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/f29cd24fdecfa5612e35e34c1c868d4a3fca930c/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 
@@ -5545,7 +5745,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Automated behavioral test; manual review of the linked pinned upstream implementation for AC1–AC2.
+**Verification:** Automated: [impeccable-engine-source.py](../../scripts/ci/impeccable-engine-source.py), [impeccable-engine.py](../../scripts/ci/impeccable-engine.py); Manual: [Impeccable native acceptance](../../documentation/lanes/preseed.md#impeccable-native-acceptance)
 
 **Status:** Implemented
 
@@ -5568,7 +5768,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs))
+**Verification:** Manual: [Impeccable native acceptance](../../documentation/lanes/preseed.md#impeccable-native-acceptance)
 
 **Status:** Implemented
 
@@ -5591,7 +5791,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs))
+**Verification:** Manual: [Impeccable native acceptance](../../documentation/lanes/preseed.md#impeccable-native-acceptance)
 
 **Status:** Implemented
 
@@ -5607,11 +5807,10 @@ None.
 
 1. Pi accepts the seeded Pi or Claude managed-wrapper invocation either directly or after one leading `cd … &&`; all other shell composition and redirection around it is rejected. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand --> <!-- @manual -->
 2. Direct analyzer and syntax commands remain blocked without consuming the user-only local-build bypass when the managed wrapper is used. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @manual -->
-3. Each runtime receives one managed safe-check skill and wrapper in both modes. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+3. Each supported skill-capable runtime receives one managed safe-check skill and wrapper in both modes. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 4. Claude's permanently loaded safe-check rule remains below 400 characters. <!-- @impl: scripts/agent-seed-core.mjs::MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS=400 --> <!-- @manual -->
-5. Pi's pre-skill policy remains below 4,500 characters. <!-- @impl: scripts/agent-seed-core.mjs::renderInstructionsFile --> <!-- @manual -->
-6. Canonical operational guidance reaches each lazy skill projection. <!-- @impl: scripts/agent-seed-core.mjs::adaptSkillContent --> <!-- @manual -->
-7. Pi keeps the safe-check skill explicitly invocable without duplicate native catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @manual -->
+5. Canonical operational guidance reaches each lazy skill projection. <!-- @impl: scripts/agent-seed-core.mjs::adaptSkillContent --> <!-- @manual -->
+6. Pi keeps the safe-check skill explicitly invocable without duplicate native catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @manual -->
 
 **Constraints:**
 
@@ -5622,7 +5821,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-052](#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening)
 
-**Verification:** Manual review
+**Verification:** Manual: [Managed workflow and policy inspection](../../documentation/lanes/preseed.md#managed-workflow-and-policy-inspection)
 
 **Status:** Implemented
 
@@ -5651,7 +5850,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
 
-**Verification:** Automated Worker streaming tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -5678,7 +5877,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection)
 
-**Verification:** Automated Pi and Claude boundary classification tests
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -5703,7 +5902,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization), [REQ-AGENT-168](#req-agent-168-review-boundary-classification)
 
-**Verification:** Automated Pi and Claude clone-consent tests
+**Verification:** Automated: [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [operator-review-remote.test.ts](../../src/__tests__/lib/operator-review-remote.test.ts), [operator-review-selector.test.ts](../../src/__tests__/lib/operator-review-selector.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -5717,7 +5916,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Triage waits for every required reviewer and terminal success, failure, or timeout from the exact launched CI monitor for the same repository, PR, and head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/operator-review-remote.ts::registerOperatorReviewRemote --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (requires delivery CI after a same-head clone round is %s) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (preserves delivery CI through pending reconciliation and resume from a %s clone) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-AGENT-170 AC1: keeps the child checkout through %s delivery CI and FIX while cwd stays in its Git parent) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (REQ-AGENT-170 AC1: keeps pending delivery CI when later consent admits a previously $initial clone, resume=$resume) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (REQ-AGENT-170 AC1: does not inherit pending CI across a different $field) -->
+1. Triage waits for every required reviewer and terminal success, failure, or timeout from the exact launched CI monitor for the same repository, PR, and head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/operator-review-remote.ts::registerOperatorReviewRemote --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (requires delivery CI after a same-head clone round is %s) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (preserves delivery CI through pending reconciliation and resume from a %s clone) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-AGENT-170 AC1: keeps the child checkout through %s delivery CI and FIX while cwd stays in its Git parent) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (REQ-AGENT-170 AC1: keeps pending delivery CI when later consent admits a previously $initial clone, resume=$resume) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (REQ-AGENT-170 AC1: does not inherit pending CI across a different $field) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (REQ-AGENT-170 AC1: requires structured successful background CI launch and its exact terminal identity) -->
 2. CI failure or timeout requires a dedicated `Exact-head CI` triage row with the exact matching `CI_RESULT` token before acknowledgement; one outer Markdown code span does not change that token. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (requires exact CI failure and timeout rows and accepts directive formatting) -->
 3. The triage turn makes no mutation and ends before acknowledgement delivers FIX. Its plan requires evidence and scope validation, separate judgment of findings and proposed fixes, rejection of unsupported or overengineered proposals, and the smallest correction reusing existing machinery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (automatically emits review and CI launch instructions after push, PR creation, and PR reopen) -->
 4. Every Pi review plan emits each lane's exact scope, range or base, and deterministic temporary output-path assignments as standalone copy-ready lines, with no punctuation or Markdown added to assignment values. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerPromptContract --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (emits copy-ready standalone reviewer assignment contracts without punctuation) -->
@@ -5731,7 +5930,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
 
-**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [operator-review-remote.test.ts](../../src/__tests__/lib/operator-review-remote.test.ts), [operator-review-selector.test.ts](../../src/__tests__/lib/operator-review-selector.test.ts), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -5756,7 +5955,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated review-enforcement tests
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented
 
@@ -5775,16 +5974,22 @@ None.
 3. Inert, failed, detached, unsynchronized, child-session, non-SDD, or lookup-failed activity writes no marker and launches nothing. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) -->
 4. Exact-round deduplication is session-memory-only; failed, stopped, reloaded, or replaced work persists no partial coordination, and later exposures start fresh. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (clears stopped work without a recovery message or marker) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (clears stopped or failed work without missing-work output) -->
 5. Canonical triage plus required terminal reviewer and exact-head CI evidence writes completion immediately before FIX; drift, missing triage, or write failure writes nothing. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
-6. Pi and Claude use the same host-aware exact identity, 30-day expiry, ten-marker repository-and-branch retention, ancestor selection, deterministic reviewer output, exact-head CI correlation, triage shape, and root-only marker ownership. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (user-scoped review completion state) --> <!-- @test: host/__tests__/review-completion-state.test.js (Claude review completion helper parity) -->
+6. Pi and Claude use the same host-aware exact identity, 30-day expiry, ten-marker repository-and-branch retention, ancestor selection, deterministic reviewer output, exact-head CI correlation, triage shape, and root-only marker ownership. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (user-scoped review completion state) --> <!-- @test: host/__tests__/review-completion-state.test.js (Claude review completion helper parity) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (REQ-AGENT-170 AC1: requires structured successful background CI launch and its exact terminal identity) -->
 7. No executable review source reads, migrates, deletes, or writes legacy `.git/sdd-review-*` state. Linked worktrees and separate clones use the user-scoped marker root instead. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::completionPath --> <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::completionPath --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (supports linked worktrees and writes outside clone-local Git metadata) -->
 
-**Constraints:** GitHub identity resolution fails closed. Marker synchronization is best effort after local acknowledgement and cannot create a false completion. Root alone may choose, launch, triage, mutate, and stamp completion.
+**Notes:** The existing [replacement-container marker acceptance](../../documentation/lanes/storage-and-sync.md#req-stor-027-integration-replacement-container-marker-acceptance) checks actual R2 restoration separately from local marker/filter tests. An unexecuted round trip is not a missing implementation or a passing deployment receipt.
+
+**Constraints:**
+
+- GitHub identity resolution fails closed.
+- Marker synchronization is best effort after local acknowledgement and cannot create a false completion.
+- Root alone may choose, launch, triage, mutate, and stamp completion.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated Pi and Claude marker, ingress, transcript, Stop-hook, filter, worktree, and parity tests; integration R2 restoration check
+**Verification:** Automated: [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [git-push-review-reminder.test.js](../../host/__tests__/git-push-review-reminder.test.js), [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-completion-state.test.ts](../../src/__tests__/lib/review-completion-state.test.ts), [review-completion-state.test.js](../../host/__tests__/review-completion-state.test.js)
 
 **Status:** Implemented
 
@@ -5814,7 +6019,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release), [REQ-STOR-037](storage.md#req-stor-037-page-local-managed-seed-action-coordination)
 
-**Verification:** Automated component and store tests
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -5840,7 +6045,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated tests
+**Verification:** Automated: [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
 
 **Status:** Implemented
 
@@ -5863,7 +6068,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Automated test, Manual test
+**Verification:** Automated: [safe-graphify-update.test.js](../../host/__tests__/safe-graphify-update.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -5877,13 +6082,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the selectable universe is capped at the enterprise-capable set `{copilot, pi, bash}`; session creation rejects any agent type outside it. <!-- @impl: src/lib/agent-allowlist.ts::ENTERPRISE_AGENTS --> <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC1: agentType '%s' is rejected 400 when ENTERPRISE_MODE=active) -->
+1. When the Enterprise-mode binding is set, the selectable universe is capped at the enterprise-capable set `{copilot, pi, bash}`; session creation rejects any agent type outside it. <!-- @impl: src/lib/agent-allowlist.ts::ENTERPRISE_AGENTS --> <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC1: agentType '%s' is rejected 400 when ENTERPRISE_MODE=active) -->
 2. The wizard-selected active agents gate the selectable set: session creation and `lastAgentType` preference writes reject a deactivated coding agent, while active agents and the always-on `bash` stay accepted. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC2: a KV-deactivated coding agent is rejected 400) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-003): a KV-deactivated lastAgentType is rejected 400 under enterprise) -->
 3. A session created without an explicit `agentType` is stamped with the first active coding agent, so the container's `claude-code` fallback never applies in enterprise mode. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC3: an omitted agentType is stamped with the first active coding agent) -->
-4. The session-creation UI offers exactly the active agents delivered by `GET /api/user` on every creation surface (CreateSession dialog and GitHub clone picker). <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::ClonePickerNewSession --> <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only the wizard-activated agents delivered by /api/user) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only the wizard-activated agents delivered by /api/user in enterprise mode) --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (enterprise: allowedAgents reflects the wizard-selected active agents plus bash) -->
+4. Every session-creation surface (CreateSession dialog and GitHub clone picker) offers exactly the active agents delivered by the authenticated user profile. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx::ClonePickerNewSession --> <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (renders only the wizard-activated agents delivered by /api/user) --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders only the wizard-activated agents delivered by /api/user in enterprise mode) --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (enterprise: allowedAgents reflects the wizard-selected active agents plus bash) -->
 5. An absent, malformed, or capable-agent-free stored selection resolves to the full enterprise-capable set, preserving pre-feature behavior for existing deployments. <!-- @impl: src/lib/agent-allowlist.ts::readActiveAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC5: a malformed stored selection resolves to the full enterprise set) -->
-6. When `ENTERPRISE_MODE` and build-agent selection are unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @impl: src/lib/agent-allowlist.ts::installedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (flag-off: agentType '%s' is accepted 201 when ENTERPRISE_MODE unset) -->
-7. When `ENTERPRISE_MODE` is unset, the stored active-agent selection is ignored. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC7: the KV selection is ignored outside enterprise mode) -->
+6. When the Enterprise-mode binding and build-agent selection are unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @impl: src/lib/agent-allowlist.ts::installedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (flag-off: agentType '%s' is accepted 201 when ENTERPRISE_MODE unset) -->
+7. When the Enterprise-mode binding is unset, the stored active-agent selection is ignored. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents --> <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (AC7: the KV selection is ignored outside enterprise mode) -->
 
 **Constraints:**
 
@@ -5897,7 +6102,7 @@ None.
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-025](setup.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](agents.md#req-agent-002-agent-selection-at-session-creation)
 
-**Verification:** Automated test ([session-agent-allowlist](../../src/__tests__/routes/session-agent-allowlist.test.ts))
+**Verification:** Automated: [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [session-agent-allowlist.test.ts](../../src/__tests__/routes/session-agent-allowlist.test.ts), [user-profile-enterprise.test.ts](../../src/__tests__/routes/user-profile-enterprise.test.ts), [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx), [CreateSessionDialog.test.tsx](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx)
 
 **Status:** Implemented
 
@@ -5915,7 +6120,7 @@ None.
 2. Every agent CLI selected for the deployment executes its version command inside the built image with a ten-second timeout; a missing, crashing, non-zero, or timed-out launcher fails the image job. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentLaunchers --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the packaged-image smoke starts selected launchers and requires omitted launchers to be absent) -->
 3. Essential developer tools for terminal-based workflows are pre-installed and execute in the packaged runtime. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyDeveloperTools --> <!-- @manual -->
 4. Browser IDE dependency installation uses pinned Node 22.21.1. <!-- @impl: Dockerfile::openvscode-agent-sidebar-dependencies --> <!-- @manual: Build the image to execute the version guard before dependency installation. -->
-5. Every Node base stage resolves the approved immutable source and platform manifests; publication remains gated on image construction, smoke, scanning and provenance. <!-- @impl: Dockerfile::builder --> <!-- @test: host/__tests__/container-base-registry.test.js (REQ-OPS-011 AC5: approved immutable Node base source) --> <!-- @manual: Confirm manifest and Linux amd64 child/layer availability from the mirror before changing source; verify the EI image job completes its gates. -->
+5. Every Node base stage resolves the approved immutable source and platform manifests. Registry upload requires successful construction, smoke and scanning; deployment and image reuse additionally require successful provenance attestation. <!-- @impl: Dockerfile::builder --> <!-- @test: host/__tests__/container-base-registry.test.js (REQ-OPS-011 AC5: approved immutable Node base source) --> <!-- @manual: Confirm manifest and Linux amd64 child/layer availability from the mirror before changing source; verify the EI image job completes its gates. -->
 6. Browser IDE compiler and assembly tooling uses pinned Node 26.12.0. <!-- @impl: Dockerfile::openvscode-agent-sidebar-builder --> <!-- @impl: Dockerfile::openvscode-official-claude-extension --> <!-- @impl: Dockerfile::openvscode-agent-inventories --> <!-- @manual: Build the image to execute all three tooling-stage version guards. -->
 7. Emitted extensions retain Node-22 compatibility, verified on Node 22 and the IDE's bundled interpreter. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPackagedNativeChat --> <!-- @manual: Build the image to execute the Node 22 artifact probe; run complete-image smoke to exercise the IDE's bundled interpreter. -->
 
@@ -5929,7 +6134,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Packaged-image smoke and image build
+**Verification:** Automated: [coding-agent-selection.test.js](../../host/__tests__/coding-agent-selection.test.js), [container-base-registry.test.js](../../host/__tests__/container-base-registry.test.js), [container-runtime-smoke.test.js](../../host/__tests__/container-runtime-smoke.test.js); Manual: [Agent packaged-runtime acceptance](../../documentation/lanes/container.md#agent-packaged-runtime-acceptance)
 
 **Status:** Implemented
 
@@ -5959,7 +6164,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Startup behavior tests, image warm-cache checks and deployed native-command acceptance
+**Verification:** Automated: [pi-lockstep.test.js](../../host/__tests__/pi-lockstep.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
 
 **Status:** Implemented
 

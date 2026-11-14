@@ -12,6 +12,8 @@ const REVIEWED_IMPECCABLE_BUNDLES = Object.freeze({
   '4.7.0': { sha256: '358c8b6bbc2113e9910bf4adbdba4523612453ec58d56a5c1b14654416a13fe3', commit: 'aeeb3d8c30b5f95aeeb3e893b0f1a308af8fdb8f' },
   '4.8.0': { sha256: '82e6f6ff3a2b18f46f0f2fc388c1ab7abf3ccc52bbfc522456396d13011d6706', commit: '414603bf14c7a344edb466bb1f85690c77ce8b7d',
     url: 'https://github.com/pbakaus/impeccable/releases/download/skill-v4.8.0/universal.zip' },
+  '4.8.2': { sha256: '2d91255946127a5862cea0811c269b0943984840de76b90d32e4c2c5293c103a', commit: '035c8f319edd019936525a062fe99e83ca8d12c6',
+    url: 'https://github.com/pbakaus/impeccable/releases/download/skill-v4.8.2/universal.zip' },
 });
 
 export function verifyReviewedImpeccableBundle(bundle, version) {
@@ -88,7 +90,7 @@ export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = 
     const file = join(source, relativePath);
     let text = readFileSync(file, 'utf8');
     for (const [search, replacement] of replacements) {
-      const anchor = ['4.7.0', '4.8.0'].includes(skillVersion) && relativePath === 'SKILL.md'
+      const anchor = ['4.7.0', '4.8.0', '4.8.2'].includes(skillVersion) && relativePath === 'SKILL.md'
         ? 'This skill gives you the tools and permission to make design that earns the name out-of-distribution craft. Work as an award-winning design director would: production-grade code, a clear POV, a deep grasp of what the client and its users need, and exceptional craft.\n\n'
         : search;
       text = replaceOverlayAnchor(text, anchor, replacement, relativePath, allowAlreadyApplied);

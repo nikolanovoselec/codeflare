@@ -88,6 +88,12 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
     expect(response.status).toBe(200);
     const body = await response.json() as { statuses: Record<string, { status: string }> };
     expect(body.statuses[row.session_id]?.status).toBe('unreachable');
+    expect(body).not.toHaveProperty('usage');
+    expect(body).not.toHaveProperty('storageStats');
+    expect(body).not.toHaveProperty('preseedNeedsUpgrade');
+    expect(body).not.toHaveProperty('preseedUpgradeTarget');
+    expect(body).not.toHaveProperty('managedReleaseStatus');
+    expect(body).not.toHaveProperty('managedReleaseProgress');
   });
 
   it('returns ordered lifecycle, metrics, readiness, and incident fields', async () => {
@@ -97,7 +103,8 @@ describe('REQ-SESSION-010 / REQ-SESSION-028: D1 batch status', () => {
       status: 'unreachable', lifecycle: 'unreachable', generation: 3, revision: 9,
       editorReady: false, editorReadyError: false,
       unreachableIncidentId: 'incident-1', unreachableDeadlineMs: 120000,
-      metrics: { cpu: '12%', mem: '1GB', hdd: '2GB', syncStatus: 'success' },
+      lastActiveAt: '2027-01-01T00:01:00.000Z', lastStartedAt: '2027-01-01T00:00:00.000Z',
+      metrics: { cpu: '12%', mem: '1GB', hdd: '2GB', syncStatus: 'success', updatedAt: '2027-01-01T00:02:00.000Z' },
     });
   });
 

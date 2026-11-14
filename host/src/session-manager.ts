@@ -143,11 +143,15 @@ export class SessionManager {
    * Kill all active sessions. Used during shutdown.
    */
   killAll(): void {
+    const errors: unknown[] = [];
     for (const [id, session] of this.sessions) {
-      session.kill();
-      this._log('info', 'Killed session during shutdown', { session: id });
+      try {
+        session.kill();
+        this.sessions.delete(id);
+        this._log('info', 'Killed session during shutdown', { session: id });
+      } catch (error) { errors.push(error); }
     }
-    this.sessions.clear();
+    if (errors.length) throw new AggregateError(errors, 'Terminal runtime cleanup failed');
   }
 
   /**

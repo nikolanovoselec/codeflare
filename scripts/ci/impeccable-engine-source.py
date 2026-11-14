@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import urllib.request
 
 MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
@@ -70,8 +71,17 @@ def probe_module(source_root: Path, module_name: str) -> str:
     if len(conditions) != 1:
         raise ValueError("Impeccable idle-grace condition is missing or ambiguous")
     condition = conditions[0].replace("now_ms()", "now")
+    version = tomllib.loads((source_root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    constants = ""
+    if version == "0.1.21":
+        # Compile the actual reviewed upstream constant, not a probe substitute.
+        declarations = re.findall(r"(?m)^const PAGE_CLOSED_GRACE_MS: f64 = [^;\n]+;$", serve)
+        if declarations != ["const PAGE_CLOSED_GRACE_MS: f64 = 90000.0;"]:
+            raise ValueError("Impeccable page-closed grace constant differs from the reviewed source")
+        constants = declarations[0]
     return f"""
 mod {module_name} {{
+{constants}
     fn read_dir_names(path: &str) -> Option<Vec<String>> {{
         let mut names: Vec<String> = std::fs::read_dir(path).ok()?
             .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
@@ -146,15 +156,19 @@ def run(binary: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([str(binary), *args], capture_output=True, text=True, timeout=5)
 
 
-def verify_probe(binary: Path, expect_upstream_bugs: bool) -> None:
+def verify_probe(binary: Path, expect_upstream_bugs: bool, engine_version: str) -> None:
     variant = "upstream" if expect_upstream_bugs else "patched"
-    idle_open = run(binary, variant, "idle", "20000", "60000")
-    idle_closed = run(binary, variant, "idle", "70000", "60000")
-    expected_open = "true" if expect_upstream_bugs else "false"
-    if idle_open.returncode != 0 or idle_open.stdout.strip() != expected_open:
-        raise AssertionError((idle_open.returncode, idle_open.stdout, idle_open.stderr))
-    if idle_closed.returncode != 0 or idle_closed.stdout.strip() != "true":
-        raise AssertionError((idle_closed.returncode, idle_closed.stdout, idle_closed.stderr))
+    legacy_upstream = expect_upstream_bugs and engine_version != "0.1.21"
+    for age, grace, closes in [
+        (20000, 60000, legacy_upstream),
+        (70000, 60000, not expect_upstream_bugs or legacy_upstream),
+        (110000, 60000, True),
+        (100000, 120000, expect_upstream_bugs),
+        (130000, 120000, True),
+    ]:
+        result = run(binary, variant, "idle", str(age), str(grace))
+        if result.returncode != 0 or result.stdout.strip() != str(closes).lower():
+            raise AssertionError((engine_version, variant, age, grace, result.returncode, result.stdout, result.stderr))
 
     with tempfile.TemporaryDirectory(prefix="impeccable-source-scan-") as directory:
         root = Path(directory)
@@ -200,38 +214,43 @@ def verify_probe(binary: Path, expect_upstream_bugs: bool) -> None:
 
 def main() -> None:
     root = Path(__file__).resolve().parents[2]
-    pin = json.loads((root / "image/impeccable-engine.json").read_text())
-    if pin.get("version") != "0.1.18" or not re.fullmatch(r"[a-f0-9]{40}", pin.get("commit", "")):
-        raise ValueError("Invalid Impeccable engine identity pin")
-    if not re.fullmatch(r"[a-f0-9]{64}", pin.get("sha256", "")):
-        raise ValueError("Invalid Impeccable engine archive pin")
     if shutil.which("rustc") is None:
         raise RuntimeError("The CI runner must provide rustc")
 
-    archive = read_archive(
-        f"https://codeload.github.com/pbakaus/impeccable/tar.gz/{pin['commit']}",
-        pin["sha256"],
-    )
-    with tempfile.TemporaryDirectory(prefix="impeccable-source-") as directory:
-        source_root = Path(directory) / "source"
-        extract_sources(archive, source_root)
-        cargo = source_root.joinpath("Cargo.toml").read_text()
-        if not re.search(r'(?m)^version\s*=\s*"' + re.escape(pin["version"]) + r'"\s*$', cargo):
-            raise ValueError("Pinned Impeccable source version does not match its identity")
-
-        patched_root = Path(directory) / "patched-source"
-        shutil.copytree(source_root, patched_root)
-        subprocess.run(
-            [sys.executable, str(root / "scripts/patch-impeccable-engine.py"), str(patched_root)],
-            check=True,
-            timeout=5,
+    # Keep the current 4.8.0 regression alongside the new candidate. Complete
+    # native-binary gates for these and every legacy engine remain in Docker.
+    for name, version, commit, digest in [
+        ("impeccable-engine-4.8.0.json", "0.1.18", "f29cd24fdecfa5612e35e34c1c868d4a3fca930c",
+         "1f243cc93a5ab530aac10dbae0e13447d356b2d4ca3cd990e59de36327ff2bc9"),
+        ("impeccable-engine.json", "0.1.21", "fe45455d36ed14c85ece25c9b868344e55713352",
+         "36ebd8da4a2c6117202c9816634a05de6bcc3a55e6bba84d49e247bb7f06892b"),
+    ]:
+        pin = json.loads((root / "image" / name).read_text())
+        if pin != {"version": version, "commit": commit, "sha256": digest}:
+            raise ValueError(f"Impeccable {name} differs from the reviewed source identity")
+        archive = read_archive(
+            f"https://codeload.github.com/pbakaus/impeccable/tar.gz/{commit}", digest,
         )
-        probe = Path(directory) / "source-probe"
-        compile_probe(source_root, patched_root, probe)
-        verify_probe(probe, expect_upstream_bugs=True)
-        verify_probe(probe, expect_upstream_bugs=False)
+        with tempfile.TemporaryDirectory(prefix="impeccable-source-") as directory:
+            source_root = Path(directory) / "source"
+            extract_sources(archive, source_root)
+            cargo = tomllib.loads(source_root.joinpath("Cargo.toml").read_text())
+            if cargo["workspace"]["package"]["version"] != version:
+                raise ValueError("Pinned Impeccable source version does not match its identity")
 
-    print("Impeccable source identity, idle-grace, and raster boundaries passed")
+            patched_root = Path(directory) / "patched-source"
+            shutil.copytree(source_root, patched_root)
+            subprocess.run(
+                [sys.executable, str(root / "scripts/patch-impeccable-engine.py"), str(patched_root)],
+                check=True,
+                timeout=5,
+            )
+            probe = Path(directory) / "source-probe"
+            compile_probe(source_root, patched_root, probe)
+            verify_probe(probe, expect_upstream_bugs=True, engine_version=version)
+            verify_probe(probe, expect_upstream_bugs=False, engine_version=version)
+
+        print(f"Impeccable {version} source identity, idle-grace, and raster boundaries passed")
 
 
 if __name__ == "__main__":

@@ -32,13 +32,25 @@ Current endpoint readiness keeps ordinary terminal clients disconnected until `r
 
 Browser Back or Dashboard during terminal startup selects a usable dashboard independently of any session's initialization latch. Startup and its progress/OPEN ownership continue in the background; returning restores the progress/ready surface without another Start or Stop. Background completion/failure cannot hide Dashboard or steal selection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> [REQ-SESSION-037](../../sdd/spec/session-lifecycle.md#req-session-037-dashboard-navigation-remains-available-during-startup).
 
-Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); only official structural `session.json` is durable through normal R2 sync, never prior pane output or arbitrary process survival. Fresh Herdr Pi runs fullscreen and owns its transcript.
+Herdr image settings manage mobile layout, mouse capture, browser-owned clipboard, 10 MB pane scrollback, palette, labels and static status symbols. Updates, remote manifests, sound, pane history persistence, nested launches and Kitty graphics stay disabled. Named runtime lifetime/readiness/recovery belongs to [Sessions & Runtime](container.md#runtime-lifecycle); only official structural `session.json` beneath the private `~/.codeflare` home root is durable through normal R2 sync, never prior pane output or arbitrary process survival. Fresh Herdr Pi runs fullscreen and owns its transcript.
 
 ### Browser terminal link activation
 
 OAuth shims print URLs rather than opening container browsers. The shared xterm link provider owns detection, reconstruction and browser opening. Classic retains activation; Herdr Ctrl-/Cmd-click and stationary mobile link taps open once without SGR input. Same-cell pointer jitter is allowed; moving cells cancels modified activation. Mobile link taps do not focus input or reset fullscreen history. Modified non-links still reach Herdr. Focused connected pane owns URL detection; cleanup is scoped to that session/terminal, never unscoped on ordinary unmount. <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> [REQ-TERM-015](../../sdd/spec/terminal.md#req-term-015-focused-pane-owns-url-detection), [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
 
 Terminal links exclude unmatched trailing closing parentheses from both the destination and clickable range, preserving balanced and percent-encoded parentheses. The existing desktop and touch auth-link controls also recognize `auth.openai.com` regardless of path. <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::isActionableUrl --> [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
+
+### Terminal evidence boundaries
+
+Component/store [classic-surface](../../sdd/spec/terminal.md#req-term-007-classic-topology-remains-available) and [MultiView focus/input](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing) tests are controlled methods, not proof of physical terminal/editor retention or hosted browser acceptance. Source and dependency inspection supports ownership/compatibility judgment, not executed process or socket lifetime. Keep those evidence populations distinct.
+
+### Terminal snapshot restoration acceptance
+
+Use an already-authorized disposable terminal with bounded synthetic output. Interrupt only its browser transport while the host continues, then reconnect through the normal UI without restarting the process. Pass when the authoritative host screen replaces prior client content without duplication, returns to the live bottom and drops the old selection/viewport while tabs, tiling and any external editor remain intact. Exercise Classic and Herdr separately; retain only outcome booleans, not terminal contents. Missing authorized transport controls make the observation unavailable.
+
+### MultiView focus continuity acceptance
+
+Use two already-authorized connected MultiView panes and existing browser network inspection. Record connection identity and open/close counts, not headers or terminal payloads. Switch focus by click and touch; confirm both panes continue receiving output and benign input reaches only the focused pane. Pass only when the same pane surfaces and connections remain live without a new handshake or close. Missing authorized browser observations are unavailable evidence; this method does not authorize creating sessions or running a new harness.
 
 ### Herdr clipboard compatibility boundary
 
@@ -56,7 +68,16 @@ Notification delivery retains event-specific global suppression, single local gr
 
 The dashboard right column shares space between GitHub and Storage: when space permits, GitHub anchors at the top and Storage at the bottom, with adaptive scrollable allocation rather than a fixed repository row limit. Narrow or short viewports collapse to one content-sized, viewport-capped face. GitHub is the default when enabled; header controls flip to Storage and back, recomputing height. Disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> [REQ-GITHUB-009](../../sdd/spec/github.md#req-github-009-github-repository-list-viewport-and-empty-states), [REQ-GITHUB-010](../../sdd/spec/github.md#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation).
 
+For [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) AC4, the controls reuse one tested icon-button primitive, `IconButton`. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @impl: web-ui/src/components/ui/IconButton.tsx::IconButton --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) --> <!-- @test: web-ui/src/__tests__/components/IconButton.test.tsx (IconButton) -->
+
 Repository search is disclosed on demand at every breakpoint. Opening the magnify toggle reveals and synchronously focuses the input; touch also scrolls it above the keyboard. Closing hides the input and clears the filter, so hidden search cannot silently narrow the list. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::toggleSearch --> [REQ-GITHUB-011](../../sdd/spec/github.md#req-github-011-mobile-search-disclosure-with-autofocus). Pixel allocation and protected-deployment viewport checks retain their manual qualifiers; source descriptions do not establish device acceptance.
+
+### GitHub workspace manual acceptance
+
+Reuse the protected Integration viewport checks in [REQ-GITHUB-012](../../sdd/spec/github.md#req-github-012-responsive-github-and-storage-panel-allocation) and the [Integration checklist](deployment.md#integration-acceptance-checklist), with an authorized connected test account. Record browser/device/version and viewport; these are methods, not executed results.
+
+- At desktop/tablet sizes, confirm the stacked panels stay anchored, repository overflow scrolls and every fetched repository remains reachable. Resize across the 600px width/height boundaries; in single-face mode confirm the flip control appears and switches faces, while split mode hides it. Repeat with reduced motion enabled and confirm an instant swap.
+- On a supported touch device, tap the search toggle: observe the actual OS keyboard opening and the input remaining visible above it while typing. Hide search and confirm the filter clears; reopen and verify every repository is reachable by scrolling. DOM focus and mocked scroll calls alone do not establish keyboard or rendered geometry outcomes.
 
 ## Backend state and client connectivity
 
@@ -66,9 +87,9 @@ Both dashboard and session-dropdown menus expose **Retry Stop** for persisted `s
 
 Both menus also offer **Kill** for starting, running, unreachable and stopping sessions, without entering the session. Kill bypasses graceful Stop and final sync; unsynced edits may be lost. See [REQ-SESSION-038](../../sdd/spec/session-lifecycle.md#req-session-038-user-can-force-kill-a-session-container).
 
-Terminal `running` + this device's connected socket presents green ACTIVE; no socket presents blue IDLE. Neither label is persisted or inferred for another device. Starting/unreachable use yellow recovery presentation, stopped gray. Retry exhaustion/deadline countdown changes messaging only, never invents stopped. Mounted objects/buffers/tabs/tiling/selection/scrollback remain through transport uncertainty; newer authoritative shutdown/deletion evidence owns disposal, not local failures. D1 outage retains last ordered view and distinct status-unavailable notice. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @impl: web-ui/src/lib/session-presentation.ts::applyStatusFailure --> [REQ-TERM-045](../../sdd/spec/terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle) retains Planned status despite available helper/source evidence.
+Terminal `running` + this device's connected selected socket presents green ACTIVE; no selected socket presents blue IDLE. Classic uses the active outer tab; Herdr uses its single outer terminal `1`. A hidden Classic tab cannot supply the active tab's presence. Neither label is persisted or inferred for another device. Starting/unreachable/stopping use yellow presentation, stopped gray. Countdown expiry cannot establish stopped or dispose workspace state; there is no separate recovery-countdown requirement. Terminal objects, tabs and tiling remain mounted through transport uncertainty; reattachment deliberately rebuilds buffer/scrollback from the host snapshot rather than retaining prior selection or viewport position. Newer authoritative shutdown/deletion evidence owns disposal. D1 outage retains the last ordered view, with its status-unavailable notice on the Dashboard rather than an additional active-terminal notice. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> [REQ-TERM-045](../../sdd/spec/terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle) retains its remaining ownership/ordering qualification.
 
-Ready running VS Code remains green during connectivity recovery with separate accessible notice, not Terminal ACTIVE/IDLE. D1 outage does not unmount editor. Source `session-presentation.ts` currently keeps `stopping` mounted; spec disposal wording must not be strengthened into a claimed immediate client teardown. <!-- @impl: web-ui/src/lib/session-presentation.ts::vscodePresentation -->
+VS Code runs in a separate browser window or tab. Its ready running/unreachable indicator remains green, not Terminal ACTIVE/IDLE; explicit Open focuses the retained live window or opens that session's named target without Start. Codeflare does not add a separate editor-connectivity notice. D1 status outage retains ordered state and shows the Dashboard notice. An allowed disposal transition does not promise immediate closure of an external editor window. <!-- @impl: web-ui/src/lib/browser-ide-window.ts::createBrowserIdeWindowOpener --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 
 <a id="code-server-browser-ide"></a>
 <a id="browser-ide"></a>
@@ -117,6 +138,29 @@ Company extension mutation requires both transported verified digests. Missing/m
 
 After deployment, create fresh Terminal and VS Code sessions. Confirm Terminal uses existing surface without editor until requested; VS Code remains dashboard-owned Preparing→Open, repeated clicks reuse one editor tab, creates one Codeflare Session Agent terminal and no host terminal connection. Change Default workspace and verify existing stamps unchanged. Stop/Delete leaves editor tab unavailable without dashboard closing it. Verify clean selector-free location, same-origin routing, canonical workspace, agent inventory/account-free behavior and isolated conversations. These are acceptance obligations, not evidence obtained by this documentation move.
 
+### Browser IDE native manual acceptance
+
+Use authorized disposable Integration sessions on the selected image. These are verification procedures, not execution results. Session creation, inference, notifications/permissions and fixture writes require their own authorization; this table grants none. Use harmless workspace fixtures, not user content. Compare observable outcomes with the stated criteria and existing constraints.
+
+| Requirement / check | Action | Observable pass/fail |
+|---|---|---|
+| REQ-IDE-005 AC5 — Account-free Chat | In three fresh Pi sessions, open Codeflare native Chat and complete one authorized harmless request without changing account or model setup. | Each request completes through Codeflare without account setup, authorization or a model-selection prerequisite. Any setup prompt or blocked request fails. |
+| REQ-IDE-005 AC6 — Selected inventory | Open three fresh sessions for each configured Pi, Claude and unsupported selection. Inspect the running editor's available agent extensions and surfaces. | Pi exposes Codeflare native Chat, Claude exposes the official Claude extension, and unsupported selection exposes neither. Wrong, absent selected or duplicate agent inventory fails. |
+| REQ-IDE-006 AC2 — Official Claude context | In three fresh Claude sessions, open a harmless workspace file with a known diagnostic, select a distinctive fragment, ask about that context and request a native diff. Inspect the IDE MCP listener through authorized host access without revealing its token. | Claude receives the active file, selection and diagnostic and presents its native diff. MCP is authenticated and loopback-only. Missing context/diff, unauthenticated access or a public listener fails. |
+| REQ-IDE-018 AC1 — Pi notifications | With notification permission separately authorized, complete a Pi response and trigger a native confirmation while the editor is unfocused. Repeat focused and permission-denied cases; activate a delivered notification and observe its lifetime. | Unfocused responses/confirmations follow Code OSS notifications, permission and lifetime policy; focused or denied cases do not bypass that policy. Notification activation focuses the editor. Duplicate terminal-bridge delivery or permission bypass fails. |
+| REQ-IDE-018 AC4 — Claude notifications | In an official Claude panel, trigger an authorized action that produces an upstream in-product notification; inspect its presentation and dismissal. | The official panel presents and dismisses its upstream notification normally, with no Codeflare duplicate or unrelated native Chat setup. Missing notification for the triggered event or broken dismissal fails. |
+| REQ-IDE-019 AC2 — Inline eligibility | At initial readiness of a fresh Pi editor, open Inline Chat's model picker before submitting any request. | Codeflare is selectable and initially default from its own provider, without Copilot login. A missing model, nondefault selection or login prerequisite fails. |
+| REQ-IDE-019 AC3 — Selected-code refactoring | Select harmless fixture code and invoke editor Inline Chat to request a bounded refactor. | Codeflare handles the selected-code request in the editor without Copilot login. Login, panel handoff or no Codeflare dispatch fails. |
+| REQ-IDE-019 AC4 — Empty-selection generation | Put the caret in the fixture without selecting text, invoke editor Inline Chat and request a small generation. | Codeflare handles the empty-selection request without Copilot login. A selection prerequisite, login or panel handoff fails. |
+| REQ-IDE-019 AC6 — Agent selector | In a fresh Pi editor, open the Code OSS Agent selector and inspect every discovered Codeflare custom agent. | Each Codeflare custom agent appears exactly once. Missing or duplicate entries fail. |
+| REQ-IDE-020 AC5 / REQ-IDE-033 AC6 — Native Keep | Record fixture content, generate an Inline proposal and select native Keep in the invoking editor. | Keep accepts the displayed changes, settles the Inline session and leaves controller-owned review state disposed. Missing Keep, different changes or an unsettled session fails. |
+| REQ-IDE-020 AC6 / REQ-IDE-033 AC6 — Native rejection and Undo / Native Keep and Close | Record fixture content, generate a proposal and use native Close to reject it. Separately accept another proposal with Keep, then use native Undo. | Close restores the pre-proposal content and disposes the Inline session; Undo restores content through the native edit transaction. Surviving proposal changes or unsettled review state fails. |
+| REQ-IDE-033 AC7 — Immediate Inline reentry | Immediately after each Keep and Close outcome, submit a second Inline request in the same document; inspect tabs and editor groups. | Each second request reaches Codeflare without document-URI errors; no duplicate editor tab or group appears. Failure, waiting for a reopen or duplication fails. |
+| REQ-IDE-021 AC1/AC4/AC5 — Account-free chrome | Inspect fresh Pi, Claude and unsupported editors, including the activity bar and Chat title bar. In Pi, also inspect available Codeflare models. | Accounts and Chat sign-in controls are hidden in every inventory. Pi hides unrelated built-in AI setup while retaining account-free Codeflare models. Visible unrelated setup/sign-in chrome or lost Codeflare models fails. |
+| REQ-IDE-024 AC3 — Welcome presentation | Open the welcome editor in light/dark themes at desktop/mobile widths; enable reduced motion and repeat. Navigate its controls by keyboard. | Text and controls remain legible and reachable without viewport clipping in both themes and widths. Reduced motion suppresses animation/transitions. Unreadable, inaccessible or clipped content, or retained motion, fails. |
+| REQ-IDE-027 AC1 — Panel thinking | Run an authorized harmless long panel request with a reasoning-capable provider, observing native thinking, final answer and tool progress. | Provider-authored thinking or summaries stream in native thinking UI separately from the answer. Repeated tool activity stays bounded by category. Missing/sequenced-as-answer thinking or unbounded repeated progress fails; raw hidden chain-of-thought is not requested. |
+| REQ-IDE-029 AC1/AC4 — Inline feedback | Submit an edit request and observe progress while Inline Chat is active. Then request an already-satisfied harmless change and inspect the no-change response and document. | At most two immediate progress updates appear. An exposed no-change response renders its bounded summary without edits. The pinned view excludes responses without pending confirmation; details are secondary, not durable. Missing authored summary or unexpected edits fails; exclusion alone is the existing visibility constraint. |
+
 <a id="mobile-terminal"></a>
 ## Interaction and Focus Model
 
@@ -137,7 +181,7 @@ Enable overlaysContent before terminal focus; disable on actual exit so ordinary
 
 #### Multi-pane focus handoff
 
-`vkOpen`, `keyboardHeight`, overlaysContent are one window resource owned by focused terminal. Live `isFocusOnTerminalInput()` recognizes active terminal-input iframe and gates hook cleanup, per-input blur and one-tick Samsung focusout. Sibling handoff preserves overlay/signals. Exit/unmount is owner-aware: retiring pane clears only if it owns focus or no terminal remains focused; it cannot clear sibling state. This supersedes older unconditional iframe-removal teardown wording. [REQ-MOB-015](../../sdd/spec/terminal.md#req-mob-015-virtual-keyboard-persists-across-terminal-pane-focus-handoff).
+`vkOpen`, `keyboardHeight`, overlaysContent are one window resource owned by focused terminal. The live `isFocusOnTerminalInput()` query recognizes the active terminal-input iframe, reads current focus rather than a cached value, and is the single discriminator used by every per-pane keyboard-teardown site: hook cleanup, per-input blur and one-tick Samsung focusout. Sibling handoff preserves overlay/signals. Exit/unmount is owner-aware: retiring pane clears only if it owns focus or no terminal remains focused; it cannot clear sibling state. This supersedes older unconditional iframe-removal teardown wording. [REQ-MOB-015](../../sdd/spec/terminal.md#req-mob-015-virtual-keyboard-persists-across-terminal-pane-focus-handoff) AC1. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::releaseKeyboardOnBlur --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (reports focus resting on a terminal input iframe) -->
 
 Classic retains established mouse/right-click/gesture behavior. Herdr ordinary mouse click/drag/wheel becomes SGR cell input, except browser link activation. Stationary single-finger trusted touchend sends one same-cell press/release, suppresses compatibility mouse, activates MultiView owner then opens mobile input. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::sendHerdrTap --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::focusMobileTerminal --> Movement threshold/long press/multi-touch/cancel never activate. Detected links take precedence without SGR/focus. [REQ-MOB-020](../../sdd/spec/terminal.md#req-mob-020-terminal-touch-activation), [REQ-TERM-036](../../sdd/spec/terminal.md#req-term-036-browser-pointer-interaction-with-herdr), [REQ-TERM-017](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing).
 
@@ -198,7 +242,7 @@ Keyboard closed: normal-buffer vertical swipes use BufferService deltas; alterna
 - Separate iframe compositor contains Android IME caret. Scoped createElement override during terminal.open uses password input to suppress OS autocorrect, restored afterward. `_syncTextArea` stays active; freezing leaves focus at (0,0) and caused historical top snaps. Live iframe-document focus is not cached.
 - Sticky Ctrl is single-use; Ctrl+C/Ctrl+D preserve expected input without intercepting ordinary typing.
 - SpeechRecognition is independent of iframe input; supported mobile floating mic or desktop mic/Ctrl+Space captures one utterance (`continuous=false`, `interimResults=false`), then sends final text to terminal.input. Unsupported browser hides controls.
-- Before uncertain/prompt microphone or clipboard permission, blur iframe so prompt is not behind keyboard. Composition buffers swipe typing until commit. Enable overlay before input focus.
+- FloatingTerminalButtons blurs iframe input before microphone permission when its state is `prompt` or unknown, and before clipboard read only when the permission query returns `prompt`. Unsupported/failed clipboard permission inspection does not trigger that blur. The supplemental `setupMobileInput` clipboard paste path reads directly without this blur; not every paste path dismisses the keyboard. Composition buffers swipe typing until commit. Enable overlay before input focus. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput -->
 - Floating normal-buffer page controls use buffer-derived page/bottom deltas; alternate-screen controls send PageUp/PageDown to application history, targeting focused MultiView pane even without a single active session.
 
 [REQ-MOB-001/006/007/013/016](../../sdd/spec/terminal.md) retain automated/manual verification qualifiers; device/IME evidence is not inferred from unit tests.
@@ -216,13 +260,13 @@ Herdr Ctrl+B forwards only canonical prefix and suppresses browser bookmarks; He
 
 Historical `_syncTextArea` freeze and capture scroll guard fought browser focus and xterm's JS scroll layer; forcing scrollTop zero could command viewport to absolute top. Both hacks were removed. xterm's deferred sync/native full-buffer anchor remains authoritative; Codeflare never repairs output by distance restoration or generic zero-clamp.
 
-Current ownership:
+Current ownership ([REQ-TERM-014 AC1–4](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004 AC2–5](../../sdd/spec/terminal.md#req-mob-004-scroll-drop-detection-during-burst-output), and [REQ-MOB-012](../../sdd/spec/terminal.md#req-mob-012-scroll-anchoring-during-keyboard-transitions)): <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer -->
 
 1. FOLLOW_OUTPUT: synchronous onScroll guard bottom-anchors before paint only while following and no correlated user intent.
 2. READ_SCROLLBACK: correlated wheel/pointer/navigation/touch/external intent establishes persistent ownership until live bottom. Output is held, not written beneath reader; oldest whole units drop over cap.
 3. MOBILE_INPUT_LOCKED: touch keyboard lifecycle intentionally fits/anchors. Generic correction is inactive, vertical swipes are arrows, fullscreen wheel route only keyboard-closed.
 
-Frontend cap is 5,000 lines; host renderer retains 1,000; agent-side virtual scrolling disabled. Pinned JS scroll layer remains sole scroller (`.xterm-viewport` overflow hidden). No fit runs at zero visible height. Writes never reposition; refit skips unchanged ordinary resize.
+Frontend xterm scrollback is capped at 5,000 lines; the host headless renderer retains 1,000. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: host/src/session.ts::Session --> These caps do not establish agent-side virtualization policy: fullscreen Pi/Herdr owns its application history separately, as described below. [REQ-MOB-004 Constraints](../../sdd/spec/terminal.md#req-mob-004-scroll-drop-detection-during-burst-output) retains the separate agent-virtualization claim, whose runtime scope is not proved by these cap values. Pinned JS scroll layer remains sole scroller (`.xterm-viewport` overflow hidden). <!-- @impl: web-ui/src/styles/terminal.css::.xterm-viewport = overflow: hidden !important --> No fit runs at zero visible height. Writes never reposition; refit skips unchanged ordinary resize.
 
 ### Persistent Manual Ownership
 
@@ -258,11 +302,13 @@ Current mechanisms are synchronous follower guard, persistent correlated manual 
 <a id="websocket-recovery"></a>
 ## Transport Recovery
 
+Terminal reattachment restores the authoritative host snapshot, rather than preserving the previous client buffer, selection or viewport position. The client resets its buffer/scrollback, applies the serialized host state and returns to the live bottom. Terminal objects, tabs and tiling remain mounted during retry; editor state is unaffected by terminal restore. This is the intended recovery design ([REQ-SESSION-012 AC3](../../sdd/spec/session-lifecycle.md#req-session-012-transport-retry-never-invents-lifecycle-state), [REQ-SESSION-245 AC1–AC2](../../sdd/spec/session-lifecycle.md#req-session-245-transport-recovery-terminal-snapshot-and-editor-state), [REQ-TERM-045 AC5](../../sdd/spec/terminal.md#req-term-045-local-terminal-presence-presents-active-or-idle)). <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
+
 ### Retryable Close Codes
 
-Retry 1001/1006/1011/1012/1013 with equal-jitter exponential backoff indefinitely while retryable. Reset on open/visibility return, pause hidden. Normal 1000/unclassified intentional close stays disconnected pending D1 status. 4503 is definitive only when owner-scoped D1 is stopping/stopped and immediately ends retry; network failure/counter/SDK state cannot synthesize it. Failed existing-runtime health/readiness/forward yields retryable 1013 before rate budget, not a replacement start. The original KV-polling wording is obsolete. [REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures), [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004-close-code-4503-is-authoritative-no-retry), [REQ-TERM-022](../../sdd/spec/terminal.md#req-term-022-an-unreachable-container-ends-the-upgrade-instead-of-escaping-it).
+Retry 1001/1006/1011/1012/1013 with equal-jitter exponential backoff indefinitely while retryable. A timed-out attempt is retired before its socket closes; delayed events from it cannot change a successor connection or clear its watchdog. Reset on open/visibility return, pause hidden. Normal 1000/unclassified intentional close stays disconnected pending D1 status. 4503 is definitive only when owner-scoped D1 is stopping/stopped and immediately ends retry; network failure/counter/SDK state cannot synthesize it. Failed existing-runtime health/readiness/forward yields retryable 1013 before rate budget, not a replacement start. The original KV-polling wording is obsolete. [REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures), [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004-close-code-4503-is-authoritative-no-retry), [REQ-TERM-022](../../sdd/spec/terminal.md#req-term-022-an-unreachable-container-ends-the-upgrade-instead-of-escaping-it).
 
-Input subscription is owned outside reconnect and replaced without duplicates; retries are cancellable. CONNECTING normal teardown lets aborted handlers close on settlement to avoid noisy browser errors; actual stalled handshake times out/force-closes under `WS_CONNECT_TIMEOUT_MS`. Navigation disconnect grace cancels on quick return. Visibility restore reconnects only visible panes. [REQ-TERM-020](../../sdd/spec/terminal.md#req-term-020-terminal-reconnect-teardown-timeout-and-backoff-timing).
+The input handler subscription is owned outside the connect routine and disposed before a replacement handler is attached so reconnect cannot duplicate keystrokes ([REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures) AC4). <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) --> Retries are cancellable. CONNECTING normal teardown lets aborted handlers close on settlement to avoid noisy browser errors; actual stalled handshake times out/force-closes under `WS_CONNECT_TIMEOUT_MS` (`10000` ms). Navigation disconnect grace cancels on quick return. Visibility restore reconnects only visible panes. [REQ-TERM-020](../../sdd/spec/terminal.md#req-term-020-terminal-reconnect-teardown-timeout-and-backoff-timing).
 
 Backend recovery/idle/teardown authority is [Sessions & Runtime](container.md#runtime-recovery-and-status), not client retry timing or browser keyboard recovery.
 
@@ -296,6 +342,54 @@ Committed requirement Verification fields in [Terminal](../../sdd/spec/terminal.
 
 Phone/tablet command input/output/scrollback; Samsung address-bar top/bottom and back-dismiss; visibility return (Chrome reset/Samsung bounce); Fold screen/orientation changes; sibling MultiView keyboard handoff; first microphone/clipboard permission and IME commit; Herdr single activation/jitter/cancel/scroll/no-keyboard-reopen; open vs closed Pi viewport focus; OSC52 trusted recovery; modified/touch link no terminal side effects; content-free diagnostics; decorative retirement; renderer no zero-height fit.
 
+### Mobile platform checks
+
+These are unexecuted manual checks, not deployment evidence. Use an authorized disposable session and record the release, agent/browser/device versions, viewport and theme. Cover supported phone/tablet configurations, including Android Chrome, Samsung Internet and installed iOS PWA where applicable; an unavailable configuration remains unverified. Use only separately approved command/inference and permission budgets, never personal clipboard content or production changes.
+
+| Check | Action | Observable pass/fail |
+|---|---|---|
+| Terminal interaction | On desktop, phone and tablet, open the terminal and execute the harmless command `printf 'mobile-ok\n'` through the selected agent's approved execution path. Enter enough harmless output to scroll backward and return to the bottom. | Controls and terminal content fit the viewport; command input, exact output and scrollback remain usable, with only necessary touch differences from desktop. Clipping, lost input/output or inaccessible scrollback fails. |
+| Cursor layers | In an authorized disposable Bash session, run the cursor commands below one at a time. Repeat visible/single-cursor observations in each supported agent's fullscreen views; inspect the rendered cursor-layer styles and compare with the palette described above. | One blinking bar remains visible in normal and alternate buffers, with no CSS hiding or duplicated ANSI cursor. Only the explicit hide command suppresses it; the final command restores it. Android's isolated IME caret stays a separate layer. An unavailable agent/view remains unverified. |
+| Android IME | Open input, compose a harmless test word using the Android keyboard, then cancel it without submission. Repeat while the viewport changes between keyboard-open and closed. | The native IME caret never escapes the terminal bounds; the compositor remains isolated. Record an out-of-bounds caret as failure, not as the terminal's intended cursor. |
+| Herdr focus and history | In Samsung Internet, scroll Pi history upward with the keyboard closed, then tap Pi input. Repeat taps with the keyboard open; scroll history upward again and tap a control. Finally close the keyboard, scroll Herdr and release. | A closed-keyboard tap opens input and reveals the latest output/prompt; an open-keyboard tap activates once without selection and preserves the scrolled viewport. Scrolling with the keyboard closed does not reopen it after release. |
+| Tap activation | In Herdr, try a stationary single-finger tap with small jitter, then movement, cancellation, long press and multi-touch against the same control. Repeat an ordinary stationary tap in a separate Classic session. | The Herdr tap activates exactly once; movement, cancellation, long press and multi-touch never activate it. Classic retains its ordinary tap behavior. Duplicate activation fails. |
+| Clipboard permission (REQ-MOB-013 AC2, FloatingTerminalButtons) | In a disposable browser profile whose clipboard permission is unset, copy the harmless text `paste-fixture`, open the terminal keyboard and use the floating Paste button. Do not use personal clipboard data. | When permission inspection returns `prompt`, input loses focus and the keyboard no longer obscures a possible permission prompt before clipboard read. Unsupported/failed permission inspection remains unverified for blur-before-prompt; the supplemental `setupMobileInput` paste path does not provide that blur. This unexecuted method is not evidence for every paste path. |
+| IME composition | Open an idle terminal prompt and a second authorized view of that same terminal. Swipe-compose a harmless word without committing, then commit it without submitting the prompt; clear the test input afterward. | The second view receives no partial composition as terminal keystrokes; after commit it receives the completed word. Keep any local IME candidate display distinct from remote terminal echo. |
+| Input diagnostics | Open the terminal URL with `debug=1`. Tap, move and cancel a touch, then open/close the keyboard. Inspect the overlay; remove the opt-in afterward. | The overlay appears only after opt-in and shows ordering, final cancellation, touch origin/target, focus, move count and viewport/keyboard geometry. It retains at most twelve records and no terminal text. Missing fields or content leakage fails. |
+| Decorative context loss | On a fresh page with the decorative canvas active, use browser developer tools to run the snippet below. Repeat on another supported device class when available. | The decorative canvas retires and the app root's dark CSS surface remains visible; terminal interaction still works. A restored animation, blank application surface or lost terminal fails. No available loss extension means unverified, not passed. |
+
+Run these only in the disposable **Bash** terminal, not an agent prompt; they enter the alternate buffer, deliberately hide the cursor, then restore cursor visibility and the original buffer:
+
+```bash
+printf '\033[?1049hcursor-fixture\n'
+printf '\033[?25l'
+printf '\033[?25h\033[?1049l'
+```
+
+The decorative-context-loss check uses this browser-console snippet:
+
+```javascript
+const canvas = document.querySelector('.splash-cursor-canvas');
+const gl = canvas?.getContext('webgl2') ?? canvas?.getContext('webgl');
+const loss = gl?.getExtension('WEBGL_lose_context');
+if (!loss) throw new Error('Decorative context-loss check unavailable');
+loss.loseContext();
+```
+
+Retain only nonsecret observations and stop on failed permission or ownership checks. These cases cover the manual portions of [REQ-MOB-001](../../sdd/spec/terminal.md#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-016](../../sdd/spec/terminal.md#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls), [REQ-MOB-023](../../sdd/spec/terminal.md#req-mob-023-opt-in-mobile-input-diagnostics), [REQ-MOB-018](../../sdd/spec/terminal.md#req-mob-018-decorative-webgl-canvas-retirement), [REQ-MOB-020](../../sdd/spec/terminal.md#req-mob-020-terminal-touch-activation), [REQ-MOB-022](../../sdd/spec/terminal.md#req-mob-022-herdr-mobile-input-focus-and-viewport) [REQ-MOB-013](../../sdd/spec/terminal.md#req-mob-013-mobile-input-system-platform-compatibility) and [REQ-MOB-008](../../sdd/spec/terminal.md#req-mob-008-cursor-visible-for-all-supported-agents); their automated cases remain separate.
+
+## GitHub workspace acceptance
+
+Use existing disposable targets/content with current protected-access authorization. Mutations require separate approval. Record redacted observations; missing prerequisites remain unverified, not permission to create data or infrastructure.
+
+### GitHub links acceptance
+
+For REQ-GITHUB-002 AC6, use an approved connected account with an existing repository. Activate owner/login and repository-name links by pointer and keyboard. Pass only if each opens the intended GitHub destination in a new tab and repo-name activation creates no clone request, session or workspace folder. Do not press Clone or infer no clone from the new tab alone. Mobile one-face flipping retains its separate Dashboard test and AC5.
+
+### GitHub panel geometry acceptance
+
+For REQ-GITHUB-012 AC1/AC6/AC7, use browser-e2e against protected Integration after access/authentication approval. At tablet and desktop breakpoints, verify the stacked column anchors GitHub at the top and Storage at the bottom. At mobile width, verify existing short content centers the active face; existing long repository/storage lists must scroll internally within the viewport cap. Pass only if all outcomes hold without page overflow. Missing content is unverified, not permission to upload files or create repositories.
+
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 
@@ -310,6 +404,90 @@ Phone/tablet command input/output/scrollback; Samsung address-bar top/bottom and
 | IDE workspace/proxy | REQ-IDE-001/002/003/004/012/015/035/047/048 | Worker/host/supervisor/UI | Session path/clean workspace/launch |
 | IDE integration/continuity | Browser IDE domain | [Package README](../../openvscode/README.md) | Owned package tests/image/deployed acceptance |
 | Local presence | REQ-TERM-045, Session Lifecycle | presentation/session store/hooks | Planned ordered cross-device/outage evidence |
+
+## Terminal manual qualification
+
+Record the exact revision/image, approved environment/device and redacted PASS/FAIL/BLOCKED observations. Missing prerequisites block acceptance; source, tests and method links alone never establish a pass.
+
+Protected access, lifecycle/destruction, writes, inference, builds, graph publication and service actions require separate current authorization and existing disposable prerequisites. Do not replay captures/conversations, install harnesses, expose personal data or keys, or change timeouts. These methods grant no such authority.
+
+<a id="req-term-005-manual-qualification"></a>
+### Herdr image and additional shells (REQ-TERM-005)
+
+
+AC1: Inspect the exact image's Container Image workflow steps “Verify packaged Herdr runtime”, “Scan image, generate SBOM, and prepare push tooling”, SBOM upload and provenance attestation. Match the installed version to image/herdr/provenance.json and the runtime digest, executable mode, license, managed config validation and disabled update settings to that image. Require successful scan, SBOM and provenance evidence for the same image, not an older successful run. Missing artifacts block qualification.
+
+AC6: In a fresh configured-agent Herdr session, use Herdr's own tab and pane actions (consult prefix+? Help for the installed bindings); in each new shell run `printf 'shell=%s\n' "$0"`. Pass only when both are plain Bash and neither repeats the configured agent. Preserve the original agent pane; a new agent launch fails.
+
+<a id="req-term-035-manual-qualification"></a>
+### Mode-specific prewarm adoption (REQ-TERM-035)
+
+
+AC1: For fresh Classic and Herdr Terminal sessions, correlate host “Pre-warming tab 1 PTY” identity/PID with the Session adopted when the browser attaches. Pass only when attachment adopts that prewarmed outer Session, not a newly spawned PTY; keep private identifiers out of browser evidence.
+
+AC3: In Classic, correlate first PTY output, “Pre-warm runtime ready, settling” and “Pre-warm ready (settled)” with the first usable browser input/output. Require first-output settlement followed by reachable input. Separately inspect an existing authorized silent-start observation for “Pre-warm ready (timeout)” and subsequent usable input/output. Do not alter startup commands or invent a timeout fixture to manufacture that observation. Without that case the timeout obligation remains unverified.
+
+### Both-mode fixed settlement acceptance
+
+For [AGENT-003 AC5](../../sdd/spec/agents.md), correlate existing authorized Classic and Herdr startup records on the same Integration candidate: first PTY output, runtime-ready/settling and settled timestamps, followed by usable adopted input/output. Herdr's atomic bootstrap precedes settling. Compare logged elapsed values against the fixed 1.5-second interval, allowing displayed rounding and scheduler delay; readiness cannot precede it. Read `host/src/server.ts` to confirm the fixed timer rather than adaptive timing. Timeout records do not qualify normal settlement. Missing timing or either mode is unavailable; do not change commands, insert sleeps or start a session for this inspection.
+
+<a id="req-term-006-manual-qualification"></a>
+### Herdr reconnect and shutdown (REQ-TERM-006)
+
+
+AC4: In a disposable Herdr session, create a tab and split pane and record shell PIDs with harmless `printf 'pid=%s\n' "$$"`. Disconnect the browser without stopping the container, reconnect, and repeat twice. Pass only if topology and the same live processes survive every client exit.
+
+AC5: With separate lifecycle/destruction permission, stop then delete that disposable session, inspecting the named runtime and descendant process state through authorized host access before teardown completes, and termination evidence afterward. Require runtime/descendant termination for both terminal-lifecycle cleanup and container shutdown; inaccessible post-destroy process state without independent exit evidence is blocked, not proof of no orphans. No Kill shortcut or unsynced work.
+
+<a id="req-term-033-manual-qualification"></a>
+### Structural replacement without output replay (REQ-TERM-033)
+
+
+AC3: Record a disposable Herdr session's workspaces/tabs/panes/layout/cwd/focus and any supported native agent session references. Emit a unique harmless pane-output sentinel, then complete normal sync and Stop. Only with replacement authorization, start its replacement from successfully synced state. Compare restored structural state; inspect every restored pane for the sentinel. Pass only when supported structure restores without prior pane output. Running shell/process survival is not promised; do not submit an old conversation or infer successful native resume from structure alone. Unavailable supported-reference evidence stays unverified.
+
+<a id="req-term-008-manual-qualification"></a>
+### Batching feedback and disposal (REQ-TERM-008)
+
+
+AC4/5: Inspect `terminal-output.ts::scheduleWrite` and `flushWriteBuffer`: each compound terminal key arms at most one pending 33-ms timer; arrivals join the buffer without postponing the armed tick. A tick clears its pending timer, writes complete queued units within the existing slice rule when the viewport permits, and rearms only for remaining output/frame assembly or read-hold. Compare the existing terminal-store raw-output and read-hold cases as bounded complementary evidence, not proof of exact scheduling or coalescing on their own; source/test inspection is not an executed timing result. In a disposable idle Bash terminal, type a harmless unsent token, then clear it. Observe feedback under ordinary and approved harmless streaming output; record perceived lag and any available existing browser performance timestamps as qualitative responsiveness observations. These do not establish a human-perception threshold, a guaranteed end-to-end delay or a measured halving of render passes. Preserve the low-latency intent without inventing a numeric perception bound.
+
+AC6: While harmless output is pending, leave the visible terminal so its client is disposed, then open a different terminal. Require no late paint into the disposed surface, no output crossing into the new terminal, and no disposal error. Preserve the first backend session; client disposal is not Stop. Retain the existing per-terminal cancellation test as complementary evidence, not a substitute for this manual marker.
+
+<a id="req-term-013-manual-qualification"></a>
+### MultiView selected-row presentation (REQ-TERM-013)
+
+
+AC6: On a tablet/desktop with two authorized running sessions, open the session switcher and enter MultiView selection. Toggle one eligible row on then off without launching. Pass only when its selected appearance uses the success visual variant, is distinct from the unselected row, and clears when deselected. Record the visible row states, not merely a DOM attribute. A selected attribute with the wrong visual variant fails.
+
+<a id="req-term-032-manual-qualification"></a>
+### Classic OSC52 isolation and permission (REQ-TERM-032)
+
+
+AC5: In disposable Classic and Herdr Bash sessions with only harmless clipboard fixtures, set the clipboard to `clipboard-before`, then emit `printf '\033]52;c;Y2xpcGJvYXJkLWFmdGVy\007'`. Inspect using the browser's ordinary clipboard paste into a disposable field. Classic must leave `clipboard-before` unchanged and request no Herdr write; Herdr may write `clipboard-after` only as browser permission allows. Repeat with clipboard permission denied: denial must remain authoritative. Never log clipboard content or send a read/query sequence; personal clipboard data is excluded. Restore only the disposable fixture, not private clipboard history.
+
+<a id="req-term-036-manual-qualification"></a>
+### Samsung single activation (REQ-TERM-036)
+
+
+AC6: In Samsung Internet Herdr, tap Pi input and a Herdr control with the keyboard closed, then repeat with it open. Use the existing Mobile platform checks “Tap activation” and “Herdr focus and history” observations; require exactly one addressed activation in all four combinations. Duplicate activation or activation of another pane fails; no inference request is needed merely to tap input.
+
+<a id="req-term-037-manual-qualification"></a>
+### Packaged Help and Settings shortcuts (REQ-TERM-037)
+
+
+AC2: Inspect the exact image's “Verify packaged Herdr runtime” workflow evidence for pinned-binary `config check` and Help/Settings bindings. In the authorized browser session press Ctrl+B then ?, dismiss Help, then Ctrl+B then s. Pass only when Herdr opens Help and Settings respectively and browser bookmarks do not consume the prefix. Record unsupported OS-reserved combinations as outside browser control, not a promise to override the OS. Classic/unrelated-key handling stays unchanged.
+
+<a id="req-term-040-manual-qualification"></a>
+### Samsung fullscreen history during output (REQ-TERM-040)
+
+
+AC3: On Samsung Internet in a fresh Herdr Pi fullscreen session with separately approved ongoing inference/output, scroll above the live bottom and stop touching the screen while output continues. Pass only if the chosen historical viewport remains stable with no mixed rows and without clicking to repair it; explicitly move the viewport afterward. Do not replace this with a Bash line stream: Pi owns this fullscreen transcript. Without an approved output/inference budget this remains blocked.
+
+<a id="req-mob-009-manual-qualification"></a>
+### Chrome visibility-return focus ordering (REQ-MOB-009)
+
+
+AC1: On Android Chrome, open terminal input, background the browser, then return. With existing browser developer tools observe forceResetKeyboardState, overlay enable and input refocus order in terminal-mobile-input.ts::setupMobileInput; inspect keyboard/viewport state without copying terminal text. Pass only when signals reset and overlay enables before input refocus, with usable input and no stale keyboard gap. Cached geometry alone is not proof. Samsung must instead use its existing dashboard-bounce path; do not conflate the paths.
 
 ## Related Documentation
 

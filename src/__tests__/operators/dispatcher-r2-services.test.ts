@@ -19,6 +19,7 @@ import { setLogLevel } from '../../lib/logger';
 import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
 import { nativePiAuthFailure } from '../../operators/pi-auth-failure';
 import { EgressController } from '../../egress-controller';
+import { createOwnerRawCaptureStorage, readRawCapture } from '../../operators/raw-capture-storage';
 
 // Metadata-only Root: replace the external container lifecycle base, not Root's
 // ownership/credential coordination. Native DO storage and RPC remain real; no
@@ -171,7 +172,7 @@ const tokenReply = () => Response.json({ access_token: renewedAccess, refresh_to
 type Store = ReturnType<typeof storageBoundary>;
 const laneStores = new WeakMap<DispatcherFixture, Store>();
 async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true,
-  realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number; managedProviderDefault?: boolean;
+  realInterceptors = false, limits: { delegated?: boolean; operationLimit?: number; inferenceAttemptLimit?: number; managedProviderDefault?: boolean;
     nativeProviderDefault?: boolean; nativeNullProfile?: boolean; loggingEnabled?: boolean; nativeSelection?: typeof logical } = {}) {
   return fixture(async f => {
     const store = storageBoundary();
@@ -185,6 +186,7 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
     // Reuse the shared fixture's external identity/configuration behavior on the
     // original exports used by the application. Real invoker checks stay intact.
     spy(vi.spyOn(access, 'resolveOperatorGroupIdentity')).mockImplementation(fixtureAccess.resolveOperatorGroupIdentity);
+    spy(vi.spyOn(access, 'observeOperatorAccessIdentity')).mockImplementation(fixtureAccess.observeOperatorAccessIdentity);
     spy(vi.spyOn(access, 'operatorAccessSessionCurrent')).mockImplementation(fixtureAccess.operatorAccessSessionCurrent);
     spy(vi.spyOn(access, 'resolveBucketName')).mockImplementation(fixtureAccess.resolveBucketName);
     spy(vi.spyOn(access, 'resolveSessionAccessGroup')).mockImplementation(fixtureAccess.resolveSessionAccessGroup);
@@ -262,7 +264,7 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       cleanups.reverse().forEach(cleanup => cleanup());
     }
   }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors,
-    ...limits });
+    ...(limits.delegated ? { prospective: true } : {}), ...limits });
 }
 async function admitted(f: DispatcherFixture) {
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
@@ -337,20 +339,22 @@ describe('REQ-OPERATOR-007/047: Dispatcher installation Gateway selection', () =
   it.each([
     { scope: 'admitted installation', index: 0 }, { scope: 'admitted operator', index: 1 },
     { scope: 'current installation', index: 2 }, { scope: 'current operator', index: 3 },
-  ])('refuses installation route denied by $scope without substitution or grant mutation', ({ index }) => lane(async f => {
+  ].flatMap(scope => [false, true].map(delegated => ({ ...scope, delegated }))))('refuses installation route denied by $scope without substitution or grant mutation (delegated=$delegated)', ({ index, delegated }) => lane(async f => {
     const owner = await managedOwner(f, { deniedScope: index, denial: 'route' });
+    if (delegated) f.revokeSession();
     await expect(owner.select()).rejects.toMatchObject({ code: 'ROUTE_NOT_ELIGIBLE' });
     owner.unchanged();
-  }, false));
+  }, false, false, { delegated }));
 
   it.each([
     { scope: 'admitted installation', index: 0 }, { scope: 'admitted operator', index: 1 },
     { scope: 'current installation', index: 2 }, { scope: 'current operator', index: 3 },
-  ])('refuses installation Low denied by $scope without substitution or grant mutation', ({ index }) => lane(async f => {
+  ].flatMap(scope => [false, true].map(delegated => ({ ...scope, delegated }))))('refuses installation Low denied by $scope without substitution or grant mutation (delegated=$delegated)', ({ index, delegated }) => lane(async f => {
     const owner = await managedOwner(f, { deniedScope: index, denial: 'reasoning' });
+    if (delegated) f.revokeSession();
     await expect(owner.select()).rejects.toMatchObject({ code: 'REASONING_NOT_ELIGIBLE' });
     owner.unchanged();
-  }, false));
+  }, false, false, { delegated }));
 
   it('refuses the installation route excluded by the eligible catalog without substituting its eligible default', () => lane(async f => {
     const owner = await managedOwner(f, { eligibleRoutes: ['policy-default'] });
@@ -390,6 +394,7 @@ describe('REQ-OPERATOR-007/047: Dispatcher installation Gateway selection', () =
 });
 
 // Requirements: 007 AC4/5/6; 047 AC1/2/3/5; 048 AC2/5/6 + native/default constraints; 058 AC1.
+// REQ-OPERATOR-100, REQ-OPERATOR-102, REQ-OPERATOR-105: Extracted owner authentication and inference contracts.
 describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contracts', () => {
   it('pins the saved built-in logical profile with zero Host catalog and no source-session descriptor', () => lane(async (f, store) => {
     await admitted(f);
@@ -473,9 +478,10 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   }));
 
   it.each((['original-operator', 'original-installation', 'current-operator', 'current-installation'] as const)
-    .flatMap(scope => (['source', 'inference'] as const).map(check => ({ scope, check }))))(
-    'REQ-OPERATOR-007/047: normal Native retains $scope $check authorization', ({ scope, check }) => lane(async f => {
+    .flatMap(scope => (['source', 'inference'] as const).flatMap(check => [false, true].map(delegated => ({ scope, check, delegated })))))(
+    'REQ-OPERATOR-007/047: normal Native retains $scope $check authorization (delegated=$delegated)', ({ scope, check, delegated }) => lane(async f => {
       await admitted(f);
+      if (delegated) f.revokeSession();
       const plan = (await f.activity.getRuntimePlan())!;
       if (!('selection' in plan.receipt)) throw new Error('Expected management receipt');
       const current = await f.environment.OPERATOR_REGISTRY!.getByName('registry')
@@ -493,7 +499,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
         await storage.put('admission', state);
       });
       await denied(await modelAdmission(f));
-    }));
+    }, true, false, { delegated }));
 
   it('later owner R2 reasoning changes do not replace the original admitted identity across reconstruction', () => lane(async (f, store) => {
     await admitted(f);
@@ -705,8 +711,9 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   it('concurrent renewal reads again under metadata serialization and shares one rotation', () => lane(async (f, store) => {
     await admitted(f);
     store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
-    // Share plain coordination state only. Each wait/timer belongs to the DO
-    // executing it; an Activity-owned pending promise cannot gate metadata I/O.
+    // Share state only across Activity/metadata contexts. Each waiter owns its
+    // timer I/O, as in the post-claim authorization race fixture; a bare
+    // notification promise can strand runInDurableObject's request context.
     let started = false; let released = false;
     const exchanges = oauthBoundary(async () => {
       started = true;
@@ -715,8 +722,16 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     });
     const requests: Promise<Response>[] = [];
     try {
-      requests.push(read(f)); await vi.waitFor(() => expect(started).toBe(true));
-      requests.push(read(f)); released = true;
+      requests.push(read(f));
+      await Promise.race([(async () => {
+        while (!started && !released) await new Promise<void>(resolve => setTimeout(resolve, 1));
+      })(), requests[0].then(response => {
+        throw new Error(`Credential HTTP completed before OAuth release: ${response.status}`);
+      })]);
+      // Launch the overlapping request while refresh is held. Metadata queues
+      // the entire credential operation, so its R2 read must wait for release.
+      requests.push(read(f));
+      released = true;
       for (const result of await Promise.all(requests)) expect(await json(result)).toEqual({ apiKey: renewedAccess });
       expect(exchanges).toHaveLength(1);
       expect(store.value(authKey).other).toEqual(other);
@@ -930,6 +945,8 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     await admitted(f);
     const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
     store.put(authKey, saved);
+    // As in concurrent renewal, share only data across Activity/metadata DOs;
+    // each waiter owns its timer I/O instead of fulfilling another DO's promise.
     let started = false; let released = false; let finished = false;
     oauthBoundary(async () => {
       started = true;
@@ -941,10 +958,14 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     const request = new Request(normalCallback(f.activityId, 'pi/credentials', { operation: 'read', providerId }), { signal: abort.signal });
     const pending = f.installationCapability.fetch(request);
     try {
-      await vi.waitFor(() => expect(started).toBe(true));
+      await Promise.race([(async () => {
+        while (!started && !released) await new Promise<void>(resolve => setTimeout(resolve, 1));
+      })(), pending.then(() => {
+        throw new Error('Credential read completed before the OAuth exchange started');
+      })]);
       abort.abort(); released = true;
       await denied(await pending, [403, 409, 503]);
-      await vi.waitFor(() => expect(finished).toBe(true));
+      while (!finished) await new Promise<void>(resolve => setTimeout(resolve, 1));
       expect(store.value(authKey)).toEqual(saved);
     } finally {
       released = true;
@@ -1332,6 +1353,7 @@ describe('REQ-OPERATOR-057: trusted native authentication evidence', () => {
   });
 });
 
+// REQ-OPERATOR-102: Native Dispatcher profile authority.
 describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent model execution', () => {
   it.each([401, 429, 503])('native custom API forwards SDK-prepared bytes and original HTTP%i failure without account credential injection', status => lane(async f => {
     await admitted(f);
@@ -1621,7 +1643,11 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
   }, true, false, { loggingEnabled: false }));
 
   it('vendor credential echoes cannot enter the durable SDK response journal or exported evidence', () => lane(async f => {
-    await admitted(f);
+    await admitted(f); await f.drainBackground();
+    const logs: Array<{ module?: string; message?: string; data: { value?: unknown; captureId?: string } }> = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (typeof line === 'string') try { logs.push(JSON.parse(line)); } catch { /* Other logs. */ }
+    });
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
@@ -1633,6 +1659,26 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
       headers: [['authorization', `Bearer ${oldOAuth.access}`]], bodyBase64: encodeBody(sdkBody) }, 'credential-echo');
     expect(response.ok).toBe(false);
     expect(await response.text()).not.toContain(oldOAuth.access);
+    await f.drainBackground();
+    const chunks = logs.filter(record => record.module === 'operator-execution' && record.message === 'sdk-http-chunk');
+    expect(chunks.length).toBeGreaterThan(0);
+    for (const chunk of chunks) expect(chunk.data.value).toEqual({ type: 'chunk', wireCaptured: true });
+    expect(JSON.stringify(logs)).not.toContain(oldOAuth.access);
+    const retainedChunks: number[] = [];
+    await f.mutateEvidence(async storage => {
+      for (const record of logs.filter(record => record.message === 'raw-capture-receipt')) {
+        if (!record.data.captureId) throw new Error('Missing raw capture identity');
+        const capture = await readRawCapture({ binding: { ownerKey: f.proof.ownerKey, installationId: 'installation',
+          releaseId: 'release', captureId: record.data.captureId,
+          scope: { kind: 'activity', activityId: f.activityId, generation: 1 } },
+        storage: await createOwnerRawCaptureStorage(f.environment, storage, async () => {}) });
+        for (const observation of capture.records) if (observation.stage === 'sdk-http-chunk') {
+          const value = observation.value as { bytes: Record<string, number> };
+          retainedChunks.push(...Object.values(value.bytes));
+        }
+      }
+    });
+    expect(new TextDecoder().decode(Uint8Array.from(retainedChunks))).toBe(`provider echoed ${oldOAuth.access}`);
     await f.mutateEvidence(async storage => {
       // Stored binary responses must be decoded, not merely inspected as numbers.
       const retained = inspect(decodeRetainedBytes([...await storage.list()]), { depth: null, maxArrayLength: null,
@@ -1830,6 +1876,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
   }));
 });
 
+// REQ-OPERATOR-102: Native Dispatcher profile authority.
 describe('REQ-OPERATOR-007/047/048: read-only credential non-retention', () => {
   it('SDK private files/auth never enter journal, jobs or exports; raw failures retain nonsecret detail only', () => lane(async (f, store) => {
     const output: unknown[][] = [];
@@ -1868,4 +1915,55 @@ describe('REQ-OPERATOR-007/047/048: read-only credential non-retention', () => {
       expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
     } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
   }));
+});
+
+
+describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: delegated normal SDK services', () => {
+  it.each([false, true])('external logout cannot terminate normal %s owner config, R2, model admission or model HTTP', native => lane(async (f, store) => {
+    await admitted(f); f.revokeSession(); f.restart();
+    const configuration = await json(await config(f));
+    expect(configuration.source).toBe(native ? 'pi-native' : 'managed');
+    if (native) expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
+    else { await json(await gateway(f)); expect(store.touchedKeys).toEqual(new Set()); }
+    const permit = await json(await modelAdmission(f, 'delegated-sdk-model'));
+    expect(permit.expiresAt).toBeLessThanOrEqual((await f.activity.getRuntimePlan())!.deadline);
+    const normalFetch = globalThis.fetch;
+    const external: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (!native && request.method === 'POST' && request.url === 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/chat/completions') {
+        return new Response('Fixture provider is unavailable on REST', { status: 404 });
+      }
+      if (request.url === 'https://custom.example.test/native/stream' || !native && new URL(request.url).origin === 'https://gateway.ai.cloudflare.com') {
+        external.push({ url: request.url, body: await request.text() });
+        return new Response(managedSse, { headers: { 'content-type': 'text/event-stream' } });
+      }
+      return normalFetch(request);
+    });
+    if (native) {
+      const response = await modelFetch(f, permit.permitId, { url: 'https://custom.example.test/native/stream', method: 'POST',
+        headers: [['authorization', `Bearer ${oldOAuth.access}`]], bodyBase64: encodeBody(sdkBody) }, 'delegated-sdk-model');
+      expect(response.status).toBe(200); expect(await response.text()).toBe(managedSse);
+      expect(external).toEqual([{ url: 'https://custom.example.test/native/stream', body: sdkBody }]);
+    } else {
+      const response = await modelFetch(f, permit.permitId, { url: 'https://api.openai.com/v1/chat/completions', method: 'POST',
+        headers: [['content-type', 'application/json'], ['authorization', 'Bearer codeflare-enterprise']],
+        bodyBase64: encodeBody(JSON.stringify({ model: 'approved', messages: [{ role: 'user', content: 'Delegated managed input.' }],
+          max_tokens: 16, stream: true })) }, 'delegated-sdk-model');
+      expect(response.status).toBe(200); expect(await response.text()).toBe(managedSse);
+      expect(external.map(request => JSON.parse(request.body))).toEqual([expect.objectContaining({ model: 'dynamic/approved',
+        messages: [{ role: 'user', content: 'Delegated managed input.' }] })]);
+    }
+    expect(store.escapedReads).toEqual([]);
+    expect(f.ownerPortRequests).toEqual([]);
+  }, native, !native, { delegated: true }));
+  it.each(['installation', 'grant', 'registration', 'expiry'] as const)(
+    'delegated normal SDK still denies current local %s after logout', fault => lane(async f => {
+      await admitted(f); f.revokeSession();
+      if (fault === 'installation') f.revoke();
+      if (fault === 'grant') f.revokeGrant();
+      if (fault === 'registration') f.changeRegistration(null);
+      if (fault === 'expiry') f.expire();
+      await denied(await config(f)); await denied(await modelAdmission(f));
+    }, true, false, { delegated: true }));
 });

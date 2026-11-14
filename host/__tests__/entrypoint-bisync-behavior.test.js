@@ -88,6 +88,7 @@ function buildHarness({
   blockReleaseFile, // for bisyncBehavior='block-until-released'
   listingPresent = false,
   recordSleepDurations = false,
+  realRecovery = false,
 }) {
   const runtimeRoot = join(dirname(logFile), 'runtime');
   const listingDir = join(runtimeRoot, 'sync/rclone');
@@ -163,7 +164,9 @@ function buildHarness({
              bisync_with_r2() {
               BISYNC_CALL_COUNT=$((BISYNC_CALL_COUNT + 1))
               echo "BISYNC_CALLED n=$BISYNC_CALL_COUNT args=$*" >> "${logFile}"
-              if [ $BISYNC_CALL_COUNT -eq 1 ]; then return 7; else return 0; fi
+              if [ $BISYNC_CALL_COUNT -eq 1 ]; then return 7; fi
+              ${realRecovery ? 'compose_rclone_filters || return 7' : ''}
+              return 0
             }`;
 
   const resyncStub =
@@ -182,10 +185,10 @@ function buildHarness({
 set +e
 ${recordSleepDurations ? `sleep() { echo "SLEEP seconds=$1" >> "${logFile}"; command sleep 0.02; }` : ''}
 ${bisyncStub}
-recover_vanished_files() {
+${realRecovery ? extractTopLevelFunction('recover_vanished_files') : `recover_vanished_files() {
   echo "RECOVER_CALLED" >> "${logFile}"
   return ${recoveryReturns}
-}
+}`}
 ${resyncStub}
 cleanup_old_transcripts() { : ; }
 run_vault_session_compaction_after_sync() { : ; }
@@ -199,6 +202,21 @@ SYNC_RUNTIME_DIR='${runtimeRoot}/sync'
 HOME='${runtimeRoot}/home'
 mkdir -p "$HOME" "$SYNC_RUNTIME_DIR/rclone"
 touch "$SYNC_RUNTIME_DIR/last-bisync-output.txt"
+${realRecovery ? `${extractTopLevelFunction('prepare_managed_resource_filter')}
+${extractTopLevelFunction('compose_rclone_filters')}
+USER_HOME="$HOME"
+MANAGED_RESOURCE_POLICY=mutable
+MANAGED_RESOURCE_FILTER_FILE="$SYNC_RUNTIME_DIR/managed.filter"
+RCLONE_FILTERS=(--filter '+ .claude/**' --filter '+ /workspace/**')
+RECOVERY_FILTER_FILE="$SYNC_RUNTIME_DIR/recovery-filters.txt"
+: > "$RECOVERY_FILTER_FILE"
+touch "$SYNC_RUNTIME_DIR/rclone/stale.lck"
+cat > "$SYNC_RUNTIME_DIR/last-bisync-output.txt" <<'OUTPUT'
+ERROR : failed to open source object: lstat /home/user/.claude/settings.json: no such file or directory
+ERROR : failed to open source object: lstat /home/user/.claude/settings.json: no such file or directory
+ERROR : failed to open source object: lstat /home/user/workspace/user-code.ts: no such file or directory
+ERROR : permission denied: lstat /home/user/do-not-exclude: no such file or directory
+OUTPUT` : ''}
 
 ${patched}
 
@@ -390,32 +408,38 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     const pid = await readDaemonPid(h.child);
     try {
       // Wait until the daemon enters the first bisync (now blocked).
-      await waitFor(h.logFile, (s) => /BISYNC_CALLED n=1/.test(s), 4000);
+      const active = await waitFor(h.logFile, (s) => /BISYNC_CALLED n=1/.test(s), 4000);
+      assert.match(active, /BISYNC_CALLED n=1/, 'first cycle must be active before triggers are sent');
       // Fire 5 SIGUSR1s mid-flight. BISYNC_IN_FLIGHT=1, so each trap
       // call sets BISYNC_RERUN_REQUESTED=1 (idempotent — N signals
       // collapse to one rerun, not N).
       for (let i = 0; i < 5; i++) {
         process.kill(pid, 'SIGUSR1');
+        // Space deliveries across the fixture's 50ms blocking poll so this
+        // exercises repeated active-cycle requests, not only OS signal merging.
+        await new Promise((r) => setTimeout(r, 100));
       }
+      assert.equal(existsSync(releaseFile), false, 'all triggers precede release of the active cycle');
       // Release the in-flight bisync. The daemon now finishes cycle 1,
       // sees BISYNC_RERUN_REQUESTED=1, runs ONE rerun (cycle 2), then
       // continues to the next sleep.
       writeFileSync(releaseFile, '');
       // Wait for the rerun (n=2) to appear.
-      await waitFor(h.logFile, (s) => /BISYNC_CALLED n=2/.test(s), 5000);
+      const completed = await waitFor(h.logFile,
+        (s) => (s.match(/STATUS status=success/g) || []).length === 2, 5000);
+      assert.equal((completed.match(/STATUS status=success/g) || []).length, 2,
+        'both the blocked cycle and its real daemon rerun must publish successful completion');
       // The first fixture cadence is one second, later natural cadences ten.
       // Observe queued reruns without counting unrelated scheduled cycles.
       await new Promise((r) => setTimeout(r, 3500));
       const finalLog = readFileSync(h.logFile, 'utf8');
       const matches = finalLog.match(/BISYNC_CALLED n=\d+/g) || [];
-      // Count distinct n=1, n=2 occurrences. The bisync stub increments
-      // its counter once per invocation, so n=3 appearing means 5
-      // SIGUSR1s produced 4 reruns instead of 1.
       const ns = matches.map((m) => m.match(/n=(\d+)/)[1]);
-      assert.equal(ns.includes('1'), true, 'cycle 1 must be logged');
-      assert.equal(ns.includes('2'), true, 'cycle 2 (the rerun) must be logged');
-      assert.equal(ns.includes('3'), false,
-        `5 SIGUSR1s mid-flight must coalesce into exactly one rerun, not multiple. Saw ns=[${ns.join(',')}]`);
+      assert.deepEqual(ns, ['1', '2'],
+        'five active-cycle triggers must produce only the original cycle and one rerun');
+      assert.equal((finalLog.match(/STATUS status=success/g) || []).length, 2);
+      assert.doesNotMatch(finalLog, /RECOVER_CALLED|RESYNC_CALLED|STATUS status=failed/,
+        'ordinary triggers must not enter recovery or baseline fallback');
     } finally {
       // Make sure the daemon never hangs the test cleanup.
       try { writeFileSync(releaseFile, ''); } catch { /* ignore */ }
@@ -452,20 +476,25 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
-  it('failure + vanishing-file recovery retries bisync and clears CONSECUTIVE_FAILURES (REQ-STOR-003 AC5)', async () => {
+  it('REQ-STOR-003 AC5: real vanished-file parsing excludes once, preserves workspace retry, and clears stale locks', async () => {
     const h = spawnHarness({
       daemonBody,
       bisyncBehavior: 'recover-then-success',
-      recoveryReturns: 0, // recover_vanished_files returns success -> retry
+      realRecovery: true,
     });
     const pid = await readDaemonPid(h.child);
     try {
-      // Wait for the second BISYNC_CALLED (n=2), proving the recovery
-      // retry path executed.
-      const log = await waitFor(h.logFile, (s) => /BISYNC_CALLED n=2/.test(s), 5000);
-      assert.match(log, /BISYNC_CALLED n=1/, 'first bisync attempt must run and fail');
-      assert.match(log, /RECOVER_CALLED/, 'recover_vanished_files must be invoked after a failure');
-      assert.match(log, /BISYNC_CALLED n=2/, 'second bisync must run after recovery returns success');
+      const log = await waitFor(h.logFile, (s) => /STATUS status=success/.test(s), 5000);
+      assert.match(log, /STATUS status=success err=null/, 'recovered cycle must publish successful completion');
+      assert.doesNotMatch(log, /STATUS status=failed|RESYNC_CALLED/,
+        'recoverable failure must not consume the failure budget or force a baseline');
+      assert.equal(readFileSync(join(h.dir, 'runtime/sync/recovery-filters.txt'), 'utf8'), '- .claude/settings.json\n',
+        'duplicate transient config errors exclude once; workspace and unrelated errors must not become exclusions');
+      assert.equal(readFileSync(join(h.dir, 'runtime/sync/effective-normal.filter'), 'utf8'),
+        '- .claude/settings.json\n+ .claude/**\n+ /workspace/**\n',
+        'rclone first-match filter contract: recovered exclusions must precede positive persistence rules');
+      assert.equal(existsSync(join(h.dir, 'runtime/sync/rclone/stale.lck')), false,
+        'retry must not retain the failed cycle lock');
     } finally {
       killHarness(h.child, pid);
     }
@@ -488,6 +517,16 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       const log = await waitFor(h.logFile, (s) => /RESYNC_CALLED/.test(s) && /STATUS status=success err=null/.test(s), 8000);
       assert.match(log, /RESYNC_CALLED/,
         'three consecutive failures must invoke establish_bisync_baseline (the --resync fallback)');
+      const beforeFallback = log.slice(0, log.indexOf('RESYNC_CALLED'));
+      assert.deepEqual(beforeFallback.split('\n').filter(line => line.startsWith('STATUS ')), [
+        'STATUS status=syncing err=null',
+        'STATUS status=failed err=Bisync exit code 7',
+        'STATUS status=syncing err=null',
+        'STATUS status=failed err=Bisync exit code 7',
+        'STATUS status=syncing err=null',
+        'STATUS status=failed err=Bisync exit code 7',
+        'STATUS status=failed err=Resync fallback triggered',
+      ], 'fallback must follow three published failure cycles, never the first or second');
       assert.match(log, /STATUS status=failed/,
         'failure path must call update_sync_status with "failed" before the resync fallback');
       assert.match(log, /STATUS status=success err=null/,

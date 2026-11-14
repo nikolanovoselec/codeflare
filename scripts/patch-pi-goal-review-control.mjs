@@ -6,7 +6,7 @@
 // without a companion extension or permanent fork. Every transformed source is calculated before
 // any package file is written so version or source-layout drift fails closed.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -17,7 +17,46 @@ export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   '0.54.8',
   '0.54.11',
   '0.54.13',
+  '0.54.15',
 ]);
+// 0.54.15 npm SHA-512 verified; all src bytes also matched authenticated
+// narumiruna/pi-extensions@980db40db9b1db3b8dc92b2b1837eb06841bfea2.
+// The only runtime delta from 0.54.13 is completionStatusTimer.unref?.().
+// Accept only pristine or our exact prepared bytes, including on repeat runs.
+const REVIEWED_05415 = {
+  'src/accounting.ts': ['31b3a5a4ddd86fd2e8370af64e5592dfa01fad88316fd7a6217790049d586bcf'],
+  'src/command-registration.ts': ['4b643682b31e99d333ceba1c117ca7ee8e08a1d3733463658f26fb7a9bbff6d8'],
+  'src/command.ts': ['756dc522b6e35bb7b35786cbb904329a02077edde2f4dc945ae36c5b9f6914e3'],
+  'src/commands.ts': ['55a838c0894bba0586088c8e781c533c99e43eb401713fbefda8da29f49e098d', 'b8d91f678b3cc5e9002266f3aa7b68bae7ade5e156d428aca33be681944d63c0'],
+  'src/errors.ts': ['afcc4d60414da733f09d0fce7acd00c8d7b961088d7ff701cd96b31eefcc608c'],
+  'src/goal-contract.ts': ['8add9c3b4715b09c79962e1aefe0279a9a83fabf3e4a998cef2fff2bc2f29d15'],
+  'src/goal.ts': ['edfc9affd3b7b9492f31fea833a67590a97b51a94a68cf39e95908424cf4db3e', '12c9c560d54c1d455ecb69547454b356d2f3386acbe5c63920668e7f6bc8fbd0'],
+  'src/index.ts': ['6ab0c01a44bf7bb78010c9d55713edbacb5a1bfbaa10d558835f906d589b6082'],
+  'src/lifecycle.ts': ['e758af48b13dd7688bbc6adb9a2881f6cc0d7c34b702eb37b894d22d79b10a23', '9c820876c4ef5dc29a0b0eedb99bbbd0e8adf844548e2846eab05f2f46edb0b2', '8ccb922618033df613ecb8607262f4bf270292d0b4ff200d7df63d1cd8d08cd8'],
+  'src/markers.ts': ['cfd25799640ac51230c7f11740cb7d8dd955d7ef7c461e0d3ca9286a7968d837'],
+  'src/menu.ts': ['5a64f4eb6c1bc1d2cc02956df30b3f5eeaf9cedafaf7265704c1c958758fede4'],
+  'src/persistence.ts': ['fc4a213f97c9396fcdfa9123266c4095d092e64bdc96f5e45322e471614bd47c', '569a15d883edc43f65caf4e2cc4c2aad35c849f0929366d6c693c0ed0d203306'],
+  'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', '8595c4a6aee3b485504f6c0d0ab51091d669fc6bfd9ff89ba94c251934ef2231', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
+  'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
+  'src/runtime.ts': ['4dbb2be140a035241265724ebb91401a08417f4d8abed2e58973bf8baa72f706', '3c44ff728961ab627b334a32ce847cfdfefa6125763e9839680df63d2eee1ea0', '86c40489e8c4b0dd8ddf1e04fd7ca02efc9b7056aa11f0173035a8483ef613bb'],
+  'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d'],
+  'src/settings-ui.ts': ['a0482ed1fb6bf15a00a251ea576419248e9ae81fbae485145ae78a62798127d5'],
+  'src/settings.ts': ['0a16915b084ffc1ec69e3884fe29e8ab2edb3675e5d87f8ccff67e386c3bd4b9', 'e2fafa65a07b40a8c7fbd46fcf95c3177ecd16afaa961443dbdd69d312689ba4', 'b849014f307cafca8195ecbaafd95c2c075226542b9c86a4a025214aa06210e3'],
+  'src/tool-policy.ts': ['c0aec081211be439d6dd8ee752240989697e6178673540d7212d1708ba15c627', '863ad95d1d4b5891fbc7b9756be89a4f366027b44e7c46b7c6929f72ef3f5ee0', '6b64f8dea9b2d03119371b3e27352837f97239fa028938447cfb4198e3ec2665'],
+  'src/tools.ts': ['97a365b184c80d78444719fd90ab1ccec69ba54675b0d679feccdd36ade99feb', '5cef58223a88445689fb1a83dbae4635677ea54f99daf5afb010563012c2c21b'],
+  'src/wait.ts': ['5ab36f8be3270aa9cb34c36cb77c0b696453e4e378f756b159b5274d45711347'],
+  'src/workflow-mutex.ts': ['46b8103f49e48092d95d00b5e0877041537c7ee41453689def457c4addbc15d3'],
+};
+function validate05415(directory) {
+  for (const [path, reviewed] of Object.entries(REVIEWED_05415)) {
+    const fullPath = join(directory, path);
+    const info = lstatSync(fullPath);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Unsafe Goal source path: ${path}`);
+    const digest = createHash('sha256').update(readFileSync(fullPath)).digest('hex');
+    if (!reviewed.includes(digest)) throw new Error(`Goal source digest changed: ${path}`);
+  }
+}
+
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';
 export const TOOL_POLICY_PATCH_MARKER = 'CODEFLARE_GOAL_LAZY_TOOL_ACTIVATION';
@@ -553,7 +592,9 @@ export function patchPiGoalSettingsSource(source) {
       source,
       SETTINGS_PATCH_MARKER,
       [
-        'minIntervalMs: 0',
+        source.includes(PROGRESS_MARKER)
+          ? 'automaticTurns: null, noProgressTurns: 5, minIntervalMs: 300000'
+          : 'minIntervalMs: 0',
         'normalizeMinIntervalMs(',
         'minIntervalMs: normalized.continuationLimits.minIntervalMs',
       ],
@@ -692,11 +733,15 @@ export function patchPiGoalRuntimeSource(source) {
         ...(usesNativeContinuationScheduler
           ? [
               `private continuationDispatchTimer?: NodeJS.Timeout; // ${RUNTIME_PATCH_MARKER}`,
-              'let remainingMs = this.settings.continuationLimits.minIntervalMs;',
+              source.includes(PROGRESS_MARKER)
+                ? 'let remainingMs = this.progressContinuationDelay();'
+                : 'let remainingMs = this.settings.continuationLimits.minIntervalMs;',
               'const delayMs = Math.min(remainingMs, 2_147_483_647);',
               'this.continuationIntent?.marker !== marker',
               'options: { intervalElapsed?: boolean } = {}',
-              'if (this.settings.continuationLimits.minIntervalMs > 0) {',
+              source.includes(PROGRESS_MARKER)
+                ? 'if (this.progressContinuationDelay() > 0) {'
+                : 'if (this.settings.continuationLimits.minIntervalMs > 0) {',
               'this.clearContinuationDispatchTimer();',
               'return this.scheduleContinuationDispatch(ctx, intent.goalId);',
               'this.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });',
@@ -873,7 +918,240 @@ export function patchPiGoalRuntimeSource(source) {
   return patched;
 }
 
-function patchPiGoalStatusSource(source) {
+// Explicit progress is the only reset signal. Text, tool attempts and output
+// fingerprints cannot establish that objective work was completed.
+const PROGRESS_MARKER = 'CODEFLARE_GOAL_EXPLICIT_PROGRESS';
+const STALL_INTERVAL_MS = 300_000;
+const STALL_WINDOW_MS = 1_500_000;
+
+function patchProgressPersistence(source) {
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['stalledRuns?: number;', 'stalledSince?: number;', 'nextAutomaticAt?: number;', 'function validProgressTime(value: unknown)', 'stalledSince: validProgressTime(goal.stalledSince)'], 'Goal progress persistence')) return source;
+  let patched = replaceOnce(source, '\twaiting?: GoalWait;', `\twaiting?: GoalWait;
+\t// ${PROGRESS_MARKER}: legacy output-repeat counters are not stall history.
+\tstalledRuns?: number;
+\tstalledSince?: number;
+\tnextAutomaticAt?: number;`, 'persisted progress fields');
+  // Upstream details/settings still expose this counter. It is a projection,
+  // never migration evidence or a second authority for stalled history.
+  patched = replaceOnce(patched, 'toolFreeRepeatCount: normalizeSafetyCounter(goal.toolFreeRepeatCount),', 'toolFreeRepeatCount: validProgressTime(goal.stalledSince) === undefined ? 0 : normalizeSafetyCounter(goal.stalledRuns),', 'public progress counter projection');
+  patched = replaceOnce(patched, '\t\twaiting,', `\t\tstalledSince: validProgressTime(goal.stalledSince),
+\t\tstalledRuns: validProgressTime(goal.stalledSince) === undefined ? undefined : normalizeSafetyCounter(goal.stalledRuns),
+\t\tnextAutomaticAt: validProgressTime(goal.nextAutomaticAt),
+\t\twaiting,`, 'loaded progress fields');
+  return `${patched}\nfunction validProgressTime(value: unknown): number | undefined {
+\treturn typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 8_640_000_000_000_000
+\t\t? value : undefined;
+}\n`;
+}
+
+function patchProgressSafety(source) {
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['stalledRuns: undefined,', 'stalledSince: undefined,', 'nextAutomaticAt: undefined,'], 'Goal progress safety reset')) return source;
+  return replaceOnce(source, '\t\tautomaticModelTurns: 0,', `\t\tautomaticModelTurns: 0,
+\t\tstalledRuns: undefined, // ${PROGRESS_MARKER}
+\t\tstalledSince: undefined,
+\t\tnextAutomaticAt: undefined,`, 'explicit resume progress reset');
+}
+
+function patchProgressSettings(source) {
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['automaticTurns: null, noProgressTurns: 5, minIntervalMs: 300000', 'noProgressTurns: 5, minIntervalMs: Math.max(300000, minIntervalMs)'], 'Goal owned progress settings')) return source;
+  let patched = source.replace(/automaticTurns: (?:25|null), noProgressTurns: 3, minIntervalMs: 0/, 'automaticTurns: null, noProgressTurns: 5, minIntervalMs: 300000');
+  if (patched === source) throw new Error('progress settings default anchor missing');
+  patched = replaceOnce(patched, '\t\tcontinuationLimits: { automaticTurns, noProgressTurns, minIntervalMs },',
+    `\t\tcontinuationLimits: { automaticTurns, noProgressTurns: 5, minIntervalMs: Math.max(300000, minIntervalMs) }, // ${PROGRESS_MARKER}`,
+    'owned continuation settings');
+  return patched;
+}
+
+function patchProgressToolPolicy(source) {
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['export const GOAL_PROGRESS_TOOL = "goal_progress";', 'GOAL_TOOL_NAMES = [GOAL_PROGRESS_TOOL,', 'REQUIRED_GOAL_TOOL_NAMES = [GOAL_PROGRESS_TOOL,'], 'Goal progress tool policy')) return source;
+  let patched = replaceOnce(source, 'export const GOAL_TOOL_NAMES = [',
+    `export const GOAL_PROGRESS_TOOL = "goal_progress"; // ${PROGRESS_MARKER}\nexport const GOAL_TOOL_NAMES = [GOAL_PROGRESS_TOOL, `, 'progress tool activation');
+  patched = replaceOnce(patched, 'const REQUIRED_GOAL_TOOL_NAMES = [',
+    'const REQUIRED_GOAL_TOOL_NAMES = [GOAL_PROGRESS_TOOL, ', 'progress tool availability');
+  return patched;
+}
+
+function patchProgressTools(source) {
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['name: "goal_progress",', 'runtime.reportGoalProgress(ctx, params.goal_id, params.state, params.evidence)', 'if (repeatedTurns < 5)', 'minimum: 5,'], 'Goal progress tools')) return source;
+  let patched = replaceOnce(source, '\tpi.registerTool(goalCompleteTool);', `\t// ${PROGRESS_MARKER}
+\tpi.registerTool(defineTool({
+\t\tname: "goal_progress",
+\t\tlabel: "Goal Progress",
+\t\tdescription: "Report progress for the current owned Goal run with its exact goal_id. Use advanced only with concrete evidence of completed objective work; attempts, polling, failed tools, memory capture and paraphrased waiting are stalled, not advanced. Missing reports count as stalled. This tool does not complete or stop the Goal.",
+\t\tparameters: Type.Object({
+\t\t\tgoal_id: Type.String({ minLength: 1, maxLength: MAX_GOAL_ID_LENGTH }),
+\t\t\tstate: Type.Union([Type.Literal("advanced"), Type.Literal("stalled")]),
+\t\t\tevidence: Type.String({ minLength: 1, maxLength: MAX_BLOCKER_EVIDENCE_LENGTH }),
+\t\t}),
+\t\tasync execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+\t\t\tconst rejection = runtime.reportGoalProgress(ctx, params.goal_id, params.state, params.evidence);
+\t\t\treturn { content: toolContent(rejection ? "goal_progress rejected: " + rejection + "." : "Goal progress recorded: " + params.state + ".") };
+\t\t},
+\t}));
+\tpi.registerTool(goalCompleteTool);`, 'progress tool registration');
+  patched = replaceOnce(patched, 'at least three consecutive Goal turns', 'at least five stalled automatic Goal runs, spaced at least five minutes apart', 'blocker description');
+  patched = replaceOnce(patched, '\t\t\tminimum: 3,', '\t\t\tminimum: 5,', 'blocker schema');
+  patched = replaceOnce(patched, 'Number of separate turns spent trying to resolve this same blocker.', 'Number of stalled automatic Goal runs spent resolving this blocker, at least five minutes apart.', 'blocker attempt guidance');
+  patched = replaceOnce(patched, 'if (repeatedTurns < 3) return reject("repeated_turns must be at least 3");',
+    'if (repeatedTurns < 5) return reject("repeated_turns must be at least 5");', 'blocker validation');
+  return patched;
+}
+
+function patchProgressRuntime(source) {
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['private agentRunProgress?: "advanced" | "stalled";', 'progress: this.agentRunProgress,', 'this.agentRunGoalId !== goal.id || !this.ownsWorkflow(goal)', 'goal.stalledRuns ?? 0) < 5', 'goal.stalledSince + 1500000', 'this.progressContinuationDelay()', 'goal.waiting) this.restoreGoalWaitTimer(ctx)', 'beginRecoveryRunIfNeeded(ctx: StatusContext)', 'Date.now() < (this.activeGoal.nextAutomaticAt ?? 0)'], 'Goal progress runtime')) return source;
+  let patched = replaceOnce(source, 'import { nextToolFreeRepeatState, resetGoalSafetyEpoch } from "./safety.js";', 'import { resetGoalSafetyEpoch } from "./safety.js";', 'remove output-based progress inference');
+  patched = replaceOnce(patched, '\ttoolAttempted: boolean;', '\ttoolAttempted: boolean;\n\tprogress?: "advanced" | "stalled";', 'completed run progress');
+  patched = replaceOnce(patched, '\tbeginAgentRun(goalId: string | null | undefined, origin: GoalRunOrigin | undefined) {', `\tprivate agentRunProgress?: "advanced" | "stalled"; // ${PROGRESS_MARKER}
+\n\tbeginAgentRun(goalId: string | null | undefined, origin: GoalRunOrigin | undefined) {`, 'run progress state');
+  patched = replaceOnce(patched, '\t\t\ttoolAttempted: this.agentRunToolAttempted,', '\t\t\ttoolAttempted: this.agentRunToolAttempted,\n\t\t\tprogress: this.agentRunProgress,', 'completed run report');
+  patched = replaceOnce(patched, '\tclearAgentRun() {', '\tclearAgentRun() {\n\t\tthis.agentRunProgress = undefined;', 'clear run report');
+  patched = replaceOnce(patched, '\t\tthis.agentRunGoalId = goalId;', '\t\tthis.agentRunProgress = undefined;\n\t\tthis.agentRunGoalId = goalId;', 'begin run report');
+  patched = replaceOnce(patched, '\tbeginRecoveryRunIfNeeded() {', '\tbeginRecoveryRunIfNeeded(ctx: StatusContext) {', 'recovery pacing context');
+  patched = replaceOnce(patched, '\t\tthis.beginAgentRun(recovery.goalId, recovery.automaticOwner ? "automatic" : "manual");', `\t\tif (recovery.automaticOwner && this.activeGoal.status === "active" && this.ownsWorkflow(this.activeGoal)) {
+\t\t\tif (this.enforceNoProgressLimit(ctx, true)) return;
+\t\t\tif (Date.now() < (this.activeGoal.nextAutomaticAt ?? 0)) {
+\t\t\t\t// Pi retries have no prompt boundary. Defer Goal ownership to the
+\t\t\t\t// existing continuation path instead of spending another attempt now.
+\t\t\t\tthis.clearGoalRecoveryForGoal(recovery.goalId);
+\t\t\t\tthis.requestContinuation(this.activeGoal);
+\t\t\t\tabortCurrentTurn(ctx);
+\t\t\t\tthis.dispatchContinuationIfSettled(ctx);
+\t\t\t\treturn;
+\t\t\t}
+\t\t}
+\t\tthis.beginAgentRun(recovery.goalId, recovery.automaticOwner ? "automatic" : "manual");`, 'paced automatic recovery');
+  const progressMethod = patched.match(/\trecordAutomaticRunProgress\([\s\S]*?\n\t\}/g);
+  if (progressMethod?.length !== 1) throw new Error('automatic progress method drift');
+  patched = replaceOnce(patched, progressMethod[0], `\treportGoalProgress(ctx: StatusContext, goalId: unknown, state: unknown, evidence: unknown) {
+\t\tconst goal = this.activeGoal;
+\t\tif (!goal || goal.status !== "active") return "no active goal";
+\t\tif (typeof goalId !== "string" || goalId !== goal.id) return "goal_id does not match the active goal";
+\t\tif (this.agentRunGoalId !== goal.id || !this.ownsWorkflow(goal)) return "current run does not own the active Goal workflow";
+\t\tif (state !== "advanced" && state !== "stalled") return "state must be advanced or stalled";
+\t\tif (typeof evidence !== "string" || !evidence.trim() || evidence.length > 4000) return "evidence must contain 1 to 4000 characters";
+\t\tif (this.enforceNoProgressLimit(ctx, true)) return "stall deadline reached";
+\t\tif (state === "advanced") {
+\t\t\tthis.agentRunProgress = "advanced";
+\t\t\tgoal.stalledRuns = undefined;
+\t\t\tgoal.stalledSince = undefined;
+\t\t\tgoal.toolFreeRepeatCount = 0;
+\t\t\tgoal.lastToolFreeOutputFingerprint = undefined;
+\t\t} else {
+\t\t\tif (this.agentRunProgress !== "advanced") this.agentRunProgress = "stalled";
+\t\t\tgoal.stalledSince ??= Date.now();
+\t\t}
+\t\tthis.persistGoal(goal);
+\t\treturn undefined;
+\t}
+
+\trecordAutomaticRunProgress(ctx: StatusContext, goalId: string, progress: "advanced" | "stalled" | undefined, automatic: boolean) {
+\t\tconst goal = this.activeGoal;
+\t\tif (goal?.id !== goalId || goal.status !== "active" || !this.ownsWorkflow(goal)) return false;
+\t\tgoal.nextAutomaticAt = Date.now() + Math.max(${STALL_INTERVAL_MS}, this.settings.continuationLimits.minIntervalMs);
+\t\tif (progress !== "advanced") {
+\t\t\tgoal.stalledSince ??= Date.now();
+\t\t\tif (automatic) goal.stalledRuns = Math.min(Number.MAX_SAFE_INTEGER, (goal.stalledRuns ?? 0) + 1);
+\t\t}
+\t\tgoal.toolFreeRepeatCount = goal.stalledRuns ?? 0;
+\t\tthis.persistGoal(goal);
+\t\tthis.updateStatus(ctx, goal);
+\t\tif (goal.waiting) this.restoreGoalWaitTimer(ctx);
+\t\treturn this.enforceNoProgressLimit(ctx);
+\t}`, 'explicit automatic progress');
+  const enforceMethod = patched.match(/\tenforceNoProgressLimit\([\s\S]*?\n\t\}/g);
+  if (enforceMethod?.length !== 1) throw new Error('no-progress enforcement method drift');
+  patched = replaceOnce(patched, enforceMethod[0], `\tenforceNoProgressLimit(ctx: StatusContext, abortTurn = false) {
+\t\tconst goal = this.activeGoal;
+\t\tif (goal?.status !== "active" || !this.ownsWorkflow(goal)) return false;
+\t\tconst expired = goal.stalledSince !== undefined && Date.now() >= goal.stalledSince + ${STALL_WINDOW_MS};
+\t\tif (!expired && (goal.stalledRuns ?? 0) < 5) return false;
+\t\tconst reason = expired ? "Goal stalled-window deadline reached (25 minutes)" : "Goal blocked after five stalled automatic runs";
+\t\tconst stopped = this.stopActiveGoal(ctx, { kind: "retry_exhausted", expectedGoalId: goal.id, reason });
+\t\tif (!stopped) return false;
+\t\tif (abortTurn) abortCurrentTurn(ctx);
+\t\tnotifyTerminal(ctx.ui, reason, "warning");
+\t\treturn true;
+\t}`, 'owned stall enforcement');
+  // The existing continuation timer owns both spacing and the absolute stall
+  // deadline; there is no additional timer or scheduler.
+  const native = patched.includes('scheduleContinuationDispatch(ctx: StatusContext, goalId: string)');
+  const delayAnchor = native ? '\t\tlet remainingMs = this.settings.continuationLimits.minIntervalMs;' : '\t\tconst minIntervalMs = this.settings.continuationLimits.minIntervalMs;';
+  patched = replaceOnce(patched, delayAnchor, `${native ? '\t\tlet remainingMs' : '\t\tconst minIntervalMs'} = this.progressContinuationDelay();`, 'owned continuation delay');
+  if (native) {
+    patched = replaceOnce(patched, 'if (this.settings.continuationLimits.minIntervalMs > 0) {', 'if (this.progressContinuationDelay() > 0) {', 'owned dispatch interval gate');
+    patched = replaceOnce(patched, '\t\t\t\tthis.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });', `\t\t\t\tif (this.enforceNoProgressLimit(ctx)) return;
+\t\t\t\t// A backward wall-clock correction must not shorten persisted spacing.
+\t\t\t\tconst remainingInterval = (this.activeGoal.nextAutomaticAt ?? 0) - Date.now();
+\t\t\t\tif (remainingInterval > 0) {
+\t\t\t\t\tremainingMs = remainingInterval;
+\t\t\t\t\tarmTimer();
+\t\t\t\t\treturn;
+\t\t\t\t}
+\t\t\t\tthis.dispatchContinuationIfSettled(ctx, { intervalElapsed: true });`, 'persisted continuation spacing');
+  }
+  patched = replaceOnce(patched, '\trestoreGoalWaitTimer(ctx: StatusContext) {', `\tprivate progressContinuationDelay() {
+\t\tconst goal = this.activeGoal;
+\t\tconst interval = Math.max(${STALL_INTERVAL_MS}, this.settings.continuationLimits.minIntervalMs,
+\t\t\t(goal?.nextAutomaticAt ?? 0) - Date.now());
+\t\treturn goal?.stalledSince === undefined ? interval
+\t\t\t: Math.max(0, Math.min(interval, goal.stalledSince + ${STALL_WINDOW_MS} - Date.now()));
+\t}
+
+\trestoreGoalWaitTimer(ctx: StatusContext) {`, 'continuation deadline delay');
+  patched = replaceOnce(patched, '\t\tconst resumeAt = goal?.status === "active" ? goal.waiting?.resumeAt : undefined;', `\t\tconst waitAt = goal?.status === "active" ? goal.waiting?.resumeAt : undefined;
+\t\tconst deadline = goal?.status === "active" && goal.stalledSince !== undefined ? goal.stalledSince + ${STALL_WINDOW_MS} : undefined;
+\t\tconst resumeAt = goal?.waiting && deadline !== undefined ? Math.min(waitAt ?? deadline, deadline) : waitAt;`, 'quiet wait stall deadline');
+  patched = replaceOnce(patched, '\tdispatchDueGoalWait(ctx: StatusContext) {', '\tdispatchDueGoalWait(ctx: StatusContext) {\n\t\tif (this.enforceNoProgressLimit(ctx)) return false;', 'quiet wait deadline enforcement');
+  patched = replaceOnce(patched, '\t\tthis.clearGoalWaitTimer();\n\t\tthis.activeGoal = {\n\t\t\t...goal,\n\t\t\twaiting,', '\t\tthis.clearGoalWaitTimer();\n\t\tthis.activeGoal = {\n\t\t\t...goal,\n\t\t\twaiting,\n\t\t\tstalledSince: goal.stalledSince ?? Date.now(),', 'enter quiet stall window');
+  // Session restoration also invokes this method even for a non-waiting goal.
+  patched = replaceOnce(patched, '\t\tif (!goal || resumeAt === undefined) return false;', `\t\tif (!goal || resumeAt === undefined) {
+\t\t\tif (goal?.status === "active" && !goal.waiting && !this.hasContinuationWorkForGoal(goal.id)) {
+\t\t\t\tthis.requestContinuation(goal);
+\t\t\t\tthis.dispatchContinuationIfSettled(ctx);
+\t\t\t}
+\t\t\treturn false;
+\t\t}`, 'restored continuation');
+  return patched;
+}
+
+function patchProgressLifecycle(source) {
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['if (run.goalId === undefined) return;', 'runtime.recordAutomaticRunProgress(ctx, goalId, run.progress, run.origin === "automatic")', 'if (runtime.enforceNoProgressLimit(ctx, true)) return;', 'runtime.beginRecoveryRunIfNeeded(_ctx);'], 'Goal progress lifecycle')) return source;
+  let patched = replaceOnce(source, 'import { hasAssistantToolCall } from "./safety.js";\n', '', 'remove attempted-tool progress inference');
+  patched = replaceOnce(patched, '\t\tconst run = runtime.finishAgentRun();', `\t\tconst run = runtime.finishAgentRun(); // ${PROGRESS_MARKER}
+\t\tif (run.goalId === undefined) return;`, 'completed owned run fence');
+  // Ordinary user/extension notifications and context recovery are not resume.
+  patched = replaceOnce(patched, '\t\truntime.resetActiveSafetyEpoch(ctx);', '\t\t// Only explicit Goal resume/edit resets the safety epoch.', 'input safety reset removal');
+  patched = replaceOnce(patched, '\t\tif (resetSafetyEpoch && activeGoalId) runtime.resetActiveSafetyEpoch(ctx);', '\t\t// A non-Goal notification never resets stalled progress.', 'notification safety reset removal');
+  const legacyProgress = patched.match(/\t\tif \(\n\t\t\trun.origin === "automatic" &&\n\t\t\truntime.recordAutomaticRunProgress\([\s\S]*?\n\t\t\}/g);
+  if (legacyProgress?.length !== 1) throw new Error('lifecycle progress classification drift');
+  patched = replaceOnce(patched, legacyProgress[0], '', 'remove tool/text progress inference');
+  patched = replaceOnce(patched, '\t\tif (finalAssistant?.stopReason === "error") {', `\t\tif (runtime.limitActiveGoalForBudget(ctx, false)) return;
+\t\tif (runtime.recordAutomaticRunProgress(ctx, goalId, run.progress, run.origin === "automatic")) return;
+
+\t\tif (finalAssistant?.stopReason === "error") {`, 'completed run accounting');
+  patched = replaceOnce(patched, '\t\truntime.clearGoalRecoveryForGoal(goalId);\n\n\t\tif (runtime.limitActiveGoalForBudget(ctx, false)) return;', '\t\truntime.clearGoalRecoveryForGoal(goalId);', 'preserve budget precedence');
+  // An exact owned resume prompt commits its promised safety reset first;
+  // stale/unowned prompts still pass through the existing rejection gates.
+  patched = replaceOnce(patched, '\t\treturn goalContractBoundaryResult(ctx, runtime.activeGoal);', '\t\tif (runtime.enforceNoProgressLimit(ctx, true)) return;\n\t\treturn goalContractBoundaryResult(ctx, runtime.activeGoal);', 'pre-provider deadline fence');
+  patched = replaceOnce(patched, '\t\truntime.beginRecoveryRunIfNeeded();', '\t\truntime.beginRecoveryRunIfNeeded(_ctx);', 'recovery pacing lifecycle context');
+  for (const callback of ['pi.on("context", (event, ctx) => {', 'pi.on("tool_call", (event, ctx) => {', 'pi.on("tool_execution_end", (_event, ctx) => {']) {
+    const anchor = `\t${callback}\n${source.includes('let sessionActive = true;') ? '\t\tif (!sessionActive) return;\n' : ''}`;
+    patched = replaceOnce(patched, anchor, `${anchor}\t\tif (runtime.enforceNoProgressLimit(ctx, true)) return;\n`, 'active execution deadline fence');
+  }
+  return patched;
+}
+
+function patchProgressPrompts(source) {
+  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['Report goal_progress with this exact goal_id:', 'advanced requires concrete evidence of completed objective work', 'Five stalled automatic runs (at least five minutes apart)'], 'Goal progress prompt')) return source;
+  let patched = replaceOnce(source, '\t\t"- If progress needs user input or an external event, state the required action and stop the turn.",',
+    `\t\t"- Report goal_progress with this exact goal_id: advanced requires concrete evidence of completed objective work; otherwise report stalled. Polling, tool attempts and memory capture are not progress.",
+\t\t"- Missing reports count as stalled. Five stalled automatic runs (at least five minutes apart) or a 25-minute stalled deadline set status BLOCKED. Productive work has no default automatic limit.", // ${PROGRESS_MARKER}
+\t\t"- If progress needs user input or an external event, state the required action and stop the turn.",`, 'explicit progress prompt');
+  patched = replaceOnce(patched, 'This goal_id is only the goal_complete tool stale-turn guard', "This goal_id is the Goal tools' stale-turn guard", 'Goal tool identity guard');
+  return patched;
+}
+
+export function patchPiGoalStatusSource(source) {
   const compactFormatter = [
     `// ${STATUS_PATCH_MARKER}`,
     'function formatStatus(goal: ActiveGoal | undefined, _automaticTurnLimit?: number | null) {',
@@ -900,6 +1178,26 @@ function patchPiGoalStatusSource(source) {
   return replaceOnce(source, formatters[0][0], compactFormatter, 'Goal status formatter');
 }
 
+// Pure source preparation is shared with the reviewed artifact-metadata step;
+// it never imports or executes the upstream package.
+export function preparePiGoalSources(originals) {
+  // Retain the parent patch's unchanged security/layout anchors on repeat
+  // preparation too; the progress marker is not a bypass for those checks.
+  const progress = (source, prepare, transform) => transform(prepare(source));
+  return {
+    commands: patchPiGoalCommandsSource(originals.commands),
+    goal: patchPiGoalEntrypointSource(originals.goal),
+    lifecycle: progress(originals.lifecycle, patchPiGoalLifecycleSource, patchProgressLifecycle),
+    prompts: progress(originals.prompts, patchPiGoalPromptsSource, patchProgressPrompts),
+    runtime: progress(originals.runtime, source => patchPiGoalStatusSource(patchPiGoalRuntimeSource(source)), patchProgressRuntime),
+    settings: progress(originals.settings, patchPiGoalSettingsSource, patchProgressSettings),
+    toolPolicy: progress(originals.toolPolicy, patchPiGoalToolPolicySource, patchProgressToolPolicy),
+    tools: patchProgressTools(originals.tools),
+    safety: patchProgressSafety(originals.safety),
+    persistence: patchProgressPersistence(originals.persistence),
+  };
+}
+
 export function patchPiGoalDirectory(expectedVersion, directory) {
   if (!expectedVersion || !directory) {
     throw new Error('expected version and package directory are required');
@@ -920,11 +1218,19 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     runtime: join(directory, 'src', 'runtime.ts'),
     settings: join(directory, 'src', 'settings.ts'),
     toolPolicy: join(directory, 'src', 'tool-policy.ts'),
+    tools: join(directory, 'src', 'tools.ts'),
+    safety: join(directory, 'src', 'safety.ts'),
+    persistence: join(directory, 'src', 'persistence.ts'),
   };
   if (Object.values(paths).some((path) => !existsSync(path))) {
     throw new Error(`${directory}: pi-goal package layout is incomplete for ${expectedVersion}`);
   }
 
+  if (expectedVersion === '0.54.15') {
+    const info = lstatSync(paths.packageJson);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error('Unsafe Goal package manifest');
+    validate05415(directory);
+  }
   let packageManifest;
   try {
     packageManifest = JSON.parse(readFileSync(paths.packageJson, 'utf8'));
@@ -935,6 +1241,9 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   }
   if (packageManifest.version !== expectedVersion) {
     throw new Error(`pi-goal ${packageManifest.version ?? 'missing'} != expected ${expectedVersion}`);
+  }
+  if (expectedVersion === '0.54.15' && packageManifest.name !== '@narumitw/pi-goal') {
+    throw new Error('Goal package identity mismatch');
   }
   const declaredEntrypoints = packageManifest.pi?.extensions;
   const entrypointIsSupported = Array.isArray(declaredEntrypoints)
@@ -956,25 +1265,18 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     runtime: readFileSync(paths.runtime, 'utf8'),
     settings: readFileSync(paths.settings, 'utf8'),
     toolPolicy: readFileSync(paths.toolPolicy, 'utf8'),
+    tools: readFileSync(paths.tools, 'utf8'),
+    safety: readFileSync(paths.safety, 'utf8'),
+    persistence: readFileSync(paths.persistence, 'utf8'),
   };
   // These reviewed releases use two-space indentation. Round-trip only
   // leading indentation through the existing exact, fail-closed patch anchors.
-  if (expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13') {
+  if (expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13' || expectedVersion === '0.54.15') {
     for (const name of Object.keys(originals)) {
       originals[name] = originals[name].replace(/^(?:  )+/gm, (indent) => '\t'.repeat(indent.length / 2));
     }
   }
-  const patched = {
-    commands: patchPiGoalCommandsSource(originals.commands),
-    goal: patchPiGoalEntrypointSource(originals.goal),
-    [sessionSourceName]: sessionSourceName === 'lifecycle'
-      ? patchPiGoalLifecycleSource(originals[sessionSourceName])
-      : patchPiGoalSource(originals[sessionSourceName]),
-    prompts: patchPiGoalPromptsSource(originals.prompts),
-    runtime: patchPiGoalStatusSource(patchPiGoalRuntimeSource(originals.runtime)),
-    settings: patchPiGoalSettingsSource(originals.settings),
-    toolPolicy: patchPiGoalToolPolicySource(originals.toolPolicy),
-  };
+  const patched = preparePiGoalSources(originals);
 
   const markers = {
     commands: COMMANDS_PATCH_MARKER,
@@ -984,6 +1286,9 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     runtime: RUNTIME_PATCH_MARKER,
     settings: SETTINGS_PATCH_MARKER,
     toolPolicy: TOOL_POLICY_PATCH_MARKER,
+    tools: PROGRESS_MARKER,
+    safety: PROGRESS_MARKER,
+    persistence: PROGRESS_MARKER,
   };
   for (const [name, marker] of Object.entries(markers)) {
     if (!patched[name].includes(marker)) {
@@ -991,9 +1296,18 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     }
   }
 
+  if (expectedVersion === '0.54.15') {
+    for (const [name, source] of Object.entries(patched)) {
+      const bytes = source.replace(/^\t+/gm, (indent) => '  '.repeat(indent.length));
+      const reviewed = REVIEWED_05415[`src/${name === 'toolPolicy' ? 'tool-policy' : name}.ts`];
+      if (createHash('sha256').update(bytes).digest('hex') !== reviewed.at(-1)) {
+        throw new Error(`Goal prepared source digest changed: ${name}`);
+      }
+    }
+  }
   writeFileSync(paths.packageJson, patchedPackageManifest);
-  for (const name of ['commands', 'goal', sessionSourceName, 'prompts', 'runtime', 'settings', 'toolPolicy']) {
-    const source = expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13'
+  for (const name of Object.keys(patched)) {
+    const source = expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13' || expectedVersion === '0.54.15'
       ? patched[name].replace(/^\t+/gm, (indent) => '  '.repeat(indent.length))
       : patched[name];
     writeFileSync(paths[name], source);

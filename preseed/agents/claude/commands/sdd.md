@@ -39,7 +39,9 @@ MODES
   unleashed                Auto-fix everything including LOW + JUDGMENT
                            (conservative). Refuses to run on enforce_tdd: false.
 
-  Mode is sticky per project (sdd/config.yml). /sdd clean honors it.
+  Project mode is stored in the layout-resolved config.yml.
+  clean's explicit mode flag overrides it for that invocation only;
+  conflicting mode flags are rejected. /sdd mode changes the saved mode.
 
 WORKFLOW
   /sdd init              Bootstrap once per project.
@@ -75,13 +77,13 @@ Parse `$ARGUMENTS`. Match the first token and dispatch:
 | `add <domain>` | `spec-driven-development` skill (§ /sdd add) |
 | `mode [name]` | `spec-driven-development` skill (§ /sdd mode) |
 
-For `init` and `clean`, the sub-command skills reference `spec-driven-development` in their descriptions so REQ format, Status semantics, and templates surface alongside.
+For `init` and `clean`, the sub-command skills reference `spec-driven-development` for format, Status and templates. `sdd-clean` alone owns cleanup's eight-stage order; enforcement skills supply checks, not another loop. Clean is a repair workflow, not an audit: fix and verify findings across spec/docs/anchors. Unresolved debt blocks stage/task completion and the final push; logging or relocating it is not resolution. --unleashed applies all severities and conservative judgment repairs without per-fix confirmation. Debt-free cleanup ends with its authorized current-branch push and immediate turn end. CI follows repository triggers; boundary review requires an open PR to `main`/`master`/`develop`. Never create a PR, dispatch CI or launch reviewers inside cleanup; post-push qualification is separate. A continuation resumes unfinished local stages; explicit stop survives automatic reminders and delayed results.
 
 Unknown sub-command: print the help screen, exit.
 
 ## Hard gates (apply before any sub-command runs)
 
-1. `git status --porcelain` must be empty (clean working tree). Refuse otherwise with the dirty-tree message.
+1. On a new invocation, `git status --porcelain` must be empty; refuse otherwise. A same-run continuation uses its existing manifest and known owned edits, reconciling unrelated changes without overwriting them; it is not a fresh invocation.
 2. If sub-command is `clean` or `mode`: `sdd/` must exist; otherwise tell the user to run `/sdd init` first.
 3. If sub-command is `init` and `sdd/` already exists: enter Resume Mode if `sdd/.init-triage.md` has open items, else inform the user `/sdd init` has already run and suggest `/sdd edit` or `/sdd add`.
 

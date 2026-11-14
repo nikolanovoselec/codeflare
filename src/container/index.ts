@@ -34,8 +34,16 @@ import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalM
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import type { OperatorLoggingContext } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
+import { canonicalJson } from '../lib/reasoning-profiles';
+import { runSetupConfiguration, type SetupConfigurationInput } from '../routes/setup/index';
+import { getWorkerNameFromHostname } from '../routes/setup/shared';
+import { performBucketMultipart, MULTIPART_PENDING_COMPLETION, type BucketMultipartOperation } from '../routes/storage/upload';
+import { advanceMigrationChunk, getRegimeState } from '../lib/r2-migration';
+import { setRegimeState } from '../lib/r2-regime-state';
+import type { RegimeState } from '../lib/r2-regime-state';
+import { hasOwningSessionContainer } from '../lib/session-helpers';
 import { D1SessionRepository } from '../lib/session-repository';
-import { toErrorMessage } from '../lib/error-types';
+import { AppError, toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { getPersonalPiSession, wireContainerInterception, type InterceptionHost } from './container-interception';
@@ -83,11 +91,13 @@ import {
   onStop as lifecycleOnStop,
   onError as lifecycleOnError,
   type LifecycleHost,
+  type LifecycleLogContext,
 } from './container-lifecycle';
 
 export { validateBucketNameInput };
 
 const SESSION_ID_KEY = '_sessionId';
+const TERMINAL_KEEPALIVE_MS = 15_000;
 
 /**
  * container - Container Durable Object for user workspaces
@@ -110,7 +120,13 @@ type RenovateScanPin = { registrationId: string; installationId: string; bucket:
 const sameScanPin = (a: RenovateScanPin | undefined, b: RenovateScanPin | undefined) => !!a && !!b
   && a.registrationId === b.registrationId && a.installationId === b.installationId && a.bucket === b.bucket
   && a.sessionId === b.sessionId && a.sessionGeneration === b.sessionGeneration;
-type ExitEvidence = { owner: string; session: string; generation: number };
+type RenovateObservationPin = RenovateScanPin & { expiresAt: number; repetitionIntervalSeconds: number };
+const liveScanBounds = (pin: RenovateObservationPin | undefined): pin is RenovateObservationPin => !!pin
+  && Number.isSafeInteger(pin.expiresAt) && pin.expiresAt * 1000 > Date.now()
+  && Number.isSafeInteger(pin.repetitionIntervalSeconds) && pin.repetitionIntervalSeconds > 0;
+const boundedScan = (pin: RenovateObservationPin | undefined): pin is RenovateObservationPin => liveScanBounds(pin)
+  && pin.repetitionIntervalSeconds <= Math.floor((pin.expiresAt * 1000 - Date.now()) / 1000);
+type ExitEvidence = { owner: string; session: string; generation: number; terminationIntentId?: string };
 
 export class container extends Container<Env> implements ContainerEnvState {
   #sdkCredentialQueues = new Map<string, Promise<void>>();
@@ -125,19 +141,44 @@ export class container extends Container<Env> implements ContainerEnvState {
     this.renovateScheduling = new Promise<void>(resolve => { release = resolve; });
     await previous;
     try {
-      const current = await this.env.OPERATOR_REGISTRY?.getByName('registry').currentProspectiveRenovateRegistration(pin.registrationId);
-      if (!current || current.installationId !== pin.installationId || current.bucket !== pin.bucket
-        || current.sessionId !== pin.sessionId || current.sessionGeneration !== pin.sessionGeneration) return false;
-      const stored = await this.ctx.storage.get<RenovateScanPin>('renovate:scan');
-      if (!activate && !sameScanPin(stored, pin)) return false;
-      if (!sameScanPin(stored, pin)) {
+      const stored = await this.ctx.storage.get<RenovateObservationPin>('renovate:scan');
+      if (!activate && (!sameScanPin(stored, pin) || !boundedScan(stored))) return false;
+      const observed = await this.observeRenovateScan(pin);
+      if (observed.status === 'denied' || (activate && observed.status !== 'current')) return false;
+      const current = observed.status === 'current' ? observed.registration : undefined;
+      // Only verified arm authority supplies bounds. Caller extras and later reads cannot renew them.
+      const retained = sameScanPin(stored, pin) && liveScanBounds(stored) ? stored : undefined;
+      const trusted: RenovateObservationPin | undefined = retained ?? (current ? {
+        registrationId: pin.registrationId, installationId: pin.installationId, bucket: pin.bucket,
+        sessionId: pin.sessionId, sessionGeneration: pin.sessionGeneration,
+        expiresAt: current.human.expiresAt, repetitionIntervalSeconds: current.repetitionIntervalSeconds,
+      } : undefined);
+      if (!boundedScan(trusted)) return false;
+      if (!retained) {
         await this.deleteSchedules('scanRenovate');
-        await this.ctx.storage.put('renovate:scan', pin);
+        await this.ctx.storage.put('renovate:scan', trusted);
       }
       const schedules = await this.listSchedules('scanRenovate');
-      if (rearm || schedules.length === 0) await this.schedule(current.repetitionIntervalSeconds, 'scanRenovate', pin);
+      if (!boundedScan(trusted)) return false;
+      if (rearm || schedules.length === 0) await this.schedule(trusted.repetitionIntervalSeconds, 'scanRenovate', pin);
       return true;
     } finally { release(); }
+  }
+
+  private async observeRenovateScan(pin: RenovateScanPin): Promise<import('../operators/registry').ProspectiveRegistrationObservation> {
+    if (!this.env.OPERATOR_REGISTRY) return { status: 'denied' };
+    let observed: import('../operators/registry').ProspectiveRegistrationObservation;
+    try {
+      observed = await this.env.OPERATOR_REGISTRY.getByName('registry')
+        .observeProspectiveRenovateRegistration(pin.registrationId);
+    } catch (error) {
+      // RPC transport loss permits observation only; no cached authority is returned.
+      const denied = error instanceof Error && ['ForbiddenError', 'ValidationError', 'SyntaxError', 'ZodError'].includes(error.name);
+      return { status: denied ? 'denied' : 'unavailable' };
+    }
+    if (observed?.status === 'unavailable' || observed?.status === 'denied') return observed;
+    if (observed?.status !== 'current' || !sameScanPin(observed.registration, pin)) return { status: 'denied' };
+    return observed;
   }
 
   // Port where the container's HTTP server listens
@@ -275,6 +316,8 @@ export class container extends Container<Env> implements ContainerEnvState {
    * Public so container-lifecycle.ts can read/write it via LifecycleHost.
    */
   _shutdownStartedAt = 0;
+  /** Diagnostic identity from existing lifecycle reads, never permission for an effect. */
+  _observedLifecycleGeneration: number | null = null;
   _teardownEpoch = 0;
   /** Monotonic usage counter (seconds) - sent to Timekeeper for delta computation */
   _usageSeconds = 0;
@@ -285,7 +328,43 @@ export class container extends Container<Env> implements ContainerEnvState {
   private pendingExit: ExitEvidence | null = null;
   private static readonly EXIT_OBSERVED_KEY = 'monitoredExitGeneration';
 
-  private async retryObservedExit(): Promise<boolean> {
+  /** Native Stop proof retains its accepted address/intent after operational cleanup. */
+  private async exitEvidenceIsCurrent(evidence: ExitEvidence,
+    storage: DurableObjectStorage | DurableObjectTransaction = this.ctx.storage): Promise<boolean> {
+    const { owner, session, generation } = evidence;
+    if (await storage.get<number>('lifecycleGeneration') !== generation) return false;
+    const storedOwner = await storage.get<string>('bucketName');
+    const storedSession = await storage.get<string>(SESSION_ID_KEY);
+    if (evidence.terminationIntentId !== undefined) {
+      return this.env.CONTAINER.idFromName(`${owner}-${session}`).toString() === this.ctx.id.toString()
+        && (!storedOwner || storedOwner === owner) && (!storedSession || storedSession === session)
+        && (!this._bucketName || this._bucketName === owner) && (!this._sessionId || this._sessionId === session);
+    }
+    return storedOwner === owner && storedSession === session && this._bucketName === owner && this._sessionId === session;
+  }
+
+  /** Own only finite work after success, not a never-settling provider's lifetime. */
+  private recordNativeStopExit(evidence: ExitEvidence): Promise<void> {
+    const epoch = this._teardownEpoch;
+    const work = (async () => {
+      const persisted = await this.ctx.storage.transaction(async txn => {
+        if (!await this.exitEvidenceIsCurrent(evidence, txn)) return false;
+        await txn.put(container.EXIT_OBSERVED_KEY, evidence);
+        return true;
+      });
+      if (!persisted) return;
+      await this.reconcileObservedExit({ ownerKey: evidence.owner, sessionId: evidence.session,
+        generation: evidence.generation }, () => this._teardownEpoch === epoch, false, 'unknown');
+    })();
+    this.ctx.waitUntil(work);
+    return work;
+  }
+
+  private async retryObservedExit(
+    reason: 'platform' | 'unknown' = 'unknown',
+    onObservation?: (incidentId: string | null) => void,
+    expected?: MetricsPin,
+  ): Promise<boolean> {
     const pending = this.pendingExit;
     if (pending) {
       const persisted = await this.ctx.storage.transaction(async (txn) => {
@@ -299,37 +378,92 @@ export class container extends Container<Env> implements ContainerEnvState {
       if (!persisted) return false;
     }
     const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-    if (!evidence || !this._bucketName || !this._sessionId) return false;
+    if (!evidence) return false;
     const { owner, session, generation } = evidence;
-    if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation
-        || await this.ctx.storage.get<string>('bucketName') !== owner
-        || await this.ctx.storage.get<string>(SESSION_ID_KEY) !== session
-        || owner !== this._bucketName || session !== this._sessionId) {
+    if (!await this.exitEvidenceIsCurrent(evidence)) {
       await this.ctx.storage.transaction(async (txn) => {
         const stored = await txn.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
         if (stored?.generation === generation && stored.owner === owner && stored.session === session
-            && (await txn.get<number>('lifecycleGeneration') !== generation
-              || await txn.get<string>('bucketName') !== owner
-              || await txn.get<string>(SESSION_ID_KEY) !== session
-              || owner !== this._bucketName || session !== this._sessionId)) {
+            && stored.terminationIntentId === evidence.terminationIntentId
+            && !await this.exitEvidenceIsCurrent(evidence, txn)) {
           await txn.delete(container.EXIT_OBSERVED_KEY);
         }
       });
       return false;
     }
-    const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation);
+    const matchesExpected = !expected || (expected.ownerKey === owner
+      && expected.sessionId === session && expected.generation === generation);
+    const confirmed = await confirmMonitoredExit(this.ctx, this.env, owner, session, generation,
+      matchesExpected ? reason : 'unknown', matchesExpected ? onObservation : undefined, evidence.terminationIntentId);
+    let superseded = false;
     if (!confirmed) {
       const current = await new D1SessionRepository(this.env.USAGE_DB).getSession(owner, session);
-      if (current?.lifecycleState !== 'stopped' || current.lifecycleGeneration !== generation) return false;
+      if (current?.lifecycleState !== 'stopped' || current.lifecycleGeneration !== generation) {
+        superseded = evidence.terminationIntentId !== undefined && (!current
+          || current.lifecycleGeneration !== generation || current.lifecycleState !== 'stopping'
+          || current.terminationGeneration !== generation || current.terminationIntentId !== evidence.terminationIntentId);
+        if (!superseded) return false;
+      }
     }
     await this.ctx.storage.transaction(async (txn) => {
       const stored = await txn.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-      if (stored?.generation === generation && stored.owner === owner && stored.session === session) {
+      if (stored?.generation === generation && stored.owner === owner && stored.session === session
+          && stored.terminationIntentId === evidence.terminationIntentId) {
         await txn.delete(container.EXIT_OBSERVED_KEY);
       }
     });
-    if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
+    if (superseded || await this.ctx.storage.get<number>('lifecycleGeneration') !== generation) return false;
     this.monitoredGeneration = generation;
+    return true;
+  }
+
+  /** Share captured retry context without a logging-only authority read. */
+  private async reconcileObservedExit(
+    pin: MetricsPin | undefined,
+    current: () => boolean,
+    replaceSchedule = false,
+    reason?: 'platform' | 'unknown',
+  ): Promise<boolean> {
+    let incidentId: string | null = null;
+    let retry = false;
+    try {
+      // A deliberate Stop erased the operational keys used to restore a metrics
+      // pin. Its durable positive evidence is sufficient to address retries.
+      if (!pin) {
+        const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+        if (evidence?.terminationIntentId !== undefined) {
+          pin = { ownerKey: evidence.owner, sessionId: evidence.session, generation: evidence.generation };
+        }
+      }
+      if (await this.retryObservedExit(reason ?? 'unknown', observed => { incidentId = observed; }, pin)) return true;
+      const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+      retry = reason !== undefined || (!!evidence && evidence.generation === pin?.generation);
+    } catch {
+      this.logger.warn('Container exit confirmation retry failed', {
+        sessionId: pin?.sessionId ?? null, lifecycleGeneration: pin?.generation ?? null,
+        incidentId, errorClass: 'exit_confirmation_failed',
+      });
+      retry = true;
+    }
+    if (!retry || !pin) return false;
+    if (current()) {
+      const schedule = async () => {
+        if (replaceSchedule) this.deleteSchedules('collectMetrics');
+        await this.schedule(60, 'collectMetrics', pin);
+      };
+      const logFailure = () => this.logger.error('Container exit retry alarm unavailable', undefined, {
+        sessionId: pin.sessionId, lifecycleGeneration: pin.generation, incidentId, errorClass: 'schedule_failed',
+      });
+      try { await schedule(); }
+      catch (error) {
+        logFailure();
+        // Preserve the existing warm monitor/metrics second chance for a transient scheduler failure.
+        if (current() && (replaceSchedule || reason !== undefined)) {
+          try { await schedule(); }
+          catch (retryError) { logFailure(); throw retryError; }
+        } else throw error;
+      }
+    }
     return true;
   }
 
@@ -358,37 +492,131 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
     if (await this.ctx.storage.get<number>('lifecycleGeneration') !== generation || !current() || !owner || !session) return;
     this.monitoredGeneration = generation;
-    const recordExit = async () => {
+    const recordExit = (reason: 'platform' | 'unknown') => {
       if (this.pendingExit && this.pendingExit.generation > generation) return;
       this.pendingExit = { owner, session, generation };
-      try {
-        if (!await this.retryObservedExit() && current()) await this.schedule(60, 'collectMetrics', { ownerKey: owner, sessionId: session, generation });
-      } catch (error) {
-        this.logger.warn('Container exit confirmation failed', { error: toErrorMessage(error) });
-        try { if (current()) await this.schedule(60, 'collectMetrics', { ownerKey: owner, sessionId: session, generation }); } catch (scheduleError) {
-          this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
-        }
-      }
+      // Own finite work after positive exit observation, not the monitor's lifetime.
+      this.ctx.waitUntil(this.reconcileObservedExit(
+        { ownerKey: owner, sessionId: session, generation }, current, false, reason));
     };
     try {
       const exit = runtime.monitor();
-      void exit.then(recordExit, error => {
+      void exit.then(() => recordExit('unknown'), error => {
         // Trust explicit exit messages from this attached monitor, including rollouts.
         // Bare numbers, no-instance and transport failures are not proof here.
         const exitCode = error instanceof Error
           ? /^(?:container exited with unexpected exit code:|runtime signalled the container to exit(?: due to a new version rollout)?:)\s*(\d+)$/i.exec(error.message)?.[1]
           : undefined;
         if (exitCode !== undefined && Number.isSafeInteger(Number(exitCode)) && Number(exitCode) >= 0) {
-          void recordExit();
+          recordExit(error instanceof Error && /^runtime signalled the container to exit due to a new version rollout:/i.test(error.message)
+            ? 'platform' : 'unknown');
           return;
         }
         if (this.monitoredGeneration === generation) this.monitoredGeneration = null;
-        this.logger.warn('Container monitor failed', { error: toErrorMessage(error) });
+        this.logger.warn('Container monitor failed', { sessionId: session, lifecycleGeneration: generation,
+          incidentId: null, errorClass: 'monitor_failed' });
       });
-    } catch (error) {
+    } catch {
       this.monitoredGeneration = null;
-      this.logger.warn('Container monitor registration failed', { error: toErrorMessage(error) });
+      this.logger.warn('Container monitor registration failed', { sessionId: session, lifecycleGeneration: generation,
+        incidentId: null, errorClass: 'monitor_registration_failed' });
     }
+  }
+
+  private _configurationRunning = false;
+  private _bucketStorageTail: Promise<void> = Promise.resolve();
+
+  /** One deployment task authority; an interrupted task may only resume its identical input. */
+  async configureDeployment(input: SetupConfigurationInput): Promise<Response> {
+    const refused = (error: string) => new Response(JSON.stringify({ done: true, success: false, error }) + '\n', {
+      headers: { 'Content-Type': 'application/x-ndjson' },
+    });
+    if (this._configurationRunning) return refused('Setup configuration is already in progress. Please wait and try again.');
+    this._configurationRunning = true;
+    let handedOff = false;
+    try {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalJson({ body: input.body, workerName: getWorkerNameFromHostname(input.requestUrl, this.env.CLOUDFLARE_WORKER_NAME) })));
+      const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+      const key = 'setup:admission';
+      const prior = await this.ctx.storage.get<{ token: string; fingerprint: string }>(key);
+      if (prior && prior.fingerprint !== fingerprint) return refused('An interrupted setup task requires recovery. Retry the same configuration before starting a different configuration.');
+      const token = prior?.token ?? crypto.randomUUID();
+      await this.ctx.storage.put(key, { token, fingerprint });
+      const response = runSetupConfiguration({ ...input, env: this.env }, {
+        waitUntil: task => this.ctx.waitUntil(task),
+        settled: async (successful, terminalFailure = false) => {
+          try {
+            // A fresh definite failure permits correction. A retained uncertain
+            // task still needs successful same-input convergence, not a later validation failure.
+            if (successful || (terminalFailure && !prior)) await this.ctx.storage.transaction(async txn => {
+              if ((await txn.get<{ token: string }>(key))?.token === token) await txn.delete(key);
+            });
+          } finally { this._configurationRunning = false; }
+        },
+      });
+      handedOff = true;
+      return response;
+    } finally {
+      if (!handedOff) this._configurationRunning = false;
+    }
+  }
+
+  /** DO-local async exclusion; the operation and provider response settle before its successor. */
+  private async serializeBucketStorage<T>(operation: () => Promise<T>): Promise<T> {
+    const before = this._bucketStorageTail;
+    let release!: () => void;
+    this._bucketStorageTail = new Promise<void>(resolve => { release = resolve; });
+    await before;
+    try { return await operation(); }
+    finally { release(); }
+  }
+
+  private async bindBucketStorageOwner(bucketName: string): Promise<void> {
+    const owner = await this.ctx.storage.get<string>('storage:owner');
+    if (owner && owner !== bucketName) throw new Error('Bucket storage owner mismatch');
+    if (!owner) await this.ctx.storage.put('storage:owner', bucketName);
+  }
+
+  async runBucketMultipart(operation: BucketMultipartOperation | Request): Promise<Response> {
+    // Request bodies use the existing streaming RPC transport, preserving the HTTP part-size envelope.
+    const input = operation instanceof Request ? await operation.json() as BucketMultipartOperation : operation;
+    const error = validateBucketNameInput({ bucketName: input.bucketName });
+    if (error) throw new Error(error);
+    return this.serializeBucketStorage(async () => {
+      await this.bindBucketStorageOwner(input.bucketName);
+      try { return await performBucketMultipart(this.env, this.ctx.storage, input); }
+      catch (cause) {
+        if (cause instanceof AppError) return Response.json(cause.toJSON(), { status: cause.statusCode });
+        throw cause;
+      }
+    });
+  }
+
+  async advanceBucketMigration(bucketName: string): Promise<void> {
+    const error = validateBucketNameInput({ bucketName });
+    if (error) throw new Error(error);
+    await this.serializeBucketStorage(async () => {
+      await this.bindBucketStorageOwner(bucketName);
+      const verified = await this.ctx.storage.get<RegimeState>('multipart:regime');
+      const observed = await getRegimeState(this.env, bucketName);
+      if (verified && observed.generation < verified.generation) {
+        // Repair an interrupted KV publication from durable verified state, never re-run an older generation.
+        await setRegimeState(this.env, bucketName, verified);
+        return;
+      }
+      if (await this.ctx.storage.get(MULTIPART_PENDING_COMPLETION)) {
+        this.logger.warn('Multipart completion is uncertain; explicit upload recovery is required before migration');
+        return;
+      }
+      const noOwner = async () => {
+        if (await hasOwningSessionContainer(this.env, bucketName)) throw new Error('Session workload owns the bucket');
+      };
+      await advanceMigrationChunk(this.env, bucketName, {
+        drainContainers: noOwner,
+        hasHealthyContainer: () => hasOwningSessionContainer(this.env, bucketName),
+        beforeReady: ready => this.ctx.storage.put('multipart:regime', ready),
+      });
+    });
   }
 
   constructor(ctx: DurableObjectState<Env>, env: Env) {
@@ -413,6 +641,8 @@ export class container extends Container<Env> implements ContainerEnvState {
       this._terminalMode = storedTerminalMode === 'herdr' ? 'herdr' : 'classic';
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
       const restoredGeneration = await this.ctx.storage.get<number>('lifecycleGeneration');
+      this._observedLifecycleGeneration = restoredGeneration !== undefined && Number.isSafeInteger(restoredGeneration) && restoredGeneration >= 0
+        ? restoredGeneration : null;
       const restoredPin = this._bucketName && this._sessionId && Number.isSafeInteger(restoredGeneration)
         ? { ownerKey: this._bucketName, sessionId: this._sessionId, generation: restoredGeneration! } : undefined;
       this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
@@ -468,9 +698,9 @@ export class container extends Container<Env> implements ContainerEnvState {
         const r2Config = await getR2Config(this.env);
         this._r2AccountId = r2Config.accountId;
         this._r2Endpoint = r2Config.endpoint;
-      } catch (err) {
+      } catch {
         this.logger.warn('R2 config not available, will use empty values in envVars', {
-          error: toErrorMessage(err),
+          errorClass: 'r2_config_unavailable',
         });
       }
 
@@ -506,22 +736,13 @@ export class container extends Container<Env> implements ContainerEnvState {
         await refreshMcpPortalConfiguration(this.host);
         this.updateEnvVars();
       }
-      try {
-        if (await this.retryObservedExit()) return;
-        const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-        if (evidence && evidence.generation === await this.ctx.storage.get<number>('lifecycleGeneration')) {
-          try { if (restoredPin) await this.schedule(60, 'collectMetrics', restoredPin); } catch (scheduleError) {
-            this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
-          }
-          return;
-        }
-      } catch (error) {
-        this.logger.warn('Container exit confirmation retry failed', { error: toErrorMessage(error) });
-        try { if (restoredPin) await this.schedule(60, 'collectMetrics', restoredPin); } catch (scheduleError) {
-          this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
-        }
-      }
-      await this.monitorExistingRuntime();
+      const restoration = (async () => {
+        if (await this.reconcileObservedExit(restoredPin, () => true)) return;
+        await this.monitorExistingRuntime();
+      })();
+      this.ctx.waitUntil(restoration);
+      // Keep startup usable while the required operation retains its DO-owned rejection.
+      await restoration.catch(() => undefined);
     });
   }
 
@@ -603,16 +824,20 @@ export class container extends Container<Env> implements ContainerEnvState {
 
   /** Scheduled callback is only a trigger; Registry and live session authority decide every operation. */
   async scanRenovate(delivered?: RenovateScanPin): Promise<void> {
-    const pin = await this.ctx.storage.get<RenovateScanPin>('renovate:scan');
-    if (!sameScanPin(pin, delivered)) return;
+    const pin = await this.ctx.storage.get<RenovateObservationPin>('renovate:scan');
+    if (!sameScanPin(pin, delivered) || !liveScanBounds(pin)) return;
     if (!pin || !this.env.OPERATOR_REGISTRY || !this.env.OPERATOR_ACTIVITY || !this.env.CONTAINER
       || this.env.CONTAINER.idFromName(`${pin.bucket}-${pin.sessionId}`).toString() !== this.ctx.id.toString()) return;
     const registry = this.env.OPERATOR_REGISTRY.getByName('registry');
+    let denied = false;
     const registration = async (id = pin.registrationId) => {
-      if (!sameScanPin(await this.ctx.storage.get<RenovateScanPin>('renovate:scan'), pin)) return null;
-      const current = await registry.currentProspectiveRenovateRegistration(id);
-      return current && current.installationId === pin.installationId && current.bucket === pin.bucket
-        && current.sessionId === pin.sessionId && current.sessionGeneration === pin.sessionGeneration ? current : null;
+      if (denied || id !== pin.registrationId
+        || !sameScanPin(await this.ctx.storage.get<RenovateScanPin>('renovate:scan'), pin)) {
+        denied = true; return null;
+      }
+      const observed = await this.observeRenovateScan(pin);
+      if (observed.status === 'denied') denied = true;
+      return observed.status === 'current' ? observed.registration : null;
     };
     try {
       const initial = await registration();
@@ -634,14 +859,13 @@ export class container extends Container<Env> implements ContainerEnvState {
         const actor = reserved.actor;
         if (actor.bucket !== pin.bucket || actor.sessionId !== pin.sessionId
           || actor.sessionGeneration !== pin.sessionGeneration || actor.registrationId !== pin.registrationId) continue;
-        const winner = await registry.currentProspectiveRenovateRegistration(actor.registrationId);
+        const winner = await registration(actor.registrationId);
         if (!winner || winner.installationId !== pin.installationId || winner.bucket !== actor.bucket
           || winner.sessionId !== actor.sessionId || winner.sessionGeneration !== actor.sessionGeneration) continue;
         const proof = await registry.readProspectiveRenovateAdmission(reserved.activityId);
         if (!proof || proof.repositoryId !== candidate.repositoryId || proof.pullRequest !== candidate.pullRequest
           || proof.head !== candidate.head || proof.actor.registrationId !== actor.registrationId) continue;
         const activity = this.env.OPERATOR_ACTIVITY.getByName(reserved.activityId);
-        if (!await activity.bindProspectiveRenovateAdmission(reserved.activityId)) continue;
         let plan = await activity.getRuntimePlan();
         // Null plan can also be an uncertain, already-prepared admission. Never
         // re-prepare it or replace its Activity identity merely for a missing plan.
@@ -652,22 +876,23 @@ export class container extends Container<Env> implements ContainerEnvState {
               invocation: { repository: winner.repository },
               sourceSession: { sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration } },
             { human: winner.human, accessJwt: winner.accessJwt }, this.env,
-            { activityId: reserved.activityId, expectedManagement: { controlsRevision: winner.controlsRevision,
+            { activityId: reserved.activityId, prospectiveAdmissionId: reserved.activityId,
+              expectedManagement: { controlsRevision: winner.controlsRevision,
               installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
               releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
           } catch { continue; }
-          if (!await registry.currentProspectiveRenovateRegistration(actor.registrationId)) continue;
+          if (!await registration(actor.registrationId)) continue;
           try { await activity.start(prepared.startCapability); } catch { /* Reconcile accepted start below. */ }
           plan = await activity.getRuntimePlan();
         }
         if (!plan || plan.activityId !== reserved.activityId) continue;
         let detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         if (detail?.executionStatus === 'waiting'
-          && await registry.currentProspectiveRenovateRegistration(actor.registrationId)) {
+          && await registration(actor.registrationId)) {
           await activity.collectBrowserResult();
           detail = await activity.getBrowserDetail() as { executionStatus: string } | null;
         }
-        if (detail?.executionStatus === 'queued' && await registry.currentProspectiveRenovateRegistration(actor.registrationId)) {
+        if (detail?.executionStatus === 'queued' && await registration(actor.registrationId)) {
           this.ctx.waitUntil(runOperatorActivity(reserved.activityId, this.env,
             bindOperatorRuntimeCapability(this.ctx)).catch(error => {
             this.logger.warn('Prospective Renovate drive unavailable', { error: toErrorMessage(error) });
@@ -679,7 +904,12 @@ export class container extends Container<Env> implements ContainerEnvState {
         }
       }
     } finally {
-      if (await registration()) await this.ensureRenovateSchedule(pin, false, true);
+      // Both this observation and the serialized ensure lookup can lose transport.
+      // Neither unavailable result supplies authority for protected work.
+      if (!denied) {
+        await registration();
+        if (!denied) await this.ensureRenovateSchedule(pin, false, true);
+      }
     }
   }
 
@@ -815,6 +1045,76 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
   }
 
+  /**
+   * The private port hands back an unaccepted socket. Returning it directly
+   * leaves nothing in this object listening, so it dies when the Durable
+   * Object shuts down at an alarm boundary. Accept both ends here so the
+   * object owns the relay (same pattern as the Containers SDK, not imported
+   * because that path would start the container).
+   */
+  private relayWebSocket(containerResponse: Response, options: { terminalKeepalive: boolean }): Response {
+    const containerWs = containerResponse.webSocket;
+    if (!containerWs) return containerResponse;
+    containerWs.accept();
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    server.accept();
+
+    // Reserved codes cannot be sent. Keep the existing final-close policy
+    // except for abnormal terminal upstream loss, handled below.
+    const sendableCode = (code: number): number => (code === 1005 || code === 1006 ? 1000 : code);
+    const closeQuietly = (socket: WebSocket, code: number, reason: string): void => {
+      try {
+        socket.close(code, reason);
+      } catch {
+        // Already closed by the other direction.
+      }
+    };
+    const forward = async (target: WebSocket, data: string | ArrayBuffer | Blob): Promise<void> => {
+      try {
+        target.send(data instanceof Blob ? await data.arrayBuffer() : data);
+      } catch {
+        // Target closed mid-flight; its close event handles teardown.
+      }
+    };
+
+    let keepalive: ReturnType<typeof setInterval> | undefined;
+    const stopKeepalive = (): void => {
+      if (keepalive === undefined) return;
+      clearInterval(keepalive);
+      keepalive = undefined;
+    };
+    if (options.terminalKeepalive) {
+      // Pending work from the heartbeat keeps the object alive across alarm boundaries.
+      keepalive = setInterval(() => {
+        try {
+          containerWs.send(JSON.stringify({ type: 'heartbeat' }));
+        } catch {
+          // Container end closed; its close event stops this timer.
+        }
+      }, TERMINAL_KEEPALIVE_MS);
+    }
+
+    containerWs.addEventListener('message', event => { void forward(server, event.data); });
+    server.addEventListener('message', event => { void forward(containerWs, event.data); });
+    containerWs.addEventListener('close', event => {
+      // Terminal transport loss must remain retryable under the existing error
+      // policy. IDE and client-originated close behavior stay unchanged.
+      const code = options.terminalKeepalive && event.code === 1006 ? 1011 : sendableCode(event.code);
+      closeQuietly(server, code, event.reason);
+    });
+    server.addEventListener('close', event => closeQuietly(containerWs, sendableCode(event.code), event.reason));
+    containerWs.addEventListener('error', () => closeQuietly(server, 1011, 'container-socket-error'));
+    server.addEventListener('error', () => closeQuietly(containerWs, 1011, 'client-socket-error'));
+    for (const socket of [containerWs, server]) {
+      socket.addEventListener('close', stopKeepalive);
+      socket.addEventListener('error', stopKeepalive);
+    }
+
+    return new Response(null, { status: 101, webSocket: client, headers: containerResponse.headers });
+  }
+
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
     // Ordinary ingress cannot manufacture the separate admitted RPC context.
@@ -829,7 +1129,8 @@ export class container extends Container<Env> implements ContainerEnvState {
     const pathname = new URL(request.url).pathname;
     if ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
         request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
-      return this.forwardExisting(request);
+      const forwarded = await this.forwardExisting(request);
+      return forwarded.webSocket ? this.relayWebSocket(forwarded, { terminalKeepalive: pathname === '/terminal' }) : forwarded;
     }
     const internal = dispatchInternalRoute(this.host, request);
     if (internal) return internal;
@@ -867,14 +1168,17 @@ export class container extends Container<Env> implements ContainerEnvState {
     // readiness, WebSocket upgrades, and container networking). The SDK's
     // sleepAfter timer is pinned to 24h (see class field comment) and plays
     // no role in idle detection - collectMetrics() owns that decision.
-    if (this._containerAuthToken) {
-      const authedRequest = new Request(request, {
-        headers: new Headers(request.headers),
+    if (!this._containerAuthToken) {
+      return new Response(JSON.stringify({ error: 'Container authorization unavailable' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
       });
-      authedRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
-      return super.fetch(authedRequest);
     }
-    return super.fetch(request);
+    const authedRequest = new Request(request, {
+      headers: new Headers(request.headers),
+    });
+    authedRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
+    return super.fetch(authedRequest);
   }
 
   /**
@@ -922,43 +1226,32 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   async collectMetrics(delivered?: MetricsPin): Promise<void> {
+    const epoch = this._teardownEpoch;
+    const runtime = this.ctx.container;
+    // Exit-only retries cannot require an operational identity or runtime: Stop
+    // deliberately cleared them before dispatching native destruction.
+    const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
+    if (this._teardownEpoch !== epoch || this.ctx.container !== runtime) return;
+    if (evidence?.terminationIntentId !== undefined && (!delivered || (delivered.ownerKey === evidence.owner
+        && delivered.sessionId === evidence.session && delivered.generation === evidence.generation))) {
+      if (await this.reconcileObservedExit(delivered, () => this._teardownEpoch === epoch, true)) return;
+    }
     // Capture generation, native runtime and local teardown epoch before any
     // asynchronous monitor/host observation. A scheduled payload can only join
     // that exact assignment, never the latest generation returned by D1.
-    const epoch = this._teardownEpoch;
-    const runtime = this.ctx.container;
     const execution = await captureMetricsExecution(this.ctx, delivered,
       () => this._teardownEpoch === epoch && this.ctx.container === runtime);
     if (!execution || !execution.isCurrent()) return;
     const pin = { ownerKey: execution.ownerKey, sessionId: execution.sessionId, generation: execution.generation };
-    const scheduleExitRetry = async () => {
-      if (execution.isCurrent()) {
-        this.deleteSchedules('collectMetrics');
-        await this.schedule(60, 'collectMetrics', pin);
-      }
-    };
-    try {
-      // Positive attached-monitor evidence retains priority over all uncertainty.
-      if (await this.retryObservedExit()) return;
-      const evidence = await this.ctx.storage.get<ExitEvidence>(container.EXIT_OBSERVED_KEY);
-      if (evidence && evidence.generation === execution.generation) {
-        await scheduleExitRetry();
-        return;
-      }
-    } catch (error) {
-      this.logger.warn('Container exit confirmation retry failed', { error: toErrorMessage(error) });
-      try { await scheduleExitRetry(); } catch (scheduleError) {
-        this.logger.warn('Container exit retry alarm unavailable', { error: toErrorMessage(scheduleError) });
-        throw scheduleError;
-      }
-      return;
-    }
+    // This public call owns its rejection; future callbacks/restoration use waitUntil instead.
+    if (await this.reconcileObservedExit(pin, execution.isCurrent, true)) return;
     if (!execution.isCurrent()) return;
     // The metrics observation already probes SDK-false runtimes directly; a
     // second pre-probe here would spend two host budgets on every failure tick.
     if (execution.runtime.running) {
-      try { await this.monitorExistingRuntime(false, pin); } catch (error) {
-        this.logger.warn('Container monitor attachment unavailable', { error: toErrorMessage(error) });
+      try { await this.monitorExistingRuntime(false, pin); } catch {
+        this.logger.warn('Container monitor attachment unavailable', { sessionId: pin.sessionId,
+          lifecycleGeneration: pin.generation, incidentId: null, errorClass: 'monitor_attachment_failed' });
       }
     }
     await lifecycleCollectMetrics(this.lifecycleHost, pin, { ...execution,
@@ -972,11 +1265,15 @@ export class container extends Container<Env> implements ContainerEnvState {
    * full rationale.
    */
   override async destroy(): Promise<void> {
+    await this.destroyWithContext();
+  }
+
+  private async destroyWithContext(context?: LifecycleLogContext, onNativeExit?: () => Promise<void>): Promise<void> {
     if (this.sessionKillInFlight) {
       await this.sessionKillInFlight.completion;
       return;
     }
-    await lifecycleDestroy(this.lifecycleHost);
+    await lifecycleDestroy(this.lifecycleHost, context, onNativeExit);
   }
 
   /** Own claim through confirmation even if the invoking Worker disconnects. */
@@ -997,9 +1294,13 @@ export class container extends Container<Env> implements ContainerEnvState {
     const epoch = this._teardownEpoch;
     // Register the entire operation before any I/O, including its claim.
     const completion: Promise<void> = Promise.resolve().then(() =>
-      lifecycleStopSession(this.env, input, () => {
+      lifecycleStopSession(this.env, input, owned => {
         if (this._teardownEpoch !== epoch) throw new Error('Session stop superseded');
-        return this.destroy();
+        return this.destroyWithContext({ sessionId: owned.sessionId, lifecycleGeneration: owned.lifecycleGeneration,
+          incidentId: owned.unreachableIncidentId ?? null, terminationIntentId: owned.terminationIntentId ?? undefined, reason: 'user' }, () => this.recordNativeStopExit({
+            owner: input.bucket, session: input.sessionId, generation: input.generation,
+            terminationIntentId: owned.terminationIntentId!,
+          }));
       })
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;

@@ -4,6 +4,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Domain owner:** Backend (Worker + Container DO)
 
+Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle evidence boundaries](../../documentation/lanes/container.md#lifecycle-evidence-boundaries).
+
 ### Key Concepts
 
 - **Session** -- A named, user-owned workspace whose complete non-secret record and shared lifecycle truth are stored in D1 and whose isolated runtime is controlled by one Container Durable Object.
@@ -38,22 +40,26 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Creation accepts a trimmed name and optional supported AI agent type.
-2. Each session receives a unique valid lowercase alphanumeric ID.
-3. One complete non-secret D1 row durably stores owner, name, configuration, timestamps, lifecycle fencing and runtime projection fields.
-4. A missing workspace value resolves to Terminal and the immutable terminal/workspace stamps cannot be patched by clients.
-5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity.
-6. Creation remains rate-limited and storage quota is checked in SaaS mode.
+1. Creation accepts a trimmed name and optional supported AI agent type. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC3/4/5 subsets: Create persists defaults and stopped generation zero; immutable PATCH preserves the row) -->
+2. Each session receives a unique valid lowercase alphanumeric ID. <!-- @impl: src/lib/kv-keys.ts::generateSessionId --> <!-- @test: src/__tests__/lib/kv-keys.test.ts (generateSessionId) -->
+3. One complete non-secret D1 row durably stores owner, name, configuration, timestamps, lifecycle fencing and runtime projection fields. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-001 AC3 / REQ-SESSION-031 AC1: valid agent and six configured tabs retain complete nonsecret creation data) --> <!-- @impl: src/lib/session-repository.ts::create -->
+4. A missing workspace value resolves to Terminal and the immutable terminal/workspace stamps cannot be patched by clients. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC3/4/5 subsets: Create persists defaults and stopped generation zero; immutable PATCH preserves the row) --> <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @impl: src/routes/session/crud.ts::UpdateSessionBody --> <!-- @impl: src/routes/session/crud.ts::app -->
+5. Creation returns 201 with lifecycle `stopped`, generation zero and an ordered revision; it does not start a container or consume running capacity. <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC3/4/5 subsets: Create persists defaults and stopped generation zero; immutable PATCH preserves the row) -->
+6. Creation remains rate-limited. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC6 subset: route limiter rejects request eleven without creating any invalid session) --> <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter -->
+7. Storage quota is checked in SaaS mode. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC6 subset: cached SaaS storage above the tier cap denies creation without inserting a row) --> <!-- @impl: src/routes/session/crud.ts::app -->
 
-**Constraints:** Secrets remain in their established stores. Session records are never written to KV.
+**Constraints:**
+
+- Secrets remain in their established stores.
+- Session records are never written to KV.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Planned D1 creation, validation and workspace tests.
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [kv-keys.test.ts](../../src/__tests__/lib/kv-keys.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -79,7 +85,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/lib/container-id-isolation.test.ts))
+**Verification:** Automated: [container-id-isolation.test.ts](../../src/__tests__/lib/container-id-isolation.test.ts)
 
 **Status:** Implemented
 
@@ -94,21 +100,23 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. The user's persistent storage bucket is provisioned if it does not exist. <!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (createBucketIfNotExists) -->
-2. A scoped, bucket-specific credential pair is obtained or created for the user and injected into the container environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 AC2: scoped R2 token obtained and injected) -->
-3. An initial sync from persistent storage to the workspace settles before ordinary terminal traffic is released, with a shipped 120-second safety timeout; timeout records degraded restore and allows bounded startup to continue. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @manual: Stall the R2 source and confirm initial sync leaves its blocking phase after 120 seconds before bounded host fallback can release terminal traffic. -->
-4. After initial sync, changes are bidirectionally synced on a regular schedule for the container's lifetime, with support for on-demand triggers and a final sync on shutdown (see [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)). <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
-5. New buckets are seeded with getting-started docs and agent configs matching the user's session mode. <!-- @impl: src/lib/r2-seed.ts::CONTEXT_MODE_KEY_PREFIX --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 AC5: new buckets seeded with getting-started docs) -->
+2. A scoped, bucket-specific credential pair is obtained or created for the user. Direct-storage containers receive the real pair; strict-egress and restricted Operator containers instead receive intentional non-secret placeholders for both R2 credential values, with storage access mediated by Worker-held scoped credentials. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 AC2: scoped R2 token obtained and injected) --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-016/021: strict egress + Governed Mode leaves CONTAINER_AUTH_TOKEN as the ONLY real secret) --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-ENTERPRISE-016: emits a NON-SECRET placeholder R2 key when _strictEgress is true (real key never enters the container); no AWS_*) --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-ENTERPRISE-016: emits the real R2 key verbatim when _strictEgress is falsy (strict-off unchanged); no AWS_*) --> <!-- @test: src/__tests__/container/operator-env.test.ts (emits parent-bound Pi config and no broad credentials or whole-home restore) -->
+3. An initial sync from persistent storage to the workspace settles before ordinary terminal traffic is released, with a shipped 120-second safety timeout; timeout emits a warning log and allows bounded startup to continue, without a distinct persisted degraded-restore record. Non-timeout restore failures remain failures even though startup may continue. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @manual: Stall the R2 source and confirm initial sync leaves its blocking phase after 120 seconds before bounded host fallback can release terminal traffic. -->
+4. After initial sync, changes are bidirectionally synced on a regular schedule for the container's lifetime (see [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)). <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
+5. After initial sync, on-demand triggers support bidirectional sync during the container's lifetime. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-003 AC2 / REQ-STOR-015 AC5 / REQ-MEM-004 AC4: SIGUSR1 trigger)) -->
+6. A final sync runs on shutdown. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
+7. New buckets are seeded with getting-started docs and agent configs matching the user's session mode. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/lib/r2-seed.ts::seedGettingStartedDocs -->
 
 **Constraints:**
 
-- The master Cloudflare API token never enters the container; only per-user scoped credentials are injected.
+- The master Cloudflare API token never enters the container; direct storage receives only per-user scoped credentials, while strict-egress and restricted Operator storage receives placeholders, not the real pair.
 - Scoped credentials are cached durably (optionally encrypted at rest) and verified before reuse.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated test
+**Verification:** Automated: [r2-admin.test.ts](../../src/__tests__/lib/r2-admin.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [operator-env.test.ts](../../src/__tests__/container/operator-env.test.ts); Manual: [Initial-sync timeout check](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start)
 
 **Status:** Implemented
 
@@ -125,9 +133,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. New configurable idle timeouts are 1h, 2h, 4h, 8h and 12h. <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-004: %s stays alive until its configured idle deadline and then requests SIGTERM) --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 2. New non-free users default to 1h; free-tier users remain locked to 15m regardless of stored preference. <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (defaults to 1h for non-free tiers without stored preference) --> <!-- @impl: src/routes/container/lifecycle-validation.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (flag-off: free tier is locked to 15m regardless of stored preference) -->
 3. The idle timer resets for classified terminal input and for each client-to-server Browser IDE frame; reconnections and server-to-client output do not reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
-4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) --> <!-- @test: src/__tests__/container-metrics.test.ts (stops after genuine idle expiry from the persisted startup reference) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-004/034: valid input enforces its 1h deadline with %s startup timing) --> <!-- @test: host/__tests__/session-idle-timeout.test.js (REQ-SESSION-004 AC4: PTY safety net respects the maximum idle preset) -->
-5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
-6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-SESSION-004 AC6: idle-timeout dropdown gating) -->
+4. The container is stopped once the user-configured idle threshold is exceeded. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) --> <!-- @test: src/__tests__/container-metrics.test.ts (stops after genuine idle expiry from the persisted startup reference) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-004/034: valid input enforces its 1h deadline with %s startup timing) -->
+5. The host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @test: host/__tests__/session-idle-timeout.test.js (REQ-SESSION-004 AC4: PTY safety net respects the maximum idle preset) -->
+6. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
+7. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-SESSION-004 AC6: idle-timeout dropdown gating) -->
 
 **Constraints:**
 
@@ -140,7 +149,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-sleep-timeout.test.ts](../../src/__tests__/routes/session-sleep-timeout.test.ts), [enterprise-mode.test.ts](../../src/__tests__/lib/enterprise-mode.test.ts), [session-idle-timeout.test.js](../../host/__tests__/session-idle-timeout.test.js), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 
@@ -155,9 +164,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. The host tracks one last-input timestamp shared by terminal input and client-to-server Browser IDE frames. <!-- @impl: host/src/activity-tracker.ts::createActivityTracker --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) -->
-2. User-input classification uses a whitelist: printable characters, control keys, arrow keys, function keys, Alt+key, and mouse clicks count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-contains-user-input.test.js (containsUserInput) -->
-3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-contains-user-input.test.js (containsUserInput) -->
-4. Terminal-emulator response sequences are stripped before being written to the PTY so the agent never sees them. <!-- @impl: host/src/session.ts::Session --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
+2. User-input classification uses a whitelist: printable characters, control keys, arrow keys, function keys, Alt+key, and mouse clicks count as input. <!-- @impl: host/src/session.ts::Session.write --> <!-- @test: host/__tests__/session-wire-protocol.test.js (forwards ${name} unchanged and advances real lastInputAt) -->
+3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::Session.write --> <!-- @test: host/__tests__/session-wire-protocol.test.js (handles ${name} PTY bytes without changing real lastInputAt) -->
+4. Only 7-bit CPR (two nonempty decimal fields), OSC 10/11/12 (BEL/ESC-free payload; BEL or ESC-backslash terminator), and DA1 (CSI `?`, zero or more digits/semicolons, `c`) are stripped before PTY writes. DA2 and focus reports remain forwarded non-input; classification is separate. <!-- @impl: host/src/session.ts::Session.write --> <!-- @test: host/__tests__/session-wire-protocol.test.js (filters mixed ${name} while advancing real lastInputAt) -->
 5. Idle detection reads the authoritative host timestamp, which advances only for classified terminal input or client-to-server Browser IDE frames; background process and server-to-client output cannot reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @manual -->
 
 **Constraints:**
@@ -169,7 +178,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated: [openvscode-proxy.test.js](../../host/__tests__/openvscode-proxy.test.js), [session-wire-protocol.test.js](../../host/__tests__/session-wire-protocol.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 
@@ -184,16 +193,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. An accepted Start advances generation once, writes `starting`, and assigns that generation to the Durable Object before process work begins.
-2. Start fails closed when D1 authority is unavailable, a termination intent is outstanding, or capacity validation rejects it.
+1. An accepted Start advances generation once and writes `starting` in D1 before process launch. The Durable Object adopts that generation during startup before publishing running state or generation-owned observations. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC4 / REQ-SESSION-028 AC4: retained stopped row restarts and Delete fences late writers) -->
+2. New Start admission fails closed when D1 authority is unavailable, a termination intent is outstanding, or capacity validation rejects it. An idempotent already-running response does not launch a process or allocate another generation. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC5: unavailable D1 rejects admission without changing durable authority) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC1/2: %s denies another Start at cap without counting another owner) -->
 3. Stop conditionally claims `stopping` for the current generation, performs established graceful destruction, and reaches `stopped` only after a generation-fenced positive process-exit monitor observation or awaited destruction that confirms exit. An old `stopping` transition alone cannot release ownership. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-stop-delete.test.ts (returns failure and preserves retryable state when destruction is unconfirmed) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: old stopping remains owner-scoped and retains managed-mutation ownership without exit evidence) -->
-4. Restart preserves the same D1 session row, workspace and storage identity while applying current preferences in a new generation.
-5. Delete uses the same confirmed graceful destruction path and hard-deletes the D1 row only after exit; delayed writers cannot recreate it.
-6. Failed or ambiguous destruction retains retryable authoritative state and does not report stopped or deleted.
-7. The frontend retains mounted workspace state through uncertainty and disposes it only after newer authoritative stopping/stopped or successful deletion evidence.
-
-8. Dashboard and session-dropdown actions offer non-deleting Retry Stop for persisted `stopping` and Stop for `unreachable`. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s dashboard session) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s session) -->
-9. An active local Stop attempt suppresses duplicate submissions; failure or polling cancellation releases the attempt so a retained session can retry. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: suppresses duplicate local Stop submissions until the first attempt finishes) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: a failed Stop leaves retry available and retry completes the same session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006: a failed Delete during Stop polling leaves Retry Stop usable) -->
+4. Restart preserves the same D1 session row, workspace and storage identity while applying current preferences in a new generation. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-006 AC4: restart applies changed sync preference to the same retained workspace) -->
+5. Delete uses the same confirmed graceful destruction path and hard-deletes the D1 row only after exit; delayed writers cannot recreate it. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed --> <!-- @impl: src/lib/session-repository.ts::project --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC4 / REQ-SESSION-028 AC4: retained stopped row restarts and Delete fences late writers) -->
+6. Failed or ambiguous destruction retains retryable authoritative state and does not report stopped or deleted. <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains stopping when D1 confirmation fails and completes after recovery with a new coordinator) --> <!-- @test: src/__tests__/container/session-stop.test.ts (keeps an unconfirmed destruction stopping and lets the owner retry it) -->
+7. The frontend retains mounted workspace state through uncertainty and disposes it only after authoritative exit confirmation or successful deletion. Stop requires stopped evidence for the original generation, strictly newer than the original Stop revision and accepted by current-row ordering; an exit already accepted by catalog refresh may equal the current revision. Missing, stale or wrong-generation evidence retains ownership; an old Stop cannot dispose a replacement generation. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @impl: web-ui/src/stores/session.ts::deleteSession --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006 AC7 / SESSION-012 AC3 / TERM-045 AC6: 4503 is transport evidence, not session authority) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006 AC7: Stop retains mounted workspace on %s until newer current-generation exit) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006 AC7: an in-flight old Stop cannot dispose a newly accepted generation workspace) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006 AC7: Stop confirms an exit already accepted by catalog refresh without timing out) -->
 
 **Constraints:** Existing final agent-event drain, final sync, teardown ceilings and storage durability remain unchanged.
 
@@ -201,9 +207,32 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated recovery-menu and local Stop-attempt regressions; broader lifecycle verification remains planned.
+**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [session-stop-delete.test.ts](../../src/__tests__/routes/session-stop-delete.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-041: Stop recovery controls and local attempt fencing
+
+**Intent:** Users can retry an uncertain Stop without deleting their session or submitting duplicate local attempts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Dashboard and session-dropdown actions offer non-deleting Retry Stop for persisted `stopping` and Stop for `unreachable`. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s dashboard session) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s session) -->
+2. An active local Stop attempt suppresses duplicate submissions; failure or polling cancellation releases the attempt so a retained session can retry. <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: suppresses duplicate local Stop submissions until the first attempt finishes) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: a failed Stop leaves retry available and retry completes the same session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-006: a failed Delete during Stop polling leaves Retry Stop usable) -->
+
+**Constraints:** Existing final agent-event drain, final sync, teardown ceilings and storage durability remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-start-stop-restart-and-delete-sessions), [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-002](#req-session-002-one-container-per-session-isolation)
+
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
+
+**Status:** Implemented
 
 ---
 
@@ -235,9 +264,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-039](#req-session-039-authorized-do-owned-native-kill), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
 
-**Verification:** Behavioral dropdown, context-menu, HTTP/client and store suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted native qualification and owner acceptance remain pending. These tests are not hosted proof.
+**Verification:** Automated: [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionContextMenu.test.tsx](../../web-ui/src/__tests__/components/SessionContextMenu.test.tsx), [session-kill.test.ts](../../web-ui/src/__tests__/stores/session-kill.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -268,9 +297,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-009](#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
 
-**Verification:** Route and modeled DO/native-process behavioral suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted native termination/disconnection qualification remains pending. Models are not hosted proof.
+**Verification:** Automated: [session-kill.test.ts](../../src/__tests__/routes/session-kill.test.ts), [session-kill.test.ts](../../src/__tests__/container/session-kill.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -299,9 +328,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
 
-**Verification:** Route and modeled DO/native-process confirmation, retry and fencing suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted qualification remains pending. Models are not hosted native termination proof.
+**Verification:** Automated: [session-kill.test.ts](../../src/__tests__/container/session-kill.test.ts), [session-kill.test.ts](../../src/__tests__/routes/session-kill.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -325,7 +354,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated test ([Integration test](../../web-ui/src/__tests__/stores/session.test.ts))
+**Verification:** Automated: [SessionContextMenu.test.tsx](../../web-ui/src/__tests__/components/SessionContextMenu.test.tsx), [SessionDropdown.test.tsx](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -340,22 +369,25 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Before Start, one owner-indexed D1 query counts other sessions in `starting`, `running`, `unreachable`, or `stopping`.
-2. A count at or above the configured tier cap rejects Start; an explicit zero cap blocks it.
-3. Existing SaaS tier limits, non-SaaS role defaults, deployment overrides and stress-test bypass remain unchanged.
-4. Create in `stopped` does not consume capacity.
-5. D1 query failure fails Start closed rather than using KV, SDK state or stale client data.
-6. Enforcement remains best effort: concurrent Starts may both pass and exceed the nominal cap.
+1. Before Start, capacity counts only the authenticated owner's other sessions in `starting`, `running`, `unreachable`, or `stopping`, excluding the session being started. The query budget is normative at the [architecture admission boundary](../../documentation/lanes/architecture.md#capacity-caching-and-performance-assumptions). <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/routes/container/lifecycle-validation.ts::countsTowardSessionLimit --> <!-- @impl: src/lib/session-repository.ts::listSessions --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC1/2: %s denies another Start at cap without counting another owner) -->
+2. A count at or above the configured tier cap rejects Start; an explicit zero cap blocks it. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC1/2: %s denies another Start at cap without counting another owner) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC2/4: zero blocks empty capacity while stopped creation consumes no slot) -->
+3. Existing SaaS tier limits, non-SaaS role defaults, deployment overrides and stress-test bypass remain unchanged. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC3: existing non-SaaS stress bypass preserves the zero-cap exception) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC3: SaaS tier capacity wins over role cap and preserves explicit zero) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC3: role defaults and deployment overrides do not lose explicit zero) -->
+4. Create in `stopped` does not consume capacity. <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/routes/container/lifecycle-validation.ts::countsTowardSessionLimit --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC2/4: zero blocks empty capacity while stopped creation consumes no slot) -->
+5. D1 query failure fails Start closed rather than using KV, SDK state or stale client data. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC5: unavailable D1 rejects admission without changing durable authority) -->
+6. Enforcement remains best effort: concurrent Starts may both pass and exceed the nominal cap. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC6: concurrent validations and later Start claims retain the specified best-effort semantics) -->
 
-**Constraints:** Do not add stronger reservation guarantees. Session KV LIST/get operations are prohibited.
+**Constraints:**
+
+- Do not add stronger reservation guarantees.
+- Session KV LIST/get operations are prohibited.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record)
 
-**Verification:** Planned D1 capacity and concurrent-start tests.
+**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -367,11 +399,11 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Restarting a session on the same workspace preserves the bucket association and applies any stored preference updates. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/preferences.test.ts (fastStartEnabled preference / REQ-SESSION-008 (fast-start preference persists across restart)) -->
+1. Restarting a session on the same workspace preserves the bucket association and applies any stored preference updates. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-006 AC4: restart applies changed sync preference to the same retained workspace) -->
 2. Following restart, automatic idle detection remains active. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @test: src/__tests__/container-metrics.test.ts (should call schedule(60, "collectMetrics") on start) -->
-3. Updated credentials and preferences take effect on restart without requiring container recreation. <!-- @impl: src/container/index.ts::onStart --> <!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008: Container restart preserves R2 bucket) -->
-4. The container entrypoint runs an initial sync that restores the workspace from persistent storage on restart. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008: Container restart preserves R2 bucket) -->
-5. User preference changes (idle timeout, fast-start, session mode) take effect on restart without requiring container recreation. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008: Container restart preserves R2 bucket) -->
+3. Updated credentials and preferences take effect on restart without requiring container recreation. <!-- @impl: src/container/index.ts::onStart --> <!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (applyPrefsOnRestart updates workspaceSyncEnabled when changed) --> <!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (applyPrefsOnRestart updates fastStartEnabled when changed) --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart -->
+4. The container entrypoint runs an initial sync that restores the workspace from persistent storage on restart. <!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
+5. User preference changes (idle timeout, fast-start, session mode) take effect on restart without requiring container recreation. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer -->
 
 **Constraints:**
 
@@ -381,7 +413,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-003](#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/container-restart-prefs.test.ts))
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [container-restart-prefs.test.ts](../../src/__tests__/routes/container-restart-prefs.test.ts), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts), [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -389,27 +421,28 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-009: Container destroy wipes session state
 
-**Intent:** Destroying a container clears all transient session state from the Durable Object, leaving only the persistent KV record and R2 bucket.
+**Intent:** Destroying a container clears transient Durable Object state while preserving the authoritative D1 session record and persistent R2 storage.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Destroying a session clears all transient session state from the Durable Object; subsequent fetch attempts return 503. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-2. Session mode resets to default on destroy. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->
-3. Scheduled idle-metric polling is cancelled on destroy. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (onStop logs shutdownElapsedMs reflecting real elapsed time between destroy and onStop) -->
-4. After destroy, any delayed polling that fires detects the missing session state and exits without re-arming. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-5. The user's persistent storage bucket and its contents are NOT deleted by destroy; files persist across sessions. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+1. Successful destroy clears operational session state; subsequent fetch attempts return 503. Current-generation warm secrets/configuration and cached environment are revoked even when persistent deletion fails; failure remains incomplete and retryable. <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-009: deletion rejection clears warm secrets but retains durable retry authority and reports failure) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-009: rejected KILL %s revokes warm credentials and keeps the termination claim retryable) --> <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-009 AC1: public destroy removes the forwarding credential and subsequent fetch stays unavailable without starting) -->
+2. Session mode resets to default with current-generation warm-state revocation, including persistent-deletion failure. <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-009: deletion rejection clears warm secrets but retains durable retry authority and reports failure) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-009: rejected KILL %s revokes warm credentials and keeps the termination claim retryable) --> <!-- @impl: src/container/container-lifecycle.ts::clearOperationalMemory -->
+3. Scheduled idle-metric polling is cancelled on destroy. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-009 AC4: a delivered metrics callback after public destroy leaves schedules and service effects unchanged) -->
+4. After destroy, any delayed polling that fires detects the missing session state and exits without re-arming. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-009 AC4: a delivered metrics callback after public destroy leaves schedules and service effects unchanged) -->
+5. The user's persistent storage bucket and its contents are NOT deleted by destroy; files persist across sessions. <!-- @impl: src/container/index.ts::destroy --> <!-- @manual: Session replacement storage acceptance -->
 
 **Constraints:**
 
-- Durable Object storage and in-memory state must be cleared before the platform teardown call to prevent asynchronous writebacks from re-creating a stale record.
+- Operational deletion precedes platform teardown, but persistent failure still clears current-generation memory in a generation-fenced finally and reports incomplete cleanup. Retain durable shutdown/lifecycle generation and D1 termination retry authority; do not claim every durable key was erased. A changed stored generation protects replacement memory.
+- Graceful failure continues bounded drain/platform teardown then rejects; platform exit alone is not cleanup success. KILL deletion/transaction failure revokes current-generation warm state but refuses dispatch/confirmed-stop publication and retains retry authority.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test ([index](../../src/__tests__/container/index.test.ts))
+**Verification:** Automated: [lifecycle.test.ts](../../src/__tests__/container/lifecycle.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts); Manual: [Session replacement storage acceptance](../../documentation/lanes/storage-and-sync.md#session-replacement-storage-acceptance)
 
 **Status:** Implemented
 
@@ -424,23 +457,75 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Frequent batch status uses one owner-indexed primary-consistent D1 query, no session KV operation, no per-session query or container/SDK probe, and sends `no-store` semantics.
-2. Responses return complete session projections with lifecycle, generation, revision, readiness, incident/deadline, metrics and observation timestamps.
-3. Clients apply responses monotonically by generation and revision so delayed success or failure cannot undo newer state.
-4. For Terminal workspaces, backend `running` plus this device's connected terminal WebSocket renders green ACTIVE; without it, blue IDLE; neither label is persisted.
-5. `starting` and `unreachable` use yellow recovery presentation and `stopped` is gray, while D1 read failure retains the last ordered state and shows a separate status-unavailable warning.
-6. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests.
-7. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure.
+1. Frequent batch status uses one owner-indexed primary-consistent D1 query, no session KV operation, no per-session query or container/SDK probe, and sends `no-store` semantics. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-repository.ts::listSessions --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (AC1/2 subsets: owner filtering, seeded lifecycle metadata and no-store response contract) -->
+2. Responses return complete session projections with lifecycle, generation, revision, readiness, incident/deadline, metrics and observation timestamps. <!-- @impl: src/lib/session-repository.ts::fromRow --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns ordered lifecycle, metrics, readiness, and incident fields) -->
 
-**Constraints:** Dashboard polling never wakes a container. Authentication and revocation middleware may retain unrelated KV use.
+**Constraints:**
+
+- Dashboard polling never wakes a container.
+- Authentication and revocation middleware may retain unrelated KV use.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** Planned backend query-budget, frontend ordering and cross-device tests.
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-243: Ordered lifecycle presentation and read availability
+
+**Intent:** Clients retain ordered lifecycle authority while presenting device-local activity and separate read availability.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Clients apply responses monotonically by generation and revision so delayed success or failure cannot undo newer state. <!-- @impl: web-ui/src/lib/session-presentation.ts::applyOrderedProjection --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @test: web-ui/src/__tests__/lib/session-presentation.test.ts (ignores delayed generation and revision responses) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1/AC2: stale %s batch readiness and metrics cannot overwrite a newer projection) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
+2. For Terminal workspaces, backend `running` plus this device's connected terminal WebSocket renders green ACTIVE; without it, blue IDLE; neither label is persisted. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (REQ-TERM-045 AC3: local ACTIVE/IDLE never changes persisted workspace or shared lifecycle) -->
+3. `starting` and `unreachable` use yellow recovery presentation and `stopped` is gray. <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation -->
+4. D1 read failure retains the last ordered state and shows a separate status-unavailable warning. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-010/029: %s announces unavailable status without replacing cards and clears on recovery) -->
+
+**Constraints:**
+
+- Dashboard polling never wakes a container.
+- Authentication and revocation middleware may retain unrelated KV use.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
+
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-244: Lifecycle polling and ancillary scheduling
+
+**Intent:** Frequent lifecycle refresh and separately owned ancillary work preserve serialized polling and last-good dashboard state.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010 AC6: %s uses its transition or stable polling cadence) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/029 AC6: hidden polling pauses and repeated visible refreshes remain serialized) --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/stores/session-polling.ts::handlePollingVisibilityChange -->
+2. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010 AC7: failed ancillary lookup preserves last-good fields and recovery replaces them) --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus -->
+
+**Constraints:**
+
+- Dashboard polling never wakes a container.
+- Authentication and revocation middleware may retain unrelated KV use.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
+
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
+
+**Status:** Implemented
 
 ---
 
@@ -452,13 +537,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Before signalling the container to stop, every graceful stop/delete path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+1. Before signalling the container to stop, every graceful stop/delete path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011: drains a final R2 sync (POST /internal/final-sync) BEFORE signalling stop) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011 AC1 / REQ-SESSION-019 AC1: authenticated final-sync completion precedes SIGTERM even with a transient false running flag) --> <!-- @manual: Final persistence acceptance -->
 2. For runnable sync, the final-sync endpoint starts and awaits its own run, distinguishing success, failure and timeout. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)) -->
 3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts::FinalSyncEval --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behavioral)) -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->
-5. Total teardown is hard-capped from `destroy()` entry: every awaited teardown stage consumes the same 135s deadline, so storage, sync, stop, or provider stalls cannot extend the operation. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+5. Total teardown is hard-capped from teardown entry: every awaited teardown stage consumes the same 135s deadline, so storage, sync, stop, or provider stalls cannot extend the operation. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011 AC5: an awaited %s stall cannot extend the shared 135-second teardown deadline) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011 AC5: rejects at the entry-to-exit deadline and observes a later forced-destroy rejection) -->
 6. User stop and user delete behave identically: both route through the same graceful-destroy path, and idle-timeout and quota-eviction paths drain through the same endpoint before stopping. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-011 AC6 / REQ-SESSION-032 AC1: quota-stop drains final agent events, then final sync, then stop) -->
-7. The SIGTERM trap is retained as a best-effort backstop final sync for paths that bypass the orchestrated drain, but is no longer the primary guarantee (see [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) for the trap's own constraints). <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
+7. The SIGTERM trap is retained as a best-effort backstop final sync for paths that bypass the orchestrated drain, but is no longer the primary guarantee (see [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) for the trap's own constraints). <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync preserve the 100-percent deletion policy) -->
 
 **Constraints:**
 
@@ -472,7 +557,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-003](#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** Automated test ([drainFinalSync and idle-stop drain](../../src/__tests__/container-metrics.test.ts), [awaitable endpoint and completion signal](../../host/__tests__/final-sync-endpoint.test.js))
+**Verification:** Automated: [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js); Manual: [Final persistence acceptance](../../documentation/lanes/storage-and-sync.md#req-stor-005-final-persistence-acceptance)
 
 **Status:** Implemented
 
@@ -490,7 +575,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 2. A final drain makes unresolved client decisions eligible for fallback before reading events. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (final drain atomically promotes pending and awaiting-confirmation events) -->
 3. Neither unclaimed transport uncertainty nor termination of a durably claimed expired incident performs final agent-event or final workspace-sync drains. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace) -->
 4. Teardown preserves the lifecycle Bearer and session ID until the final event request is built, then clears stored state. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
-5. Final event delivery consumes the teardown deadline without reducing the reserved final-sync budget. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
+5. Final event delivery consumes the teardown deadline without reducing the reserved final-sync budget. <!-- @impl: src/container/container-lifecycle.ts::destroy -->
 6. A failed final event drain still permits final sync and container stop. <!-- @impl: src/container/container-metrics.ts::drainAgentEventsBeforeStop --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-032 AC6: an event-drain failure still runs final sync and stop) -->
 7. A failed final sync preserves the completed event attempt and still permits container stop. <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-032 AC7: final-sync failure preserves the event attempt and still stops) -->
 
@@ -503,7 +588,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync), [REQ-SESSION-024](#req-session-024-recovery-deadline-and-termination-intent-are-durable), [REQ-TERM-023](terminal.md#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Automated test ([destroy ordering](../../src/__tests__/container/lifecycle.test.ts), [idle and quota ordering](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Automated: [agent-events.test.js](../../host/__tests__/agent-events.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [lifecycle.test.ts](../../src/__tests__/container/lifecycle.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -518,11 +603,11 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Session CRUD, discovery, status, metrics, admission, terminal/editor authorization, sync fanout, managed reconciliation and user cleanup perform no session KV LIST/get/write.
-2. There is no legacy-session import, backfill, dual write, shadow projection, fallback read or reverse migration.
-3. Session-specific KV helpers and list metadata types are removed or narrowed so unrelated KV data remains intact.
-4. A stopped session remains an ordinary D1 row until Delete hard-deletes it.
-5. Post-cutover rollback uses a reviewed D1-compatible build or forward fix and never a KV-only Worker.
+1. Session CRUD, discovery, status, metrics, admission, terminal/editor authorization, sync fanout, managed reconciliation and user cleanup perform no session KV LIST/get/write. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (serves D1 catalog/status/create without importing or deleting conflicting legacy records) --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @impl: src/lib/session-helpers.ts::listRunningSessionIds --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer -->
+2. There is no legacy-session import, backfill, dual write, shadow projection, fallback read or reverse migration. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (fails closed during a D1 outage rather than falling back to preserved legacy sessions) -->
+3. Session-specific KV helpers and list metadata types are removed or narrowed so unrelated KV data remains intact. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (serves D1 catalog/status/create without importing or deleting conflicting legacy records) --> <!-- @impl: src/lib/kv-keys.ts::listAllKvKeys --> <!-- @impl: src/lib/kv-keys.ts::getPreferencesKey -->
+4. A stopped session remains an ordinary D1 row until Delete hard-deletes it. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC4 / REQ-SESSION-028 AC4: retained stopped row restarts and Delete fences late writers) --> <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed -->
+5. Post-cutover rollback uses a reviewed D1-compatible build or forward fix and never a KV-only Worker. <!-- @manual: Before an authorized rollback, review candidate D1 compatibility and retained session authority using documentation/lanes/deployment.md#production-rollback and documentation/lanes/container.md#cutover-boundary; reject KV-only builds or choose a reviewed forward fix. No rollback qualification is claimed by this procedure. -->
 
 **Constraints:** Credentials, preferences, configuration, entitlements, managed releases, storage caches and unrelated records remain in existing stores.
 
@@ -530,9 +615,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-complete-d1-record)
 
-**Verification:** Planned negative-path and repository-wide session-KV audit tests.
+**Verification:** Automated: [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts); Manual: [D1-compatible rollback review](session-lifecycle.md#req-session-028-session-authority-has-no-kv-compatibility-path)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -545,12 +630,12 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Session responses are applied only when their generation/revision pair is newer than or equal to the client's accepted pair under the defined monotonic ordering.
-2. A stale list or status success has no observable effect. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/stores/session-polling.ts::invalidateSessionStatusReads --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: batch absence captured before a newer catalog cannot remove its cards) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: an older catalog cannot undo successful %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1/AC2: stale %s batch readiness and metrics cannot overwrite a newer projection) -->
-3. A stale failure cannot replace the latest request's availability state.
-4. D1 read failure retains last good session records, metrics and ancillary values and presents a distinct status-unavailable warning.
-5. Read failure does not remove sessions, dispose terminal/editor state, or synthesize lifecycle transitions.
-6. Background polling remains serialized by a one-request-in-flight guard. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC6: overlapping visibility refreshes count one successful absence, not three) -->
+1. Session responses are applied only when their generation/revision pair is newer than or equal to the client's accepted pair under the defined monotonic ordering. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1: equal or newer catalog revision %s still updates current metadata) --> <!-- @impl: web-ui/src/lib/session-presentation.ts::applyOrderedProjection --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce -->
+2. A stale list or status success has no observable effect. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: stale catalog $generation/$revision preserves the complete newer session metadata) --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/stores/session-polling.ts::invalidateSessionStatusReads --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: batch absence captured before a newer catalog cannot remove its cards) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: an older catalog cannot undo successful %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1/AC2: stale %s batch readiness and metrics cannot overwrite a newer projection) -->
+3. A stale failure cannot replace the latest request's availability state. <!-- @impl: web-ui/src/stores/session-polling.ts::beginSessionStatusRead --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC3: old poll failure cannot replace newer successful catalog availability) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC3: old catalog failure cannot replace newer successful poll availability) -->
+4. D1 read failure retains last good session records, metrics and ancillary values and presents a distinct status-unavailable warning. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
+5. Read failure does not remove sessions, dispose terminal/editor state, or synthesize lifecycle transitions. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
+6. Background polling remains serialized by a one-request-in-flight guard. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/029 AC6: hidden polling pauses and repeated visible refreshes remain serialized) --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC6: overlapping visibility refreshes count one successful absence, not three) -->
 7. Accepted initial session catalogs and ordered status updates are published without waiting for unrelated ancillary work. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC7: initial authoritative cards appear before pending batch and ancillary reads) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC7: slow ancillary work cannot hold a newer lifecycle projection) -->
 
 **Constraints:** Transport unreachability and D1 status unavailability are separate notices and state machines.
@@ -559,9 +644,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
 
-**Verification:** Planned concurrent-load, delayed-response and outage tests.
+**Verification:** Automated: [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -575,9 +660,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The additive D1 migrations apply safely before the reviewed D1-only Worker and matching image are admitted. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (creates one absent database with supported Wrangler arguments, resolves its ID, then applies migrations) -->
-2. Create and Start admission is open in every environment immediately after deployment. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.create --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.start --> <!-- @test: src/__tests__/lib/session-cutover.test.ts (opens Create and Start admission when the deployment completion migration runs) -->
-3. Legacy KV session records have no authority, compatibility read, migration, or automatic deletion path. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository --> <!-- @test: src/__tests__/lib/session-cutover.test.ts (opens D1 admission when the deployment completion migration runs) -->
+1. The additive D1 migrations apply safely before the reviewed D1-only Worker and matching image are admitted. <!-- @impl: .github/workflows/deploy.yml::Resolve, bind, and migrate usage database --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (creates one absent database with supported Wrangler arguments, resolves its ID, then applies migrations) -->
+2. Create and Start admission is open in every environment immediately after deployment. <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/lib/session-cutover.test.ts (opens Create and Start admission when the deployment completion migration runs) -->
+3. Legacy KV session records have no authority, compatibility read, migration, or automatic deletion path. <!-- @test: src/__tests__/routes/session-public-d1.test.ts (serves D1 catalog/status/create without importing or deleting conflicting legacy records) --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (fails closed during a D1 outage rather than falling back to preserved legacy sessions) --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository -->
 
 **Constraints:** The D1 authority starts clean; deployment never blocks a new session on legacy-session quiescence or cleanup.
 
@@ -585,9 +670,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-028](#req-session-028-session-authority-has-no-kv-compatibility-path)
 
-**Verification:** Automated D1 deployment, migration, and session-admission tests.
+**Verification:** Automated: [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts), [usage-d1-deploy.test.ts](../../src/__tests__/ci/usage-d1-deploy.test.ts), [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -600,22 +685,50 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Non-internal requests cannot auto-start a non-running container. After authenticated owner-scoped D1 authorization, a verified surviving workload may be forwarded through no-start even after coordinator reconstruction; SDK `running` is not definitive live-process evidence.
-2. WebSocket upgrades receive authoritative 4503 only from current D1 `stopping` or `stopped` evidence; transient forwarding failures remain retryable.
-3. During `unreachable`, terminal/editor objects, buffers, tabs, selection, tiling and scrollback stay mounted while retries use bounded jitter.
+1. Non-internal requests cannot auto-start a non-running container. After authenticated owner-scoped D1 authorization, a verified surviving workload may be forwarded through no-start even after coordinator reconstruction; SDK `running` is not definitive live-process evidence. <!-- @impl: src/container/index.ts::fetch --> <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/container-helpers.ts::forwardExisting --> <!-- @test: src/__tests__/container/index.test.ts (should return 503 for non-internal routes when container is not running) --> <!-- @test: src/__tests__/container/index.test.ts (forwards to the surviving runtime with its existing auth token despite stale persisted SDK state) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC1: absent runtime returns retryable 1013 without invoking auto-starting SDK fetch) -->
+2. WebSocket upgrades receive authoritative 4503 only from current D1 `stopping` or `stopped` evidence; transient forwarding failures remain retryable. <!-- @impl: src/routes/terminal.ts::app --> <!-- @impl: src/container/index.ts::fetch --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC2 / REQ-SEC-020 AC4: D1 %s remains retryable despite transient SDK stop) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC3 / REQ-SEC-020 AC2: D1 %s closes 4503 without probing a healthy SDK container) -->
+3. During `unreachable`, terminal/editor objects, tabs and tiling remain mounted with bounded-jitter retries. <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (REQ-SESSION-012 AC3: unreachable reconciliation retains workspace tabs, focus and layout through recovery) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-SESSION-012 AC3 / TERM-045 AC5: retains the same rendered panes through unreachable and recovery) --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/lib/session-presentation.ts::isMountedLifecycle --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::terminalWorkspaceStore -->
 4. Authenticated terminal upgrades reconnect to the verified existing process without starting a replacement or allocating a new generation. Absent or unverified runtime remains retryable; authoritative D1 `stopping`/`stopped` still closes 4503. <!-- @impl: src/container/index.ts::fetch --> <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/container/index.test.ts (native terminal upgrade fails closed when the existing runtime is absent) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-012 AC4: native terminal fetch probes only the existing port when SDK state is stale) --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SESSION-012 AC4: a surviving runtime with stale SDK stopped state forwards health and authenticated terminal without starting) -->
-5. Client countdown expiry changes messaging only and cannot declare stopped or dispose the workspace.
-6. D1 read failure retains transport state and shows status unavailable; it never synthesizes `unreachable` or `stopped`.
+5. Client countdown expiry changes messaging only and cannot declare stopped or dispose the workspace. <!-- @impl: web-ui/src/lib/sleep-timer.ts::getSleepTimerInfo --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation --> <!-- @test: web-ui/src/__tests__/components/workspace-lifecycle.test.tsx (expires the rendered idle timer without inventing stopped lifecycle) -->
+6. D1 read failure retains transport state and shows status unavailable; it never synthesizes `unreachable` or `stopped`. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatusesOnce --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery) -->
+7. Terminal and IDE WebSocket upgrades use an accepted, Durable Object-owned bidirectional relay to the existing runtime, preserving sendable close codes/reasons; socket errors close the opposite end with retryable 1011, as does abnormal terminal upstream 1006. <!-- @impl: src/container/index.ts::fetch --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (terminal and IDE WebSocket relay owned by the Container Durable Object) --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (REQ-SESSION-012 AC7: abnormal terminal upstream close delivers 1011 and a reconnect restores I/O on the same generation without starting) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-SESSION-012 AC7 / REQ-TERM-003: delivered 1011 backs off, restores the same terminal and accepts fresh input/output) -->
 
-**Constraints:** Disposal requires newer authoritative stopping/stopped evidence or explicit successful deletion.
+**Constraints:** Disposal requires newer authoritative stopping/stopped evidence or explicit successful deletion. Terminal relays send container-only heartbeats every 15 seconds; IDE relays send none. Either end's close/error stops heartbeat work. <!-- @impl: src/container/index.ts::fetch --> <!-- @test: src/__tests__/container/terminal-ws-relay.test.ts (keepalive while a relay is open) -->
+
+- Absent-status 1005 normalizes to final 1000; genuine 1000 stays final.
+- IDE and client-originated 1006 retain their existing 1000 mapping.
+- Terminal recovery uses the existing backoff and authoritative restore without replacing the workload generation.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Planned WebSocket, D1 outage and mounted-workspace tests.
+**Verification:** Automated: [terminal-ws-relay.test.ts](../../src/__tests__/container/terminal-ws-relay.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx); Manual: [Terminal snapshot restoration acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance)
 
-**Status:** Planned
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-245: Transport recovery terminal snapshot and editor state
+
+**Intent:** Recovery restores authoritative terminal contents while retaining editor state and deliberately discarding prior terminal selection and viewport position.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Terminal reattachment replaces client buffer/scrollback with the authoritative host snapshot; prior terminal selection and viewport position are not retained. <!-- @manual: Terminal snapshot restoration acceptance --> <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
+2. During `unreachable` and terminal reattachment, editor state stays intact. <!-- @impl: web-ui/src/lib/session-presentation.ts::isMountedLifecycle -->
+
+**Constraints:** Disposal requires newer authoritative stopping/stopped evidence or explicit successful deletion.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident), [REQ-SESSION-012](#req-session-012-transport-retry-never-invents-lifecycle-state)
+
+**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx); Manual: [Terminal snapshot restoration acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance)
+
+**Status:** Implemented
 
 ---
 
@@ -646,7 +759,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** Automated test ([sleep-timer](../../web-ui/src/__tests__/lib/sleep-timer.test.ts))
+**Verification:** Automated: [session.test.ts](../../src/__tests__/routes/session.test.ts), [SessionStatCard.test.tsx](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [sleep-timer.test.ts](../../web-ui/src/__tests__/lib/sleep-timer.test.ts)
 
 **Status:** Implemented
 
@@ -674,7 +787,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-013](#req-session-013-sleep-timer-countdown-ui)
 
-**Verification:** Actual Header regressions cover each countdown predicate independently of card tests. Execution remains unverified pending exact-head CI; computed stylesheet observations are not rendered-browser/manual acceptance.
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx)
 
 **Status:** Implemented
 
@@ -688,12 +801,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Settings offers exactly five selectable idle presets: 1h, 2h, 4h, 8h and 12h. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
+1. Settings offers exactly five selectable idle presets: 1h, 2h, 4h, 8h and 12h. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (offers exactly five enabled presets and submits the selected 12h value) --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
 2. Free tier locked to 15m with upgrade hint. <!-- @impl: src/routes/container/lifecycle.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC2: free tier locked to 15m idle timeout) -->
 3. Admins can change the timeout regardless of subscription tier; non-admin paying users can change it while free users remain locked. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::canChangeSleepAfter --> <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC3: admins and paying users can change sleepAfter) -->
-4. Value saved to KV preferences and applied on next session start. <!-- @impl: src/routes/container/lifecycle.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
+4. Value saved to KV preferences and applied on next session start. <!-- @impl: src/routes/container/lifecycle-validation.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) --> <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer -->
 5. Reading saved legacy minute preferences does not rewrite their duration or replace them with the new default. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (keeps saved legacy %s readable until explicitly changed) -->
 6. Legacy minute preferences display as disabled current values, never as new selectable presets. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (displays legacy %s honestly without offering it as a new selection) -->
+7. Preference response validation preserves all supported idle durations and other accepted fields through hydration and updates. <!-- @impl: web-ui/src/lib/schemas.ts::UserPreferencesSchema --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-SESSION-014: supported preference response wire) --> <!-- @test: web-ui/src/__tests__/components/preferences-hydration.test.tsx (REQ-SESSION-014 / REQ-VAULT-033 / REQ-IDE-003: HTTP preference hydration) -->
 
 **Constraints:**
 
@@ -703,7 +817,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/session-sleep-timeout.test.ts))
+**Verification:** Automated: [session-sleep-timeout.test.ts](../../src/__tests__/routes/session-sleep-timeout.test.ts), [SessionSection.test.tsx](../../web-ui/src/__tests__/components/settings/SessionSection.test.tsx), [preferences-hydration.test.tsx](../../web-ui/src/__tests__/components/preferences-hydration.test.tsx), [client.test.ts](../../web-ui/src/__tests__/api/client.test.ts)
 
 **Status:** Implemented
 
@@ -720,10 +834,8 @@ None.
 1. The serving port binds within Cloudflare's container port-wait window even while initialization (R2 sync, MCP config merges) is still in progress. <!-- @impl: entrypoint.sh::TERMINAL_PID --> <!-- @manual: On a deployed cold start with delayed R2 initialization, confirm the serving port accepts health probes within the platform wait window. -->
 2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up call from entrypoint.sh still reaches the init-flag write when it fails) --> <!-- @manual -->
 3. Terminal pre-warm waits up to 130 seconds for initialization, then starts the stamped Classic or Herdr surface; timeout proceeds in degraded state. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm pre-warm remains gated until the 130-second bound, then starts with `/health.initFlagObserved` still false. -->
-4. The host rejects terminal WebSocket upgrades with retriable close code 1013 and a warming reason until pre-warm registers. <!-- @impl: host/src/server.ts::terminalServiceReady --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate (PR #365) / REQ-SEC-020 AC3 (1013 close BEFORE WS rate-limit while readiness is unverified)) -->
+4. The host rejects terminal WebSocket upgrades with retriable close code 1013 and a warming reason until pre-warm registers. <!-- @impl: host/src/server.ts::terminalServiceReady --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: host/__tests__/terminal-agent-events.test.js (REQ-SESSION-015 AC4: rejects an unregistered prewarm with 1013 then accepts after registration) -->
 5. Pre-warm registration normally follows initialization; after the 130-second bound, degraded startup may register without requiring `initFlagObserved`. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm degraded startup registers after the 130-second bound with `/health.initFlagObserved` still false. -->
-6. The image bakes a pre-transpiled cache for the full Pi extension set, with package extensions derived from the preseed manifest. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @manual -->
-7. The image build fails if the transpile cache is empty or a required package extension is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @manual -->
 
 **Constraints:**
 
@@ -735,7 +847,32 @@ None.
 
 **Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-pi-warmup-guard.test.js](../../host/__tests__/entrypoint-pi-warmup-guard.test.js), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts), [terminal-agent-events.test.js](../../host/__tests__/terminal-agent-events.test.js); Manual: [Startup and packaged image record acceptance](../../documentation/lanes/container.md#startup-and-packaged-image-record-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-246: Packaged Pi extension cache construction
+
+**Intent:** The image packages the complete pre-transpiled Pi extension cache and fails closed on incomplete cache construction.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The image bakes a pre-transpiled cache for the full Pi extension set, with package extensions derived from the preseed manifest. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @manual -->
+2. The image build fails if the transpile cache is empty or a required package extension is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @manual -->
+
+**Constraints:**
+
+Runtime readiness remains governed by [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition); extracting image-construction criteria changes none of its gates.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
+
+**Verification:** Manual: [Startup and packaged image record acceptance](../../documentation/lanes/container.md#startup-and-packaged-image-record-acceptance)
 
 **Status:** Implemented
 
@@ -743,7 +880,7 @@ None.
 
 ### REQ-SESSION-016: User timezone propagated from preferences to container env
 
-**Intent:** The capture pipeline and any other consumer of `$USER_TIMEZONE` inside the container must receive the user's IANA timezone choice without manual env-var configuration; the preference is set via the preferences API and persists across restarts.
+**Intent:** The capture pipeline and any other consumer of the user's timezone setting inside the container must receive the user's IANA timezone choice without manual env-var configuration; the preference is set via the preferences API and persists across restarts.
 
 **Applies To:** User
 
@@ -762,9 +899,9 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow)
+**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings)
 
-**Verification:** Automated test
+**Verification:** Automated: [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [timezone-sync.test.ts](../../web-ui/src/__tests__/lib/timezone-sync.test.ts); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 
@@ -778,10 +915,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. `GET /api/container/health` reports whether the user's container is running and healthy, returning its metrics on success and an error with 500 when the health check fails. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (Container Status Routes) -->
-2. `GET /api/container/startup-status` returns the current initialization stage without blocking, carrying a stage label, a 0-to-100 progress value, and a human-readable message. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
+1. Health inspection reports whether the user's container is running and healthy, returning metrics on success and an error with 500 when the health check fails. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (Container Status Routes) -->
+2. Startup-status inspection returns the current initialization stage without blocking, carrying a stage label, 0-to-100 progress and a human-readable message. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
 3. The reported stage reflects real container state: `stopped` when state is indeterminate, `starting` before services respond, `syncing` during the initial R2 sync, `verifying` after sync while terminals are not yet up, `mounting` during terminal pre-warm, and `ready` when all services are up. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
-4. A failed initial R2 sync surfaces as an error stage carrying the sync error, while a skipped sync (no R2 credentials) still reaches the ready stage with the skip reason reported. <!-- @impl: src/routes/container/status.ts::buildSyncFailedResponse --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
+4. Failed initial R2 sync reports an error stage and sync error while terminal service is unavailable. After terminal/pre-warm readiness, degraded startup may report `ready` with failed `syncStatus` retained, never successful restoration. Skipped sync (no R2 credentials) still reaches `ready` with its reason. <!-- @impl: src/routes/container/status.ts::buildSyncFailedResponse --> <!-- @test: src/__tests__/routes/container-status.test.ts (returns error stage when sync failed during startup) --> <!-- @impl: src/routes/container/status.ts::buildReadyResponse --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-SESSION-017 AC4: becomes ready after degraded prewarm while retaining failed sync status) -->
 5. A transient private health or sessions probe failure remains retryable as `starting` or `verifying`. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (keeps startup retryable when the health fetch rejects during boot) --> <!-- @test: src/__tests__/routes/container-status.test.ts (keeps terminal verification retryable when the sessions fetch rejects) -->
 6. Another unexpected startup-status computation failure is caught and returned as an error stage rather than propagating an unhandled 500. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (returns error stage on unexpected exception) --> <!-- @manual -->
 
@@ -793,7 +930,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Automated test ([container-status](../../src/__tests__/routes/container-status.test.ts))
+**Verification:** Automated: [container-status.test.ts](../../src/__tests__/routes/container-status.test.ts); Manual: [Session policy and preference record acceptance](../../documentation/lanes/container.md#session-policy-and-preference-record-acceptance)
 
 **Status:** Implemented
 
@@ -808,23 +945,26 @@ None.
 
 **Acceptance Criteria:**
 
-1. Persisted backend lifecycle is exactly `stopped`, `starting`, `running`, `unreachable`, or `stopping`; ACTIVE and IDLE are never persisted.
-2. Creating a session inserts a complete D1 row in `stopped`; only an accepted Start advances its lifecycle generation and enters `starting`.
-3. Runtime projection accepts a write only when its generation matches and its observation sequence is greater than the last accepted sequence.
-4. Delayed callbacks retain their original generation and cannot mutate a replacement lifecycle; delayed writers use conditional `UPDATE` and cannot recreate a deleted row.
-5. Every accepted mutation advances a response revision used with generation to order API responses.
-6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed.
-7. Only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit writes `stopped`; transport failure, D1 failure, signal acceptance, elapsed time, an owner read, or SDK state does not. Uncertain exit preserves `stopping` and termination ownership. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.confirmStopped --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
+1. Persisted backend lifecycle is exactly `stopped`, `starting`, `running`, `unreachable`, or `stopping`; ACTIVE and IDLE are never persisted. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC2/4: database rejects invalid authority update %s without changing the row) --> <!-- @impl: src/lib/session-repository.ts::SessionLifecycleState --> <!-- @impl: web-ui/src/lib/session-presentation.ts::terminalPresentation -->
+2. Creating a session inserts a complete D1 row in `stopped`; only an accepted Start advances its lifecycle generation and enters `starting`. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-001 AC3 / REQ-SESSION-018 AC2: optional creation survives a new repository instance with owner isolation) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC3/5: stale generation and non-increasing sequence leave the durable projection unchanged) --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::start -->
+3. Runtime projection accepts a write only when its generation matches and its observation sequence is greater than the last accepted sequence. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC3/5: stale generation and non-increasing sequence leave the durable projection unchanged) --> <!-- @impl: src/lib/session-repository.ts::project -->
+4. Delayed callbacks retain their original generation and cannot mutate a replacement lifecycle; delayed writers use conditional `UPDATE` and cannot recreate a deleted row. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC4 / REQ-SESSION-028 AC4: retained stopped row restarts and Delete fences late writers) --> <!-- @impl: src/container/container-metrics.ts::captureMetricsExecution --> <!-- @impl: src/lib/session-repository.ts::project --> <!-- @impl: src/lib/session-repository.ts::deleteConfirmed -->
+5. Every accepted mutation advances a response revision used with generation to order API responses. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC3/5: stale generation and non-increasing sequence leave the durable projection unchanged) --> <!-- @impl: src/lib/session-repository.ts::project --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @impl: web-ui/src/lib/session-presentation.ts::applyOrderedProjection --> <!-- @impl: src/lib/session-repository.ts::updateMutable --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-001: mutable metadata preserves creation identity and workspace choices) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC5: accepted boundary, Stop and exit transitions advance durable response revisions) -->
+6. A zero-change or ambiguous D1 result is not ownership proof; exceptional reconciliation uses one bounded read and remains fail closed. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (reconciles a lost write acknowledgement idempotently; unreadable D1 grants no authority) --> <!-- @impl: src/lib/session-repository.ts::reconcileRuntime --> <!-- @impl: src/lib/session-repository.ts::claimUnreachableTermination -->
+7. Only a generation-fenced positive process-exit monitor observation or confirmed native destruction writes `stopped`; transport failure, D1 failure, signal acceptance, elapsed time, an owner read, or SDK state does not. Uncertain exit preserves `stopping` and termination ownership. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @impl: src/container/index.ts::monitorExistingRuntime --> <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) --> <!-- @test: src/__tests__/container/session-stop.test.ts (ordinary Stop late native exit confirmation) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-018/040: durable native exit cannot borrow a replacement Stop intent) -->
 
-**Constraints:** D1 owns shared lifecycle truth. The Durable Object retains SDK/process identity, assigned generation, observation sequence and schedules, but not competing lifecycle business truth.
+**Constraints:**
+
+- D1 owns shared lifecycle truth.
+- The Durable Object retains SDK/process identity, assigned generation, observation sequence and schedules, but not competing lifecycle business truth.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Planned behavioral D1 repository, lifecycle and delayed-callback tests.
+**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -845,7 +985,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** Automated test ([container metrics](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [terminal-native-pi-authority.test.ts](../../src/__tests__/routes/terminal-native-pi-authority.test.ts)
 
 **Status:** Implemented
 
@@ -863,16 +1003,12 @@ None.
 2. Old `stopping` rows retain termination and unreachable ownership, editor readiness, revision and transition reason until positive exit confirmation for their generation. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) --> <!-- @test: src/__tests__/container/index.test.ts (confirms a running session only when its attached process monitor resolves) -->
 3. A stopping row keeps managed-mutation ownership and cannot claim a replacement Start; other owners and lifecycle states remain unchanged. <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: old stopping remains owner-scoped and retains managed-mutation ownership without exit evidence) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
 
-4. Once the session DO accepts Stop, its complete claim, pending Protected Action cancellation, existing bounded graceful teardown and D1 exit confirmation continue independently of the calling HTTP request. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (protects the entire Stop when the caller disconnects during %s I/O) -->
+4. After DO acceptance, Stop’s claim, Protected Action cancellation, bounded teardown and D1 exit confirmation are caller-independent; late native success reconciles durable captured owner/generation/intent without extending the call deadline. <!-- @impl: src/container/index.ts::recordNativeStopExit --> <!-- @test: src/__tests__/container/session-stop.test.ts (ordinary Stop late native exit confirmation) --> <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (protects the entire Stop when the caller disconnects during %s I/O) -->
 5. Before DO acceptance the Worker does not claim `stopping`. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: an RPC rejected before DO acceptance cannot leave a Worker-owned stopping claim) -->
-6. Stop retry after coordinator reconstruction, operational identity cleanup or transient D1 failure reuses the same generation's current termination intent. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (finishes the claimed Stop after caller loss and erased operational identity, preserving the session for restart) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains stopping when D1 confirmation fails and completes after recovery with a new coordinator) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains the same intent while retrying a reconstructed stopping generation) -->
-7. Retry after confirmed completion succeeds idempotently without another teardown. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (treats a retry after a lost successful response as already completed) -->
-8. Stop retry rejects a mismatched owner/session identity, replacement lifecycle generation or differently pinned termination intent without terminating another workload. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a termination intent pinned to a different generation without changing ownership) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a stale retry without terminating a replacement generation) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects an owner/session address mismatch without claiming or terminating either session) -->
-
 
 **Constraints:**
 
-- No automatic existing-record repair, migration or recovery scheduler.
+- No age-only existing-record repair, migration or new recovery scheduler.
 - Explicit owner Stop retry uses current D1 authority.
 - Stale duration is diagnostic, not authority to clear a termination intent.
 - Browser-independent completion does not promise automatic recovery across DO crashes or persistent D1 outages.
@@ -882,7 +1018,38 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
 
-**Verification:** Automated D1/route, modeled DO lifetime and reconstruction/retry behavioral tests. Hosted disconnection acceptance remains separate from these platform-boundary models.
+**Verification:** Automated: [session.test.ts](../../src/__tests__/routes/session.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-042: Same-generation Stop retry authority
+
+**Intent:** Explicit Stop retries recover the original termination intent without repeating completed teardown or affecting a replacement workload.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. Stop retry after coordinator reconstruction, operational identity cleanup or transient D1 failure reuses the same generation's current termination intent. <!-- @test: src/__tests__/container/session-stop.test.ts (ordinary Stop late native exit confirmation) --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (finishes the claimed Stop after caller loss and erased operational identity, preserving the session for restart) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains stopping when D1 confirmation fails and completes after recovery with a new coordinator) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains the same intent while retrying a reconstructed stopping generation) -->
+2. Retry after confirmed completion succeeds idempotently without another teardown. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (treats a retry after a lost successful response as already completed) -->
+3. Stop retry rejects a mismatched owner/session identity, replacement lifecycle generation or differently pinned termination intent without terminating another workload. <!-- @test: src/__tests__/container/session-stop.test.ts (ordinary Stop late native exit confirmation) --> <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a termination intent pinned to a different generation without changing ownership) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a stale retry without terminating a replacement generation) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects an owner/session address mismatch without claiming or terminating either session) -->
+
+
+**Constraints:**
+
+- No age-only existing-record repair, migration or new recovery scheduler.
+- Explicit owner Stop retry uses current D1 authority.
+- Stale duration is diagnostic, not authority to clear a termination intent.
+- Browser-independent completion does not promise automatic recovery across DO crashes or persistent D1 outages.
+- Existing final notification drain, authenticated final sync and teardown deadlines remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
+
+**Verification:** Automated: [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts)
 
 **Status:** Implemented
 
@@ -913,7 +1080,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
 
-**Verification:** Automated dashboard-rendering and real Layout/TerminalArea history-navigation regressions with modeled progress and desktop/mobile viewport widths; physical-browser acceptance remains separate after integration deployment.
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx)
 
 **Status:** Implemented
 
@@ -936,7 +1103,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** Automated test ([container metrics](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts)
 
 **Status:** Implemented
 
@@ -950,7 +1117,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every drain request authenticates with the container token; missing credentials suppress the request and record a bounded teardown audit. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+1. Every drain request authenticates with the container token; missing credentials suppress the request and record a bounded teardown audit. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-011: the final-sync drain authenticates with the container token captured BEFORE the storage clear (401 regression)) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-019 AC1: missing token emits no outgoing request and leaves a readable bounded teardown audit) --> <!-- @test: src/__tests__/container/container-metrics-drain.test.ts (sends the stored container token as a Bearer header on the drain request) --> <!-- @test: src/__tests__/container/container-metrics-drain.test.ts (REQ-SESSION-019 AC1: %s credentials suppress the request and retain a bounded audit) --> <!-- @test: src/__tests__/container/container-metrics-drain.test.ts (REQ-SESSION-019 AC1: %s audit storage cannot wedge the best-effort drain) --> <!-- @test: src/__tests__/container/container-metrics-drain.test.ts (REQ-SESSION-019 AC1: a late credential read cannot issue a request after the drain budget) -->
 
 **Constraints:** None.
 
@@ -958,7 +1125,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
 
-**Verification:** Automated test ([Drain auth on the delete path](../../src/__tests__/container/index.test.ts), [idle/quota-stop drain auth](../../src/__tests__/container/container-metrics-drain.test.ts))
+**Verification:** Automated: [container-metrics-drain.test.ts](../../src/__tests__/container/container-metrics-drain.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
@@ -975,10 +1142,10 @@ None.
 
 1. A normal metrics tick performs one bounded authenticated host observation containing classified input, CPU, memory, disk, sync and editor readiness. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (authenticates the private runtime observation probe) -->
 2. After local policy decisions, a normal tick performs one conditional lifecycle D1 projection update and no normal-path D1 pre-read or readback; separately owned tracked-clones persistence is excluded. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (projects one lifecycle observation when no separate clone inventory is reported) -->
-3. Every awaited host or peer operation is bounded and a failed peer cannot prevent the next eligible schedule from being armed. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers) -->
+3. Every awaited host or peer operation is bounded and a failed peer cannot prevent the next eligible schedule from being armed. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC1-AC2: re-arms the alarm when an in-container poll never answers) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-020 AC3: bounds peer %s stalls, re-arms and permits a later tick) -->
 4. Host transport reachability, snapshot validity, readiness and confirmed process exit remain distinct evidence. <!-- @impl: src/container/container-metrics.ts::reconcileContainerTransport --> <!-- @test: src/__tests__/container-metrics.test.ts (does not flip a live session to stopped on a single transient not-running tick) -->
 5. D1 projection failure cannot authorize reconstruction, termination, `unreachable`, or `stopped`. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (continues without transport recovery when the lifecycle projection fails) -->
-6. Trusted identity, agent events, Timekeeper accounting and Durable Object storage remain separately owned and are excluded from the one-observation/one-update budget. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (D3/D4: notification polling never mutates activity or usage inputs) -->
+6. Trusted identity, agent events, Timekeeper accounting and Durable Object storage remain separately owned and are excluded from the one-observation/one-update budget. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (D3/D4: delivered notifications preserve parsed activity and cannot extend the idle deadline) -->
 
 **Constraints:** Existing idle-input policy, usage authority and final-sync deadlines remain unchanged.
 
@@ -986,7 +1153,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** Automated test ([runtime-observation authentication](../../src/__tests__/container-metrics.test.ts), [bounded poll re-arm](../../src/__tests__/container-metrics.test.ts), [transport evidence](../../src/__tests__/container-metrics.test.ts), [unreachable policy](../../src/__tests__/lib/session-unreachable-policy.test.ts)).
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-unreachable-policy.test.ts](../../src/__tests__/lib/session-unreachable-policy.test.ts)
 
 **Status:** Implemented
 
@@ -1001,9 +1168,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. A complete bounded host-transport failure conditionally opens one incident for the current generation and persists `unreachable`, incident identity, first-observed time and an absolute deadline 120 seconds later. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.observeUnreachable = 120_000 --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (persists the first complete failure, joins replay/reconstruction without extending its 120s deadline) -->
+1. A complete bounded host-transport failure conditionally opens one incident for the current generation and persists `unreachable`, incident identity, first-observed time and an absolute deadline 120 seconds later. <!-- @impl: src/lib/session-repository.ts::observeUnreachable --> <!-- @impl: src/lib/session-repository.ts::observedAtMs + 120_000 = 120_000 --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (persists the first complete failure, joins replay/reconstruction without extending its 120s deadline) -->
 2. Opening an incident occurs before Durable Object reset or reconstruction and leaves the container and PTY untouched. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 remains authoritative across both bounded reconstructions and exhaustion, without restarting the incident) -->
-3. Repeated failures join the existing incident and never move its first-observed time or deadline. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.observeUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (persists the first complete failure, joins replay/reconstruction without extending its 120s deadline) -->
+3. Repeated failures join the existing incident and never move its first-observed time or deadline. <!-- @impl: src/lib/session-repository.ts::observeUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (persists the first complete failure, joins replay/reconstruction without extending its 120s deadline) -->
 4. D1 failure is treated as persistence uncertainty and never opens a transport incident. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 outage or ambiguous failed projection cannot authorize reconstruction, SIGTERM or force) -->
 5. `unreachable` retains workload ownership, counts toward best-effort capacity and blocks destructive managed reconciliation. <!-- @impl: src/lib/session-authority.ts::countWorkloadOwningSessions --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (an unreachable workload retains capacity and managed reconciliation ownership) -->
 6. Accelerated recovery work remains non-billable and does not create another quota or usage source. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (all failure, reconstruction, recovery and stopping ticks skip actual Timekeeper I/O and quota-stop drains) -->
@@ -1014,7 +1181,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-020](#req-session-020-runtime-observation-is-bounded-and-projected-once)
 
-**Verification:** Automated test ([D1 persistence and production recovery coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts)); hosted acceptance remains pending.
+**Verification:** Automated: [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -1032,8 +1199,8 @@ None.
 1. A reconstructed Durable Object performs one bounded primary-consistent D1 recovery read and adopts only its previously assigned generation, incident and absolute deadline. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 remains authoritative across both bounded reconstructions and exhaustion, without restarting the incident) -->
 2. Reconstruction probes the existing container through retained SDK/process identity and never invokes Start or allocates another generation. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (SDK false uses an authenticated no-start probe; HTTP and malformed JSON are reachability, not incidents) -->
 3. A qualifying host response proves transport reachability; a valid snapshot separately determines whether metrics and activity may be projected. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a healthy host with a failed D1 projection or local timing read never opens a transport incident) -->
-4. Recovery conditionally clears the same incident and returns `unreachable` to `running` without replacing the container or PTY. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.recoverUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (recovers on any same-incident host response before deadline without an ordinary projection bypass) -->
-5. Reconstruction failure or another transport failure retains the same incident and deadline. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.observeUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 remains authoritative across both bounded reconstructions and exhaustion, without restarting the incident) -->
+4. Recovery conditionally clears the same incident and returns `unreachable` to `running` without replacing the container or PTY. <!-- @impl: src/lib/session-repository.ts::recoverUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (recovers on any same-incident host response before deadline without an ordinary projection bypass) -->
+5. Reconstruction failure or another transport failure retains the same incident and deadline. <!-- @impl: src/lib/session-repository.ts::observeUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 remains authoritative across both bounded reconstructions and exhaustion, without restarting the incident) -->
 6. Old callbacks, alarms and reconstruction work cannot adopt a newer generation. <!-- @impl: src/container/container-metrics.ts::captureMetricsExecution --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a late failed observation and old alarm cannot affect a replacement generation) -->
 
 **Constraints:** Existing Durable Object reconstruction and PTY reattachment behavior is preserved.
@@ -1042,7 +1209,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Automated test ([Reconstruction and deadline-survival coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [pinned alarm coverage](../../src/__tests__/container/index.test.ts)); hosted acceptance remains pending.
+**Verification:** Automated: [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -1068,7 +1235,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Automated test ([Recovery, persistence and stopping accounting coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts)); hosted acceptance remains pending.
+**Verification:** Automated: [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -1085,21 +1252,24 @@ None.
 
 **Acceptance Criteria:**
 
-1. D1 retains incident identity, first-observed time, absolute deadline, lifecycle generation and termination intent until recovery or confirmed exit resolves them. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.observeUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (persists the first complete failure, joins replay/reconstruction without extending its 120s deadline) -->
-2. At the first available execution at or after the deadline, the current owner conditionally claims `stopping` for the same generation and incident. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.claimUnreachableTermination --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (claims only the exact expired incident, blocks Start, and never treats signal acceptance as exit) -->
-3. Outstanding termination intent blocks Start until confirmed exit or a reviewed reconciliation resolves it. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.start --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (claims only the exact expired incident, blocks Start, and never treats signal acceptance as exit) -->
+1. D1 retains incident identity, first-observed time, absolute deadline, lifecycle generation and termination intent until recovery or confirmed exit resolves them. <!-- @impl: src/lib/session-repository.ts::observeUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (persists the first complete failure, joins replay/reconstruction without extending its 120s deadline) -->
+2. At the first available execution at or after the deadline, the current owner conditionally claims `stopping` for the same generation and incident. <!-- @impl: src/lib/session-repository.ts::claimUnreachableTermination --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (claims only the exact expired incident, blocks Start, and never treats signal acceptance as exit) -->
+3. Outstanding termination intent blocks Start until confirmed exit or a reviewed reconciliation resolves it. <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (claims only the exact expired incident, blocks Start, and never treats signal acceptance as exit) -->
 4. Immediately before signalling, execution rechecks generation ownership and cannot signal a replacement generation. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a teardown epoch change during D1 authorization prevents a stale native %s) -->
 5. Recovery sends low-level SIGTERM even when the SDK `running` flag is transiently false. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace) -->
-6. Unconfirmed recovery termination escalates to one durably claimed, same-generation native destruction attempt after the existing 135-second shutdown budget. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable = 135_000 --> <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.markRecoveryForceStarted --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (the automatic force CAS consumes only the exact intent with no pending boundary and preserves its grace origin) -->
-7. Signal acceptance and failed or unconfirmed destruction retain actionable `stopping` ownership; only generation-fenced positive process exit or awaited destruction confirming exit transitions to `stopped`. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.confirmStopped --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a failed force is durable across reconstruction; only manual %s retries native destruction) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a never-settling provider is bounded with no automatic alarm, yet late completion confirms the current generation) -->
+6. Unconfirmed recovery termination escalates to one durably claimed, same-generation native destruction attempt after the existing 135-second shutdown budget. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/container/container-lifecycle.ts::hardKillMs = 135_000 --> <!-- @impl: src/lib/session-repository.ts::markRecoveryForceStarted --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (the automatic force CAS consumes only the exact intent with no pending boundary and preserves its grace origin) -->
+7. Signal acceptance and failed or unconfirmed destruction retain actionable `stopping` ownership; only generation-fenced positive process exit or awaited destruction confirming exit transitions to `stopped`. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a failed force is durable across reconstruction; only manual %s retries native destruction) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a never-settling provider is bounded with no automatic alarm, yet late completion confirms the current generation) -->
 
-**Constraints:** Exactly-once external signalling is not promised. Established final-event, final-sync and teardown deadlines are unchanged.
+**Constraints:**
+
+- Exactly-once external signalling is not promised.
+- Established final-event, final-sync and teardown deadlines are unchanged.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-022](#req-session-022-unreachable-recovery-preserves-process-identity)
 
-**Verification:** Automated test ([Deadline, finite force, manual recovery and confirmed-exit coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts)); hosted acceptance remains pending.
+**Verification:** Automated: [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -1114,11 +1284,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Structured transition events identify lifecycle generation and unreachable incident when an incident opens, reconstruction begins, recovery succeeds, termination is claimed, SIGTERM fails or is accepted, final sync completes or fails, and exit is confirmed.
-2. Reason classification distinguishes supported evidence for user, idle, quota, recovery-expiry, host-transport, D1-outage and platform/unknown paths without inventing an initiator.
-3. Normal metrics ticks, individual WebSocket retries and unchanged state are not logged per occurrence.
-4. Logs contain no credentials, tokens, transcript or terminal content, or per-file paths.
-5. D1 row and statement metadata is sampled or aggregated during integration rather than emitted as another high-volume stream.
+1. Structured recovery events identify generation and available incident for opening, reconstruction, recovery and recovery-expiry termination/signalling. Context-bearing final-sync and exit observations retain their known lifecycle identity; unavailable identity remains explicit. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-025 AC1-2: user Stop retains final-sync context and confirms only after native completion) -->
+2. Event reasons or bounded error categories distinguish supported user, idle, quota, recovery-expiry, host-transport, D1-outage and platform/unknown evidence without inventing an initiator. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (AC1/4: an SDK error retains actionable context without exporting private payloads or changing retry timing) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-025 AC1-2: $completion exit preserves observed incident without inventing an initiator) -->
+3. Normal metrics ticks, individual WebSocket retries and unchanged state are not logged per occurrence. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (AC3: repeated healthy observations retain runtime state without repeating ordinary log output) -->
+4. Logs contain no credentials, tokens, transcript or terminal content, or per-file paths. <!-- @impl: src/routes/container/lifecycle.ts::runStartStage --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-025 AC4: teardown %s retains safe diagnostics and best-effort/exit authority) --> <!-- @test: src/__tests__/index.test.ts (REQ-SESSION-025: final Worker lifecycle error logging) -->
+5. D1 row and statement metadata is sampled or aggregated during integration rather than emitted as another high-volume stream. <!-- @manual: Integration D1 metadata sampling -->
+
+**Notes:** Recovery observations use available identities and bounded categories, not a universal event enum or reconstructed initiator. [Integration aggregation](../../documentation/lanes/container.md#integration-d1-metadata-sampling) uses existing platform analytics rather than an application telemetry stream.
 
 **Constraints:** Use the existing structured logger; no new telemetry framework.
 
@@ -1126,9 +1298,9 @@ None.
 
 **Dependencies:** [REQ-SESSION-024](#req-session-024-recovery-deadline-and-termination-intent-are-durable)
 
-**Verification:** Planned structured-event and negative-volume tests.
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [container/index.test.ts](../../src/__tests__/container/index.test.ts), [index.test.ts](../../src/__tests__/index.test.ts), [lifecycle.test.ts](../../src/__tests__/routes/container/lifecycle.test.ts), [session.test.ts](../../src/__tests__/routes/session.test.ts); Manual: [Integration D1 metadata sampling](../../documentation/lanes/container.md#integration-d1-metadata-sampling)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1141,10 +1313,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Failure to schedule required recovery, reconciliation, termination or confirmed-exit work is logged with generation and incident identity and propagates to its lifecycle caller.
-2. Failed authoritative mutations retain retryable ownership and cannot be converted into `stopped` or successful recovery.
-3. Retry work is bounded, duplicate-safe and non-billable.
-4. If lifecycle authority cannot be established, Start, Stop, Delete, migration and destructive reconciliation fail closed.
+1. Failure to schedule required recovery, reconciliation, termination or confirmed-exit work is logged with generation and available incident identity. After existing bounded retry handling, terminal scheduling failure propagates to its lifecycle caller. <!-- @test: src/__tests__/container/session-stop.test.ts (ordinary Stop late native exit confirmation) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (required scheduling failure is observable and does not signal, reset, or release ownership) --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::scheduleRecoveryOwnershipReadRetry --> <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (propagates a required ownership-read retry alarm failure without billing or destructive effects) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-026 AC1: required alarm failure retains the observed D1 incident identity) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-026 AC1: %s callback alarm failures retain captured context and ownership) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-026 AC1: %s stop propagates its required alarm failure, not an ancillary failure) -->
+2. Failed authoritative mutations retain retryable ownership and cannot be converted into `stopped` or successful recovery. <!-- @test: src/__tests__/container/session-stop.test.ts (ordinary Stop late native exit confirmation) --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/lib/session-repository.ts::recoverUnreachable --> <!-- @impl: src/lib/session-repository.ts::confirmStoppedOrObserved --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 outage or ambiguous failed projection cannot authorize reconstruction, SIGTERM or force) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains stopping when D1 confirmation fails and completes after recovery with a new coordinator) -->
+3. Retry work is bounded, duplicate-safe and non-billable. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @impl: src/lib/session-repository.ts::markRecoveryForceStarted --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a failed force is durable across reconstruction; only manual %s retries native destruction) -->
+4. If lifecycle authority cannot be established, Start, Stop, Delete, migration and destructive reconciliation fail closed. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @impl: src/lib/migration-containers.ts::hasHealthyContainer --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @test: src/__tests__/container/session-stop.test.ts (does not claim or destroy on a D1 outage before the claim and permits retry after recovery) --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (AC5: unavailable D1 rejects admission without changing durable authority) -->
 
 **Constraints:** A D1 failure and a host-transport failure remain distinct conditions.
 
@@ -1152,11 +1324,9 @@ None.
 
 **Dependencies:** [REQ-SESSION-024](#req-session-024-recovery-deadline-and-termination-intent-are-durable)
 
-**Verification:** Planned scheduling, ambiguous-write and fail-closed tests.
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-stop.test.ts](../../src/__tests__/container/session-stop.test.ts)
 
-**Status:** Planned
-
----
+**Status:** Implemented
 
 ---
 
@@ -1168,23 +1338,27 @@ None.
 
 **Acceptance Criteria:**
 
-1. The session table has primary key `(owner_key, session_id)` and complete API fields for name, creation/access timestamps, agent, workspace, terminal mode, tab configuration and clone intent. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-2. Lifecycle columns store state, generation, revision, last accepted observation sequence, transition timestamps, reason, readiness and readiness error under database checks. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-3. Projection columns store last classified input plus latest CPU, memory, disk, sync and observation time without retaining metric history. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-4. Incident columns store incident identity, first-observed time and absolute deadline; termination columns store intent identity, generation, claim and signal timestamps. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
-6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.create -->
-7. The additive migration is idempotently managed by the existing `USAGE_DB` migration path and does not alter analytics tables. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+1. The session table has primary key `(owner_key, session_id)` and complete API fields for name, creation/access timestamps, agent, workspace, terminal mode, tab configuration and clone intent. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-001 AC3 / REQ-SESSION-031 AC1: valid agent and six configured tabs retain complete nonsecret creation data) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+2. Lifecycle columns store state, generation, revision, last accepted observation sequence, transition timestamps, reason, readiness and readiness error under database checks. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC2/4: database rejects invalid authority update %s without changing the row) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+3. Projection columns store last classified input plus latest CPU, memory, disk, sync and observation time without retaining metric history. <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-018 AC3/5: stale generation and non-increasing sequence leave the durable projection unchanged) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+4. Incident columns store incident identity, first-observed time and absolute deadline; termination columns store intent identity, generation, claim and signal timestamps. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC2/4: database rejects invalid authority update %s without changing the row) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions -->
+5. The only required secondary index leads with `owner_key` and supports the batch ordering; frequently updated lifecycle or metric fields are not indexed. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE INDEX runtime_sessions_owner_activity --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (migration creates one owner-led projection index) -->
+6. A singleton cutover table records `pending` or `complete`, and Create/Start require `complete`; its migration default is `pending`. <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (AC6: database rejects a second cutover identity or unsupported cutover state) --> <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE session_cutover --> <!-- @impl: src/lib/session-repository.ts::create --> <!-- @impl: src/lib/session-repository.ts::start -->
+7. The additive migration is idempotently managed by the existing usage-database migration path and does not alter analytics tables. <!-- @impl: migrations/usage/0002_runtime_sessions.sql::CREATE TABLE runtime_sessions --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (creates one absent database with supported Wrangler arguments, resolves its ID, then applies migrations) --> <!-- @manual: D1 additive migration review -->
 
-**Constraints:** Times are UTC ISO-8601 text except explicit millisecond deadlines where arithmetic is required. JSON configuration columns are validated at the typed repository boundary. Secrets are excluded.
+**Constraints:**
+
+- Times are UTC ISO-8601 text except explicit millisecond deadlines where arithmetic is required.
+- JSON configuration columns are validated at the typed repository boundary.
+- Secrets are excluded.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-030](#req-session-030-one-time-clean-slate-cutover-is-guarded-and-exact)
 
-**Verification:** Planned migration-shape, constraint, index and rerun tests.
+**Verification:** Automated: [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [session-d1-lifecycle.test.ts](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [session-cutover.test.ts](../../src/__tests__/lib/session-cutover.test.ts); Manual: [D1 additive migration review](../../documentation/lanes/billing.md#d1-additive-migration-review)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1208,6 +1382,8 @@ None.
 
 **Dependencies:** [REQ-OPS-010](operations.md#req-ops-010-graceful-container-shutdown-preserves-data), [REQ-IDE-003](browser-ide.md#req-ide-003-ide-lifecycle-and-availability)
 
-**Verification:** Shutdown, readiness, restart-trigger, editor-launch, and state-capture tests
+**Verification:** Automated: [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [request-router.test.js](../../host/__tests__/request-router.test.js), [openvscode-proxy.test.js](../../host/__tests__/openvscode-proxy.test.js), [entrypoint-openvscode.test.js](../../host/__tests__/entrypoint-openvscode.test.js), [extension-persistence.test.ts](../../openvscode/agent-sidebar/test/extension-persistence.test.ts)
 
 **Status:** Implemented
+
+---

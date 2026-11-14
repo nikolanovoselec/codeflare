@@ -86,6 +86,22 @@ async function digest(bytes: Uint8Array): Promise<string> {
     }), ENDPOINT)).toThrow(ValidationError);
   });
 
+  it('refuses malformed discovery without returning supplied credential or metadata values', () => {
+    const credential = 'PRIVATE_DISCOVERY_CREDENTIAL_SENTINEL';
+    const metadata = 'PRIVATE_DISCOVERY_METADATA_SENTINEL';
+    try {
+      parseOperatorManifest(JSON.stringify({ ...manifest(), description: metadata }),
+        `https://user:${credential}@operator.example.test/discovery`);
+      expect.fail('Unsafe endpoint accepted');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(String(error)).not.toContain(credential);
+      expect(String(error)).not.toContain(metadata);
+      expect(JSON.stringify(error)).not.toContain(credential);
+      expect(JSON.stringify(error)).not.toContain(metadata);
+    }
+  });
+
   it('rejects malformed JSON, invalid digest and metadata over the UTF-8 byte bound', () => {
     expect(() => parseOperatorManifest('<html>Login</html>', ENDPOINT)).toThrow(ValidationError);
     expect(() => parseOperatorManifest(JSON.stringify({
@@ -110,7 +126,7 @@ describe('REQ-OPERATOR-048: production Dispatcher bundle boundary', () => {
   });
 
   it.each([
-    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'],
+    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'], ['2.3.0', '0.33.0'],
   ])('REQ-OPERATOR-048: accepts exact approved bytes for SDK %s / Agents %s', async (version, agents) => {
     const input = { ...dispatcherBundle(), versions: { runtime: version, vitePlugin: version, agents } };
     const bytes = encode(input);
@@ -121,6 +137,13 @@ describe('REQ-OPERATOR-048: production Dispatcher bundle boundary', () => {
   });
 
   it.each([
+    ['Agents 0.33 on legacy runtime', { versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.33.0' } }],
+    ['Agents 0.33 on intermediate runtime', { versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.33.0' } }],
+    ['Agents 0.33 mixed plugin', { versions: { runtime: '2.3.0', vitePlugin: '2.2.2', agents: '0.33.0' } }],
+    ['Agents 0.33 unknown runtime', { versions: { runtime: '2.3.1', vitePlugin: '2.3.1', agents: '0.33.0' } }],
+    ['unknown Agents 0.33 patch', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.1' } }],
+    ['Agents 0.33 tuple authority', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.0', authority: true } }],
+    ['Agents 0.33 outbound authority', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.33.0' }, globalOutbound: true }],
     ['class export', { className: 'OtherAgent' }],
     ['Agents version', { versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.24.0' } }],
     ['Flue runtime', { versions: { runtime: '2.2.0', vitePlugin: '2.1.0', agents: '0.20.1' } }],
@@ -192,6 +215,23 @@ describe('REQ-OPERATOR-030: approved bundle boundary', () => {
     await expect(parseOperatorBundle(bytes, await digest(bytes))).rejects.toThrow(ValidationError);
   });
 
+  it('refuses invalid approved bundle shapes without returning source or credential sentinels', async () => {
+    const source = 'PRIVATE_BUNDLE_SOURCE_SENTINEL';
+    const credential = 'PRIVATE_BUNDLE_CREDENTIAL_SENTINEL';
+    const bytes = encode({ ...bundle(), mainModule: '../escape.js',
+      modules: { 'index.js': { js: `throw new Error("${source} ${credential}")` } } });
+    try {
+      await parseOperatorBundle(bytes, await digest(bytes));
+      expect.fail('Invalid bundle accepted');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      for (const sentinel of [source, credential]) {
+        expect(String(error)).not.toContain(sentinel);
+        expect(JSON.stringify(error)).not.toContain(sentinel);
+      }
+    }
+  });
+
   it('rejects oversized artifacts and malformed digest without disclosing source', async () => {
     await expect(parseOperatorBundle(new Uint8Array(8 * 1024 * 1024 + 1), 'a'.repeat(64)))
       .rejects.toThrow(ValidationError);
@@ -201,8 +241,9 @@ describe('REQ-OPERATOR-030: approved bundle boundary', () => {
 });
 
 describe('normal installed Dispatcher artifact contract', () => {
-  it('REQ-OPERATOR-048: AC1/7 normal generated deployment metadata preserves exact acquired modules without execution', async () => {
-    const input = normalDispatcherBundle();
+  it.each(['0.30.1', '0.33.0'])('REQ-OPERATOR-048: AC1/7 normal generated deployment metadata preserves exact acquired modules without execution / Agents %s', async agents => {
+    const normal = normalDispatcherBundle();
+    const input = { ...normal, versions: { ...normal.versions, agents } };
     const received = encode(input);
     const parsed = await parseDispatcherBundle(received, await digest(received));
     expect(parsed).toEqual(input);
@@ -223,8 +264,11 @@ describe('normal installed Dispatcher artifact contract', () => {
     ['invalid binding', { ...normalHosting, binding: 'OTHER_OWNER' }],
     ['migration replacement', { ...normalHosting, migrationTag: 'drop-existing-data' }],
   ])('REQ-OPERATOR-030: AC4/5 normal deployment rejects package-supplied %s', async (_name, hosting) => {
-    const received = encode({ ...normalDispatcherBundle(), hosting });
-    await expect(parseDispatcherBundle(received, await digest(received))).rejects.toThrow(ValidationError);
+    for (const agents of ['0.30.1', '0.33.0']) {
+      const normal = normalDispatcherBundle();
+      const received = encode({ ...normal, versions: { ...normal.versions, agents }, hosting });
+      await expect(parseDispatcherBundle(received, await digest(received))).rejects.toThrow(ValidationError);
+    }
   });
 
   it.each([

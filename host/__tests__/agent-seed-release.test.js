@@ -14,6 +14,15 @@ const SHA_40_A = 'a'.repeat(40);
 const SHA_40_B = 'b'.repeat(40);
 const HASH_64 = 'c'.repeat(64);
 
+it('REQ-STOR-021 AC4: release paths reject private transcript documents and retirements', async () => {
+  const { validateManagedReleasePath, validateManagedRetiredPath } = await import('../../scripts/agent-seed-release-limits.mjs');
+  for (const path of ['.claude/projects/repo/session.jsonl', '.pi/agent/sessions/session.jsonl', '.claude/projects', '.pi/agent/sessions']) {
+    assert.throws(() => validateManagedReleasePath(path), /private|user-owned/);
+    assert.throws(() => validateManagedRetiredPath(path), /private|user-owned/);
+  }
+  assert.equal(validateManagedReleasePath('.pi/agent/extensions/company.ts'), '.pi/agent/extensions/company.ts');
+});
+
 function compiledSeed(overrides = {}) {
   return {
     documents: [

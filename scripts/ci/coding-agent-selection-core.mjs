@@ -38,8 +38,15 @@ export function hasCodingAgent(rawSelection, agent) {
   return resolveCodingAgents(rawSelection).split(',').includes(agent);
 }
 
+export function isPrivateManagedPath(value) {
+  return typeof value === 'string' && ['.claude/projects', '.pi/agent/sessions'].some(
+    root => value === root || value.startsWith(`${root}/`),
+  );
+}
+
 /** Return the sole coding-agent owner for a managed path, or null for an unknown root. */
 export function managedPathOwner(path) {
+  if (isPrivateManagedPath(path)) return null;
   for (const agent of CODING_AGENTS) {
     if (path.startsWith(CODING_AGENT_ROOTS[agent])) return agent;
   }

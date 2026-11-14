@@ -9,7 +9,8 @@ import { createMockKV } from '../helpers/mock-kv';
 const mockFetch = vi.fn();
 const mockEmptyR2Bucket = vi.fn();
 
-vi.mock('../../lib/r2-client', () => ({
+vi.mock('../../lib/r2-client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/r2-client')>(),
   createR2Client: vi.fn(() => ({ fetch: mockFetch })),
   getR2Url: vi.fn((endpoint: string, bucket: string, key?: string) =>
     key ? `${endpoint}/${bucket}/${key}` : `${endpoint}/${bucket}`
@@ -358,10 +359,13 @@ describe('Storage Delete Route', () => {
     expect(body.errors[1].error).toBe('Batch delete failed');
   });
 
-  it('batch delete with unparseable XML response assumes all succeeded', async () => {
-    // Response is OK but XML has no <Deleted> or <Error> tags
-    mockFetch.mockResolvedValueOnce(new Response('<DeleteResult></DeleteResult>', { status: 200 }));
-
+  it.each([
+    ['empty body', ''],
+    ['empty result', '<DeleteResult></DeleteResult>'],
+    ['self-closing result', '<DeleteResult/>'],
+    ['missing result envelope', '<Other/>'],
+  ])('REQ-STOR-007 AC4: verbose %s never confirms requested deletions', async (_label, xml) => {
+    mockFetch.mockResolvedValueOnce(new Response(xml, { status: 200 }));
     const res = await app.request('/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -369,10 +373,36 @@ describe('Storage Delete Route', () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { deleted: string[]; errors: Array<{ key: string; error: string }> };
-    // When no results parsed, assume all succeeded
-    expect(body.deleted).toEqual(['workspace/a.ts', 'workspace/b.ts']);
-    expect(body.errors).toEqual([]);
+    const body = await res.json() as {
+      deleted: string[]; deletedPrefixes: unknown[]; errors: { key: string; error: string }[];
+    };
+    expect(body.deleted).toEqual([]);
+    expect(body.deletedPrefixes).toEqual([]);
+    expect(body.errors).toHaveLength(2);
+    expect(body.errors.map(({ key }) => key).sort()).toEqual(['workspace/a.ts', 'workspace/b.ts']);
+    for (const { error } of body.errors) expect(error.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['acknowledged success', '<Deleted><Key>workspace/a.ts</Key></Deleted>', ['workspace/a.ts']],
+    ['explicit failure', '<Error><Key>workspace/a.ts</Key><Code>AccessDenied</Code><Message>Access Denied</Message></Error>', []],
+  ])('REQ-STOR-007 AC4: partial verbose %s leaves unacknowledged keys as errors', async (_label, outcome, deleted) => {
+    mockFetch.mockResolvedValueOnce(new Response(`<DeleteResult>${outcome}</DeleteResult>`, { status: 200 }));
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: ['workspace/a.ts', 'workspace/b.ts'] }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { deleted: string[]; errors: { key: string; error: string }[] };
+    expect(body.deleted).toEqual(deleted);
+    expect(body.errors.map(({ key }) => key).sort()).toEqual(
+      deleted.length ? ['workspace/b.ts'] : ['workspace/a.ts', 'workspace/b.ts'],
+    );
+    for (const { error } of body.errors) expect(error.length).toBeGreaterThan(0);
+    if (!deleted.length) {
+      expect(body.errors.find(({ key }) => key === 'workspace/a.ts')?.error).toBe('Access Denied');
+    }
   });
 
   // --- Cache invalidation tests (CF-029) ---

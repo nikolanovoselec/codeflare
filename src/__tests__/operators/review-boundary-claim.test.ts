@@ -17,11 +17,12 @@ import migration from '../../../migrations/usage/0002_runtime_sessions.sql?raw';
 import boundaryMigration from '../../../migrations/usage/0004_boundary_activity.sql?raw';
 
 const trust = vi.hoisted(() => ({ signed: true, audience: true, current: true, human: true,
-  selection: true, workflowRevision: 'd'.repeat(40), baseRef: 'main' }));
+  selection: true, workflowRevision: 'd'.repeat(40), baseRef: 'main',
+  runtimeRef: 'nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@' + 'e'.repeat(40) }));
 vi.mock('../../operators/boundary-action-oidc', () => ({ verifyBoundaryActionOidc: async (_token: string, expected: {
   repositoryId: number; repository: string; workflowPath: string; protectedRef: string; workflowSha: string;
-  runId: number; runAttempt: number; audience?: string;
-}) => trust.signed && (trust.audience || !expected.audience?.includes('/claims/publication')) ? { repositoryId: expected.repositoryId, repository: expected.repository,
+  runId: number; runAttempt: number; audience?: string; jobWorkflowRef?: string;
+}) => trust.signed && (!expected.jobWorkflowRef || expected.jobWorkflowRef === trust.runtimeRef) && (trust.audience || !expected.audience?.includes('/claims/publication')) ? { repositoryId: expected.repositoryId, repository: expected.repository,
   eventName: 'pull_request_target', workflowRef: `${expected.repository}/${expected.workflowPath}@${expected.protectedRef}`,
   workflowSha: expected.workflowSha, runId: expected.runId, runAttempt: expected.runAttempt } : null }));
 vi.mock('../../lib/github-token', () => ({ getValidGithubToken: async () => 'parent-owned-github-credential' }));
@@ -55,6 +56,7 @@ beforeEach(async () => {
   trust.signed = trust.audience = trust.current = trust.human = trust.selection = true;
   trust.workflowRevision = 'd'.repeat(40);
   trust.baseRef = 'main';
+  trust.runtimeRef = 'nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@' + 'e'.repeat(40);
   await db.prepare('DELETE FROM runtime_sessions').run();
   await db.prepare("UPDATE session_cutover SET state='complete' WHERE id=1").run();
   await db.prepare(`INSERT INTO runtime_sessions (owner_key,session_id,name,created_at,last_accessed_at,workspace,
@@ -71,7 +73,7 @@ async function scenario(run: (fixture: {
   packetCurrent: () => Promise<boolean>;
   expireBoundary: () => Promise<void>; activityId: string; startCapability: string; rehydrate: () => OperatorActivity;
   preparePublication: (change?: Record<string, unknown>) => Promise<unknown>;
-}) => Promise<void>, options: { roundGeneration?: number | null; baseRef?: 'main' | 'master' | 'develop' } = {}) {
+}) => Promise<void>, options: { roundGeneration?: number | null; baseRef?: 'main' | 'master' | 'develop'; runtime?: 'unverified' | 'missing' } = {}) {
   trust.baseRef = options.baseRef ?? 'main';
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
@@ -85,12 +87,14 @@ async function scenario(run: (fixture: {
     const policy = { capabilities: [], resourceProfileId: null };
     const mainBinding = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
       workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
-      workflowDigest: actionDigest, events: ['pull_request_target'] };
+      workflowDigest: actionDigest, events: ['pull_request_target'],
+      ...(options.runtime === 'unverified' ? {} : { verified: true,
+        runtimeSha: 'e'.repeat(40) }) };
     expect((await registry.setManagementControls({ revision: 0, managers: { users: [], groups: [] },
       ceiling: { capabilities: [], resourceProfileIds: [] }, boundaryActions: options.baseRef
         ? ['main', 'master', 'develop'].map(name => ({ ...mainBinding, protectedRef: `refs/heads/${name}` }))
         : [mainBinding],
-    }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).ok).toBe(true);
+    }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 }, true)).ok).toBe(true);
     registryCtx.storage.sql.exec('INSERT INTO operator_catalog VALUES(?,?,?,?,?,?)', 'review-operator', 'conductor',
       'internal', 1, 'review-operator', JSON.stringify({ id: 'review-operator', revision: 1,
         sourceRevision: 1, profile: 'conductor', realm: 'internal', repositoryId: 138,
@@ -134,9 +138,12 @@ async function scenario(run: (fixture: {
       inRegistry(owner => owner.claimBoundaryPreparation(input)),
     getBoundaryPreparation: (repositoryId: number, pullRequest: number) =>
       inRegistry(owner => owner.getBoundaryPreparation(repositoryId, pullRequest)),
-    getBoundaryAction: (repositoryId: number, protectedRef?: string) => inRegistry(owner =>
+    getBoundaryAction: async (repositoryId: number, protectedRef?: string) => {
+      const action = await inRegistry(owner =>
       (owner.getBoundaryAction as (id: number, ref?: string) => ReturnType<OperatorRegistry['getBoundaryAction']>)
-        .call(owner, repositoryId, protectedRef)),
+        .call(owner, repositoryId, protectedRef));
+      return options.runtime === 'missing' && action ? { ...action, runtimeSha: undefined } : action;
+    },
     getManagementControls: () => inRegistry(owner => owner.getManagementControls()),
     setManagementControls: (...args: Parameters<OperatorRegistry['setManagementControls']>) =>
       inRegistry(owner => owner.setManagementControls(...args)),
@@ -240,6 +247,20 @@ const packet = { preparationId: 'round-1', lane: 'security', name: 'packet.json'
   sha256: packetDigest, bytes: packetBytes };
 
 describe('REQ-OPERATOR-050/052/053/054: Activity-owned approved packet preparation', () => {
+  it.each(['unverified', 'missing'] as const)('REQ-OPERATOR-053/064: %s runtime cannot discover or claim start authority', runtime => scenario(async f => {
+    expect(await f.discover()).toEqual({ status: 'unavailable' });
+    expect(await f.claim()).toMatchObject({ status: 'denied' });
+    expect(await f.registry.getBoundaryPreparation(request.repositoryId, request.pullRequest))
+      .toMatchObject({ phase: 'prepared' });
+  }, { runtime }));
+
+  it('REQ-OPERATOR-053/064: a signed caller with another reusable runtime cannot claim the handoff', () => scenario(async f => {
+    trust.runtimeRef = 'nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@' + 'f'.repeat(40);
+    expect(await f.claim()).toMatchObject({ status: 'denied' });
+    expect(await f.registry.getBoundaryPreparation(request.repositoryId, request.pullRequest))
+      .toMatchObject({ phase: 'prepared' });
+  }));
+
   it('rechecks the claimed Action and exact live PR before authorizing parent packet I/O', () => scenario(async f => {
     expect(await f.packetCurrent()).toBe(false);
     await f.claim();
@@ -497,6 +518,7 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
     expect(await f.claim()).not.toMatchObject({ startCapability: f.startCapability });
     expect(await f.activity.getAdmission()).toMatchObject({ phase: 'prepared' });
     trust.baseRef = 'main';
+  trust.runtimeRef = 'nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@' + 'e'.repeat(40);
     expect(await f.claim()).toMatchObject({ startCapability: f.startCapability });
   }));
 
@@ -504,7 +526,7 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
     const controls = await f.registry.getManagementControls();
     expect((await f.registry.setManagementControls({ ...controls, boundaryActions: [{
       ...controls.boundaryActions![0], workflowDigest: '8'.repeat(64),
-    }] }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).ok).toBe(true);
+    }] }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 }, true)).ok).toBe(true);
     expect(await f.claim()).not.toMatchObject({ startCapability: f.startCapability });
     expect(await f.activity.getAdmission()).toMatchObject({ phase: 'prepared' });
   }));
@@ -594,6 +616,7 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
     trust.baseRef = 'master';
     expect(await f.publish()).not.toMatchObject({ status: 'new' });
     trust.baseRef = 'main';
+  trust.runtimeRef = 'nikolanovoselec/codeflare/.github/workflows/boundary-runtime.yml@' + 'e'.repeat(40);
     expect(await f.publish()).toMatchObject({ status: 'new' });
   }));
 
@@ -606,7 +629,7 @@ describe('REQ-OPERATOR-054: real prepared Registry and Activity owners at protec
     const controls = await f.registry.getManagementControls();
     expect(await f.registry.setManagementControls({ ...controls,
       boundaryActions: [{ ...controls.boundaryActions![0], workflowDigest: '0'.repeat(64) }],
-    }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 })).toMatchObject({ ok: true });
+    }, { email: 'admin@example.test', expiresAt: Date.now() + 300_000 }, true)).toMatchObject({ ok: true });
     expect(await f.publish()).toMatchObject({ status: 'stale' });
     expect(await f.registry.getBoundaryPublication({ ...request, workflowId: 531,
       activityId: f.activityId, contextDigest: 'f'.repeat(64), sessionGeneration: 1,

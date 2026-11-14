@@ -1,18 +1,37 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { acknowledgeOperatorActivities, getOperatorActivity, listOperatorActivities } from '../../api/operator-activities';
+import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
+import { createComponent } from 'solid-js';
+import OperatorActivityButton from '../../components/OperatorActivityButton';
+import { acknowledgeOperatorActivities, cancelOperatorActivity, getOperatorActivity, listOperatorActivities } from '../../api/operator-activities';
 import { listOperatorInstallations } from '../../api/operator-management';
+import { diagnosticRecordSchema } from '../../api/operator-diagnostics-wire';
 
 const detail = { activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'completed',
   cleanupStatus: 'stopped', collectionStatus: 'ready', attention: false, sessionId: null, source: null,
   updatedAt: '2026-09-28T00:00:00.000Z', checkpoint: null,
   result: { originalReports: [{ lane: 'code-reviewer', findings: [{ message: 'Review finding' }] }] } };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+describe('REQ-OPERATOR-080/081: public SDK diagnostic browser wire', () => {
+  const record = { kind: 'event', id: 'e-1', sequence: 1, generation: 1, timestamp: 1700000000000,
+    owner: 'sdk', boundary: 'delivery', outcome: 'started', code: 'none', evidence: 'observed', origin: 'state-transition',
+    correlation: { submissionDigest: 'a'.repeat(64), rootDigest: 'b'.repeat(64) },
+    source: { package: '@flue/runtime', boundary: 'delivery', baseVersion: '2.3.0', patchSetDigest: null, status: 'partial', frames: [] },
+    publicSdk: { kind: 'event', eventType: 'submission_running', eventIndex: 1, attemptCount: 2, maxAttempts: 4 } };
+  it('accepts bounded public counters without claiming private SDK coordinates', () => {
+    expect(diagnosticRecordSchema.parse(record)).toEqual(record);
+  });
+  it('rejects a public observation claiming an unrelated native attempt identity', () => {
+    expect(diagnosticRecordSchema.safeParse({ ...record,
+      correlation: { ...record.correlation, sdkAttemptDigest: 'c'.repeat(64) } }).success).toBe(false);
+  });
+});
 
 describe('REQ-OPERATOR-086 AC2/5: five-entry installation page wire', () => {
   const installation = (index: number) => ({ id: `installation-${index}`, operatorId: 'operator-1', name: 'Review',
     installationName: `Configuration ${index}`, version: null, revision: 1, enabled: false, approved: false,
-    canInvoke: true, canManage: false, guidedMode: null, repository: null, automaticRuns: null, repetitionIntervalSeconds: null });
+    profile: 'conductor', canActivateAutomaticRuns: false, canInvoke: true, canManage: false, guidedMode: null, repository: null, automaticRuns: null, repetitionIntervalSeconds: null });
 
   it.each([null, 'installation-5'])('reads five installations using the authenticated opaque cursor %s', async cursor => {
     const items = Array.from({ length: 5 }, (_, index) => installation(index + (cursor ? 6 : 1)));
@@ -28,10 +47,131 @@ describe('REQ-OPERATOR-086 AC2/5: five-entry installation page wire', () => {
     expect(await listOperatorInstallations(cursor)).toEqual({ items, cursor: cursor ? null : 'installation-5' });
   });
 
+  it.each([
+    { profile: 'conductor', name: 'Renovate Dispatcher', canActivateAutomaticRuns: false },
+    { profile: 'dispatcher', name: 'Conductor', canActivateAutomaticRuns: false },
+    { profile: 'dispatcher', name: 'Conductor', canActivateAutomaticRuns: true },
+  ])('REQ-OPERATOR-209 AC5: round-trips required $profile and advisory eligibility $canActivateAutomaticRuns independently of names', async metadata => {
+    const item = { ...installation(1), ...metadata, enabled: true, approved: true, canManage: true,
+      guidedMode: 'repository', repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3719 };
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (request.method !== 'GET' || request.credentials !== 'same-origin'
+        || new URL(request.url).pathname !== '/api/operator-activities/installations') {
+        return Response.json({ error: 'Listing must not activate or mutate' }, { status: 403 });
+      }
+      return Response.json({ items: [item], cursor: null });
+    });
+    expect(await listOperatorInstallations()).toEqual({ items: [item], cursor: null });
+  });
+
+  it.each([
+    ['missing profile', 'profile', undefined], ['null profile', 'profile', null],
+    ['unknown profile', 'profile', 'reviewer'], ['capitalized profile', 'profile', 'Dispatcher'],
+    ['numeric profile', 'profile', 1], ['missing eligibility', 'canActivateAutomaticRuns', undefined],
+    ['null eligibility', 'canActivateAutomaticRuns', null], ['string eligibility', 'canActivateAutomaticRuns', 'true'],
+    ['numeric eligibility', 'canActivateAutomaticRuns', 1],
+    ['credential field', 'accessJwt', 'PRIVATE_ACCESS_JWT'], ['capability field', 'startCapability', 'PRIVATE_CAPABILITY'],
+    ['session authority field', 'sessionId', 'session123'], ['schedule status field', 'active', true],
+    ['acknowledgement field', 'activatedAt', '2026-11-09T00:00:00.000Z'],
+  ])('REQ-OPERATOR-209 AC5/6: rejects %s in the closed Installed wire', async (_fault, field, value) => {
+    const item: Record<string, unknown> = { ...installation(1) };
+    if (value === undefined) delete item[String(field)];
+    else item[String(field)] = value;
+    vi.stubGlobal('fetch', async () => Response.json({ items: [item], cursor: null }));
+    await expect(listOperatorInstallations()).rejects.toBeDefined();
+  });
+
   it('rejects a six-installation response rather than silently showing a different page size', async () => {
     vi.stubGlobal('fetch', async () => Response.json({ items: Array.from({ length: 6 }, (_, index) => installation(index + 1)), cursor: null }));
     await expect(listOperatorInstallations()).rejects.toBeDefined();
   });
+});
+
+it('REQ-OPERATOR-086 AC3: paging summary rows uses only summary and acknowledgement endpoints', async () => {
+  const requests: string[] = [];
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin);
+    const method = init?.method ?? 'GET';
+    requests.push(`${method} ${url.pathname}`);
+    if (method === 'GET' && url.pathname === '/api/operator-activities' && url.searchParams.get('limit') === '5') {
+      const older = url.searchParams.get('after') === 'run-1';
+      return Response.json({ items: [{ activityId: older ? 'run-2' : 'run-1', operatorId: 'dispatcher',
+        operatorName: 'Dispatcher', version: 'v1.2.3', executionStatus: 'completed', cleanupStatus: 'released',
+        collectionStatus: 'consumed', attention: false, sessionId: null, source: null, updatedAt: '2026-11-09T00:00:00.000Z',
+        resultSummary: { assessed: 3, merged: 1, notMerged: 2, deferred: 0, unknown: 0 } }],
+      nextCursor: older ? null : 'run-1', workingCount: 0, unreadCount: 0, latestSequence: 2 });
+    }
+    if (method === 'POST' && url.pathname === '/api/operator-activities/read') return Response.json({ unreadCount: 0 });
+    return Response.json({ error: 'Result bodies are not available to overview paging' }, { status: 403 });
+  });
+  render(() => createComponent(OperatorActivityButton, { enabled: true }));
+  await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+  expect(await screen.findByRole('button', { name: 'View run-1' })).toBeVisible();
+  expect(screen.getByText('1 merged')).toBeVisible();
+  await fireEvent.click(screen.getByRole('button', { name: 'Load 5 more' }));
+  expect(await screen.findByRole('button', { name: 'View run-2' })).toBeVisible();
+  expect(screen.getByText('2 not merged')).toBeVisible();
+  await fireEvent.click(screen.getByRole('button', { name: 'Newer 5' }));
+  expect(await screen.findByRole('button', { name: 'View run-1' })).toBeVisible();
+  // Intentional HTTP allowlist: overview paging must not fetch per-row result bodies.
+  expect(requests.every(request => request === 'GET /api/operator-activities'
+    || request === 'POST /api/operator-activities/read')).toBe(true);
+});
+
+it.each(['stopping', 'stopped', 'released'] as const)(
+  'REQ-OPERATOR-104: cancel-requested cleanup %s retains Cancel only while shutdown can remain pending', async cleanupStatus => {
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin);
+      if (url.pathname.endsWith('/read')) return Response.json({ unreadCount: 0 });
+      return Response.json({ items: [{ activityId: 'activity-1', operatorId: 'dispatcher',
+        executionStatus: 'cancel-requested', cleanupStatus, collectionStatus: 'unavailable',
+        attention: false, sessionId: null, source: null, updatedAt: detail.updatedAt }],
+        nextCursor: null, workingCount: 1, unreadCount: 0, latestSequence: 1 });
+    });
+    render(() => createComponent(OperatorActivityButton, { enabled: true }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    expect(await screen.findByRole('button', { name: 'View activity-1' })).toBeVisible();
+    const cancel = screen.queryByRole('button', { name: 'Cancel activity-1' });
+    if (cleanupStatus === 'stopping') expect(cancel).toBeEnabled();
+    else expect(cancel).toBeNull();
+  });
+
+describe('REQ-OPERATOR-016/104: cancellation acknowledgement wire', () => {
+  const summary = { activityId: 'activity-1', operatorId: 'dispatcher', executionStatus: 'cancel-requested',
+    cleanupStatus: 'stopped', collectionStatus: 'unavailable', attention: false, sessionId: null,
+    source: null, updatedAt: detail.updatedAt };
+  it('accepts the original cancellation fence through the strict summary client', async () => {
+    vi.stubGlobal('fetch', async () => Response.json(summary));
+    expect(await cancelOperatorActivity('activity-1')).toEqual(summary);
+  });
+  it('rejects a detail-shaped cancellation acknowledgement instead of falsely confirming it', async () => {
+    vi.stubGlobal('fetch', async () => Response.json({ ...summary, checkpoint: null, result: null }));
+    await expect(cancelOperatorActivity('activity-1')).rejects.toBeDefined();
+  });
+});
+
+describe('REQ-OPERATOR-036: failed activity mutations surface uncertainty instead of replaying', () => {
+  const summary = { activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'cancel-requested',
+    cleanupStatus: 'pending', collectionStatus: 'unavailable', attention: false, sessionId: null,
+    source: null, updatedAt: detail.updatedAt };
+  for (const operation of [
+    { name: 'cancel', send: () => cancelOperatorActivity('activity-1'), response: summary },
+    { name: 'acknowledge', send: () => acknowledgeOperatorActivities(4), response: { unreadCount: 0 } },
+  ]) {
+    it.each(['network', 'HTTP 503'])(`${operation.name} preserves the original %s failure even if replay would succeed`, async fault => {
+      let initialFailure = true;
+      vi.stubGlobal('fetch', async () => {
+        if (!initialFailure) return Response.json(operation.response);
+        initialFailure = false;
+        if (fault === 'network') throw new TypeError('Delivery was lost after submission');
+        return Response.json({ error: 'Unavailable' }, { status: 503 });
+      });
+      // Observable contract: an uncertain mutation must not become successful
+      // through an invisible retry. The upstream would succeed on any replay.
+      await expect(operation.send()).rejects.toBeDefined();
+    });
+  }
 });
 
 describe('REQ-OPERATOR-041: in-app owned result read', () => {

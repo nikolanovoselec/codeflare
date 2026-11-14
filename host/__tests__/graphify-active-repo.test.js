@@ -7,7 +7,7 @@
 import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, utimesSync, statSync, symlinkSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { join, resolve, dirname } from 'node:path';
@@ -895,4 +895,213 @@ describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014
       `global add ${join(repoA, 'graphify-out', 'graph.json')} --as repo-a`,
     ]);
   });
+
+  // Authentic upstream CLI and resolver, using the interpreter already supplied
+  // by host CI. Only serialized synthetic graphs are merged; no extraction runs.
+  function actualFixture() {
+    const python = process.env.GRAPHIFY_TEST_PYTHON;
+    assert.ok(python, 'Host CI must supply the authentic Graphify interpreter; never install or stub it');
+    const home = mkdtempSync(join(baseTmp, 'actual-home-'));
+    const bin = mkdtempSync(join(baseTmp, 'actual-bin-'));
+    const lock = join(home, 'global.lock');
+    const manifest = join(home, '.graphify', 'global-manifest.json');
+    const globalGraph = join(home, '.graphify', 'global-graph.json');
+    const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+    writeFileSync(join(bin, 'graphify'), `#!/bin/sh\nexec ${quote(python)} -m graphify "$@"\n`);
+    // Redirect only the protected path into the fixture; preserve real flock's
+    // timeout and command execution. Never acquire the production writer lock.
+    writeFileSync(join(bin, 'flock'), `#!/bin/sh
+[ "$3" = /run/codeflare/locks/graphify-global.lock ] || exit 2
+wait_flag="$1"; seconds="$2"; shift 3
+exec /usr/bin/flock "$wait_flag" "$seconds" ${quote(lock)} "$@"
+`);
+    chmodSync(join(bin, 'graphify'), 0o755);
+    chmodSync(join(bin, 'flock'), 0o755);
+    const env = hermeticEnv(sentinelDir, {
+      HOME: home, PYTHONPATH: '', PATH: `${bin}:/usr/bin:/bin`,
+      GRAPHIFY_GLOBAL_MANIFEST: manifest, GRAPHIFY_GLOBAL_GRAPH: globalGraph,
+      GRAPHIFY_SENTINEL: join(sentinelDir, 'graphify-active-cwd'), CODEFLARE_WORKSPACE: workspace,
+    });
+    function publish(repo, label) {
+      const path = join(repo, 'graphify-out', 'graph.json');
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, JSON.stringify({ directed: false, multigraph: false, graph: {},
+        nodes: [{ id: label, label, source_file: `${label}.py`, file_type: 'code' }], links: [] }));
+      return path;
+    }
+    function add(path, tag) {
+      const result = spawnSync(python, ['-m', 'graphify', 'global', 'add', path, '--as', tag],
+        { cwd: home, env, encoding: 'utf8', timeout: 15000 });
+      assert.equal(result.status, 0, result.stderr);
+    }
+    function hook(cwd) {
+      const result = spawnSync('bash', [HOOK], { cwd: home, env, encoding: 'utf8', timeout: 15000,
+        input: JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'ls' } }) });
+      assert.equal(result.status, 0, result.stderr);
+    }
+    const read = path => JSON.parse(readFileSync(path, 'utf8'));
+    return { python, home, lock, env, manifest, globalGraph, publish, add, hook, read };
+  }
+
+  it('IG0630: actual Python MCP resolver chooses global, pinned, then freshest workspace graph', () => {
+    const f = actualFixture();
+    const pinned = makeRepo(workspace, 'pinned');
+    const fresh = makeRepo(workspace, 'fresh');
+    const pinnedGraph = f.publish(pinned, 'Pinned');
+    const freshGraph = f.publish(fresh, 'Fresh');
+    utimesSync(pinnedGraph, 1000, 1000);
+    utimesSync(freshGraph, 2000, 2000);
+    writeFileSync(join(sentinelDir, 'graphify-active-cwd'), pinned + '\n');
+    f.add(pinnedGraph, 'pinned');
+    const wrapper = resolve(dirname(HOOK), 'graphify-mcp-lazy.py');
+    function choice() {
+      const result = spawnSync(f.python, ['-c',
+        'import json,runpy,sys; m=runpy.run_path(sys.argv[1]); print(json.dumps([str(p) if p is not None else None for p in m["_resolve_active"]()]))',
+        wrapper], { cwd: f.home, env: f.env, encoding: 'utf8', timeout: 15000 });
+      assert.equal(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout);
+    }
+    assert.deepEqual(choice(), [null, f.globalGraph]);
+    rmSync(f.globalGraph);
+    assert.deepEqual(choice(), [pinned, pinnedGraph]);
+    rmSync(join(sentinelDir, 'graphify-active-cwd'));
+    assert.deepEqual(choice(), [fresh, freshGraph]);
+    const empty = makeRepo(workspace, 'graphless');
+    writeFileSync(join(sentinelDir, 'graphify-active-cwd'), empty + '\n');
+    assert.deepEqual(choice(), [empty, null], 'valid graphless pin must not leak another workspace repo');
+  });
+
+  it('IG0318/IG0631/IG0632: sequential switch persists source path/hash and exact global contents, then vault only', () => {
+    const f = actualFixture();
+    const vault = join(f.home, 'Vault');
+    f.add(f.publish(vault, 'VaultProof'), 'user_vault');
+    const old = makeRepo(mkdtempSync(join(baseTmp, 'old-checkout-')), 'repo-a');
+    f.add(f.publish(old, 'OldProof'), 'repo-a');
+    const stale = makeRepo(workspace, 'stale');
+    f.add(f.publish(stale, 'StaleProof'), 'stale');
+    writeFileSync(join(sentinelDir, 'graphify-active-cwd'), old + '\n');
+    const active = makeRepo(workspace, 'repo-a');
+    const activeGraph = f.publish(active, 'ActiveProof');
+    f.hook(active);
+    function assertActive(label) {
+      const repos = f.read(f.manifest).repos;
+      assert.deepEqual(Object.keys(repos).sort(), ['repo-a', 'user_vault']);
+      assert.equal(repos['repo-a'].source_path, activeGraph);
+      assert.equal(repos['repo-a'].source_hash, graphHash(active));
+      assert.deepEqual(f.read(f.globalGraph).nodes.map(n => n.label).sort(), [label, 'VaultProof'].sort());
+      assert.equal(sentinel(sentinelDir), active);
+    }
+    assertActive('ActiveProof');
+    // In-place graph refresh, not an extraction/build of any checkout.
+    f.publish(active, 'UpdatedProof');
+    utimesSync(activeGraph, Date.now() / 1000 + 2, Date.now() / 1000 + 2);
+    f.hook(active);
+    assertActive('UpdatedProof');
+    const empty = makeRepo(workspace, 'empty');
+    f.hook(empty);
+    assert.deepEqual(Object.keys(f.read(f.manifest).repos), ['user_vault']);
+    assert.deepEqual(f.read(f.globalGraph).nodes.map(n => n.label), ['VaultProof']);
+    assert.equal(sentinel(sentinelDir), empty);
+  });
+
+  it('RQ0841: identical graphs rebind checkout provenance without rewriting global graph bytes', () => {
+    const f = actualFixture();
+    f.add(f.publish(join(f.home, 'Vault'), 'VaultProof'), 'user_vault');
+    const old = makeRepo(mkdtempSync(join(baseTmp, 'identical-old-')), 'same');
+    const next = makeRepo(mkdtempSync(join(baseTmp, 'identical-new-')), 'same');
+    const oldGraph = f.publish(old, 'IdenticalProof');
+    const nextGraph = f.publish(next, 'IdenticalProof');
+    f.add(oldGraph, 'same');
+    const graphBefore = readFileSync(f.globalGraph);
+    const hashBefore = f.read(f.manifest).repos.same.source_hash;
+    f.hook(next);
+    assert.equal(f.read(f.manifest).repos.same.source_path, nextGraph);
+    assert.equal(f.read(f.manifest).repos.same.source_hash, hashBefore);
+    assert.deepEqual(readFileSync(f.globalGraph), graphBefore);
+    rmSync(old, { recursive: true });
+    assert.ok(existsSync(f.read(f.manifest).repos.same.source_path));
+    assert.deepEqual(readFileSync(f.globalGraph), graphBefore);
+  });
+
+  it('RQ0081: overlapping Vault-only plans settle to one active repository under the real writer lock', async () => {
+    const f = actualFixture();
+    f.add(f.publish(join(f.home, 'Vault'), 'VaultProof'), 'user_vault');
+    const a = makeRepo(workspace, 'concurrent-a');
+    const b = makeRepo(workspace, 'concurrent-b');
+    f.publish(a, 'AProof');
+    f.publish(b, 'BProof');
+    // Hold the real fixture lock until BOTH hooks reach their lock acquisition.
+    // An unlocked planner sees Vault-only in both processes; a locked planner
+    // sees the preceding writer's addition before choosing its removal set.
+    const holder = spawn('/usr/bin/flock', [f.lock, 'bash', '-c', 'printf ready; read -r release'],
+      { stdio: ['pipe', 'pipe', 'pipe'] });
+    const held = new Promise((resolve, reject) => {
+      holder.stdout.once('data', resolve);
+      holder.once('error', reject);
+    });
+    const holderDone = new Promise(resolve => holder.once('close', resolve));
+    await held;
+    const flock = join(f.env.PATH.split(':')[0], 'flock');
+    const wrapper = readFileSync(flock, 'utf8');
+    // Announce arrival via stdout; no sleeps, polling or production lock.
+    writeFileSync(flock, wrapper.replace('wait_flag=', 'printf "lock-ready\\n"\nwait_flag='));
+    function start(cwd) {
+      const child = spawn('bash', [HOOK], { env: f.env, cwd: f.home, stdio: ['pipe', 'pipe', 'pipe'] });
+      const ready = new Promise((resolve, reject) => {
+        child.stdout.once('data', resolve);
+        child.once('error', reject);
+      });
+      const done = new Promise(resolve => child.once('close', code => resolve(code)));
+      child.stdin.end(JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'ls' } }));
+      return { ready, done };
+    }
+    const first = start(a);
+    const second = start(b);
+    try { await Promise.all([first.ready, second.ready]); }
+    finally { holder.stdin.end(); await holderDone; }
+    assert.deepEqual(await Promise.all([first.done, second.done]), [0, 0]);
+    const tags = Object.keys(f.read(f.manifest).repos).sort();
+    assert.equal(tags.length, 2);
+    assert.ok(tags.includes('user_vault'));
+    const active = tags.find(tag => tag !== 'user_vault');
+    assert.ok(['concurrent-a', 'concurrent-b'].includes(active));
+    assert.deepEqual(f.read(f.globalGraph).nodes.map(node => node.label).sort(),
+      [active === 'concurrent-a' ? 'AProof' : 'BProof', 'VaultProof'].sort());
+  });
+
+  it('IG0318: real bounded lock contention preserves manifest/graph bytes and prior sentinel, then retries', async () => {
+    const f = actualFixture();
+    f.add(f.publish(join(f.home, 'Vault'), 'VaultProof'), 'user_vault');
+    const old = makeRepo(workspace, 'old');
+    f.add(f.publish(old, 'OldProof'), 'old');
+    const next = makeRepo(workspace, 'next');
+    f.publish(next, 'NextProof');
+    writeFileSync(join(sentinelDir, 'graphify-active-cwd'), old + '\n');
+    const beforeManifest = readFileSync(f.manifest, 'utf8');
+    const beforeGraph = readFileSync(f.globalGraph, 'utf8');
+    const holder = spawn('/usr/bin/flock', [f.lock, 'bash', '-c', 'printf ready; read -r release'],
+      { stdio: ['pipe', 'pipe', 'pipe'] });
+    const exited = new Promise(resolve => holder.once('close', resolve));
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('fixture lock acquisition timed out')), 2000);
+        holder.once('error', error => { clearTimeout(timer); reject(error); });
+        holder.stdout.once('data', () => { clearTimeout(timer); resolve(); });
+        holder.once('exit', () => { clearTimeout(timer); reject(new Error('fixture lock holder exited before release')); });
+      });
+      f.hook(next); // production -w 5 must time out against the real held lock
+      assert.equal(sentinel(sentinelDir), old);
+      assert.equal(readFileSync(f.manifest, 'utf8'), beforeManifest);
+      assert.equal(readFileSync(f.globalGraph, 'utf8'), beforeGraph);
+    } finally {
+      holder.stdin.end();
+      await exited;
+    }
+    f.hook(next);
+    assert.equal(sentinel(sentinelDir), next);
+    assert.deepEqual(Object.keys(f.read(f.manifest).repos).sort(), ['next', 'user_vault']);
+    assert.deepEqual(f.read(f.globalGraph).nodes.map(n => n.label).sort(), ['NextProof', 'VaultProof']);
+    // This is exclusion + sequential retry, NOT the distinct RQ0081 pre-lock decision race.
+  });
+
 });

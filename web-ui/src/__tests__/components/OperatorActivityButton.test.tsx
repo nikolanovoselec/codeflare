@@ -2,6 +2,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/te
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
 import { piLoginRecoveryCopy, type OperatorActivityDetail } from '../../api/operator-activities';
+import { sessionStore } from '../../stores/session';
+
+const getPreferencesMock = vi.hoisted(() => vi.fn());
+vi.mock('../../api/client', async original => ({
+  ...await original<typeof import('../../api/client')>(),
+  getPreferences: getPreferencesMock,
+}));
 
 const { listMock, cancelMock, detailMock, readMock } = vi.hoisted(() => ({
   listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async (_through: number) => ({ unreadCount: 0 })) }));
@@ -24,6 +31,45 @@ const active = { activityId: 'activity-1', operatorId: 'reviewer', executionStat
   cleanupStatus: 'pending' as const, collectionStatus: 'unavailable' as const,
   attention: false, sessionId: 'session-1', source: 'Repository dispatch', updatedAt: new Date().toISOString() };
 
+describe('REQ-OPERATOR-086: regional run timestamps', () => {
+  it.each([
+    { locale: 'de-CH', timeZone: 'Europe/Zurich', instant: '2026-11-10T13:05:06.000Z' },
+    { locale: 'de-CH', timeZone: 'Europe/Zurich', instant: '2026-11-10T23:05:06.000Z' },
+    { locale: 'en-US', timeZone: 'America/New_York', instant: '2026-11-10T13:05:06.000Z' },
+    { locale: 'en-US-u-hc-h23', timeZone: 'America/New_York', instant: '2026-11-10T13:05:06.000Z' },
+    { locale: 'de-CH', timeZone: undefined, instant: '2026-11-10T13:05:06.000Z' },
+  ])('uses preferred $locale timestamps in $timeZone for overview, detail and refresh ($instant)', async ({ locale, timeZone, instant }) => {
+    const previousPreferences = { ...sessionStore.preferences };
+    getPreferencesMock.mockResolvedValue({ userTimezone: timeZone });
+    const language = vi.spyOn(navigator, 'languages', 'get').mockReturnValue([locale]);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(instant));
+    try {
+      await sessionStore.loadPreferences();
+      const item = { ...active, updatedAt: instant };
+      listMock.mockResolvedValue({ items: [item] });
+      detailMock.mockResolvedValue({ ...item, checkpoint: null, result: null });
+      render(() => <OperatorActivityButton enabled />);
+      await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+      // The intentional user-copy contract is native Intl for the preferred region and saved zone.
+      const date = new Date(instant);
+      const timestamp = date.toLocaleString(locale, { timeZone });
+      const refreshTime = date.toLocaleTimeString(locale, { timeZone });
+      expect(await screen.findByText(`Updated ${timestamp}`)).toBeVisible();
+      expect(await screen.findByText(`Updated ${refreshTime}`)).toBeVisible();
+      await fireEvent.click(screen.getByRole('button', { name: 'View activity-1' }));
+      expect(await screen.findByText(`Updated ${timestamp}`)).toBeVisible();
+      expect(screen.getByText('Execution: running')).toBeVisible();
+    } finally {
+      // Preserve explicit absence: JSON serialization would omit it and merge the prior zone.
+      getPreferencesMock.mockResolvedValue({ ...previousPreferences, userTimezone: previousPreferences.userTimezone });
+      await sessionStore.loadPreferences();
+      language.mockRestore();
+      clock.mockRestore();
+    }
+  });
+});
+
+// REQ-OPERATOR-105: Dispatcher inference context.
 describe('REQ-OPERATOR-027: operator activity header control', () => {
   it('REQ-OPERATOR-007: shows provider-default in the existing run dropdown without Off or Medium', async () => {
     listMock.mockResolvedValue({ items: [active] });
@@ -184,19 +230,27 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     listMock.mockResolvedValue({ items: [] });
     const width = window.innerWidth;
     const height = window.innerHeight;
+    Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true, writable: true });
     try {
       render(() => <OperatorActivityButton enabled />);
-      await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+      const trigger = screen.getByRole('button', { name: /operator activity/i });
+      await fireEvent.click(trigger);
       await waitFor(() => expect(screen.getByText('No activity')).toBeTruthy());
+      expect(screen.getByRole('dialog', { name: /operator activity/i })).toBeVisible();
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
 
       // Height-only resize: on-screen keyboard or URL bar, nothing measured changed.
       Object.defineProperty(window, 'innerHeight', { value: height - 260, configurable: true, writable: true });
       window.dispatchEvent(new Event('resize'));
       expect(screen.getByText('No activity')).toBeTruthy();
+      expect(screen.getByRole('dialog', { name: /operator activity/i })).toBeVisible();
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
 
       Object.defineProperty(window, 'innerWidth', { value: 480, configurable: true, writable: true });
       window.dispatchEvent(new Event('resize'));
       await waitFor(() => expect(screen.queryByText('No activity')).toBeNull());
+      expect(screen.queryByRole('dialog', { name: /operator activity/i })).toBeNull();
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
     } finally {
       Object.defineProperty(window, 'innerWidth', { value: width, configurable: true, writable: true });
       Object.defineProperty(window, 'innerHeight', { value: height, configurable: true, writable: true });

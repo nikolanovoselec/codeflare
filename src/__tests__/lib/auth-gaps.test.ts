@@ -460,38 +460,36 @@ describe('REQ-AUTH-010: Auth bypass prevention sentinel', () => {
     expect(user.email).toBe('setup-admin@company.com');
   });
 
-  // REQ-AUTH-010 AC2: Once sentinel is set, pre-setup fallback is permanently disabled
-  it('REQ-AUTH-010 AC2: header trust disabled permanently once auth config fetched from KV', async () => {
+  // REQ-AUTH-010 AC2/AC3: TTL expiry must not clear the lifetime latch.
+  it.each(['missing', 'storage failure'] as const)('REQ-AUTH-010 AC2/AC3: rejects header trust after populated-cache expiry and %s refetch', async loss => {
     // First request: populate KV with real auth config so sentinel is set
     mockKV._store.set('setup:auth_domain', 'myteam.cloudflareaccess.com');
     mockKV._store.set('setup:access_aud', 'aud-abc-123');
 
     const env = makeEnv();
 
-    // First request fetches config and sets the sentinel
-    const firstRequest = new Request('http://localhost/first', {
-      headers: { 'cf-access-authenticated-user-email': 'user@company.com' },
-    });
-    const firstUser = await getUserFromRequest(firstRequest, env);
-    // No JWT present, auth configured → unauthenticated (FIX-1)
-    expect(firstUser.authenticated).toBe(false);
-
-    // Now simulate KV failure by removing auth config
-    // (sentinel must NOT revert even if KV would return null on next read)
-    // The sentinel is module-level — resetting cache clears it, but we don't reset here.
-    // Remove KV entries to simulate transient failure
-    mockKV._store.delete('setup:auth_domain');
-    mockKV._store.delete('setup:access_aud');
-
-    // Cache TTL: re-use cached values (don't clear cache — this mirrors real isolate behavior)
-    const secondRequest = new Request('http://localhost/second', {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const request = () => new Request('https://example.test/protected', {
       headers: { 'cf-access-authenticated-user-email': 'attacker@evil.com' },
     });
-    const secondUser = await getUserFromRequest(secondRequest, env);
-
-    // Even with KV gone and email header present, the sentinel keeps fallback disabled
-    // (cached auth config keeps authConfigured=true, so header is rejected)
-    expect(secondUser.authenticated).toBe(false);
+    try {
+      expect((await getUserFromRequest(request(), env)).authenticated).toBe(false);
+      mockKV._store.delete('setup:auth_domain');
+      mockKV._store.delete('setup:access_aud');
+      clock.mockReturnValue(1_300_001);
+      if (loss === 'storage failure') {
+        mockKV.get.mockRejectedValueOnce(new Error('transient KV failure'));
+        // Fetch failure is propagated, never converted into a trusted identity.
+        await expect(getUserFromRequest(request(), env)).rejects.toThrow('transient KV failure');
+      }
+      // This successful refetch returns no config: cached populated values no
+      // longer shield fallback. Only the lifetime latch prevents header trust.
+      expect(await getUserFromRequest(request(), env)).toMatchObject({ authenticated: false, email: '' });
+      clock.mockReturnValue(1_330_002);
+      expect((await getUserFromRequest(request(), env)).authenticated).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   // REQ-AUTH-010 AC4: resetAuthConfigCache() clears the sentinel (for tests)

@@ -30,6 +30,7 @@ Your prompt opens with `CAPTURE_REQUEST` and carries the whole request inline:
 
 - `session_id`: root-session identifier.
 - `current_count`: frozen real-user prompt count.
+- `transcript_fingerprint`: launcher-computed retained-prefix SHA-256; copy verbatim.
 - `capture_timestamp`: precomputed user-timezone timestamp; use verbatim.
 - `capture_file`: precomputed absolute `.md` path; use verbatim.
 - the conversation itself, between `--- BEGIN TRANSCRIPT <marker> ---` and
@@ -83,6 +84,7 @@ Write `TARGET_WORK` directly, with no scratchpad, in this shape:
 session_id: <session_id>
 captured_at: <capture_timestamp>
 captured_prompt_count: <current_count>
+captured_prompt_fingerprint: <transcript_fingerprint>
 captured_chunks: 1
 ---
 

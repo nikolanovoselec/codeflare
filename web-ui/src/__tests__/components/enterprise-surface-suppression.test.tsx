@@ -236,26 +236,28 @@ describe('REQ-ENTERPRISE-008 AC2: SessionSection mode selector', () => {
 });
 
 // ---------------------------------------------------------------------------
-// REQ-BROWSER-007 — Push & Deploy accordion suppressed in enterprise.
-// In enterprise the per-user deploy-keys accordion is gone: GitHub is managed via
-// Connect GitHub and the Cloudflare Browser Rendering token is admin-set in Setup,
-// so users never manage deploy credentials. Outside enterprise it renders unchanged.
-// Asserted via the (mocked) DeployKeysSection's testid so no UI copy is pinned.
+// REQ-AGENT-018/064 — Integrations is available in Enterprise too; the
+// administrator-owned Browser Run configuration remains a separate surface.
 // ---------------------------------------------------------------------------
-describe('REQ-BROWSER-007: Push & Deploy accordion gating', () => {
+describe('REQ-AGENT-018/064: Integrations is not Enterprise-suppressed', () => {
   const panelProps = { isOpen: true, onClose: () => {}, currentUserEmail: 'admin@example.com', currentUserRole: 'admin' as const };
 
-  it('hides the Push & Deploy accordion in enterprise mode', () => {
+  it('opens Integrations in enterprise mode without restoring the mode selector or LLM keys', () => {
     render(() => <SettingsPanel {...panelProps} enterpriseMode />);
-    expect(screen.queryByTestId('deploy-section')).not.toBeInTheDocument();
+    const header = screen.getByRole('button', { name: /^Integrations/ });
+    fireEvent.click(header);
+    expect(screen.getByRole('region', { name: 'Integrations' })).toBeInTheDocument();
+    expect(screen.getByTestId('deploy-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('llm-section')).not.toBeInTheDocument();
   });
 
-  it('renders the Push & Deploy accordion in onboarding/default mode', () => {
+  it('renders Integrations in onboarding/default mode', () => {
     render(() => <SettingsPanel {...panelProps} />);
     expect(screen.getByTestId('deploy-section')).toBeInTheDocument();
   });
 
-  it('renders the Push & Deploy accordion in SaaS mode', () => {
+  it('renders Integrations in SaaS mode', () => {
     sessionStoreState.saasMode = true;
     render(() => <SettingsPanel {...panelProps} />);
     expect(screen.getByTestId('deploy-section')).toBeInTheDocument();

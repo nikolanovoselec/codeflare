@@ -10,7 +10,7 @@ import { storageStore } from './stores/storage';
 import { terminalStore } from './stores/terminal';
 import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from './lib/agent-catalog';
 import { logger } from './lib/logger';
-import { createMcpPortalRecovery } from './lib/mcp-portal-recovery';
+import { createMcpPortalRecovery, type McpReturnOutcome } from './lib/mcp-portal-recovery';
 import './styles/app.css';
 
 // Lazy-load the onboarding landing page (only needed when onboarding mode is active)
@@ -60,6 +60,7 @@ const AppContent: Component = () => {
   let resumeCheckInFlight = false;
   let wasHidden = document.visibilityState === 'hidden';
   let disposed = false;
+  const [mcpReturnOutcome, setMcpReturnOutcome] = createSignal<McpReturnOutcome | undefined>(undefined, { equals: false });
   let recoveryOwner: string | undefined;
   let portalRecovery: ReturnType<typeof createMcpPortalRecovery> | undefined;
 
@@ -77,8 +78,9 @@ const AppContent: Component = () => {
     if (disposed || redirecting()) return;
     if (!portalRecovery || owner !== recoveryOwner) {
       portalRecovery?.dispose();
+      if (owner !== recoveryOwner) setMcpReturnOutcome(undefined);
       recoveryOwner = owner;
-      portalRecovery = createMcpPortalRecovery(owner, url => window.location.assign(url), markAuthRedirect);
+      portalRecovery = createMcpPortalRecovery(owner, url => window.location.assign(url), markAuthRedirect, setMcpReturnOutcome);
     }
     void portalRecovery.check();
   };
@@ -90,6 +92,17 @@ const AppContent: Component = () => {
     portalRecovery = undefined;
     try {
       const user = await getUser();
+      if (disposed || redirecting()) return;
+      if (user.email !== userName()) {
+        // Layout remounts cannot fence module-global session/storage/workspace
+        // caches. Retire the old shell before a full document reinitialization;
+        // never publish B into a runtime that still contains A's cached state.
+        setRedirecting(true);
+        sessionStore.stopAllPolling();
+        terminalStore.disposeAll();
+        window.location.assign('/app/');
+        return;
+      }
       recoverPortals(user.email);
     } catch (err) {
       markAuthRedirect(err);
@@ -120,6 +133,7 @@ const AppContent: Component = () => {
 
     try {
       const user = await getUser();
+      if (disposed) return;
       setUserName(user.email);
       setUserRole(user.role);
       setUserAccessTier(user.accessTier);
@@ -222,7 +236,7 @@ const AppContent: Component = () => {
             </div>
           }
         >
-          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} />
+          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} operatorManagementEligible={operatorManagementEligible()} mcpReturnOutcome={mcpReturnOutcome()} />
         </Show>
       </Show>
     </Show>

@@ -70,7 +70,82 @@ CMD=$(printf '%s\n' "$CMD" | awk '{ sub(/[[:space:]]+#.*$/, ""); sub(/^#.*$/, ""
 SAFE_WRAPPER='(~|\$HOME|/home/[^/]+)/\.(claude/skills|pi/agent/skills)/safe-local-checks/scripts/safe-local-check\.mjs'
 if [[ "$CMD" != *$'\n'* ]] \
   && printf '%s' "$CMD" | grep -qE "^[[:space:]]*(cd[[:space:]]+[^;&|<>(){}\`]+[[:space:]]*&&[[:space:]]*)?node[[:space:]]+[\"']?${SAFE_WRAPPER}[\"']?([[:space:]][^;&|<>(){}\`]*)?$"; then
-  exit 0
+  # The tuned wrapper's analyzer modes pass argv through unchanged. Contain
+  # those targets here using the real hook cwd and canonical Git root.
+  CHECK_CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+  [ -n "$CHECK_CWD" ] || CHECK_CWD=$PWD
+  if node - "$CMD" "$CHECK_CWD" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const { homedir } = require('node:os');
+const { execFileSync } = require('node:child_process');
+// Decode argv without splitting escaped whitespace or quoted separators.
+const words = [];
+let word = '', quote = '', started = false;
+const source = process.argv[2];
+for (let index = 0; index < source.length; index++) {
+  const char = source[index];
+  if (char === '\\' && quote !== "'") {
+    if (index + 1 >= source.length) process.exit(1);
+    word += source[++index]; started = true; continue;
+  }
+  if (quote) { if (char === quote) quote = ''; else word += char; started = true; continue; }
+  if (char === "'" || char === '"') { quote = char; started = true; continue; }
+  if (/\s/.test(char)) {
+    if (started) words.push(word);
+    word = ''; started = false; continue;
+  }
+  word += char; started = true;
+}
+if (quote) process.exit(1);
+if (started) words.push(word);
+const node = words[0] === 'cd' ? 3 : 0;
+if (words[node] !== 'node') process.exit(1);
+const mode = words[node + 2];
+if (!['oxlint', 'eslint', 'biome', 'prettier'].includes(mode)) process.exit(0);
+function canonical(value, cwd) {
+  if (/[\$`*?\[\]{}]/u.test(value)) throw new Error('unresolved analyzer path');
+  if (value.startsWith('~')) {
+    if (value !== '~' && !value.startsWith('~/')) throw new Error('unresolved home path');
+    value = `${homedir()}${value.slice(1)}`;
+  }
+  let current = path.isAbsolute(value) ? path.sep : fs.realpathSync(cwd);
+  for (const component of value.split(path.sep)) {
+    if (!component || component === '.') continue;
+    if (component === '..') { current = path.dirname(current); continue; }
+    const candidate = path.resolve(current, component);
+    try { current = fs.realpathSync(candidate); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; current = candidate; }
+  }
+  return current;
+}
+try {
+  let cwd = fs.realpathSync(process.argv[3]);
+  if (words[0] === 'cd') {
+    if (node !== 3 || words[2] !== '&&') throw new Error('invalid cd');
+    cwd = canonical(words[1], cwd);
+  }
+  const root = fs.realpathSync(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim());
+  const targets = [];
+  let positionalOnly = false;
+  for (const argument of words.slice(node + (mode === 'biome' ? 4 : 3))) {
+    if (argument === '--' && !positionalOnly) { positionalOnly = true; continue; }
+    if (positionalOnly || !argument.startsWith('-')) targets.push(argument);
+    else if (argument.includes('=')) targets.push(argument.slice(argument.indexOf('=') + 1));
+    else if (/^-[^-].+/u.test(argument)) targets.push(argument.slice(2));
+  }
+  for (const target of [cwd, ...targets]) {
+    const rel = path.relative(root, canonical(target, cwd));
+    if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw new Error('outside repository');
+  }
+} catch { process.exit(1); }
+NODE
+  then
+    exit 0
+  fi
+  # Keep the existing user-only consume-on-use override; never silently grant
+  # the wrapper exception when containment or its prerequisites fail.
+  CONTAINMENT_FAILED=true
 fi
 
 # USER-only bypass sentinel. One-shot: consumed on use so the bypass
@@ -79,6 +154,11 @@ fi
 BYPASS_FILE="${LOCAL_BUILD_BYPASS_FILE:-/tmp/local-build-bypass}"
 if [ -f "$BYPASS_FILE" ]; then
   rm -f "$BYPASS_FILE" 2>/dev/null || true
+  exit 0
+fi
+
+if [ "${CONTAINMENT_FAILED:-false}" = true ]; then
+  jq -n '{decision:"block", reason:"Managed analyzer containment failed: checked paths must remain inside the canonical repository."}'
   exit 0
 fi
 

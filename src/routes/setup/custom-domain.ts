@@ -5,15 +5,15 @@ import { CF_API_BASE, logger, getWorkerNameFromHostname, detectCloudflareAuthErr
 import type { SetupStep } from './shared';
 
 /**
- * Resolve the Cloudflare zone ID for a given domain.
- * Looks up the zone by the root domain (last two parts of the FQDN).
+ * Resolve the Cloudflare zone (ID and name) for a given domain.
+ * Tries progressively shorter suffixes; the matched suffix is the zone name used to derive the relative DNS record name.
  */
 async function resolveZone(
   token: string,
   domain: string,
   steps: SetupStep[],
   stepIndex: number
-): Promise<string> {
+): Promise<{ id: string; name: string }> {
   // Try progressively shorter domain suffixes to support ccTLDs (.co.uk, .com.au, etc.)
   // For "app.example.co.uk", try: "app.example.co.uk", "example.co.uk", "co.uk"
   const domainParts = domain.split('.');
@@ -22,6 +22,7 @@ async function resolveZone(
     candidates.push(domainParts.slice(i).join('.'));
   }
 
+  let confirmedAbsent = true;
   for (const zoneName of candidates) {
     let zonesRes: Response;
     try {
@@ -37,6 +38,11 @@ async function resolveZone(
     }
 
     const zonesData = await parseCfResponse<Array<{ id: string }>>(zonesRes);
+    // Only successful, well-formed empty lookups prove this input cannot resolve.
+    // Provider rejection, malformed data and transport failure remain uncertain.
+    if (!zonesRes.ok || !zonesData.success || !Array.isArray(zonesData.result) || zonesData.result.length !== 0) {
+      confirmedAbsent = false;
+    }
 
     if (!zonesData.success) {
       const cfErrors = zonesData.errors || [];
@@ -61,13 +67,14 @@ async function resolveZone(
     }
 
     if (zonesData.result?.length) {
-      return zonesData.result[0].id;
+      return { id: zonesData.result[0].id, name: zoneName };
     }
   }
 
   // None of the candidates matched
   steps[stepIndex].status = 'error';
   steps[stepIndex].error = `Zone not found for domain: ${domain}`;
+  if (confirmedAbsent) throw new ValidationError(`Zone not found for domain: ${domain}`);
   throw new SetupError(`Zone not found for domain: ${domain}`, steps);
 }
 
@@ -114,6 +121,7 @@ async function upsertDnsRecord(
   token: string,
   accountId: string,
   zoneId: string,
+  zoneName: string,
   domain: string,
   workerName: string,
   requestUrl: string,
@@ -132,8 +140,9 @@ async function upsertDnsRecord(
   }
 
   const workersDevTarget = `${workerName}.${accountSubdomain}.workers.dev`;
-  const domainParts = domain.split('.');
-  const subdomain = domainParts.length > 2 ? domainParts.slice(0, -2).join('.') : '@';
+  // Cloudflare expects the record name relative to the zone, so a zone that is itself a subdomain
+  // (e.g. sub.example.com) must not have its own labels repeated in the record name.
+  const recordName = domain === zoneName ? '@' : domain.slice(0, -(zoneName.length + 1));
 
   // Check if DNS record already exists
   let existingDnsRecordId: string | null = null;
@@ -177,7 +186,7 @@ async function upsertDnsRecord(
         },
         body: JSON.stringify({
           type: 'CNAME',
-          name: subdomain,
+          name: recordName,
           content: workersDevTarget,
           proxied: true
         }),
@@ -226,7 +235,7 @@ async function upsertDnsRecord(
             },
             body: JSON.stringify({
               type: 'CNAME',
-              name: subdomain,
+              name: recordName,
               content: workersDevTarget,
               proxied: true
             }),
@@ -245,7 +254,7 @@ async function upsertDnsRecord(
       const dnsErrMsg = dnsError.errors?.[0]?.message || 'unknown';
       logger.error('DNS record configuration failed', new Error(dnsErrMsg), {
         domain,
-        subdomain,
+        recordName,
         target: workersDevTarget,
         zoneId,
         method: dnsMethod,
@@ -267,7 +276,7 @@ async function upsertDnsRecord(
       throw new SetupError('Failed to configure DNS record', steps);
     }
   } else {
-    logger.info(`DNS record ${existingDnsRecordId ? 'updated' : 'created'}`, { domain, subdomain, target: workersDevTarget });
+    logger.info(`DNS record ${existingDnsRecordId ? 'updated' : 'created'}`, { domain, recordName, target: workersDevTarget });
   }
 }
 
@@ -443,17 +452,17 @@ export async function handleConfigureCustomDomain(
   }
 
   // Resolve zone ID for the custom domain
-  const zoneId = await resolveZone(token, customDomain, steps, stepIndex);
+  const zone = await resolveZone(token, customDomain, steps, stepIndex);
 
   // Extract worker name from request hostname
   const workerName = getWorkerNameFromHostname(requestUrl, envWorkerName);
 
   // Create or update DNS CNAME record pointing to workers.dev
-  await upsertDnsRecord(token, accountId, zoneId, customDomain, workerName, requestUrl, steps, stepIndex);
+  await upsertDnsRecord(token, accountId, zone.id, zone.name, customDomain, workerName, requestUrl, steps, stepIndex);
 
   // Add worker route for custom domain
-  await createWorkerRoute(token, zoneId, customDomain, workerName, steps, stepIndex);
+  await createWorkerRoute(token, zone.id, customDomain, workerName, steps, stepIndex);
 
   steps[stepIndex].status = 'success';
-  return zoneId;
+  return zone.id;
 }

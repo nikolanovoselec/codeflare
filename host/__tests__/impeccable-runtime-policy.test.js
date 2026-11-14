@@ -19,6 +19,21 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const skillRoot = join(repoRoot, 'preseed/agents/claude/skills/impeccable');
 
 function copyReviewedFixture(skillVersion, destination) {
+  if (skillVersion === '4.8.2') {
+    // Compatibility fixture, not a complete 4.8.2 artifact: policy references
+    // are byte-identical to 4.8.0. Retain its browser command anchors and
+    // launcher placeholders (replaced wholesale); reconstruct the actual
+    // candidate SKILL.md bytes and engine requirement from the reviewed ZIP.
+    copyReviewedFixture('4.8.0', destination);
+    const skillPath = join(destination, 'SKILL.md');
+    const skill = readFileSync(skillPath, 'utf8')
+      .replace(/^description:.*$/m, 'description: "Use to design, redesign, critique, audit, polish or animate a frontend: websites, landing pages, dashboards, app UI, components, native iOS/Android screens, or a design system (DESIGN.md)."')
+      .replace('version: 4.8.0\n', 'version: 4.8.2\n');
+    assert.equal(createHash('sha256').update(skill).digest('hex'), '637b7b727122a273912454e6c7c2d7775186eb0c3c379c2a7c13bec595c61619');
+    writeFileSync(skillPath, skill);
+    writeFileSync(join(destination, 'scripts/VERSION'), '0.1.21\n');
+    return;
+  }
   if (skillVersion !== '4.8.0') {
     cpSync(join(repoRoot, `host/__fixtures__/impeccable-${skillVersion}`), destination, { recursive: true });
     return;
@@ -99,7 +114,7 @@ describe('Impeccable managed runtime policy', () => {
     assert.deepEqual(result.stdout.trim().split('\n'), ['context', '--target', 'file.ts']);
   }));
 
-  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10'], ['4.5.0', '0.1.11'], ['4.6.0', '0.1.15'], ['4.7.0', '0.1.16'], ['4.8.0', '0.1.18']]) {
+  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10'], ['4.5.0', '0.1.11'], ['4.6.0', '0.1.15'], ['4.7.0', '0.1.16'], ['4.8.0', '0.1.18'], ['4.8.2', '0.1.21']]) {
     it(`REQ-AGENT-181: reviewed ${skillVersion} dispatches only to its matching image engine ${engineVersion}`, () => withTempDir(root => {
       const source = join(root, 'source');
       copyReviewedFixture(skillVersion, source);
@@ -109,26 +124,36 @@ describe('Impeccable managed runtime policy', () => {
         runtimePath: agent === 'claude' ? '~/.claude/skills/impeccable' : '~/.pi/agent/skills/impeccable' }));
       replaceImpeccableTargets(source, readFileSync(join(source, 'SKILL.md'), 'utf8'), targets);
       const engines = join(root, 'engines');
-      for (const otherVersion of ['0.1.5', '0.1.10', '0.1.11', '0.1.15', '0.1.16', '0.1.18'].filter(version => version !== engineVersion)) {
+      for (const otherVersion of ['0.1.5', '0.1.10', '0.1.11', '0.1.15', '0.1.16', '0.1.18', '0.1.21'].filter(version => version !== engineVersion)) {
         const other = join(engines, otherVersion, 'impeccable');
         mkdirSync(dirname(other), { recursive: true });
         writeFileSync(other, '#!/bin/sh\necho incorrect-fallback\n', { mode: 0o755 });
       }
-      const engine = join(engines, engineVersion, 'impeccable');
+      const pinName = skillVersion === '4.8.2' ? 'impeccable-engine.json'
+        : skillVersion === '4.3.1' ? 'impeccable-engine-legacy.json' : `impeccable-engine-${skillVersion}.json`;
+      const pin = JSON.parse(readFileSync(join(repoRoot, 'image', pinName), 'utf8'));
+      // Model the engine provided by the real image pin, not just the expected
+      // launcher mapping. A changed/missing compatibility pin must fail dispatch.
+      const engine = join(engines, pin.version, 'impeccable');
       mkdirSync(dirname(engine), { recursive: true });
       writeFileSync(engine, `#!/bin/sh\nprintf '%s\\n' '${engineVersion}' "$IMPECCABLE_SKILL_DIR" "$IMPECCABLE_SELF" "$@"\n`, { mode: 0o755 });
       for (const target of targets) {
         const launcher = join(target.root, 'scripts/impeccable');
         writeFileSync(launcher, managedImpeccableLauncher(engines), { mode: 0o755 });
         chmodSync(launcher, 0o755);
-        const result = spawnSync(launcher, ['context', '--target', 'a file.ts'], { encoding: 'utf8' });
+        const result = spawnSync(launcher, ['context', '--target', 'a file.ts'], {
+          encoding: 'utf8', env: { ...process.env, IMPECCABLE_BIN: '/does/not/exist' },
+        });
         assert.ifError(result.error);
         assert.equal(result.status, 0, result.stderr);
         assert.deepEqual(result.stdout.trim().split('\n'), [engineVersion, target.root, launcher, 'context', '--target', 'a file.ts']);
         for (const command of ['install', 'update', 'uninstall', 'link']) {
-          const denied = spawnSync(launcher, ['skills', command], { encoding: 'utf8' });
-          assert.equal(denied.status, 1);
-          assert.match(denied.stderr, /image-owned/);
+          for (const args of [[command], ['skills', command]]) {
+            const denied = spawnSync(launcher, args, { encoding: 'utf8' });
+            assert.equal(denied.status, 1);
+            assert.equal(denied.stdout, '');
+            assert.match(denied.stderr, /image-owned/);
+          }
         }
       }
       rmSync(engine);
@@ -182,7 +207,16 @@ describe('Impeccable managed runtime policy', () => {
     assert.equal(readFileSync(skillPath, 'utf8'), before);
   }));
 
-  it('REQ-AGENT-181 / REQ-AGENT-194: 4.8.0 retains explicit methodology and WCAG detail under managed routing', () => withTempDir(root => {
+  it('REQ-AGENT-181: 4.8.2 rejects the current image engine before any overlay mutation', () => withTempDir(source => {
+    copyReviewedFixture('4.8.2', source);
+    const skillPath = join(source, 'SKILL.md');
+    const before = readFileSync(skillPath, 'utf8');
+    writeFileSync(join(source, 'scripts/VERSION'), '0.1.18\n');
+    assert.throws(() => applyCodeflareImpeccableOverlay(source), /expected image-owned 0\.1\.21/);
+    assert.equal(readFileSync(skillPath, 'utf8'), before);
+  }));
+
+  it('REQ-AGENT-181 / REQ-AGENT-194: 4.8.0 projection retains version and redistribution license/notices', () => withTempDir(root => {
     const source = join(root, 'source');
     copyReviewedFixture('4.8.0', source);
     applyCodeflareImpeccableOverlay(source);
@@ -192,13 +226,6 @@ describe('Impeccable managed runtime policy', () => {
     }]);
     const skill = readFileSync(join(target, 'SKILL.md'), 'utf8');
     assert.match(skill, /version: 4\.8\.0/);
-    assert.match(skill, /Codeflare routing boundary/);
-    assert.match(skill, /including reading \[reference\/craft-floor\.md\]/);
-    assert.match(skill, /never downloads or updates the runtime/);
-    const audit = readFileSync(join(target, 'reference/audit.md'), 'utf8');
-    assert.match(audit, /WCAG AA \(SC 2\.5\.8\) requires at least 24x24 CSS px unless an exception applies/);
-    assert.match(audit, /otherwise report `N\/A` and do not infer a score/);
-    assert.match(readFileSync(join(target, 'reference/craft-floor.md'), 'utf8'), /except a line marked as a ban/);
     for (const name of ['LICENSE', 'NOTICE.md']) {
       assert.equal(readFileSync(join(target, name), 'utf8'), readFileSync(join(repoRoot, 'host/__fixtures__/impeccable-4.7.0', name), 'utf8'),
         'the reviewed redistribution license/notices remain present');
@@ -206,7 +233,9 @@ describe('Impeccable managed runtime policy', () => {
   }));
 
   it('REQ-OPS-020 / REQ-AGENT-181: an unreviewed bundle identity or substituted bytes fail closed', async () => {
-    assert.throws(() => verifyReviewedImpeccableBundle(Buffer.from('substituted release'), '4.8.0'), /differs from the reviewed release/);
+    for (const version of ['4.8.0', '4.8.2']) {
+      assert.throws(() => verifyReviewedImpeccableBundle(Buffer.from('substituted release'), version), /differs from the reviewed release/);
+    }
     assert.throws(() => verifyReviewedImpeccableBundle(Buffer.from('unreviewed release'), '4.8.1'), /bundle is not reviewed/);
     await assert.rejects(updateImpeccableSkill('4.8.1'), /bundle is not reviewed/);
     await assert.rejects(updateImpeccableSkill('__proto__'), /bundle is not reviewed/);

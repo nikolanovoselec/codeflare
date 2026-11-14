@@ -41,8 +41,31 @@ beforeEach(async () => {
   await db.prepare("UPDATE session_cutover SET state = 'complete', completed_at = '2027-01-01T00:00:00.000Z' WHERE id = 1").run();
 });
 
+// REQ-SESSION-026: Lifecycle scheduling and persistence failures remain actionable.
+// Covers the exercised production failure owners; full correlation/route-family qualification remains Planned.
 describe('REQ-SESSION-031: complete D1 session authority', () => {
-  it('migration creates a pending singleton gate and one owner-led projection index', async () => {
+  it.each([
+    "lifecycle_state = 'idle'", 'lifecycle_generation = -1', 'response_revision = -1', 'observation_sequence = -2',
+    'editor_ready = 2', 'editor_ready_error = 2', "workspace = 'unknown'", "terminal_mode = 'unknown'",
+    "unreachable_incident_id = 'partial'", "unreachable_first_observed_at = '2027-01-01T00:00:00Z'", 'unreachable_deadline_ms = 1',
+    "termination_intent_id = 'partial'", 'termination_generation = 1', "termination_claimed_at = '2027-01-01T00:00:00Z'",
+  ])('AC2/4: database rejects invalid authority update %s without changing the row', async assignment => {
+    await createSession();
+    const before = await new D1SessionRepository(db).getSession('owner-a', 'session01');
+    await expect(db.prepare(`UPDATE runtime_sessions SET ${assignment} WHERE owner_key = ?1 AND session_id = ?2`)
+      .bind('owner-a', 'session01').run()).rejects.toThrow();
+    expect(await new D1SessionRepository(db).getSession('owner-a', 'session01')).toEqual(before);
+  });
+
+  it('AC6: database rejects a second cutover identity or unsupported cutover state', async () => {
+    const before = await db.prepare('SELECT * FROM session_cutover').all();
+    await expect(db.prepare("INSERT INTO session_cutover (id, state, updated_at) VALUES (2, 'pending', '2027-01-01T00:00:00Z')").run())
+      .rejects.toThrow();
+    await expect(db.prepare("UPDATE session_cutover SET state = 'unknown' WHERE id = 1").run()).rejects.toThrow();
+    expect((await db.prepare('SELECT * FROM session_cutover').all()).results).toEqual(before.results);
+  });
+
+  it('migration creates one owner-led projection index', async () => {
     await db.prepare("UPDATE session_cutover SET state = 'pending', completed_at = NULL WHERE id = 1").run();
     expect(await db.prepare('SELECT id, state FROM session_cutover').first()).toEqual({ id: 1, state: 'pending' });
 
@@ -79,6 +102,21 @@ describe('REQ-SESSION-031: complete D1 session authority', () => {
     expect(await repository.start('owner-a', 'session01', '2027-01-01T00:00:01.000Z')).toMatchObject({ lifecycleGeneration: 1 });
     expect(await repository.claimStop('owner-a', 'session01', 'old-exit', '2027-01-01T00:00:02.000Z', 0)).toBeNull();
     expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 1 });
+  });
+
+  it('REQ-SESSION-018/040: durable native exit cannot borrow a replacement Stop intent', async () => {
+    await createSession();
+    const repository = new D1SessionRepository(db);
+    await repository.start('owner-a', 'session01', '2027-01-01T00:00:01.000Z');
+    await repository.claimStop('owner-a', 'session01', 'current-intent', '2027-01-01T00:00:02.000Z', 1);
+    const before = await repository.getSession('owner-a', 'session01');
+    const ctx = { storage: { transaction: async () => {} } } as unknown as DurableObjectState;
+    expect(await confirmMonitoredExit(ctx, { USAGE_DB: db } as never, 'owner-a', 'session01', 1,
+      'unknown', undefined, 'old-intent')).toBe(false);
+    expect(await repository.getSession('owner-a', 'session01')).toEqual(before);
+    expect(await confirmMonitoredExit(ctx, { USAGE_DB: db } as never, 'owner-a', 'session01', 1,
+      'unknown', undefined, 'current-intent')).toBe(true);
+    expect(await repository.getSession('owner-a', 'session01')).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 1 });
   });
 
   it('REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed', async () => {
@@ -693,12 +731,24 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
 
   it('required scheduling failure is observable and does not signal, reset, or release ownership', async () => {
     const f = await runtimeFixture();
+    const { setLogLevel } = await import('../../lib/logger');
+    const entries: Array<{ level: string; module: string; data?: Record<string, unknown> }> = [];
+    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+      try { entries.push(JSON.parse(String(line))); } catch { /* Ignore unrelated non-JSON console output. */ }
+    });
+    setLogLevel('error');
     try {
       f.host.schedule = async () => { throw Error('alarm unavailable'); };
       await expect(f.tick()).rejects.toThrow('alarm unavailable');
+      const current = await repository().getSession(owner, id);
+      expect(current).toMatchObject({ lifecycleState: 'unreachable', lifecycleGeneration: pin.generation,
+        unreachableIncidentId: expect.any(String) });
+      expect(entries).toContainEqual(expect.objectContaining({ level: 'error', module: 'container-metrics',
+        data: expect.objectContaining({ sessionId: id, lifecycleGeneration: current!.lifecycleGeneration,
+          incidentId: current!.unreachableIncidentId, errorClass: 'schedule_failed' }) }));
       expect(f.effects).toEqual([]);
-      expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'unreachable' });
-    } finally { vi.restoreAllMocks(); }
+      expect(f.host._usageSeconds).toBe(0);
+    } finally { setLogLevel('silent'); vi.restoreAllMocks(); }
   });
 
   it('lost incident acknowledgement in the production tick joins the durable incident instead of extending it', async () => {

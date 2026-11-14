@@ -81,6 +81,10 @@ async function fixture(test: (f: {
       currentProspectiveRenovateRegistration: async (_registrationId: string) => state.loggedOut ? null : {
         registrationId: 'registry-selected-admin', installationId: 'installation', activatedAt: '2026-09-28T00:00:00.000Z',
         bucket: 'owner-bucket', sessionId: 'session-1', sessionGeneration: 3, human, accessJwt: 'private.jwt',
+      },
+      observeProspectiveRenovateRegistration: async (id: string) => {
+        const registration = await registry.currentProspectiveRenovateRegistration(id);
+        return registration ? { status: 'current', registration } : { status: 'denied' };
       } };
     Object.defineProperty(native, 'exports', { configurable: true, value: { GitHubInterceptor: () => ({
       fetch: async (request: Request) => {

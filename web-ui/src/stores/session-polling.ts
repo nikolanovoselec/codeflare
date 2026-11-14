@@ -1,3 +1,4 @@
+import { createSignal } from 'solid-js';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
 import { terminalStore } from './terminal';
@@ -140,6 +141,19 @@ let pollingActive = false;
 let visibilityListenerInstalled = false;
 let pollInFlight: Promise<void> | null = null;
 let catalogRevision = 0;
+let availabilityReadVersion = 0;
+const [sessionStatusUnavailable, setSessionStatusUnavailable] = createSignal(false);
+export { sessionStatusUnavailable };
+
+/** Catalog and status reads share availability ordering, not lifecycle authority. */
+export function beginSessionStatusRead(): (unavailable: boolean) => boolean {
+  const version = ++availabilityReadVersion;
+  return unavailable => {
+    if (version !== availabilityReadVersion) return false;
+    setSessionStatusUnavailable(unavailable);
+    return true;
+  };
+}
 
 /** Page-local request ordering, not a cached session list. */
 export function getSessionCatalogRevision(): number {
@@ -203,6 +217,7 @@ export function refreshSessionStatuses(forceManagedReleaseCheck = false): Promis
 
 async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Promise<void> {
   const requestedCatalogRevision = catalogRevision;
+  const reportAvailability = beginSessionStatusRead();
   try {
     const state = getState();
     const batchResponse = await api.getBatchSessionStatus();
@@ -215,6 +230,7 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       || Date.now() - lastAncillaryCheckAt >= ANCILLARY_CHECK_INTERVAL_MS;
     if (ancillaryDue) void refreshSessionAncillaryStatus().catch(() => undefined);
     if (requestedCatalogRevision !== catalogRevision) return;
+    reportAvailability(false);
 
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
     // Skip initializing sessions - they may not appear in batch status yet.
@@ -315,7 +331,9 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       stopSessionListPolling();
       return;
     }
-    // Silently ignore other errors - this is background polling
+    // A failed read says nothing about workload state. Superseded reads also
+    // cannot replace the availability of the latest catalog/status request.
+    if (requestedCatalogRevision === catalogRevision) reportAvailability(true);
   }
 }
 
@@ -325,7 +343,8 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
 
 function transitioning(): boolean {
   const state = getState();
-  return state.sessions.some((session) => session.status === 'initializing' || session.status === 'stopping')
+  return state.sessions.some((session) => session.status === 'initializing' || session.status === 'starting'
+    || session.status === 'unreachable' || session.status === 'stopping')
     || state.managedReleaseStatus === 'upgrading'
     || state.bucketMigrating
     || state.bucketMigrationPending;

@@ -60,6 +60,14 @@ describe('native AI targets', () => {
     ], 'openai')).toThrow('provider_config_ambiguous');
   });
 
+  it('REQ-ENTERPRISE-047: selects the sole default among multiple bindings and refuses competing defaults', () => {
+    const first = { id: 'one', provider: 'openai', gatewayId: 'gateway', defaultSelection: false };
+    const selected = { ...first, id: 'two', defaultSelection: true };
+    expect(selectNativeProviderConfig([first, selected], 'openai')).toEqual(selected);
+    expect(() => selectNativeProviderConfig([{ ...first, defaultSelection: true }, selected], 'openai'))
+      .toThrow('provider_config_ambiguous');
+  });
+
   it.each([
     ['aws-bedrock', false, 'eu.anthropic.claude-sonnet-5', 'aws-bedrock/eu.anthropic.claude-sonnet-5'],
     ['google-ai-studio', false, 'gemini-2.5-pro', 'google-ai-studio/gemini-2.5-pro'],
@@ -99,6 +107,14 @@ describe('native AI targets', () => {
     const custom = createNativeTarget({ label: 'Custom', provider: 'custom-provider', customProvider: true, model: 'family/model:tag', contextWindow: 200000, providerConfigId: 'raw-provider', profileRef: getBuiltInProfileRef('native-codeflare-inference-mesh-compat') });
     expect(custom.model).toBe('family/model:tag');
     expect(() => createNativeTarget({ label: 'Small', model: 'valid.model', contextWindow: 16384, providerConfigId: 'raw-provider', profileRef })).toThrow();
+  });
+
+  it.each([
+    [16384, false], [16384.5, false], [16385, true], [4000000, true], [4000001, false],
+  ])('REQ-ENTERPRISE-060: context %s has validation outcome %s', (contextWindow, accepted) => {
+    const draft = { ...legacyDraft, contextWindow };
+    expect(nativeTargetDraftShapeValid(draft)).toBe(accepted);
+    expect(nativeTargetDraftSchema.safeParse(draft).success).toBe(accepted);
   });
 
   it('REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport', () => {
@@ -166,10 +182,16 @@ describe('native AI targets', () => {
 
   it('REQ-ENTERPRISE-061: browser projection excludes exact provider authority and aliases', () => {
     const target = createNativeTarget({ id: '11111111-1111-4111-8111-111111111111', label: 'Claude', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'raw-provider', providerConfigAlias: 'private-alias', profileRef });
-    const projected = sanitizeNativeTarget(target);
+    // Saved/server-side records can carry private material beyond their typed
+    // fields; the browser projection must remain an output allowlist.
+    const privateRecord = { ...target, token: 'private-token-canary',
+      credentials: { apiKey: 'private-credential-canary' }, preview: { body: 'private-preview-canary' } };
+    const projected = sanitizeNativeTarget(privateRecord);
     expect(projected).toMatchObject({ handle: nativeTargetHandle(target.id), label: 'Claude', provider: 'aws-bedrock', model: target.model, profileRef });
     expect(JSON.stringify(projected)).not.toContain('raw-provider');
-    expect(JSON.stringify(projected)).not.toContain('private-alias');
+    for (const privateValue of ['private-alias', 'private-token-canary', 'private-credential-canary', 'private-preview-canary']) {
+      expect(JSON.stringify(projected)).not.toContain(privateValue);
+    }
   });
 
   it('REQ-ENTERPRISE-055: changed target or connection authority fails verification matching', () => {

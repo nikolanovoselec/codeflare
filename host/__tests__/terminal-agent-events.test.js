@@ -46,7 +46,7 @@ function fakeSession(id, acceptedEventIds = new Set()) {
   };
 }
 
-function harness(sessions) {
+function harness(sessions, readiness = () => ({ initFlagObserved: true, terminalServiceReady: true })) {
   const wss = new EventEmitter();
   const sessionManager = {
     sessions: new Map(Object.entries(sessions)),
@@ -57,7 +57,7 @@ function harness(sessions) {
     sessionManager,
     log() {},
     logWsEvent() {},
-    readiness: () => ({ initFlagObserved: true, terminalServiceReady: true }),
+    readiness,
     keepalivePingMs: 60_000,
     maxControlMsgLength: 512,
   });
@@ -71,6 +71,62 @@ function connect(wss, sessionId) {
 }
 
 describe('REQ-TERM-023 AC2/AC3: terminal WS event coordination protocol', () => {
+  it('REQ-SESSION-015 AC4: rejects an unregistered prewarm with 1013 then accepts after registration', t => {
+    const session = fakeSession('session-a-1');
+    const sessions = {};
+    const { wss, sessionManager } = harness(sessions, () => ({
+      initFlagObserved: true,
+      terminalServiceReady: sessionManager.sessions.has(session.id),
+    }));
+    const warming = connect(wss, session.id);
+    assert.deepEqual(warming.closes, [{ code: 1013, reason: 'container-warming-up' }]);
+    assert.equal(session.clients.has(warming), false);
+    assert.deepEqual(warming.sent, []);
+
+    sessions[session.id] = session;
+    sessionManager.sessions.set(session.id, session);
+    const accepted = connect(wss, session.id);
+    t.after(() => accepted.emit('close', 1000, Buffer.alloc(0)));
+    assert.deepEqual(accepted.closes, []);
+    assert.equal(session.clients.has(accepted), true);
+    const writes = [];
+    session.write = value => writes.push(value);
+    accepted.emit('message', Buffer.from('registered terminal input\r'));
+    assert.deepEqual(writes, ['registered terminal input\r']);
+    assert.equal(session.clients.has(warming), false);
+  });
+  it('REQ-TERM-019 AC2: unknown typed JSON is dropped while terminal input reaches the bound Session', t => {
+    const session = fakeSession('session-a-1');
+    const writes = [];
+    session.write = value => writes.push(value);
+    const { wss } = harness({ 'session-a-1': session });
+    const ws = connect(wss, 'session-a-1');
+    t.after(() => ws.emit('close', 1000, Buffer.alloc(0)));
+    for (const type of ['unknown-control', 'ping', 'heartbeat']) {
+      ws.emit('message', Buffer.from(JSON.stringify({ type, data: 'must not reach PTY' })));
+    }
+    assert.deepEqual(writes, []);
+    ws.emit('message', Buffer.from(JSON.stringify({ type: 'data', data: 'typed command\r' })));
+    ws.emit('message', Buffer.from('raw command\r'));
+    assert.deepEqual(writes, ['typed command\r', 'raw command\r']);
+  });
+
+  it('REQ-TERM-019 AC3: keepalive emits protocol pings without application JSON heartbeat', t => {
+    t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: 1000 });
+    const session = fakeSession('session-a-1');
+    const { wss } = harness({ 'session-a-1': session });
+    const ws = connect(wss, 'session-a-1');
+    t.after(() => ws.emit('close', 1000, Buffer.alloc(0)));
+    const pings = [];
+    ws.ping = () => pings.push(Date.now());
+    t.mock.timers.tick(60_000);
+    ws.emit('pong');
+    t.mock.timers.tick(60_000);
+    assert.deepEqual(pings, [61_000, 121_000]);
+    assert.deepEqual(ws.sent, []);
+    assert.deepEqual(ws.closes, []);
+  });
+
   it('routes a validated suppress disposition through the connection-bound Session', (t) => {
     const session = fakeSession('session-a-1', new Set(['event-a']));
     const { wss } = harness({ 'session-a-1': session });

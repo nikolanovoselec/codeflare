@@ -28,6 +28,12 @@ vi.mock('../../lib/r2-client', async (importActual) => {
   return { ...actual, createR2Client: mockCreateR2Client, getR2Url: mockGetR2Url };
 });
 
+import { createMockKV } from '../helpers/mock-kv';
+import { createTestApp } from '../helpers/test-app';
+import lifecycleRoutes from '../../routes/session/lifecycle';
+import downloadRoutes from '../../routes/storage/download';
+import previewRoutes from '../../routes/storage/preview';
+
 import {
   getR2SsePolicyDisabled,
   getBucketR2Regime,
@@ -40,7 +46,7 @@ import {
   setRegimeState,
   migrateBucketEncryption,
   planRegimeReconcile,
-  advanceMigration,
+  advanceMigrationChunk as advanceMigration,
   markMixedRecovery,
   fetchObjectWithRegimeFallback,
   withTimeout,
@@ -99,7 +105,7 @@ function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; et
   const puts: Array<{ key: string; headers: Record<string, string>; to: R2SseRegime }> = [];
   const heads: Array<{ key: string; regime: R2SseRegime }> = [];
 
-  mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+  const fetch = async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     const headers = (init?.headers ?? {}) as Record<string, string>;
 
@@ -137,9 +143,10 @@ function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; et
       return new Response('<CopyObjectResult><ETag>"e2"</ETag></CopyObjectResult>', { status: 200 });
     }
     return new Response(null, { status: 500 });
-  });
+  };
+  mockFetch.mockImplementation(fetch);
 
-  return { store, puts, heads };
+  return { store, puts, heads, fetch };
 }
 
 const r2Env = {
@@ -148,7 +155,9 @@ const r2Env = {
   ENCRYPTION_KEY,
 } as unknown as Env;
 
-const driverEnv = (kv: KVNamespace) => ({ ...r2Env, R2_ACCOUNT_ID: 'acct', KV: kv } as unknown as Env);
+// The driver uses get/put/delete; accept the shared route KV fake at this existing
+// environment boundary without pretending it implements unused getWithMetadata.
+const driverEnv = (kv: KVNamespace | ReturnType<typeof createMockKV>) => ({ ...r2Env, R2_ACCOUNT_ID: 'acct', KV: kv } as unknown as Env);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -233,6 +242,30 @@ describe('resolveBucketSseOnEnsure (lazy-create paths)', () => {
 
 // ── Copy engine ────────────────────────────────────────────────────────────────
 describe('migrateBucketEncryption (lossless REPLACE re-encrypt)', () => {
+  it('REQ-SEC-010: migration refuses literal dot normalization before object I/O', async () => {
+    const { puts, heads, store } = makeR2({ 'tenant/../other': { regime: 'sse-c' } });
+    await expect(migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain')).rejects.toThrow('failed to re-encrypt');
+    expect(heads).toEqual([]); expect(puts).toEqual([]);
+    expect(store.get('tenant/../other')?.regime).toBe('sse-c');
+  });
+
+  it('REQ-SEC-010: migration preserves leading slash and escaped object identity at fetch and copy', async () => {
+    const key = '/tenant/%2E%2E/Grüße #?.txt';
+    const seen: string[] = [];
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'GET') return new Response(listXml([{ key, size: 10 }]));
+      const actual = new URL(new Request(url).url);
+      expect(actual.pathname.split('/').slice(2).map(decodeURIComponent).join('/')).toBe(key);
+      expect(actual.search).toBe(''); expect(actual.hash).toBe('');
+      seen.push(init!.method!);
+      if (init?.method === 'HEAD') return new Response(null, { headers: { etag: '"source"', 'content-length': '10' } });
+      expect((init!.headers as Record<string, string>)['x-amz-copy-source']).toBe(`/bkt/${key.split('/').map(encodeURIComponent).join('/')}`);
+      return new Response('<CopyObjectResult><ETag>"result"</ETag></CopyObjectResult>');
+    });
+    await expect(migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain')).resolves.toMatchObject({ migrated: 1 });
+    expect(seen).toEqual(['HEAD', 'PUT']);
+  });
+
   it('sse-c → plain: REPLACE + copy-source decrypt + no dest SSE + if-match + preserved metadata', async () => {
     const { puts } = makeR2({ 'work/skill.md': { regime: 'sse-c' } });
     const res = await migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain');
@@ -307,6 +340,28 @@ describe('migrateBucketEncryption (lossless REPLACE re-encrypt)', () => {
       .rejects.toThrow(/failed to re-encrypt/);
   });
 
+  it.each(['missing source', 'empty result', 'unclosed result', 'invalid result', 'changed source'])(
+    'REQ-ENTERPRISE-020 AC1: %s cannot qualify conditional copy', async failure => {
+      const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+      mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'HEAD' && failure === 'missing source') return new Response(null, { headers: { 'content-length': '10' } });
+        if (init?.method === 'PUT') {
+          if (failure === 'missing source') return r2.fetch(url, init);
+          if (failure === 'changed source') {
+            r2.store.get('a.md')!.etag = '"new-source"';
+            if (new Headers(init.headers).get('x-amz-copy-source-if-match') !== '"new-source"') return new Response(null, { status: 412 });
+            return r2.fetch(url, init);
+          }
+          await r2.fetch(url, init); // R2 may have written even when its response is unverifiable.
+          const result = failure === 'empty result' ? '<ETag></ETag>' : failure === 'unclosed result' ? '<ETag>' : '<ETag><broken/></ETag>';
+          return new Response(`<CopyObjectResult>${result}</CopyObjectResult>`);
+        }
+        return r2.fetch(url, init);
+      });
+      await expect(migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain')).rejects.toThrow(/failed to re-encrypt/);
+      if (failure === 'missing source' || failure === 'changed source') expect(r2.store.get('a.md')?.regime).toBe('sse-c');
+    });
+
   it('resumes across pages — migrates every object when the listing is paginated', async () => {
     const objs: Record<string, { regime: R2SseRegime }> = {};
     for (let i = 0; i < 5; i++) objs[`k${i}.md`] = { regime: 'sse-c' };
@@ -356,6 +411,45 @@ describe('fetchObjectWithRegimeFallback (D2 reads stay up)', () => {
 });
 
 // ── Reconcile decision ──────────────────────────────────────────────────────────
+describe('REQ-ENTERPRISE-021 AC6: real storage routes retain readable bytes across a regime mismatch', () => {
+  it.each(['download', 'preview'] as const)('%s reads committed bytes, then falls back once to the opposite regime', async route => {
+    const kv = createMockKV();
+    kv._set('r2-regime:bkt', { status: 'ready', regime: 'sse-c', generation: 1 });
+    let objectRegime: R2SseRegime = 'sse-c';
+    const reads: Array<{ method: string; regime: R2SseRegime }> = [];
+    const bytes = 'exact report';
+    mockFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const regime = regimeFromHeaders((init?.headers ?? {}) as Record<string, string>);
+      reads.push({ method, regime });
+      if (regime !== objectRegime) return new Response(null, { status: 400 });
+      return new Response(method === 'HEAD' ? null : bytes, { headers: {
+        'Content-Type': 'text/plain', 'Content-Length': String(bytes.length),
+      } });
+    });
+    const app = createTestApp({
+      routes: [{ path: '/download', handler: downloadRoutes }, { path: '/preview', handler: previewRoutes }],
+      mockKV: kv, bucketName: 'bkt', envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct' },
+    });
+    const read = async () => {
+      const response = await app.request(`/${route}?key=report.txt`);
+      expect(response.status).toBe(200);
+      if (route === 'download') expect(await response.text()).toBe(bytes);
+      else expect(await response.json()).toMatchObject({ type: 'text', content: bytes, size: bytes.length });
+    };
+    await read();
+    expect(reads).toEqual(route === 'download'
+      ? [{ method: 'GET', regime: 'sse-c' }]
+      : [{ method: 'HEAD', regime: 'sse-c' }, { method: 'GET', regime: 'sse-c' }]);
+    reads.length = 0;
+    objectRegime = 'plain';
+    await read();
+    expect(reads).toEqual(route === 'download'
+      ? [{ method: 'GET', regime: 'sse-c' }, { method: 'GET', regime: 'plain' }]
+      : [{ method: 'HEAD', regime: 'sse-c' }, { method: 'HEAD', regime: 'plain' }, { method: 'GET', regime: 'plain' }]);
+  });
+});
+
 describe('planRegimeReconcile (synchronous decision)', () => {
   it('no-op when the committed regime already matches the policy', async () => {
     const { kv } = makeKV(); // ready/sse-c, policy absent ⇒ sse-c
@@ -390,10 +484,111 @@ describe('planRegimeReconcile (synchronous decision)', () => {
 });
 
 // ── Chunked driver ──────────────────────────────────────────────────────────────
+describe('REQ-ENTERPRISE-020 AC3: ancillary poll drives the real migration engine', () => {
+  it.each(['policy drift', 'mixed recovery'] as const)('REQ-ENTERPRISE-020 AC3/7: ancillary polls checkpoint and finish %s through real reconciliation', async (scenario) => {
+    const recovery = scenario === 'mixed recovery';
+    const source = recovery ? 'plain' : 'sse-c';
+    const target = recovery ? 'sse-c' : 'plain';
+    const objects: Record<string, { regime: R2SseRegime }> = {};
+    for (let i = 0; i < 4; i++) objects[`k${i}.md`] = { regime: source };
+    const r2 = makeR2(objects, { pageSize: 2 });
+    const kv = createMockKV();
+    if (recovery) {
+      kv._set('r2-regime:bkt', {
+        status: 'mixed-recovery', regime: 'sse-c', generation: 7,
+        phase: 'migrate', drained: false,
+      });
+    } else {
+      kv._store.set('setup:r2_sse_disabled', 'active');
+    }
+    const app = createTestApp({
+      routes: [{ path: '/sessions', handler: lifecycleRoutes }],
+      mockKV: kv,
+      bucketName: 'bkt',
+      envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct', SAAS_MODE: 'false', CONTAINER: {
+        getByName: () => ({ advanceBucketMigration: () => advanceMigration(driverEnv(kv), 'bkt', { drainContainers: async () => {}, hasHealthyContainer: async () => false }) }),
+      } as unknown as Env['CONTAINER'] },
+    });
+    const poll = async () => {
+      const work: Promise<unknown>[] = [];
+      const response = await app.request('/sessions/ancillary-status', {}, undefined, {
+        waitUntil: (task: Promise<unknown>) => { work.push(task); },
+        passThroughOnException: () => {},
+      } as ExecutionContext);
+      const body = await response.json();
+      await Promise.all(work);
+      expect(response.status).toBe(200);
+      return body;
+    };
+
+    // Yield on an actual simulated copy, not unrelated clock-call counts.
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    let yielded = false;
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const response = await r2.fetch(url, init);
+      if (init?.method === 'PUT' && !yielded) {
+        yielded = true;
+        nowSpy.mockReturnValue(1_016_000);
+      }
+      return response;
+    });
+    try {
+      const first = await poll();
+      expect(first).toMatchObject({ bucketMigrating: true, bucketMigrationPending: false });
+      expect(first).not.toHaveProperty('bucketMigrationPercent');
+      const mid = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
+      expect(mid).toMatchObject({
+        status: recovery ? 'mixed-recovery' : 'migrating', regime: 'sse-c',
+        generation: recovery ? 7 : 0, phase: 'migrate', cursor: 'k1.md', total: 4, processed: 2,
+      });
+      expect(mid.leaseExpiresAt).toBeUndefined();
+      expect([...r2.store.values()].filter((o) => o.regime === target)).toHaveLength(2);
+      expect([...r2.store.values()].filter((o) => o.regime === source)).toHaveLength(2);
+
+      const second = await poll();
+      expect(second).toMatchObject({ bucketMigrating: true, bucketMigrationPending: false, bucketMigrationPercent: 25 });
+      expect(await getRegimeState({ KV: kv } as unknown as Env, 'bkt')).toMatchObject({
+        status: 'ready', regime: target, generation: recovery ? 7 : 1,
+      });
+      expect([...r2.store.values()].map((o) => o.regime)).toEqual([target, target, target, target]);
+
+      const third = await poll();
+      expect(third).toMatchObject({ bucketMigrating: false, bucketMigrationPending: false });
+      expect(third).not.toHaveProperty('bucketMigrationPercent');
+      expect(await getRegimeState({ KV: kv } as unknown as Env, 'bkt')).toMatchObject({
+        status: 'ready', regime: target, generation: recovery ? 7 : 1,
+      });
+    } finally { nowSpy.mockRestore(); }
+  });
+});
+
+describe('REQ-SESSION-026 AC4: ancillary migration respects D1 workload ownership', () => {
+  it.each(['starting', 'running', 'unreachable', 'stopping'] as const)('keeps policy drift pending while a %s session owns the bucket', async status => {
+    const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+    const originalObjects = structuredClone([...r2.store]);
+    const kv = createMockKV();
+    kv._store.set('setup:r2_sse_disabled', 'active');
+    kv._set('session:bkt:session01', { id: 'session01', userId: 'bkt', name: 'Owned workload', status,
+      lifecycleGeneration: 1, createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z' });
+    const app = createTestApp({ routes: [{ path: '/sessions', handler: lifecycleRoutes }], mockKV: kv,
+      bucketName: 'bkt', envOverrides: { ...r2Env, R2_ACCOUNT_ID: 'acct', SAAS_MODE: 'false' } });
+    const work: Promise<unknown>[] = [];
+    const response = await app.request('/sessions/ancillary-status', {}, undefined, {
+      waitUntil: (task: Promise<unknown>) => { work.push(task); }, passThroughOnException: () => {},
+    } as ExecutionContext);
+    await Promise.all(work);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ bucketMigrating: false, bucketMigrationPending: true });
+    expect([...r2.store]).toEqual(originalObjects);
+    expect(await getRegimeState({ KV: kv } as unknown as Env, 'bkt')).toMatchObject({ status: 'ready', regime: 'sse-c', generation: 0 });
+  });
+});
+
+// Existing lower-level driver cases remain independent of route orchestration.
 describe('advanceMigration (chunked, verified, self-healing)', () => {
   const drainNoop = { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) };
 
-  async function runToReady(kv: KVNamespace, deps = drainNoop, max = 20): Promise<RegimeState> {
+  async function runToReady(kv: KVNamespace, deps: Parameters<typeof advanceMigration>[2] = drainNoop, max = 20): Promise<RegimeState> {
     for (let i = 0; i < max; i++) {
       const before = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
       if (before.status === 'ready') return before;
@@ -414,28 +609,131 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(deps.drainContainers).toHaveBeenCalledTimes(1); // drained once, before the first chunk
   });
 
-  it('aborts every in-flight multipart upload before the first migration chunk', async () => {
-    const aborted: string[] = [];
+  // IG0241 / C0326: preparation evidence only. RQ0065 every-upload,
+  // late-completion and read-repair safety is NOT established by these capped cases.
+  it('REQ-ENTERPRISE-086 AC1: prepares one capped multipart page without continuation', async () => {
+    const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+    const listed = Array.from({ length: 100 }, (_, i) => `upload-${i}`);
+    const uploads = new Set([...listed, 'unlisted-upload']);
+    const lists: URL[] = [];
     mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
-      const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.includes('uploads')) {
-        return new Response('<ListMultipartUploadsResult><Upload><Key>draft.md</Key><UploadId>upload-1</UploadId></Upload></ListMultipartUploadsResult>', { status: 200 });
+      const u = new URL(url);
+      if (u.searchParams.has('uploads')) {
+        lists.push(u);
+        return new Response('<ListMultipartUploadsResult>' + listed.map(id =>
+          `<Upload><Key>draft.md</Key><UploadId>${id}</UploadId></Upload>`).join('') +
+          '<IsTruncated>true</IsTruncated><NextKeyMarker>draft.md</NextKeyMarker>' +
+          '<NextUploadIdMarker>upload-99</NextUploadIdMarker></ListMultipartUploadsResult>');
       }
-      if (method === 'DELETE' && url.includes('uploadId=upload-1')) {
-        aborted.push(url);
+      if (init?.method === 'DELETE') {
+        uploads.delete(u.searchParams.get('uploadId')!);
         return new Response(null, { status: 204 });
       }
-      if (method === 'GET' && url.includes('list-type=2')) {
-        return new Response(listXml([]), { status: 200 });
-      }
-      return new Response(null, { status: 500 });
+      return r2.fetch(url, init);
     });
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
 
-    await advanceMigration(driverEnv(kv), 'bkt', { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) });
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
 
-    expect(aborted).toHaveLength(1);
-    expect(aborted[0]).toContain('/bkt/draft.md?uploadId=upload-1');
+    // Public S3 request contract, including refusal to follow the returned markers.
+    expect(lists.map(u => ({ path: u.pathname, query: [...u.searchParams.entries()] }))).toEqual([
+      { path: '/bkt', query: [['uploads', ''], ['max-uploads', '100']] },
+    ]);
+    expect([...uploads]).toEqual(['unlisted-upload']);
+    expect(r2.store.get('a.md')?.regime).toBe('plain');
+    expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({ status: 'ready', regime: 'plain', generation: 1 });
+    // Ready here certifies only this fixture's existing object scan, NOT safe late completion.
+  });
+
+  it.each(['list HTTP failure', 'list rejection', 'abort HTTP failure', 'abort rejection'] as const)(
+    'REQ-ENTERPRISE-086: %s prevents drained and ready publication', async failure => {
+      const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+      const uploads = new Set(['failed-upload', 'other-upload']);
+      const settled: string[] = [];
+      let settledAtFirstCopy: string[] | undefined;
+      mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        const u = new URL(url);
+        if (u.searchParams.has('uploads')) {
+          if (failure === 'list rejection') throw new Error('Multipart list unavailable');
+          if (failure === 'list HTTP failure') return new Response(null, { status: 503 });
+          return new Response('<ListMultipartUploadsResult>' + [...uploads].map(id =>
+            `<Upload><Key>draft.md</Key><UploadId>${id}</UploadId></Upload>`).join('') + '</ListMultipartUploadsResult>');
+        }
+        if (init?.method === 'DELETE') {
+          const id = u.searchParams.get('uploadId')!;
+          settled.push(id);
+          if (id === 'failed-upload') {
+            if (failure === 'abort rejection') throw new Error('Multipart abort unavailable');
+            return new Response(null, { status: 503 });
+          }
+          uploads.delete(id);
+          return new Response(null, { status: 204 });
+        }
+        if (init?.method === 'PUT' && settledAtFirstCopy === undefined) settledAtFirstCopy = [...settled];
+        return r2.fetch(url, init);
+      });
+      const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: false }) });
+
+      await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+
+      expect([...uploads]).toEqual(failure.startsWith('list') ? ['failed-upload', 'other-upload'] : ['failed-upload']);
+      expect(settledAtFirstCopy).toBeUndefined();
+      expect(r2.store.get('a.md')?.regime).toBe('sse-c');
+      const state = await getRegimeState(driverEnv(kv), 'bkt');
+      expect(state).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 4, drained: false });
+      expect(state.lastError).toMatch(/multipart/i);
+      expect(state.leaseExpiresAt).toBeUndefined();
+    },
+  );
+
+  it('REQ-ENTERPRISE-086 AC1: bounded abort attempts settle before the first copy', async () => {
+    const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+    const uploads = new Set(Array.from({ length: 7 }, (_, i) => `upload-${i}`));
+    const started: string[] = [];
+    const settled: string[] = [];
+    let settledAtFirstCopy: string[] | undefined;
+    let releaseAborts!: () => void;
+    const abortGate = new Promise<void>(resolve => { releaseAborts = resolve; });
+    let signalBatch!: () => void;
+    const batchStarted = new Promise<void>(resolve => { signalBatch = resolve; });
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const u = new URL(url);
+      if (u.searchParams.has('uploads')) {
+        return new Response('<ListMultipartUploadsResult>' + [...uploads].map(id =>
+          `<Upload><Key>draft.md</Key><UploadId>${id}</UploadId></Upload>`).join('') + '</ListMultipartUploadsResult>');
+      }
+      if (init?.method === 'DELETE') {
+        const id = u.searchParams.get('uploadId')!;
+        started.push(id);
+        if (started.length === 6) signalBatch();
+        await abortGate;
+        uploads.delete(id);
+        settled.push(id);
+        return new Response(null, { status: 204 });
+      }
+      if (init?.method === 'PUT' && settledAtFirstCopy === undefined) settledAtFirstCopy = [...settled];
+      return r2.fetch(url, init);
+    });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+    const advance = advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+    try {
+      await batchStarted;
+      expect(started).toEqual(Array.from({ length: 6 }, (_, i) => `upload-${i}`));
+      expect(uploads.size).toBe(7);
+      expect(settled).toEqual([]);
+      expect(settledAtFirstCopy).toBeUndefined();
+      expect(r2.store.get('a.md')?.regime).toBe('sse-c');
+      expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 0 });
+    } finally {
+      releaseAborts();
+      await advance;
+    }
+    expect([...uploads]).toEqual([]);
+    expect(settledAtFirstCopy).toEqual(Array.from({ length: 7 }, (_, i) => `upload-${i}`));
+    expect(r2.store.get('a.md')?.regime).toBe('plain');
+    const state = await getRegimeState(driverEnv(kv), 'bkt');
+    expect(state).toMatchObject({ status: 'ready', regime: 'plain', generation: 1 });
+    expect(state.leaseExpiresAt).toBeUndefined();
   });
 
   it('fully migrates a small bucket within a SINGLE advanceMigration call (loops pages under budget)', async () => {
@@ -553,6 +851,45 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(state.leaseExpiresAt).toBeUndefined(); // released so the next poll retries
   });
 
+  it('REQ-ENTERPRISE-020 AC4/AC5: a timed-out copy is aborted, leaves source intact, releases the lease, and resumes', async () => {
+    vi.useFakeTimers();
+    const r2 = makeR2({ 'a.md': { regime: 'sse-c' } });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: true }) });
+    let copySignal: AbortSignal | undefined;
+    let signalCopy!: () => void;
+    const copyStarted = new Promise<void>(resolve => { signalCopy = resolve; });
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        copySignal = init.signal as AbortSignal;
+        signalCopy();
+        return new Promise<Response>((_resolve, reject) => {
+          copySignal!.addEventListener('abort', () => reject(new Error('copy aborted')), { once: true });
+        });
+      }
+      return r2.fetch(url, init);
+    });
+    try {
+      const advance = advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+      await copyStarted;
+      expect(r2.store.get('a.md')?.regime).toBe('sse-c');
+      await vi.advanceTimersByTimeAsync(4_001);
+      await advance;
+      expect(copySignal?.aborted).toBe(true);
+      const interrupted = await getRegimeState(driverEnv(kv), 'bkt');
+      expect(interrupted).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 4 });
+      expect(interrupted.lastError).toMatch(/verify failed at a\.md/);
+      expect(interrupted.leaseExpiresAt).toBeUndefined();
+      expect(r2.store.get('a.md')?.regime).toBe('sse-c');
+      mockFetch.mockImplementation(r2.fetch);
+      const final = await runToReady(kv);
+      expect(final).toMatchObject({ status: 'ready', regime: 'plain', generation: 5 });
+      expect(final.leaseExpiresAt).toBeUndefined();
+      expect(r2.store.get('a.md')?.regime).toBe('plain');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a premature flip is impossible: a verify failure re-enters the migrate phase instead of going ready', async () => {
     // Object is in neither regime readable as target after a "migrate" — simulate by leaving it
     // in the source regime so the verify HEAD (target) 400s.
@@ -598,6 +935,119 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
 
     expect(deps.drainContainers).not.toHaveBeenCalled(); // no force-kill
     expect(JSON.parse(store.get('r2-regime:bkt')!).status).toBe('migrating'); // deferred, not advanced
+  });
+
+  it.each(['held', 'unavailable'] as const)(
+    'REQ-SESSION-026 AC4: an already-drained chunk retains objects when ownership is %s', async authority => {
+      const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+      const originalObjects = structuredClone([...r2.store]);
+      const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c',
+        from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: true }) });
+
+      await advanceMigration(driverEnv(kv), 'bkt', {
+        drainContainers: async () => {},
+        hasHealthyContainer: async () => {
+          if (authority === 'unavailable') throw new Error('Ownership unavailable');
+          return true;
+        },
+      });
+
+      expect([...r2.store]).toEqual(originalObjects);
+      expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({
+        status: 'migrating', regime: 'sse-c', generation: 4, drained: true,
+      });
+    },
+  );
+
+  it.each(['held', 'unavailable'] as const)(
+    'REQ-SESSION-026 AC4: an already-drained chunk rechecks %s ownership acquired during admission', async authority => {
+      const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+      const originalObjects = structuredClone([...r2.store]);
+      const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c',
+        from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: true }) });
+      let ownershipChanged = false;
+      await advanceMigration(driverEnv(kv), 'bkt', {
+        drainContainers: async () => {},
+        hasHealthyContainer: async () => {
+          if (!ownershipChanged) { ownershipChanged = true; return false; }
+          if (authority === 'unavailable') throw new Error('Ownership unavailable');
+          return true;
+        },
+      });
+      expect([...r2.store]).toEqual(originalObjects);
+      const state = await getRegimeState(driverEnv(kv), 'bkt');
+      expect(state).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 4, drained: true });
+      expect(state.leaseExpiresAt).toBeUndefined();
+    },
+  );
+
+  it.each(['held', 'unavailable'] as const)(
+    'REQ-SESSION-026 AC4: a drain-time %s ownership refusal retains multipart uploads and object regime', async authority => {
+      const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+      const originalObjects = structuredClone([...r2.store]);
+      const uploads = new Set(['upload-1']);
+      mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'GET' && url.includes('uploads')) {
+          return new Response('<ListMultipartUploadsResult>' + [...uploads].map(id =>
+            `<Upload><Key>pending.md</Key><UploadId>${id}</UploadId></Upload>`).join('') + '</ListMultipartUploadsResult>');
+        }
+        if (init?.method === 'DELETE' && new URL(url).searchParams.get('uploadId') === 'upload-1') {
+          uploads.delete('upload-1');
+          return new Response(null, { status: 204 });
+        }
+        return r2.fetch(url, init);
+      });
+      const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c',
+        from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: false }) });
+
+      let ownershipChanged = false;
+      await advanceMigration(driverEnv(kv), 'bkt', {
+        hasHealthyContainer: async () => {
+          if (!ownershipChanged) return false;
+          if (authority === 'unavailable') throw new Error('Ownership unavailable');
+          return true;
+        },
+        drainContainers: async () => {
+          ownershipChanged = true;
+          throw new Error('Provider drain failed after ownership changed');
+        },
+      });
+
+      expect(uploads.has('upload-1')).toBe(true);
+      expect([...r2.store]).toEqual(originalObjects);
+      const state = await getRegimeState(driverEnv(kv), 'bkt');
+      expect(state).toMatchObject({ status: 'migrating', regime: 'sse-c', generation: 4, drained: false });
+      expect(state.leaseExpiresAt).toBeUndefined();
+      expect(state.lastError).toBeTruthy();
+    },
+  );
+
+  it('REQ-SESSION-026 AC4: an ownership refusal releases its lease so a later authorized poll can finish', async () => {
+    const r2 = makeR2({ 'owned.md': { regime: 'sse-c' } });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c',
+      from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: false }) });
+    let refuseDrain = true;
+    let ownershipUnavailable = false;
+    const deps = {
+      hasHealthyContainer: async () => {
+        if (ownershipUnavailable) throw new Error('Ownership unavailable');
+        return false;
+      },
+      drainContainers: async () => {
+        if (refuseDrain) {
+          ownershipUnavailable = true;
+          throw new Error('Provider drain failed');
+        }
+      },
+    };
+    await advanceMigration(driverEnv(kv), 'bkt', deps);
+    expect(r2.store.get('owned.md')?.regime).toBe('sse-c');
+    expect(await getRegimeState(driverEnv(kv), 'bkt')).toMatchObject({ status: 'migrating', generation: 4 });
+
+    refuseDrain = false;
+    ownershipUnavailable = false;
+    expect(await runToReady(kv, deps)).toMatchObject({ status: 'ready', regime: 'plain', generation: 5 });
+    expect(r2.store.get('owned.md')?.regime).toBe('plain');
   });
 
   it('an oversized object does not wedge the migration — verify skips it and the bucket reaches ready', async () => {

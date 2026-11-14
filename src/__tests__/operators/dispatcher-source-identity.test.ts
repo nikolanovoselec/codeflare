@@ -6,7 +6,7 @@ import * as aig from '../../lib/aig-config';
 import type { OperatorPolicy } from '../../operators/policy';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
-import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation } from '../../operators/operator-runtime-capability';
+import { DispatcherAuthorityUnavailable, authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation, prepareDispatcherNative } from '../../operators/operator-runtime-capability';
 import type { OperatorRuntimePlan } from '../../operators/activity';
 import type { Env } from '../../types';
 
@@ -31,6 +31,8 @@ async function fixture(identityResponse: IdentityResponse, groupGrant = false, g
   const human: VerifiedHumanAccessClaims = { subject, email, issuer, audiences: ['operator-audience'],
     issuedAt: now - 1, expiresAt: now + 300, groups: [stableGroup.id] };
   let identity = identityResponse;
+  let afterSourceRead: (() => void) | undefined;
+  let afterSourceCurrent: (() => void) | undefined;
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
     if (request.url !== `${issuer}/cdn-cgi/access/get-identity`) throw new Error('Unexpected public HTTP destination');
@@ -64,17 +66,32 @@ async function fixture(identityResponse: IdentityResponse, groupGrant = false, g
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ operationId: 'source-read', method: 'GET', url: sourceUrl }),
   }));
+  const sourceRequests: Array<{ url: string; method: string }> = [];
   const inferenceRequests: Array<{ body: unknown; inference: unknown }> = [];
   const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
     expect(request.url).toBe(sourceUrl);
     expect(request.method).toBe('GET');
+    sourceRequests.push({ url: request.url, method: request.method });
+    afterSourceRead?.();
     return new Response(options.sourceBody ?? JSON.stringify({ full_name: 'owner/project' }),
       { headers: { 'content-type': 'application/json', etag: '"source-version"' } });
   } }), LlmInterceptor: ({ props }: { props: Record<string, unknown> }) => ({ fetch: async (request: Request) => {
     inferenceRequests.push({ body: await request.json(), inference: props.operatorInference });
     return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
   } }) } as unknown as Parameters<typeof createDispatcherOperation>[0]['exports'];
-  const prepare = () => createDispatcherOperation({ plan, env: environment, operation, exports, current: async () => true });
+  const prepare = () => createDispatcherOperation({ plan, env: environment, operation, exports, current: async () => {
+    afterSourceCurrent?.();
+    return true;
+  } });
+  const prepareNative = async (afterConfigRead: () => void) => {
+    vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue([]);
+    vi.spyOn(access, 'loadEnterpriseRouteConfig').mockImplementation(async () => {
+      afterConfigRead();
+      return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {},
+        routeReasoningLevels: {}, modelDisplayNames: {}, piDefaultSource: 'pi-native', allowPersonalPiProviders: true };
+    });
+    return prepareDispatcherNative({ plan, env: environment, current: async () => true });
+  };
   const prepareInference = async () => {
     vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue([]);
     vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: ['approved', 'other-route'],
@@ -87,7 +104,9 @@ async function fixture(identityResponse: IdentityResponse, groupGrant = false, g
     }));
     return createDispatcherOperation({ plan, env: environment, operation: inferenceOperation, exports, current: async () => true });
   };
-  return { human, prepare, prepareInference, inferenceRequests,
+  return { human, prepare, prepareNative, prepareInference, sourceRequests, inferenceRequests,
+    afterSourceCurrent: (action: () => void) => { afterSourceCurrent = action; },
+    afterSourceRead: (action: () => void) => { afterSourceRead = action; },
     restrictInference: (role: 'operator' | 'installation', inference: OperatorPolicy['inference']) => {
       selection[role].policy = { ...selection[role].policy, inference };
     },
@@ -209,11 +228,64 @@ describe('REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET sou
     await expectSourceReceipt(await f.execute());
   });
 
+  it.each<[string, IdentityResponse]>([
+    ['503', () => new Response(null, { status: 503 })],
+    ['timeout', () => { throw new DOMException('Timed out', 'TimeoutError'); }],
+  ])('REQ-OPERATOR-045/047: %s withholds source and model work as unavailable, not revocation', async (_name, identity) => {
+    const f = await fixture(identity);
+    await expect(f.authorize()).rejects.toBeInstanceOf(DispatcherAuthorityUnavailable);
+    await expect(f.prepare()).rejects.toBeInstanceOf(DispatcherAuthorityUnavailable);
+    await expect(f.prepareInference()).rejects.toBeInstanceOf(DispatcherAuthorityUnavailable);
+    expect(f.inferenceRequests).toEqual([]);
+    f.replaceIdentity(() => Response.json(documentedIdentity));
+    await expectSourceReceipt(await f.execute());
+  });
+
+  for (const boundary of ['source-local-check', 'native-config-read'] as const) {
+    it.each<[string, IdentityResponse]>([
+      ['503', () => new Response(null, { status: 503 })],
+      ['timeout', () => { throw new DOMException('Timed out', 'TimeoutError'); }],
+      ['revoked', () => new Response(null, { status: 401 })],
+    ])(`REQ-OPERATOR-047: %s after ${boundary} withholds work without misclassifying unavailable evidence as expiry`, async (fault, identity) => {
+      const f = await fixture(() => Response.json(documentedIdentity));
+      const changeIdentity = () => f.replaceIdentity(identity);
+      let attempt: Promise<unknown>;
+      if (boundary === 'source-local-check') {
+        const perform = await f.prepare();
+        f.afterSourceCurrent(changeIdentity);
+        attempt = perform();
+      } else {
+        attempt = f.prepareNative(changeIdentity);
+      }
+      if (fault === 'revoked') {
+        await expect(attempt).rejects.toThrow();
+        await expect(attempt).rejects.not.toBeInstanceOf(DispatcherAuthorityUnavailable);
+      } else {
+        await expect(attempt).rejects.toBeInstanceOf(DispatcherAuthorityUnavailable);
+      }
+      expect(f.sourceRequests).toEqual([]);
+      expect(f.inferenceRequests).toEqual([]);
+    });
+  }
+
+  it('REQ-OPERATOR-047: a finite identity transport allowance authorizes one decision, never the next', async () => {
+    const responses = [Response.json(documentedIdentity)];
+    const f = await fixture(() => responses.shift() ?? new Response(null, { status: 503 }));
+    expect((await f.authorize()).authority.human.groups).toEqual([]);
+    await expect(f.authorize()).rejects.toBeInstanceOf(DispatcherAuthorityUnavailable);
+  });
+
   it('denies source execution when the current identity is revoked after preparation', async () => {
     const f = await fixture(() => Response.json(documentedIdentity));
     const perform = await f.prepare();
     f.replaceIdentity(() => new Response('Unauthorized', { status: 401 }));
     await expect(perform()).rejects.toThrow();
+  });
+
+  it('REQ-OPERATOR-047: revocation during protected source I/O withholds the response', async () => {
+    const f = await fixture(() => Response.json(documentedIdentity));
+    f.afterSourceRead(() => f.replaceIdentity(() => new Response(null, { status: 401 })));
+    await expect(f.execute()).rejects.toThrow();
   });
 
   it('REQ-OPERATOR-047: expired live identity cannot become empty-group authority or execute a prepared source', async () => {

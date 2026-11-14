@@ -312,6 +312,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
 
     describe('alternate-screen application scrolling', () => {
       it('REQ-MOB-017 AC1-AC2: routes proportional Herdr wheel steps without inertia', () => {
+        vi.useFakeTimers();
         (window as any).ontouchstart = null;
         const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, element } = createMockTerminal({
           bufferType: 'alternate',
@@ -333,6 +334,9 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         expect(wheelEvents).toHaveLength(6);
         expect(wheelEvents.slice(0, 4).every((event) => event.deltaY === 1)).toBe(true);
         expect(wheelEvents.slice(4).every((event) => event.deltaY === -1)).toBe(true);
+        const atLift = wheelEvents.map(event => event.deltaY);
+        vi.advanceTimersByTime(2_000);
+        expect(wheelEvents.map(event => event.deltaY)).toEqual(atLift);
         expect(triggerDataEvent).not.toHaveBeenCalled();
         expect(scrollLines).not.toHaveBeenCalled();
         expect(bufferScrollLines).not.toHaveBeenCalled();
@@ -469,7 +473,18 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         // Another interval
         vi.advanceTimersByTime(80);
         expect(triggerDataEvent).toHaveBeenCalledTimes(3);
+        container.dispatchEvent(makeTouchEvent('touchend', 70, 100));
+        const atLift = triggerDataEvent.mock.calls.map(args => [...args]);
+        vi.advanceTimersByTime(1_000);
+        expect(triggerDataEvent.mock.calls).toEqual(atLift);
 
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        container.dispatchEvent(makeTouchEvent('touchmove', 70, 100));
+        expect(triggerDataEvent.mock.calls.length).toBeGreaterThan(atLift.length);
+        container.dispatchEvent(makeTouchEvent('touchcancel', 70, 100));
+        const atCancel = triggerDataEvent.mock.calls.map(args => [...args]);
+        vi.advanceTimersByTime(1_000);
+        expect(triggerDataEvent.mock.calls).toEqual(atCancel);
         cleanup();
       });
 

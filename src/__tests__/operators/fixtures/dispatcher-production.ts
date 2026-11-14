@@ -47,6 +47,8 @@ let callerReasoning = 'off';
 export let nativeProfileFiles = new Map<string, unknown>();
 vi.mock('../../../lib/access', async original => ({ ...await original<typeof import('../../../lib/access')>(),
   resolveOperatorGroupIdentity: async (human: unknown) => human,
+  observeOperatorAccessIdentity: async (human: { groups?: string[] }) => callerSessionCurrent
+    ? { status: 'current' as const, groups: human.groups ?? [] } : { status: 'denied' as const },
   resolveBucketName: async () => 'owner-bucket',
   resolveSessionAccessGroup: async () => [],
   operatorAccessSessionCurrent: async () => callerSessionCurrent,
@@ -227,7 +229,7 @@ export async function fixture(test: (f: {
   interruptOwnedChild: (error: Error) => void;
   failOwnedAbort: () => void;
   seedCancelledReleased: () => Promise<void>;
-}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
+}) => Promise<void>, options: { delegated?: boolean; humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; installationSourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
@@ -269,7 +271,8 @@ export async function fixture(test: (f: {
     const now = Date.now();
     const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
     const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
-      audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
+      audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt,
+      ...(options.delegated ? { groups: [] } : {}) };
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
       ...(options.nativeInference ? { inference: { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
         reasoningLevels: ['low'], defaultReasoningLevel: options.nativeProviderDefault ? null : 'low', inheritUserDefaults: false } }
@@ -300,13 +303,13 @@ export async function fixture(test: (f: {
       controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
       pullRequest: 17, head: 'b'.repeat(40), createdAt: new Date(now - 86_400_000).toISOString(),
       activatedAt: new Date(now - 2 * 86_400_000).toISOString(), ownerKey: await operatorOwnerKey(human),
-      actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: 'original-session',
-        sessionGeneration: 3, subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences } } as unknown as ProspectiveAdmission;
+      actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: options.delegated ? '' : 'original-session',
+        sessionGeneration: options.delegated ? 0 : 3, subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences } } as unknown as ProspectiveAdmission;
     const admittedTarget = { repository: configuredTarget.repository, repositoryId: proof.repositoryId,
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
       createdAfter: proof.activatedAt, baseBranch: configuredTarget.baseBranch };
     let currentProof: Record<string, unknown> | null = structuredClone(proof) as unknown as Record<string, unknown>;
-    let currentRegistration: CurrentProspectiveRegistration | null = { registrationId: proof.actor.registrationId,
+    let currentRegistration: CurrentProspectiveRegistration | null = { ...(options.delegated ? { scope: 'installation' as const, delegation: { version: 1 as const, routingGroups: [] } } : {}), registrationId: proof.actor.registrationId,
       installationId: proof.installationId, activatedAt: proof.activatedAt, bucket: proof.actor.bucket,
       sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration, human, accessJwt: 'private.jwt',
       ...configuredTarget, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
@@ -348,7 +351,7 @@ export async function fixture(test: (f: {
     let moveAfterRelease = false;
     let expireAfterRead = false;
     let exceedDeadline = false;
-    let composeElapsed = false;
+    let composeStartedAt: number | undefined;
     const sent: Request[] = [];
     const nativeTransport = (request: Request) => {
       sent.push(request.clone());
@@ -544,7 +547,7 @@ export async function fixture(test: (f: {
           if (upstreamConflict) return Response.json({ error: 'upstream-conflict' }, { status: 409 });
           if (request.url.includes('/releases/tags/')) {
             if (moveAfterRelease) headSha = 'c'.repeat(40);
-            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(now + 9000);
+            if (exceedDeadline) vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 9000);
             return Response.json(releaseBody, { status: releaseStatus });
           }
           if (request.url.includes('/git/ref/tags/')) return Response.json(tagRef);
@@ -559,7 +562,7 @@ export async function fixture(test: (f: {
             const url = new URL(request.url);
             const key = `${url.searchParams.get('ref')}:${decodeURIComponent(url.pathname.split('/contents/')[1])}`;
             const body = composeBodies[key];
-            if (composeElapsed) vi.spyOn(Date, 'now').mockReturnValue(now + 1500);
+            if (composeStartedAt !== undefined) vi.spyOn(Date, 'now').mockReturnValue(composeStartedAt + 1500);
             if (moveAfterContents) baseSha = 'c'.repeat(40);
             return body instanceof Response ? body : body ? Response.json(body)
               : Response.json({ message: 'Missing' }, { status: 404 });
@@ -632,6 +635,8 @@ export async function fixture(test: (f: {
         requestedId === activityId ? activity.getBrowserSummary(ownerKey) : null,
       readProspectiveRenovateAdmission: async () => structuredClone(currentProof),
       currentProspectiveRenovateRegistration: async () => structuredClone(currentRegistration),
+      observeProspectiveRenovateRegistration: async () => currentRegistration && (options.delegated || callerSessionCurrent)
+        ? { status: 'current', registration: structuredClone(currentRegistration) } : { status: 'denied' },
     };
     // Historical Host completion stand-in retains its original profile/digest wire.
     // Current normal discovery uses the separate installed-Worker profile wrapper above.
@@ -642,6 +647,7 @@ export async function fixture(test: (f: {
     let normalHostAuthMissing = false;
     const ownerPortRequests: Array<{ url: string; loggingContext: unknown; body: unknown }> = [];
     const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
+      ...(options.delegated ? { KV: { get: async (key: string) => key === 'user:owner@example.test' ? '{"role":"admin"}' : null } } : {}),
       ...(options.normalHosting ? { CONTAINER: { getByName: () => ({
         getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
           if (ref.bucket !== 'owner-bucket' || ref.sessionId !== 'ownerhost123' || ref.email !== human.email
@@ -685,14 +691,16 @@ export async function fixture(test: (f: {
     const activityEnvironment = environment as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     activity = new OperatorActivity(context, activityEnvironment);
     await drainBackground();
-    if (options.prospective) expect(await activity.bindProspectiveRenovateAdmission(activityId)).toBe(true);
     const invocationJson = JSON.stringify(fixtureInvocation);
     const execution = await createOperatorExecutionContext({ activityId, operatorId: fixtureOperatorId, artifactDigest,
       policyDigest: await digest(JSON.stringify(selection.installation.policy)), human, accessJwt: 'private.jwt' }, encryption);
-    await activity.prepareAuthorized({ activityId, operatorId: fixtureOperatorId, installationId: 'installation',
+    const preparation = { activityId, operatorId: fixtureOperatorId, installationId: 'installation',
       intentDigest: await createOperatorIntentDigest(fixtureOperatorId, activityId, invocationJson),
       expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
-      deadline: expiresAt * 1000, startExpiresAt: expiresAt * 1000, startVerifier: await digest('s'.repeat(43)) }, execution, invocationJson);
+      deadline: expiresAt * 1000, startExpiresAt: expiresAt * 1000, startVerifier: await digest('s'.repeat(43)) };
+    expect(await (options.prospective
+      ? activity.prepareAuthorized(preparation, execution, invocationJson, undefined, activityId)
+      : activity.prepareAuthorized(preparation, execution, invocationJson))).toEqual({ ok: true, phase: 'prepared' });
     if (options.normalHosting) expect(await activity.bindDispatcherOwnerSource({ bucket: 'owner-bucket',
       sessionId: 'ownerhost123', sessionGeneration: 3 })).toBe(true);
     if (!options.recovery) {
@@ -773,9 +781,18 @@ export async function fixture(test: (f: {
         moveHeadAfterRelease: () => { moveAfterRelease = true; },
         expireAfterRead: () => { expireAfterRead = true; },
         moveBaseAfterContents: () => { moveAfterContents = true; },
-        exceedComposeDeadline: () => { composeElapsed = true; },
+        exceedComposeDeadline: () => {
+          // Anchor the simulated read delay after admission, not fixture setup.
+          composeStartedAt = Date.now();
+          vi.spyOn(Date, 'now').mockReturnValue(composeStartedAt);
+        },
         moveBaseAfterGuide: () => { moveBaseAfterGuide = true; },
-        exceedReleaseDeadline: () => { exceedDeadline = true; },
+        exceedReleaseDeadline: () => {
+          // Measure the nine-second upstream delay from this read, not fixture
+          // creation: admission/setup time must not shorten the simulated delay.
+          vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+          exceedDeadline = true;
+        },
         exceedGuideDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         advanceClock: milliseconds => { vi.spyOn(Date, 'now').mockReturnValue(now + milliseconds); },

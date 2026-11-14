@@ -8,7 +8,7 @@ import { createMockKV } from '../helpers/mock-kv';
 
 // Track mock state for assertions - vi.hoisted() ensures these are available when vi.mock() factory runs
 const { mockGetR2Url, mockFetchObjectWithRegimeFallback, mockMarkMixedRecovery } = vi.hoisted(() => ({
-  mockGetR2Url: vi.fn((endpoint: string, bucket: string, key?: string) => (key ? `${endpoint}/${bucket}/${key}` : `${endpoint}/${bucket}`)),
+  mockGetR2Url: vi.fn<typeof import('../../lib/r2-client').getR2Url>(),
   mockFetchObjectWithRegimeFallback: vi.fn(),
   mockMarkMixedRecovery: vi.fn(async () => {}),
 }));
@@ -16,7 +16,11 @@ const { mockGetR2Url, mockFetchObjectWithRegimeFallback, mockMarkMixedRecovery }
 // download.ts builds the object URL with getR2Url, then reads via fetchObjectWithRegimeFallback
 // (REQ-ENTERPRISE-021 dual-regime read). The regime-fallback logic itself is covered in
 // r2-migration.test.ts; here we control the returned R2 Response to exercise download behavior.
-vi.mock('../../lib/r2-client', () => ({ getR2Url: mockGetR2Url }));
+vi.mock('../../lib/r2-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/r2-client')>();
+  mockGetR2Url.mockImplementation(actual.getR2Url);
+  return { ...actual, getR2Url: mockGetR2Url };
+});
 vi.mock('../../lib/r2-config', () => ({
   getR2Config: vi.fn().mockResolvedValue({ accountId: 'test-account', endpoint: 'https://test.r2.cloudflarestorage.com' }),
 }));
@@ -197,6 +201,21 @@ describe('Storage Download Routes', () => {
       expect(encodedPart).not.toContain('%0A');
     });
 
+    it.each(['attachment', 'inline'])('REQ-SEC-013: %s preserves Unicode object identity and emits no HTTP controls', async (disposition) => {
+      const key = 'Uploads/東京😀\u0009\u001f\u007f\u0085.txt';
+      // The query parser and validateKey each decode once; preserve the intended key.
+      const res = await createTestApp().request(`/download?key=${encodeURIComponent(encodeURIComponent(key))}&disposition=${disposition}`);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe('file-content');
+      expect(mockFetchObjectWithRegimeFallback).toHaveBeenCalledWith(
+        expect.anything(), 'test-bucket', `https://test.r2.cloudflarestorage.com/test-bucket/${key.split('/').map(encodeURIComponent).join('/')}`, { method: 'GET' },
+      );
+      const header = res.headers.get('Content-Disposition')!;
+      expect(header.startsWith(`${disposition};`)).toBe(true);
+      expect(header).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+      expect(decodeURIComponent(header.split("filename*=UTF-8''")[1])).toBe('東京😀____.txt');
+    });
+
     it('REQ-STOR-007: serves an inline image with its real type, inline disposition, and nosniff', async () => {
       const app = createTestApp();
 
@@ -267,6 +286,8 @@ describe('Storage Download Routes', () => {
       // Distinct code (not a generic FORBIDDEN) so the client can show the friendly
       // view-only notice instead of a raw failure — REQ-ENTERPRISE-019.
       expect(body.code).toBe('DOWNLOADS_DISABLED');
+      expect(mockFetchObjectWithRegimeFallback).not.toHaveBeenCalled();
+      expect(mockMarkMixedRecovery).not.toHaveBeenCalled();
     });
 
     it('permits an inline view of a viewable type (200, inline disposition)', async () => {
@@ -283,6 +304,8 @@ describe('Storage Download Routes', () => {
       expect(res.status).toBe(403);
       const body = await res.json() as { code: string };
       expect(body.code).toBe('DOWNLOADS_DISABLED');
+      expect(mockFetchObjectWithRegimeFallback).not.toHaveBeenCalled();
+      expect(mockMarkMixedRecovery).not.toHaveBeenCalled();
     });
 
     it('leaves attachment downloads unchanged (200) when the KV toggle is absent in enterprise mode', async () => {

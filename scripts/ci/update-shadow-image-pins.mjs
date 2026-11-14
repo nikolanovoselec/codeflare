@@ -8,7 +8,7 @@ import { strictSemverUpgrade } from './semver-forward.mjs';
 const PINS = '.github/workflow-tool-pins.json';
 const K6 = '.github/actions/install-k6/action.yml';
 const PATHS = ['Dockerfile', PINS, K6];
-export const IMAGE_PIN_IDS = Object.freeze(['go', 'rust', 'rclone', 'grpc', 'compress', 'github-cli', 'k6', 'trivy', 'ci-node-26', 'ci-node-22']);
+export const IMAGE_PIN_IDS = Object.freeze(['go', 'rust', 'rclone', 'grpc', 'compress', 'github-cli', 'k6', 'trivy', 'ci-node-26', 'ci-node-22', 'antigravity']);
 const VERSION = /^\d+\.\d+\.\d+$/;
 const HASH = /^[a-f0-9]{64}$/;
 function once(source, pattern, replacement, label) {
@@ -20,9 +20,22 @@ function match(source, pattern, label) {
   if (matches.length !== 1) throw new Error(`missing or ambiguous ${label}`);
   return matches[0];
 }
+function validateAntigravityPin({ version, url, sha512 }) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version ?? '') ||
+      !/^[a-f0-9]{128}$/.test(sha512 ?? '')) throw new Error('Antigravity stable version and authoritative SHA512 are required');
+  const archive = new RegExp(`^https://storage\\.googleapis\\.com/antigravity-public/antigravity-cli/${version.replaceAll('.', '\\.')}-[0-9]+/linux-x64/cli_linux_x64\\.tar\\.gz$`);
+  if (typeof url !== 'string' || !archive.test(url)) throw new Error('Antigravity native archive identity mismatch');
+  return { version, url, sha512 };
+}
+function currentAntigravityPin(files) {
+  return validateAntigravityPin(Object.fromEntries(['VERSION', 'URL', 'SHA512'].map(key => [key.toLowerCase(),
+    match(files.Dockerfile, new RegExp(`^ARG ANTIGRAVITY_${key}=(.+)$`, 'm'), `Antigravity ${key}`)[1],
+  ])));
+}
 export function currentImagePin(files, id) {
   const docker = files.Dockerfile;
   switch (id) {
+    case 'antigravity': return currentAntigravityPin(files).version;
     case 'go': return match(docker, /go(\d+\.\d+\.\d+)\.linux-amd64\.tar\.gz/, id)[1];
     case 'rust': return match(docker, /https:\/\/static\.rust-lang\.org\/dist\/(\d{4}-\d{2}-\d{2})\/rust-(\d+\.\d+\.\d+)-x86_64-unknown-linux-gnu\.tar\.xz/, id)[2];
     case 'rclone': return match(docker, /refs\/tags\/v(\d+\.\d+\.\d+) -o \/tmp\/rclone.tar.gz/, id)[1];
@@ -51,6 +64,14 @@ export function updateShadowImagePins(files, id, current, candidate) {
   let docker = files.Dockerfile;
   if (['go', 'rust', 'github-cli', 'k6'].includes(id) && !HASH.test(sha256 ?? '')) throw new Error('an authoritative SHA256 is required');
   switch (id) {
+    case 'antigravity': {
+      const pin = validateAntigravityPin(candidate);
+      for (const [key, value] of Object.entries(pin)) {
+        const name = `ANTIGRAVITY_${key.toUpperCase()}`;
+        docker = once(docker, new RegExp(`^ARG ${name}=.+$`, 'm'), `ARG ${name}=${value}`, name);
+      }
+      break;
+    }
     case 'go':
       docker = once(docker, /go\d+\.\d+\.\d+\.linux-amd64\.tar\.gz/, `go${version}.linux-amd64.tar.gz`, id);
       docker = once(docker, /[a-f0-9]{64}(?=  \/tmp\/go.tar.gz)/, sha256, `${id} checksum`);
@@ -114,6 +135,9 @@ function latestWithin(current, versions, patchOnly = false) {
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
 }
 export async function resolveCandidate(id, current) {
+  if (id === 'antigravity') {
+    return validateAntigravityPin(await request('https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json', true));
+  }
   if (id === 'go') {
     const releases = await request('https://go.dev/dl/?mode=json&include=all', true);
     const version = latestWithin(current, releases.filter(value => value.stable).map(value => value.version.replace(/^go/, '')), true);
@@ -176,11 +200,18 @@ async function main() {
   const files = Object.fromEntries(PATHS.map(path => [path, readFileSync(path, 'utf8')]));
   const current = currentImagePin(files, id);
   const candidate = await resolveCandidate(id, current);
+  const previous = id === 'antigravity' ? JSON.stringify(currentAntigravityPin(files)) : undefined;
+  if (previous && command === 'apply' && (process.env.CUR !== current || process.env.PREVIOUS !== previous ||
+      process.env.CANDIDATE !== JSON.stringify(candidate))) throw new Error('candidate or pin changed since resolution');
   if (!candidate.version || !strictSemverUpgrade(current, candidate.version)) {
     if (command === 'resolve') process.stdout.write('skip=true\n');
     return;
   }
-  if (command === 'resolve') { process.stdout.write(`current=${current}\nlatest=${candidate.version}\ncandidate=${JSON.stringify(candidate)}\n`); return; }
+  if (command === 'resolve') {
+    process.stdout.write(`current=${current}\nlatest=${candidate.version}\ncandidate=${JSON.stringify(candidate)}\n`);
+    if (previous) process.stdout.write(`previous=${previous}\n`);
+    return;
+  }
   if (command !== 'apply' || process.env.CUR !== current || process.env.CANDIDATE !== JSON.stringify(candidate)) throw new Error('candidate changed since resolution');
   const next = updateShadowImagePins(files, id, current, candidate);
   for (const [path, source] of Object.entries(next)) if (source !== files[path]) writeFileSync(path, source);

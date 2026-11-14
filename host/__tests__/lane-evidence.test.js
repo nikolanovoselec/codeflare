@@ -936,6 +936,31 @@ describe('lane-evidence.mjs — a documented file named without its path', () =>
   });
 });
 
+// RQ0007 / REQ-AGENT-108 AC6: slash notation must not promote literal evidence.
+describe('slash-command evidence strength', () => {
+  for (const [source, code, expected] of [
+    ['src/commands.ts', 'registerCommand("reload", {});\n', 'literal'],
+    ['src/reload.ts', 'export const unrelated = 1;\n', 'path'],
+    ['src/commands.ts', 'export function reload() {}\n', 'symbol'],
+  ]) {
+    it(`classifies /reload as ${expected} from ${source}`, () => {
+      const { cwd, base } = makeRepo();
+      write(cwd, source, code);
+      write(cwd, 'documentation/commands.md', 'Use `/reload`.\n');
+      const head = commit(cwd, 'docs: slash command');
+      const refs = run(cwd, 'doc-updater', `${base}..${head}`).references;
+      assert.deepEqual(refs.unresolved, []);
+      assert.equal(refs.resolvedBy[expected], 1);
+      if (expected === 'literal') {
+        assert.deepEqual(refs.resolvedOnlyByStringLiteral.map((row) => row.ref), ['/reload']);
+        assert.equal(refs.resolvedBy.path, undefined);
+      } else {
+        assert.equal(refs.resolvedOnlyByStringLiteral, undefined);
+      }
+    });
+  }
+});
+
 describe('lane-evidence.mjs — the failure list is the finding', () => {
   it('reports every unresolved reference rather than a capped sample', () => {
     const { cwd, base } = makeRepo();

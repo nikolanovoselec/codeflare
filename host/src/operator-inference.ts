@@ -59,7 +59,8 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
   let session: InferenceSession | undefined;
-  let loggingContext: RawLogContext | undefined;
+  let loggingContext: RawLogContext | undefined = transportLogging && { ...transportLogging,
+    loggingEnabled: owner.loggingEnabled === true && transportLogging.loggingEnabled !== false };
   const observations: unknown[] = [];
   const observe = (stage: string, value: unknown) => {
     if (loggingContext?.loggingEnabled === true) observations.push({ stage, value: captureRawValue(value) });
@@ -95,7 +96,7 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
     await current();
     loggingContext = { activityId: binding.activityId, generation: binding.generation,
       loggingEnabled: owner.loggingEnabled === true && transportLogging?.loggingEnabled !== false,
-      credentials: transportLogging?.credentials ?? [] };
+      credentials: transportLogging?.credentials ?? [], privateArchive: transportLogging?.privateArchive };
     emitRaw(loggingContext, profile ? 'configured-profile-request' : 'configured-inference-request', () => input);
     const root = path.resolve(owner.sdkRoot ?? '/opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent');
     const sdk = await import(pathToFileURL(path.join(root, 'dist/index.js')).href) as {

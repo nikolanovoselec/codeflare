@@ -98,15 +98,10 @@ vi.mock('../../../lib/kv-keys', async () => ({
   // r2-migration reads via the /start ensureBucketAndSeed path) resolve — mirrors
   // the container-lifecycle-helpers test. Only KV-interaction helpers are overridden.
   ...(await vi.importActual<typeof import('../../../lib/kv-keys')>('../../../lib/kv-keys')),
-  getSessionKey: vi.fn((bucket: string, sessionId: string) => `session:${bucket}:${sessionId}`),
   getPreferencesKey: vi.fn((bucket: string) => `user-prefs:${bucket}`),
   getLlmKeysKey: vi.fn((bucket: string) => `llm-keys:${bucket}`),
   getDeployKeysKey: vi.fn((bucket: string) => `deploy-keys:${bucket}`),
   listAllKvKeys: vi.fn(async () => []),
-  getSessionPrefix: vi.fn((bucket: string) => `session:${bucket}:`),
-  putSessionWithMetadata: vi.fn(async (kv: unknown, key: string, session: unknown) => {
-    await (kv as { put: (k: string, v: string) => Promise<void> }).put(key, JSON.stringify(session));
-  }),
 }));
 
 // Mock container-helpers
@@ -118,6 +113,30 @@ vi.mock('../../../lib/container-helpers', () => ({
 
 import lifecycleRoutes, { startOrRestartContainer } from '../../../routes/container/lifecycle';
 import { AppError } from '../../../lib/error-types';
+import { containerLogger } from '../../../routes/container/shared';
+
+// Use the production serializer: JSON.stringify(Error) would hide message/stack leaks.
+async function withLifecycleLogs(work: (
+  logger: import('../../../lib/logger').Logger,
+  entries: Array<{ message: string; data?: Record<string, unknown> }>,
+) => Promise<void>) {
+  const actual = await vi.importActual<typeof import('../../../lib/logger')>('../../../lib/logger');
+  const entries: Array<{ message: string; data?: Record<string, unknown> }> = [];
+  const capture = (line: unknown) => { entries.push(JSON.parse(String(line))); };
+  const spies = [vi.spyOn(console, 'log').mockImplementation(capture),
+    vi.spyOn(console, 'warn').mockImplementation(capture),
+    vi.spyOn(console, 'error').mockImplementation(capture)];
+  actual.setLogLevel('info');
+  try { await work(actual.createLogger('lifecycle-contract'), entries); }
+  finally { actual.setLogLevel('silent'); for (const spy of spies) spy.mockRestore(); }
+}
+
+const privateLifecyclePayload = 'Bearer PRIVATE_ROUTE_CANARY /private/route-path transcript:PRIVATE_ROUTE_TEXT';
+function expectLifecyclePrivacy(entries: unknown[]) {
+  for (const value of ['PRIVATE_ROUTE_CANARY', '/private/route-path', 'PRIVATE_ROUTE_TEXT']) {
+    expect(JSON.stringify(entries)).not.toContain(value);
+  }
+}
 
 describe('Container Lifecycle - Scoped R2 Tokens', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -187,6 +206,26 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
       },
     };
   }
+
+  it('REQ-SESSION-025 AC4: Start stage and outer catch preserve failure response without private logs', async () => {
+    const failure = new Error(privateLifecyclePayload);
+    const get = vi.spyOn(mockKV, 'get').mockRejectedValueOnce(failure);
+    await withLifecycleLogs(async (logger, entries) => {
+      const child = vi.spyOn(containerLogger, 'child').mockReturnValue(logger);
+      try {
+        const response = await createTestApp().request('/container/start?sessionId=test-session', { method: 'POST' });
+        expect(response.status).toBe(500);
+        expect(await response.json()).toMatchObject({ code: 'CONTAINER_ERROR' });
+        for (const message of ['Container start stage failed', 'Container start error']) {
+          expect(entries).toContainEqual(expect.objectContaining({ message, data: expect.objectContaining({
+            errorClass: 'start_failed',
+          }) }));
+        }
+        expectLifecyclePrivacy(entries);
+      } finally { child.mockRestore(); }
+    });
+    get.mockRestore();
+  });
 
   it('REQ-AGENT-123 AC5: rejects starting a persisted session whose CLI is omitted from the image', async () => {
     const app = createTestApp({ CODING_AGENTS: 'claude-code,codex,pi' });
@@ -467,6 +506,50 @@ describe('Container Lifecycle - restart after a bucket change', () => {
     expect(stored.status).toBe('running');
     expect(stored.lifecycleGeneration).toBe(2);
   });
+
+  it.each(['start', 'replacement-destroy', 'replacement-bucket'] as const)(
+    'REQ-SESSION-025 AC4: %s logs no private failure and preserves lifecycle effects', async phase => {
+      const kv = createMockKV();
+      const key = 'session:codeflare-test-example-com:sess123';
+      kv._set(key, { id: 'sess123', userId: 'codeflare-test-example-com',
+        status: phase === 'start' ? 'stopped' : 'running', lifecycleGeneration: 2 });
+      const failure = new Error(privateLifecyclePayload);
+      const effects: string[] = [];
+      const container = {
+        getState: vi.fn(async () => ({ status: phase === 'start' ? 'stopped' : 'running' })),
+        destroy: vi.fn(async () => { effects.push('destroy'); if (phase === 'replacement-destroy') throw failure; }),
+        fetch: vi.fn(async () => { effects.push('bucket'); if (phase === 'replacement-bucket') throw failure; return new Response('{}'); }),
+        startAndWaitForPorts: vi.fn(async () => { effects.push('start'); if (phase === 'start') throw failure; }),
+      };
+      await withLifecycleLogs(async (logger, entries) => {
+        const background: Promise<void>[] = [];
+        const operation = startOrRestartContainer({ container, needsBucketUpdate: phase !== 'start',
+          setBucketBody: '{}', containerId: 'container-abc', shortContainerId: 'cont-abc',
+          sessionData: { id: 'sess123', userId: 'codeflare-test-example-com' } as Session,
+          env: { KV: kv, USAGE_DB: createMockSessionD1(kv) } as unknown as Env,
+          logger, waitUntil: task => { background.push(task); },
+        });
+        if (phase === 'replacement-destroy') await expect(operation).rejects.toBe(failure);
+        else {
+          await expect(operation).resolves.toEqual({ status: 'starting' });
+          await expect(Promise.all(background)).resolves.toEqual([undefined]);
+        }
+        const message = phase === 'start' ? 'Failed to start container'
+          : phase === 'replacement-destroy' ? 'Failed to destroy container' : 'Failed to set replacement bucket';
+        expect(entries).toContainEqual(expect.objectContaining({ message, data: expect.objectContaining({
+          errorClass: phase === 'start' ? 'start_failed'
+            : phase === 'replacement-destroy' ? 'native_destroy_failed' : 'configuration_failed',
+          containerId: 'cont-abc',
+        }) }));
+        expectLifecyclePrivacy(entries);
+        expect(await kv.get(key, 'json')).toMatchObject(phase === 'replacement-destroy'
+          ? { status: 'stopping', lifecycleGeneration: 2, terminationGeneration: 2, terminationIntentId: expect.any(String) }
+          : { status: 'starting', lifecycleGeneration: 3 });
+        expect(effects).toEqual(phase === 'start' ? ['start']
+          : phase === 'replacement-destroy' ? ['destroy'] : ['destroy', 'bucket', 'start']);
+      });
+    },
+  );
 
   it('REQ-SESSION-020 AC5-AC6: starts the container and re-asserts running when the bucket forward fails after destroy', async () => {
     const waitUntil = vi.fn();

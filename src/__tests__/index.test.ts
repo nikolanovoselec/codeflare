@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import { AppError } from '../lib/error-types';
+import { setLogLevel } from '../lib/logger';
+
+const lifecycleLogBoundary = vi.hoisted(() => ({ failure: null as Error | null }));
 import {
   DESIGN_READY_CSP_HASH,
   DESIGN_READY_SCRIPT,
@@ -17,8 +21,22 @@ vi.mock('../routes/terminal', () => ({
   handleWebSocketUpgrade: vi.fn(),
 }));
 vi.mock('../routes/user', () => ({ default: new Hono() }));
-vi.mock('../routes/container/index', () => ({ default: new Hono() }));
-vi.mock('../routes/session/index', () => ({ default: new Hono() }));
+vi.mock('../routes/container/index', () => {
+  const app = new Hono();
+  app.post('/start', c => {
+    if (lifecycleLogBoundary.failure) throw lifecycleLogBoundary.failure;
+    return c.notFound();
+  });
+  return { default: app };
+});
+vi.mock('../routes/session/index', () => {
+  const app = new Hono();
+  app.delete('/:id', c => {
+    if (lifecycleLogBoundary.failure) throw lifecycleLogBoundary.failure;
+    return c.notFound();
+  });
+  return { default: app };
+});
 vi.mock('../routes/setup', () => {
   const app = new Hono();
   // Provide a minimal /status endpoint so tests for /api/setup/status work
@@ -54,6 +72,38 @@ function createMockCtx(): ExecutionContext {
     passThroughOnException: vi.fn(),
   } as unknown as ExecutionContext;
 }
+
+describe('REQ-SESSION-025: final Worker lifecycle error logging', () => {
+  it.each([
+    ['POST', '/api/container/start', 'start_failed'],
+    ['DELETE', '/api/sessions/log-privacy-target', 'native_destroy_failed'],
+  ] as const)('%s %s retains response behavior without re-serializing private failures', async (method, path, errorClass) => {
+    const privateValue = 'PRIVATE_LIFECYCLE_VALUE /private/lifecycle-path';
+    const output: string[] = [];
+    const capture = (line: unknown) => { output.push(String(line)); };
+    const spies = [vi.spyOn(console, 'log').mockImplementation(capture),
+      vi.spyOn(console, 'warn').mockImplementation(capture), vi.spyOn(console, 'error').mockImplementation(capture)];
+    try {
+      for (const failure of [new Error(privateValue), new AppError('TEST_LIFECYCLE_FAILURE', 403, privateValue)]) {
+        output.length = 0;
+        lifecycleLogBoundary.failure = failure;
+        const { env } = createMockEnv(); env.LOG_LEVEL = 'info';
+        const response = await worker.fetch(new Request(`https://example.com${path}`, { method }), env, createMockCtx());
+        expect(response.status).toBe(failure instanceof AppError ? 403 : 500);
+        expect(await response.json()).toEqual(failure instanceof AppError ? failure.toJSON() : { error: 'An unexpected error occurred' });
+        expect(output.join('\n')).not.toContain(privateValue);
+        const entries = output.flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } });
+        expect(entries).toEqual(expect.arrayContaining([expect.objectContaining({
+          data: expect.objectContaining({ errorClass, requestId: expect.any(String) }),
+        })]));
+      }
+    } finally {
+      lifecycleLogBoundary.failure = null;
+      setLogLevel('silent');
+      for (const spy of spies) spy.mockRestore();
+    }
+  });
+});
 
 describe('Edge-level setup redirect', () => {
   it.each([
@@ -578,6 +628,15 @@ describe('REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)', () => 
     const body = await response.json() as { error: string };
     expect(body.error).toMatch(/stress test mode/i);
     expect(body.error).toMatch(/SaaS production|saas production|cannot be active/i);
+  });
+
+  it.each(['ACTIVE', ' active ', '\tAcTiVe\n'])('REQ-SETUP-003: canonical SaaS variant %s cannot expose stress mode', async value => {
+    const { env } = createMockEnv();
+    env.SAAS_MODE = value;
+    env.STRESS_TEST_MODE = 'active';
+    const response = await worker.fetch(new Request('https://example.com/api/health'), env, createMockCtx());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: expect.stringMatching(/stress test mode/i) });
   });
 
   it('allows the request through when SAAS_MODE is active but STRESS_TEST_MODE is unset (only SaaS)', async () => {

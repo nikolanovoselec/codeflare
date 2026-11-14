@@ -137,19 +137,38 @@ describe('SubscriptionManagement (Admin)', () => {
     fireEvent.change(freeAdvancedCheckbox, { target: { checked: true } });
   });
 
-  it('should call updateTiers API when Save button is clicked', async () => {
+  it('REQ-SUB-009 AC2: saves changed operational fields and reads them back without changing protected tier fields', async () => {
+    let stored = structuredClone(MOCK_TIERS);
+    mockedGetTiers.mockImplementation(async () => ({ tiers: structuredClone(stored) }));
+    mockedUpdateTiers.mockImplementation(async tiers => {
+      stored = structuredClone(tiers) as typeof stored;
+      return { success: true };
+    });
     render(() => <SubscriptionManagement onBack={noop} />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Free')).toBeInTheDocument();
-    });
-
-    const saveButton = screen.getByRole('button', { name: /save/i });
-    fireEvent.click(saveButton);
-
-    await waitFor(() => {
-      expect(mockedUpdateTiers).toHaveBeenCalledTimes(1);
-    });
+    await screen.findByText('Free');
+    fireEvent.change(screen.getByLabelText('Monthly Hours'), { target: { value: '7' } });
+    fireEvent.change(screen.getByLabelText('Max Sessions'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Storage Quota (MB)'), { target: { value: '512' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Edited free tier' } });
+    fireEvent.change(screen.getByLabelText(/^Stripe Price ID/), { target: { value: 'price_synthetic_free' } });
+    fireEvent.change(screen.getByLabelText('Trial Quota (hours)'), { target: { value: '9' } });
+    fireEvent.change(screen.getByLabelText(/Advanced Mode/), { target: { checked: true } });
+    fireEvent.change(screen.getByLabelText(/^Stripe Advanced Price ID/), { target: { value: 'price_synthetic_advanced' } });
+    expect(screen.queryByLabelText(/display name|can login|is default|ordering|monthly price/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Saved');
+    expect(stored).toEqual(MOCK_TIERS.map(tier => tier.id === 'free' ? { ...tier,
+      monthlySeconds: 25200, maxSessions: 3, maxStorageBytes: 536870912,
+      description: 'Edited free tier', stripePriceId: 'price_synthetic_free', trialQuotaHours: 9,
+      sessionModes: ['default', 'advanced'], stripeAdvancedPriceId: 'price_synthetic_advanced',
+    } : tier));
+    cleanup();
+    render(() => <SubscriptionManagement onBack={noop} />);
+    await screen.findByText('Free');
+    expect(screen.getByLabelText('Monthly Hours')).toHaveValue('7');
+    expect(screen.getByLabelText('Max Sessions')).toHaveValue(3);
+    expect(screen.getByLabelText('Description')).toHaveValue('Edited free tier');
+    expect(screen.getByLabelText(/^Stripe Advanced Price ID/)).toHaveValue('price_synthetic_advanced');
   });
 
   it('should show success message after save', async () => {

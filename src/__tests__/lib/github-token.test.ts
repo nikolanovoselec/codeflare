@@ -11,6 +11,7 @@ import {
   disconnectGithub,
 } from '../../lib/github-token';
 import { SETUP_KEYS } from '../../lib/kv-keys';
+import { encryptForKV, getAndDecrypt, importEncryptionKey } from '../../lib/kv-crypto';
 
 vi.mock('../../lib/logger', () => ({
   createLogger: () => ({ info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() }),
@@ -243,6 +244,50 @@ describe('getGithubProvider', () => {
     // No secret stored ⇒ KV resolution fails closed ⇒ env fallback.
     expect((await getGithubProvider(env({ ENTERPRISE_MODE: 'active', ...OAUTH_ENV })))?.source).toBe('oauth');
   });
+  it.each([false, true])('REQ-GITHUB-008 AC4: unreadable Setup ciphertext uses only an available environment provider (fallback=%s)', async (withFallback) => {
+    const ENCRYPTION_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(11)));
+    const cryptoKey = await importEncryptionKey(ENCRYPTION_KEY);
+    const secretKey = SETUP_KEYS.GITHUB_APP_CLIENT_SECRET;
+    const encrypted = await encryptForKV(JSON.stringify({ secret: 'synthetic-setup-app-secret' }), cryptoKey, secretKey);
+    // Alter a synthetic authentication tag, never the immutable deployment key.
+    const bytes = Uint8Array.from(atob(encrypted.slice(3)), char => char.charCodeAt(0));
+    bytes[bytes.length - 1] ^= 1;
+    const unreadable = `v1:${btoa(String.fromCharCode(...bytes))}`;
+    await mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'app');
+    await mockKV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'synthetic-setup-app-id');
+    await mockKV.put(secretKey, unreadable);
+    const deployment = env({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY, ...(withFallback ? OAUTH_ENV : {}) });
+    expect(await getAndDecrypt(mockKV as unknown as KVNamespace, secretKey, cryptoKey)).toBeNull();
+    const provider = await getGithubProvider(deployment);
+    if (withFallback) {
+      expect(provider?.source).toBe('oauth');
+      const url = new URL(provider!.authorizeUrl({ state: 'synthetic-state', redirectUri: 'https://example.test/callback' }));
+      expect(url.searchParams.get('client_id')).toBe(OAUTH_ENV.OAUTH_CLIENT_ID);
+    } else expect(provider).toBeNull();
+    expect(await mockKV.get(secretKey)).toBe(unreadable);
+  });
+
+  it('REQ-GITHUB-008 AC4: encrypted Setup secret without a configured key propagates the KV JSON rejection without mutation', async () => {
+    const key = await importEncryptionKey(btoa(String.fromCharCode(...new Uint8Array(32).fill(11))));
+    const secretKey = SETUP_KEYS.GITHUB_APP_CLIENT_SECRET;
+    const encrypted = await encryptForKV(JSON.stringify({ secret: 'synthetic-saved-secret' }), key, secretKey);
+    await mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'app');
+    await mockKV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'synthetic-setup-id');
+    await mockKV.put(secretKey, encrypted);
+    const read = mockKV.get.getMockImplementation()!;
+    mockKV.get.mockImplementation(async (name, type) => {
+      // Real KV's JSON read rejects non-JSON ciphertext; the shared fake
+      // otherwise returns a raw string on JSON parse failure.
+      if (name === secretKey && type === 'json') return JSON.parse(encrypted);
+      return read(name, type);
+    });
+    await expect(getGithubProvider(env({ ENTERPRISE_MODE: 'active', ...OAUTH_ENV }))).rejects.toBeInstanceOf(SyntaxError);
+    expect(await mockKV.get(secretKey)).toBe(encrypted);
+    expect(await mockKV.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID)).toBe('synthetic-setup-id');
+    expect(mockFetch).not.toHaveBeenCalled();
+    // Current rejection is NOT evidence of successful environment fallback.
+  });
+
   it('enterprise returns null when neither KV nor env is configured', async () => {
     expect(await getGithubProvider(env({ ENTERPRISE_MODE: 'active' }))).toBeNull();
   });
@@ -403,6 +448,19 @@ describe('disconnectGithub', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(await mockKV.get(KEY)).toBeNull();
   });
+
+  it.each(['unconfigured', 'HTTP503', 'transport'] as const)(
+    'REQ-AUTH-018 AC3: strict offboarding retains credentials after %s and retry converges', async failure => {
+      const original = { githubToken: 'gho_retry', githubTokenSource: 'oauth', cloudflareApiToken: 'unrelated' } satisfies DeployKeys;
+      mockKV._set(KEY, original);
+      if (failure === 'HTTP503') mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+      if (failure === 'transport') mockFetch.mockRejectedValueOnce(new Error('uncertain revoke'));
+      await expect(disconnectGithub(env(failure === 'unconfigured' ? {} : OAUTH_ENV), BUCKET, { strictOffboarding: true })).rejects.toThrow();
+      expect(await mockKV.get(KEY, 'json')).toEqual(original);
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 204 });
+      await disconnectGithub(env(OAUTH_ENV), BUCKET, { strictOffboarding: true });
+      expect(await mockKV.get(KEY, 'json')).toEqual({ cloudflareApiToken: 'unrelated' });
+    });
 
   it('does NOT call GitHub revoke for a manually-pasted PAT but still clears it', async () => {
     mockKV._set(KEY, { githubToken: 'ghp_pat', githubTokenSource: 'pat' } satisfies DeployKeys);

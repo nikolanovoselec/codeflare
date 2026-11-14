@@ -4,6 +4,7 @@ import SessionStatCard from '../../components/SessionStatCard';
 import { sessionStore } from '../../stores/session';
 import type { SessionWithStatus } from '../../types';
 import { terminalStore } from '../../stores/terminal';
+import { mdiPi, mdiRobotOutline } from '@mdi/js';
 
 // Mock stores
 vi.mock('../../stores/session', () => {
@@ -17,6 +18,7 @@ vi.mock('../../stores/session', () => {
         mem: '1.2/3.0G',
         hdd: '2.1G/10G',
       })),
+      getTerminalsForSession: vi.fn(() => null),
       getInitProgressForSession: vi.fn(() => ({ progress: 50 })),
       preferences: { sleepAfter: '30m' },
       get preseedUpgrading() { return _preseedUpgrading; },
@@ -57,7 +59,10 @@ describe('SessionStatCard', () => {
     onDelete: vi.fn(),
   };
 
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue(null);
+  });
   afterEach(() => cleanup());
 
   describe('Rendering', () => {
@@ -66,10 +71,14 @@ describe('SessionStatCard', () => {
       expect(screen.getByText('My Dev Session')).toBeInTheDocument();
     });
 
-    it('renders agent icon', () => {
-      render(() => <SessionStatCard {...defaultProps} />);
-      const card = screen.getByTestId('session-stat-card-test-1');
-      expect(card.querySelector('.stat-card__icon')).toBeInTheDocument();
+    it('REQ-TERM-009 AC3: session cards expose their distinct configured agent glyphs', () => {
+      render(() => <>
+        <SessionStatCard {...defaultProps} session={createSession({ id: 'pi-card', agentType: 'pi' })} />
+        <SessionStatCard {...defaultProps} session={createSession({ id: 'claude-card', agentType: 'claude-code' })} />
+      </>);
+      // Intentional rendered glyph identity contract, not generic SVG presence.
+      expect(screen.getByTestId('session-stat-card-pi-card').querySelector('.stat-card__icon path')).toHaveAttribute('d', mdiPi);
+      expect(screen.getByTestId('session-stat-card-claude-card').querySelector('.stat-card__icon path')).toHaveAttribute('d', mdiRobotOutline);
     });
 
     it('renders with correct data-testid', () => {
@@ -121,11 +130,39 @@ describe('SessionStatCard', () => {
       expect(dot).toBeInTheDocument();
     });
 
+    it.each(['2', '3'])('REQ-TERM-045 AC1/AC2: uses active classic tab %s rather than hidden terminal 1', (activeTabId) => {
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId } as ReturnType<typeof sessionStore.getTerminalsForSession>);
+      vi.mocked(terminalStore.getConnectionState).mockImplementation((_sessionId, tabId) => tabId === activeTabId ? 'connected' : 'disconnected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running', terminalMode: 'classic' })} />);
+      expect(screen.getByRole('status', { name: 'ACTIVE' })).toHaveClass('session-stat-card__dot--success');
+      cleanup();
+      vi.mocked(terminalStore.getConnectionState).mockImplementation((_sessionId, tabId) => tabId === '1' ? 'connected' : 'disconnected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running', terminalMode: 'classic' })} />);
+      expect(screen.getByRole('status', { name: 'IDLE' })).toHaveClass('session-stat-card__dot--idle');
+    });
+
+    it('REQ-TERM-045 AC1: Herdr presence still uses its single terminal', () => {
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '2' } as ReturnType<typeof sessionStore.getTerminalsForSession>);
+      vi.mocked(terminalStore.getConnectionState).mockImplementation((_sessionId, tabId) => tabId === '1' ? 'connected' : 'disconnected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running', terminalMode: 'herdr' })} />);
+      expect(screen.getByRole('status', { name: 'ACTIVE' })).toHaveClass('session-stat-card__dot--success');
+    });
+
     it('shows green dot when running and WS connected', () => {
       vi.mocked(terminalStore.getConnectionState).mockReturnValue('connected');
       render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);
       const dot = screen.getByTestId('session-stat-card-test-1').querySelector('.session-stat-card__dot--success');
       expect(dot).toBeInTheDocument();
+    });
+
+    it.each([
+      ['starting', 'STARTING', 'warning'],
+      ['unreachable', 'UNREACHABLE', 'warning'],
+      ['stopping', 'STOPPING', 'warning'],
+      ['stopped', 'STOPPED', 'default'],
+    ] as const)('REQ-TERM-045 AC4: renders %s as %s with %s variant', (status, label, variant) => {
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ workspace: 'terminal', status })} />);
+      expect(screen.getByRole('status', { name: label })).toHaveClass(`session-stat-card__dot--${variant}`);
     });
 
     it('uses the terminal lifecycle label for the status dot', () => {
@@ -134,6 +171,10 @@ describe('SessionStatCard', () => {
     });
 
     it.each([
+      [{ status: 'starting', editorReady: false }, 'warning'],
+      [{ status: 'unreachable', editorReady: true }, 'success'],
+      [{ status: 'unreachable', editorReady: false }, 'default'],
+      [{ status: 'error', editorReady: true }, 'error'],
       [{ status: 'running', editorReady: true }, 'success'],
       [{ status: 'running', editorReady: false }, 'default'],
       [{ status: 'stopping', editorReady: true }, 'warning'],

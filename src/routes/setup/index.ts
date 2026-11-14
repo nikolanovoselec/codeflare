@@ -260,8 +260,9 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, reasoningConfiguration, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigGatewayId, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
-  const token = c.env.CLOUDFLARE_API_TOKEN;
+  const { adminUsers, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, reasoningConfiguration,
+    aigToken, githubAppClientSecret, githubOauthClientSecret, cloudflareOauthClientSecret,
+    managedEnvironment, groupRouting, strictGatewayEgress, activeAgents } = body;
 
   if (managedEnvironment !== undefined || strictGatewayEgress === false) {
     const snapshot = await readManagedEnvironmentSnapshot(c.env);
@@ -400,6 +401,32 @@ app.post('/configure', async (c) => {
     throw new ValidationError('ENCRYPTION_KEY must be configured before storing the managed repository PAT');
   }
 
+  const owner = c.env.CONTAINER.getByName('setup:configuration') as unknown as {
+    configureDeployment(input: SetupConfigurationInput): Promise<Response>;
+  };
+  const response = await owner.configureDeployment({
+    body, requestUrl: c.req.url, submittedReasoningConfiguration,
+  });
+  // Cache state is isolate-local: the task resets its DO cache, and stream completion resets this Worker cache.
+  return response.body ? new Response(response.body.pipeThrough(new TransformStream({
+    flush() { resetSetupCache(); },
+  })), { status: response.status, headers: response.headers }) : response;
+});
+
+export interface SetupConfigurationInput {
+  body: z.infer<typeof ConfigureBodySchema>;
+  requestUrl: string;
+  submittedReasoningConfiguration?: ReasoningConfiguration;
+}
+
+/** Execute the existing setup task under its durable admission owner and authorized retry path. */
+export function runSetupConfiguration(
+  input: SetupConfigurationInput & { env: Env },
+  lifetime: { waitUntil(task: Promise<unknown>): void; settled(successful: boolean, terminalFailure?: boolean): Promise<void> },
+): Response {
+  const { env, body, requestUrl, submittedReasoningConfiguration } = input;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, reasoningConfiguration, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigGatewayId, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
+  const token = env.CLOUDFLARE_API_TOKEN;
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
@@ -408,8 +435,19 @@ app.post('/configure', async (c) => {
     return writer.write(encoder.encode(JSON.stringify(data) + '\n'));
   };
 
-  // Run setup steps in the background, streaming progress as NDJSON
-  (async () => {
+  // The DO owns the task lifetime; disconnecting the reader cannot grant another task authority.
+  let successful = false;
+  let terminalFailure = false;
+  // Promise.all rejects early. Keep ownership until every started sibling has
+  // settled, but preserve the original failure rather than a later sibling's.
+  const settleStarted = async <T>(operations: Promise<T>[]): Promise<T[]> => {
+    try { return await Promise.all(operations); }
+    catch (error) {
+      await Promise.allSettled(operations);
+      throw error;
+    }
+  };
+  const task = (async () => {
     let steps: SetupStep[] = [];
     const lockKey = SETUP_KEYS.CONFIGURING;
     let lockAcquired = false;
@@ -439,38 +477,29 @@ app.post('/configure', async (c) => {
     try {
       // Routine Environment changes use a separate best-effort pointer. Setup checks
       // it before full provisioning so both paths cannot intentionally overlap.
-      const routinePointerRaw = await c.env.KV.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
+      const routinePointerRaw = await env.KV.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
       if (routinePointerRaw) {
         try {
           const routinePointer = JSON.parse(routinePointerRaw) as { runId?: string; expiresAt?: string };
           if (routinePointer.runId && routinePointer.expiresAt && Date.parse(routinePointer.expiresAt) > Date.now()) {
+            // No provisioning started: a fresh admission may accept corrected input.
+            terminalFailure = true;
             await send({ done: true, success: false, error: 'An Environment settings change is already in progress. Please wait and try again.' });
             return;
           }
         } catch { /* malformed or stale pointer does not block Setup */ }
       }
 
-      // Acquire KV-based lock to prevent concurrent configure runs (60s timeout).
-      // If lock exists and is not stale, another setup is in progress.
-      const existingLock = await c.env.KV.get(lockKey);
-      if (existingLock) {
-        const lockTime = parseInt(existingLock, 10);
-        if (!isNaN(lockTime) && Date.now() - lockTime < 60_000) {
-          await send({ done: true, success: false, error: 'Setup configuration is already in progress. Please wait and try again.' });
-          return;
-        }
-        logger.warn('Overriding stale setup lock', { lockAge: Date.now() - lockTime });
-      }
-      // Write lock with 5-minute expiry to ensure cleanup if request dies
-      await c.env.KV.put(lockKey, String(Date.now()), { expirationTtl: 300 });
+      // Compatibility/status pointer only. Durable DO admission owns exclusion.
+      await env.KV.put(lockKey, String(Date.now()));
       lockAcquired = true;
 
       // Step 1: Get account ID
       const accountId = await runStep('get_account', (operationSteps) => handleGetAccount(token, operationSteps));
-      const workerName = getWorkerNameFromHostname(c.req.url, c.env.CLOUDFLARE_WORKER_NAME);
+      const workerName = getWorkerNameFromHostname(requestUrl, env.CLOUDFLARE_WORKER_NAME);
       const administrationContext = {
-        mode: resolveAdministrationMode(c.env),
-        requestUrl: c.req.url,
+        mode: resolveAdministrationMode(env),
+        requestUrl: requestUrl,
         resultingRevision: 0,
       };
 
@@ -480,7 +509,7 @@ app.post('/configure', async (c) => {
 
       // Step 3: Set worker secrets
       await runStep('set_secrets', (operationSteps) =>
-        handleSetSecrets(token, accountId, r2AccessKeyId, r2SecretAccessKey, c.req.url, operationSteps, workerName)
+        handleSetSecrets(token, accountId, r2AccessKeyId, r2SecretAccessKey, requestUrl, operationSteps, workerName)
       );
 
       // Prime the candidate cache namespace before committing its selected trust
@@ -489,7 +518,7 @@ app.post('/configure', async (c) => {
       if (managedEnvironment !== undefined) {
         await runStep('configure_managed_environment', async () => {
           await withSetupRetry(() => configureManagedEnvironment({
-            env: c.env,
+            env: env,
             accountId,
             workerName,
             endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
@@ -515,26 +544,26 @@ app.post('/configure', async (c) => {
       // In SaaS mode, preserve existing fields for admin users
       // that may already exist from JIT provisioning.
       const adminSet = new Set(normalizedAdmins);
-      const isSaas = isSaasModeActive(c.env.SAAS_MODE);
+      const isSaas = isSaasModeActive(env.SAAS_MODE);
       const userWrites = normalizedAllowed.map(async (email) => {
         const role = adminSet.has(email) ? 'admin' : 'user';
         const base = { addedBy: 'setup', addedAt: new Date().toISOString(), role };
         if (isSaas) {
           // Merge with existing KV entry to preserve tiers and other fields
-          const existing = await c.env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
+          const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
           const merged = { ...existing, ...base, accessTier: 'unlimited', subscriptionTier: 'unlimited' };
-          return c.env.KV.put(`user:${email}`, JSON.stringify(merged));
+          return env.KV.put(`user:${email}`, JSON.stringify(merged));
         }
         // In non-SaaS mode, explicitly set tier for admins
         const entry = role === 'admin'
           ? { ...base, accessTier: 'advanced', subscriptionTier: 'unlimited' }
           : base;
-        return c.env.KV.put(`user:${email}`, JSON.stringify(entry));
+        return env.KV.put(`user:${email}`, JSON.stringify(entry));
       });
-      await Promise.all(userWrites);
-      if (c.env.USAGE_DB) {
-        await Promise.all(normalizedAllowed.map((email) =>
-          reactivateUsageUser(c.env.USAGE_DB, email).catch((error) => {
+      await settleStarted(userWrites);
+      if (env.USAGE_DB) {
+        await settleStarted(normalizedAllowed.map((email) =>
+          reactivateUsageUser(env.USAGE_DB, email).catch((error) => {
             logger.warn('Historical usage reactivation will retry later', { error: toError(error).message });
           })));
       }
@@ -542,18 +571,18 @@ app.post('/configure', async (c) => {
       // Auto-set advanced session mode for admin users so their first
       // session seeds advanced skills and agent rules.
       const adminPrefsWrites = normalizedAdmins.map(async (email) => {
-        const bucketName = await resolveBucketName(c.env, email, workerName);
+        const bucketName = await resolveBucketName(env, email, workerName);
         const prefsKey = getPreferencesKey(bucketName);
-        const existingPrefs = await c.env.KV.get(prefsKey, 'json');
+        const existingPrefs = await env.KV.get(prefsKey, 'json');
         if (!existingPrefs) {
-          await c.env.KV.put(prefsKey, JSON.stringify({ sessionMode: 'advanced' }));
+          await env.KV.put(prefsKey, JSON.stringify({ sessionMode: 'advanced' }));
         }
       });
-      await Promise.all(adminPrefsWrites);
+      await settleStarted(adminPrefsWrites);
 
       // Step 4 & 5: Custom domain + CF Access
       await runStep('configure_custom_domain', (operationSteps) =>
-        handleConfigureCustomDomain(token, accountId, customDomain, c.req.url, operationSteps, workerName)
+        handleConfigureCustomDomain(token, accountId, customDomain, requestUrl, operationSteps, workerName)
       );
       // Issue #140: Skip CF Access provisioning when GitHub OIDC is configured.
       // In any session-OIDC mode (SaaS OR onboarding) the Worker handles auth
@@ -564,29 +593,29 @@ app.post('/configure', async (c) => {
       // SilverBullet SW registration with "script resource is behind a redirect".
       // Mirror the runtime guard isSessionOidcMode (SaaS or onboarding) — NOT just
       // SaaS — so onboarding-mode GitHub-login deployments don't get a stray Access app.
-      const useGithubOidc = isSessionOidcMode(c.env) && c.env.OAUTH_CLIENT_ID;
+      const useGithubOidc = isSessionOidcMode(env) && env.OAUTH_CLIENT_ID;
       if (useGithubOidc) {
         // No-op runStep keeps SSE progress events flowing (running → success)
         // so the wizard UI advances naturally. No CF Access resources are created.
         await runStep('create_access_app', async () => { /* skipped: GitHub OIDC handles auth */ });
       } else {
         await runStep('create_access_app', (operationSteps) =>
-          handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, operationSteps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE), isEnterpriseMode(c.env))
+          handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, operationSteps, env.KV, workerName, isSaasModeActive(env.SAAS_MODE), isEnterpriseMode(env))
         );
       }
 
-      const onboardingLandingActive = isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE);
-      const saasMode = isSaasModeActive(c.env.SAAS_MODE);
+      const onboardingLandingActive = isOnboardingLandingPageActive(env.ONBOARDING_LANDING_PAGE);
+      const saasMode = isSaasModeActive(env.SAAS_MODE);
       // Turnstile is needed for onboarding landing (waitlist) AND SaaS mode (access requests)
       if (onboardingLandingActive || saasMode) {
         await runStep('configure_turnstile', (operationSteps) =>
-          handleConfigureTurnstile(token, accountId, customDomain, operationSteps, c.env.KV, workerName, c.req.url)
+          handleConfigureTurnstile(token, accountId, customDomain, operationSteps, env.KV, workerName, requestUrl)
         );
       }
-      await c.env.KV.put(SETUP_KEYS.ONBOARDING_LANDING_PAGE, onboardingLandingActive ? 'active' : 'inactive');
+      await env.KV.put(SETUP_KEYS.ONBOARDING_LANDING_PAGE, onboardingLandingActive ? 'active' : 'inactive');
 
       // Store custom domain in KV (case-insensitive per RFC 4343)
-      await c.env.KV.put(SETUP_KEYS.CUSTOM_DOMAIN, customDomain.toLowerCase());
+      await env.KV.put(SETUP_KEYS.CUSTOM_DOMAIN, customDomain.toLowerCase());
 
       // Enterprise configuration. Each chunk persists through its own named runStep so
       // the "Configuring Codeflare" progress screen reflects what setup is actually doing
@@ -594,14 +623,14 @@ app.post('/configure', async (c) => {
       // writes are enterprise-gated, mirroring their KV readers; a step is emitted only
       // when its field(s) are present in the body, so non-enterprise and unrelated
       // reconfigures stay quiet.
-      if (isEnterpriseMode(c.env)) {
+      if (isEnterpriseMode(env)) {
         // Access groups that gate JIT provisioning (REQ-ENTERPRISE-010/014). Persisted
         // comma-joined (the format access.ts parseAccessGroups splits on); schema already
         // trimmed each name and forbade comma/newline. Cleared when the chip list is empty.
         if (enterpriseAccessGroup !== undefined || adminAccessGroup !== undefined) {
-          await runStep('configure_access_groups', async () => executeConfigurationTask(c.env, 'configure_access_groups', {
-            userAccessGroups: enterpriseAccessGroup ?? parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP)),
-            adminAccessGroups: adminAccessGroup ?? parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP)),
+          await runStep('configure_access_groups', async () => executeConfigurationTask(env, 'configure_access_groups', {
+            userAccessGroups: enterpriseAccessGroup ?? parseAccessGroups(await env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP)),
+            adminAccessGroups: adminAccessGroup ?? parseAccessGroups(await env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP)),
           }, administrationContext));
         }
 
@@ -609,20 +638,20 @@ app.post('/configure', async (c) => {
         // (Feature C) and the per-group routing map (REQ-ENTERPRISE-013). Stored as JSON;
         // group routing is cleared when empty.
         if (dynamicRoutes !== undefined || defaultRoute !== undefined || groupRouting !== undefined || routeContextWindows !== undefined || routeReasoningProfiles !== undefined || reasoningConfiguration !== undefined) {
-          const storedRouteSettings = parseRouteSettings(await c.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json') ?? {});
+          const storedRouteSettings = parseRouteSettings(await env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json') ?? {});
           let effectiveReasoningConfiguration = submittedReasoningConfiguration;
           if (!effectiveReasoningConfiguration) {
-            const stored = await c.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+            const stored = await env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
             if (stored) effectiveReasoningConfiguration = parseReasoningConfiguration(stored);
           }
-          await runStep('configure_model_routing', async () => executeConfigurationTask(c.env, 'configure_model_routing', {
-            dynamicRoutes: dynamicRoutes ?? await c.env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES, 'json') ?? [],
+          await runStep('configure_model_routing', async () => executeConfigurationTask(env, 'configure_model_routing', {
+            dynamicRoutes: dynamicRoutes ?? await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES, 'json') ?? [],
             defaultRoute: defaultRoute !== undefined
               ? defaultRoute
-              : await c.env.KV.get(SETUP_KEYS.DEFAULT_ROUTE, 'json'),
+              : await env.KV.get(SETUP_KEYS.DEFAULT_ROUTE, 'json'),
             routeContextWindows: routeContextWindows ?? storedRouteSettings.contextWindows,
             ...(effectiveReasoningConfiguration && { reasoningConfiguration: effectiveReasoningConfiguration }),
-            groupRouting: groupRouting ?? await c.env.KV.get(SETUP_KEYS.GROUP_ROUTING, 'json') ?? {},
+            groupRouting: groupRouting ?? await env.KV.get(SETUP_KEYS.GROUP_ROUTING, 'json') ?? {},
           }, administrationContext));
         }
 
@@ -632,9 +661,9 @@ app.post('/configure', async (c) => {
         // so a blank value means "keep what's stored", not "clear". The deploy secrets
         // (env.AIG_*) remain an optional fallback (getAigConfig resolves KV first, env second).
         if (aigGatewayUrl !== undefined || aigGatewayId !== undefined || aigToken !== undefined) {
-          await runStep('configure_ai_gateway', async () => executeConfigurationTask(c.env, 'configure_ai_gateway', {
-            gatewayUrl: aigGatewayUrl?.trim() || await c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL) || c.env.AIG_GATEWAY_URL || '',
-            gatewayId: aigGatewayId?.trim() || await c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID) || c.env.AIG_GATEWAY_ID || '',
+          await runStep('configure_ai_gateway', async () => executeConfigurationTask(env, 'configure_ai_gateway', {
+            gatewayUrl: aigGatewayUrl?.trim() || await env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL) || env.AIG_GATEWAY_URL || '',
+            gatewayId: aigGatewayId?.trim() || await env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID) || env.AIG_GATEWAY_ID || '',
             replacementToken: aigToken ?? '',
           }, administrationContext));
         }
@@ -644,7 +673,7 @@ app.post('/configure', async (c) => {
         // no-clobber on blank (same masked-prefill contract as the AI Gateway token above);
         // the account id is non-secret. Mirrors the read in applyEnterpriseBrowserToken.
         if (browserRenderToken !== undefined || browserRenderAccountId !== undefined) {
-          await runStep('configure_browser_rendering', () => executeConfigurationTask(c.env, 'configure_browser_rendering', {
+          await runStep('configure_browser_rendering', () => executeConfigurationTask(env, 'configure_browser_rendering', {
             accountId: browserRenderAccountId ?? '',
             replacementToken: browserRenderToken ?? '',
           }, administrationContext));
@@ -655,7 +684,7 @@ app.post('/configure', async (c) => {
         // default OFF on an absent key. (Enabling while EGRESS is unbound was already
         // rejected pre-stream above.)
         if (strictGatewayEgress !== undefined) {
-          await runStep('configure_strict_egress', () => executeConfigurationTask(c.env, 'configure_strict_egress', {
+          await runStep('configure_strict_egress', () => executeConfigurationTask(env, 'configure_strict_egress', {
             strictGatewayEgress,
           }, administrationContext));
         }
@@ -665,7 +694,7 @@ app.post('/configure', async (c) => {
         // deterministically; default OFF on an absent key. Each bucket is reconciled to
         // this policy losslessly on its next session start (ensureBucketAndSeed → migration).
         if (r2SseDisabled !== undefined) {
-          await runStep('configure_r2_sse', () => executeConfigurationTask(c.env, 'configure_r2_sse', {
+          await runStep('configure_r2_sse', () => executeConfigurationTask(env, 'configure_r2_sse', {
             governedMode: r2SseDisabled,
           }, administrationContext));
         }
@@ -673,7 +702,7 @@ app.post('/configure', async (c) => {
         // View-only storage toggle. Written explicitly ('active'/'inactive', no
         // delete-on-off) so it round-trips deterministically; default OFF on absent.
         if (downloadsDisabled !== undefined) {
-          await runStep('configure_downloads_disabled', () => executeConfigurationTask(c.env, 'configure_downloads_disabled', {
+          await runStep('configure_downloads_disabled', () => executeConfigurationTask(env, 'configure_downloads_disabled', {
             viewOnlyStorage: downloadsDisabled,
           }, administrationContext));
         }
@@ -683,7 +712,7 @@ app.post('/configure', async (c) => {
         // value always round-trips byte-identical through readActiveAgents; the schema
         // already enforced non-empty + enterprise-capable entries. Absent ⇒ untouched.
         if (activeAgents !== undefined) {
-          await runStep('configure_active_agents', () => executeConfigurationTask(c.env, 'configure_active_agents', {
+          await runStep('configure_active_agents', () => executeConfigurationTask(env, 'configure_active_agents', {
             activeAgents,
           }, administrationContext));
         }
@@ -698,17 +727,17 @@ app.post('/configure', async (c) => {
       // pre-stream (fail closed); the cryptoKey guard below is defensive so a secret
       // is never written as plaintext even if the key somehow resolves null.
       if (githubProviderType || githubAppClientId || githubAppClientSecret || githubOauthClientId || githubOauthClientSecret) {
-        await executeConfigurationTask(c.env, 'configure_github', {
-          providerType: githubProviderType ?? await c.env.KV.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE) ?? 'app',
-          appClientId: githubAppClientId ?? await c.env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID) ?? '',
+        await executeConfigurationTask(env, 'configure_github', {
+          providerType: githubProviderType ?? await env.KV.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE) ?? 'app',
+          appClientId: githubAppClientId ?? await env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID) ?? '',
           appReplacementSecret: githubAppClientSecret ?? '',
-          oauthClientId: githubOauthClientId ?? await c.env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID) ?? '',
+          oauthClientId: githubOauthClientId ?? await env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID) ?? '',
           oauthReplacementSecret: githubOauthClientSecret ?? '',
         }, administrationContext);
       }
       if (cloudflareOauthClientId || cloudflareOauthClientSecret) {
-        await executeConfigurationTask(c.env, 'configure_cloudflare_connection', {
-          clientId: cloudflareOauthClientId ?? await c.env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID) ?? '',
+        await executeConfigurationTask(env, 'configure_cloudflare_connection', {
+          clientId: cloudflareOauthClientId ?? await env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID) ?? '',
           replacementSecret: cloudflareOauthClientSecret ?? '',
         }, administrationContext);
       }
@@ -717,24 +746,25 @@ app.post('/configure', async (c) => {
       const combinedOrigins = new Set<string>(allowedOrigins || []);
       combinedOrigins.add(`.${customDomain.toLowerCase()}`);
       combinedOrigins.add('.workers.dev');
-      await c.env.KV.put(SETUP_KEYS.ALLOWED_ORIGINS, JSON.stringify([...combinedOrigins]));
+      await env.KV.put(SETUP_KEYS.ALLOWED_ORIGINS, JSON.stringify([...combinedOrigins]));
 
       // Final step: Mark setup as complete
       await runStep('finalize', async () => {
-        if (await c.env.KV.get(ADMIN_CONFIGURATION_KEYS.REVISION) === null) {
-          await c.env.KV.put(ADMIN_CONFIGURATION_KEYS.REVISION, '0');
+        if (await env.KV.get(ADMIN_CONFIGURATION_KEYS.REVISION) === null) {
+          await env.KV.put(ADMIN_CONFIGURATION_KEYS.REVISION, '0');
         }
-        await c.env.KV.put(SETUP_KEYS.ACCOUNT_ID, accountId);
-        await c.env.KV.put(SETUP_KEYS.R2_ENDPOINT, `https://${accountId}.r2.cloudflarestorage.com`);
-        await c.env.KV.put(SETUP_KEYS.COMPLETED_AT, new Date().toISOString());
-        await c.env.KV.put(SETUP_KEYS.COMPLETE, 'true');
+        await env.KV.put(SETUP_KEYS.ACCOUNT_ID, accountId);
+        await env.KV.put(SETUP_KEYS.R2_ENDPOINT, `https://${accountId}.r2.cloudflarestorage.com`);
+        await env.KV.put(SETUP_KEYS.COMPLETED_AT, new Date().toISOString());
+        await env.KV.put(SETUP_KEYS.COMPLETE, 'true');
       });
 
       resetSetupCache();
 
-      const url = new URL(c.req.url);
+      const url = new URL(requestUrl);
       const workersDevUrl = `https://${url.host}`;
 
+      successful = true;
       await send({
         done: true,
         success: true,
@@ -743,21 +773,28 @@ app.post('/configure', async (c) => {
         customDomainUrl: `https://${customDomain}`,
       });
     } catch (error) {
+      // SetupError also wraps transport failures; it is not evidence of a
+      // definite rejection. Only the existing typed validation contract is.
+      terminalFailure = error instanceof ValidationError;
       logger.error('Configuration error', toError(error));
       const msg = error instanceof Error ? error.message : 'Configuration failed';
       await send({ done: true, success: false, steps, error: msg });
     } finally {
       // Release configure lock
       if (lockAcquired) {
-        await c.env.KV.delete(lockKey).catch(() => {});
+        await env.KV.delete(lockKey).catch(() => {});
       }
-      writer.close();
+      try {
+        await lifetime.settled(successful, terminalFailure);
+      } finally {
+        await writer.close().catch(() => {});
+      }
     }
   })();
+  lifetime.waitUntil(task);
 
   return new Response(readable, {
     headers: { 'Content-Type': 'application/x-ndjson' },
   });
-});
-
+}
 export default app;

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
 import { getBucketName } from '../../lib/access';
+import { createLogger, type Logger } from '../../lib/logger';
 import { env, runInDurableObject } from 'cloudflare:test';
 import type { DurableObject as NativeDurableObject } from 'cloudflare:workers';
 import { OperatorActivity } from '../../operators/activity';
@@ -9,6 +10,7 @@ import { OperatorActivity } from '../../operators/activity';
 // Shared, hoisted call-order log so the mocked base Container can record when
 // super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
 // by the REQ-ENTERPRISE-004 pre-start interception-ordering test below.
+const lifecycleSerialization = vi.hoisted(() => ({ enabled: false }));
 const { callOrder, scanRuntime } = vi.hoisted(() => ({ callOrder: [] as string[],
   scanRuntime: { enabled: false, result: null as unknown } }));
 vi.mock('../../operators/runtime', async importOriginal => ({
@@ -50,14 +52,22 @@ vi.mock('../../lib/r2-config', () => ({
   getR2Config: vi.fn().mockResolvedValue({ accountId: 'test-account', endpoint: 'https://r2.test' }),
 }));
 
-vi.mock('../../lib/logger', () => ({
-  createLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  })),
-}));
+vi.mock('../../lib/logger', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/logger')>();
+  return {
+    ...actual,
+    createLogger: vi.fn((...args: Parameters<typeof actual.createLogger>) => {
+      const real = actual.createLogger(...args);
+      return {
+        debug: vi.fn((...values: Parameters<typeof real.debug>) => { if (lifecycleSerialization.enabled) real.debug(...values); }),
+        info: vi.fn((...values: Parameters<typeof real.info>) => { if (lifecycleSerialization.enabled) real.info(...values); }),
+        warn: vi.fn((...values: Parameters<typeof real.warn>) => { if (lifecycleSerialization.enabled) real.warn(...values); }),
+        error: vi.fn((...values: Parameters<typeof real.error>) => { if (lifecycleSerialization.enabled) real.error(...values); }),
+        child: vi.fn().mockReturnThis(),
+      };
+    }),
+  };
+});
 
 // Mock the @cloudflare/containers module
 vi.mock('@cloudflare/containers', () => ({
@@ -136,6 +146,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     storage: typeof mockStorage;
     id: { toString: () => string };
     blockConcurrencyWhile: ReturnType<typeof vi.fn>;
+    waitUntil: ReturnType<typeof vi.fn>;
     container: typeof mockContainerRuntime;
   };
   let mockEnv: any;
@@ -165,6 +176,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       storage: mockStorage,
       id: { toString: () => 'test-do-id-hex' },
       blockConcurrencyWhile: vi.fn(async (fn: () => Promise<void>) => fn()),
+      waitUntil: vi.fn(),
       container: mockContainerRuntime,
     };
     mockEnv = {
@@ -176,8 +188,163 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     };
   });
 
+  async function captureLifecycleSerialization() {
+    const { setLogLevel } = await import('../../lib/logger');
+    const lines: string[] = [];
+    const capture = (value: unknown) => { lines.push(String(value)); };
+    const log = vi.spyOn(console, 'log').mockImplementation(capture);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(capture);
+    const error = vi.spyOn(console, 'error').mockImplementation(capture);
+    setLogLevel('info');
+    lifecycleSerialization.enabled = true;
+    return {
+      lines,
+      entries: () => lines.map(line => JSON.parse(line) as { message: string; data?: Record<string, unknown> }),
+      restore: () => {
+        lifecycleSerialization.enabled = false;
+        setLogLevel('silent');
+        log.mockRestore(); warn.mockRestore(); error.mockRestore();
+      },
+    };
+  }
+
+  describe('REQ-SETUP-004 + REQ-ENTERPRISE-086: durable operation owners', () => {
+    function ownerFixture() {
+      const values = new Map<string, unknown>();
+      mockStorage.get.mockImplementation(async (key: string) => values.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { values.set(key, structuredClone(value)); });
+      mockStorage.delete.mockImplementation(async (key: string) => values.delete(key));
+      const kv = createMockKV();
+      mockEnv.KV = kv;
+      mockEnv.USAGE_DB = createMockSessionD1(kv);
+      return { kv, instance: new ContainerClass(mockCtx as any, mockEnv),
+        restart: () => new ContainerClass(mockCtx as any, mockEnv) };
+    }
+
+    it('REQ-SETUP-004: concurrent configure cannot both publish; interrupted same-task retry recovers without takeover', async () => {
+      const f = ownerFixture();
+      const setup = await import('../../routes/setup/index');
+      let finish!: (success: boolean) => Promise<void>;
+      const writes: string[] = [];
+      const run = vi.spyOn(setup, 'runSetupConfiguration').mockImplementation((input, lifetime) => {
+        writes.push(input.body.customDomain);
+        finish = lifetime.settled;
+        return new Response('running');
+      });
+      const input = { requestUrl: 'https://worker.example.test/api/setup/configure', body: {
+        customDomain: 'one.example.test', allowedUsers: ['admin@example.test'], adminUsers: ['admin@example.test'],
+      } };
+      try {
+        expect((await f.instance.configureDeployment(input)).status).toBe(200);
+        const rejected = await f.instance.configureDeployment(input);
+        expect(await rejected.text()).toMatch(/already in progress/);
+        expect(writes).toEqual(['one.example.test']);
+        await finish(false); // task failed: not authority to apply a different payload
+        const different = await f.instance.configureDeployment({ ...input, body: { ...input.body, customDomain: 'two.example.test' } });
+        expect(await different.text()).toMatch(/same configuration/);
+        const restarted = f.restart();
+        expect((await restarted.configureDeployment(input)).status).toBe(200);
+        expect(writes).toEqual(['one.example.test', 'one.example.test']);
+        // A new DO incarnation may resume the same durable authority even if no terminal callback ran.
+        const afterCrash = f.restart();
+        const foreign = await afterCrash.configureDeployment({ ...input, body: { ...input.body, customDomain: 'two.example.test' } });
+        expect(await foreign.text()).toMatch(/same configuration/);
+        expect((await afterCrash.configureDeployment(input)).status).toBe(200);
+        await finish(true);
+        expect((await afterCrash.configureDeployment({ ...input, body: { ...input.body, customDomain: 'two.example.test' } })).status).toBe(200);
+        expect(writes.at(-1)).toBe('two.example.test');
+        await finish(true);
+      } finally { run.mockRestore(); }
+    });
+
+    it('REQ-ENTERPRISE-086: lost completion response gates migration until explicit abort confirms recovery', async () => {
+      const f = ownerFixture();
+      const client = await import('../../lib/r2-client');
+      const canonicalBytes = 'keep this object';
+      let object = canonicalBytes;
+      let generation = 0;
+      const fetcher = vi.spyOn(client, 'createR2Client').mockReturnValue({ fetch: async (url: string, init?: RequestInit) => {
+        if (url.endsWith('?uploads')) return new Response('<InitiateMultipartUploadResult><UploadId>uncertain</UploadId></InitiateMultipartUploadResult>');
+        if (init?.method === 'POST') throw new Error('completion response lost');
+        if (init?.method === 'DELETE' && new URL(url).searchParams.has('uploadId')) return new Response(null, { status: 404 });
+        if (init?.method === 'DELETE') object = '';
+        return new Response(null, { status: 503 });
+      } } as any);
+      const migration = await import('../../lib/r2-migration');
+      const drive = vi.spyOn(migration, 'advanceMigrationChunk').mockImplementation(async (_env, _bucket, deps) => {
+        generation += 1;
+        await deps.beforeReady?.({ status: 'ready', regime: 'plain', generation });
+        f.kv._set('r2-regime:bucket', { status: 'ready', regime: 'plain', generation });
+      });
+      try {
+        expect((await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'initiate' })).status).toBe(200);
+        await expect(f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'complete', uploadId: 'uncertain', parts: [{ partNumber: 1, etag: 'abc' }] })).rejects.toThrow();
+        f.kv._set('r2-regime:bucket', { status: 'migrating', regime: 'sse-c', generation: 0, drained: false });
+        await f.instance.advanceBucketMigration('bucket');
+        expect(generation).toBe(0);
+        expect(await f.kv.get('r2-regime:bucket', 'json')).toMatchObject({ status: 'migrating', drained: false });
+        const aborted = await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'abort', uploadId: 'uncertain' });
+        expect(aborted.status).toBe(200);
+        await f.instance.advanceBucketMigration('bucket');
+        expect(generation).toBe(1);
+        expect(object).toBe(canonicalBytes);
+      } finally { fetcher.mockRestore(); drive.mockRestore(); }
+    });
+
+    it('REQ-ENTERPRISE-086: in-flight completion settles before migration; stale/unknown IDs preserve parts and request restart', async () => {
+      const f = ownerFixture();
+      const client = await import('../../lib/r2-client');
+      let complete!: () => void;
+      let completing!: () => void;
+      const entered = new Promise<void>(resolve => { completing = resolve; });
+      const gate = new Promise<void>(resolve => { complete = resolve; });
+      const objects = new Map<string, string>();
+      let generation = 0;
+      let initiations = 0;
+      const parts = new Set(['managed-stale', 'untracked']);
+      const fetcher = vi.spyOn(client, 'createR2Client').mockReturnValue({ fetch: async (url: string, init?: RequestInit) => {
+        if (url.endsWith('?uploads')) return new Response(`<InitiateMultipartUploadResult><UploadId>${++initiations === 1 ? 'managed-1' : 'managed-stale'}</UploadId></InitiateMultipartUploadResult>`);
+        if (init?.method === 'DELETE') { parts.delete(new URL(url).searchParams.get('uploadId')!); return new Response(null, { status: 204 }); }
+        if (url.includes('uploadId=managed-1') && init?.method === 'POST') {
+          completing(); await gate; objects.set('draft.md', 'retained bytes');
+          return new Response('<CompleteMultipartUploadResult><ETag>"abc"</ETag></CompleteMultipartUploadResult>');
+        }
+        return new Response(null, { status: 503 });
+      } } as any);
+      const migration = await import('../../lib/r2-migration');
+      const drive = vi.spyOn(migration, 'advanceMigrationChunk').mockImplementation(async (_env, _bucket, deps) => {
+        expect(objects.get('draft.md')).toBe('retained bytes');
+        generation += 1;
+        await deps.beforeReady?.({ status: 'ready', regime: 'plain', generation });
+        f.kv._set('r2-regime:bucket', { status: 'ready', regime: 'plain', generation });
+      });
+      try {
+        const initiated = await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'initiate' });
+        expect(await initiated.json()).toMatchObject({ uploadId: 'managed-1' });
+        expect((await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'held.md', action: 'initiate' })).status).toBe(200);
+        const completion = f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'draft.md', action: 'complete', uploadId: 'managed-1', parts: [{ partNumber: 1, etag: 'abc' }] });
+        await entered;
+        const advancing = f.instance.advanceBucketMigration('bucket');
+        await Promise.resolve();
+        expect(generation).toBe(0);
+        complete();
+        expect((await completion).status).toBe(200);
+        await advancing;
+        // Eventual KV consistency cannot resurrect a pre-flip upload generation.
+        f.kv._set('r2-regime:bucket', { status: 'ready', regime: 'sse-c', generation: 0 });
+        for (const uploadId of ['managed-stale', 'untracked']) {
+          const refused = await f.instance.runBucketMultipart({ bucketName: 'bucket', key: 'held.md', action: 'complete', uploadId, parts: [{ partNumber: 1, etag: 'abc' }] });
+          expect(refused.status).toBe(409);
+          expect(await refused.json()).toMatchObject({ code: 'MULTIPART_RESTART_REQUIRED' });
+          expect(objects.get('draft.md')).toBe('retained bytes');
+          expect([...parts]).toEqual(['managed-stale', 'untracked']);
+        }
+      } finally { fetcher.mockRestore(); drive.mockRestore(); }
+    });
+  });
+
   describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
-    function scheduler(interval = 900) {
+    function scheduler(interval = 900, lifetimeSeconds = 14_400) {
       const stored = new Map<string, unknown>();
       mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
       mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
@@ -185,27 +352,65 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
       let current: Record<string, unknown> | null = { ...binding, repository: 'acme/updates', repositoryId: 424242,
         baseBranch: 'trunk', automaticRuns: true, repetitionIntervalSeconds: interval,
-        activatedAt: '2026-09-28T00:00:00.000Z', human: { email: 'admin@example.test' } };
+        activatedAt: '2026-09-28T00:00:00.000Z', human: { email: 'admin@example.test',
+          expiresAt: Math.floor(Date.now() / 1000) + lifetimeSeconds } };
+      const original = structuredClone(current);
+      let availability: 'current' | 'unavailable' | 'rpc-error' = 'current';
+      const live = (id: string) => current?.registrationId === id
+        && (current.human as { expiresAt: number }).expiresAt * 1000 > Date.now() ? current : null;
+      const observation = async (id: string) => {
+        if (!live(id)) return { status: 'denied' as const };
+        if (availability === 'rpc-error') throw Error('Temporary Registry RPC outage');
+        return availability === 'unavailable' ? { status: 'unavailable' as const }
+          : { status: 'current' as const, registration: current };
+      };
+      let eligible = false, activityId: string | undefined;
+      const activities = new Map<string, { executionStatus: string }>();
       const reads: Request[] = [], admissions: unknown[] = [];
       mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
-      mockEnv.OPERATOR_ACTIVITY = {};
+      mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
+        getRuntimePlan: async () => {
+          if (id !== activityId) throw Error('Foreign or replacement Activity');
+          return { activityId: id };
+        },
+        getBrowserDetail: async () => activities.get(id),
+      }) };
       mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
         retainedProspectiveRenovateRetryTargets: async () => [],
-        currentProspectiveRenovateRegistration: async (id: string) => current?.registrationId === id ? current : null,
-        reserveProspectiveRenovateActivity: async (input: unknown) => { admissions.push(input); return { ok: false }; },
+        observeProspectiveRenovateRegistration: observation,
+        currentProspectiveRenovateRegistration: async (id: string) => {
+          const observed = await observation(id);
+          return observed.status === 'current' ? observed.registration : null;
+        },
+        reserveProspectiveRenovateActivity: async (input: { activityId: string }) => {
+          admissions.push(input); activityId ??= input.activityId;
+          // Scheduler-only fixture reconciles an already-completed original Activity.
+          if (!activities.has(activityId)) activities.set(activityId, { executionStatus: 'completed' });
+          return { ok: true, activityId, actor: binding };
+        },
+        readProspectiveRenovateAdmission: async () => ({ repositoryId: 424242, pullRequest: 17,
+          head: 'a'.repeat(40), actor: binding }),
       }) };
-      let readHook: (() => Promise<void>) | undefined;
+      let readHook: ((request: Request) => Promise<void>) | undefined;
+      let listingHook: (() => Promise<void>) | undefined;
       (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
-        reads.push(request); await readHook?.();
+        reads.push(request); await readHook?.(request);
         return request.url.endsWith('/repos/acme/updates') ? Response.json({ id: 424242,
-          full_name: 'acme/updates', default_branch: 'trunk' }) : Response.json([]);
+          full_name: 'acme/updates', default_branch: 'trunk' }) : Response.json(eligible ? [{
+            number: 17, state: 'open', draft: false, created_at: '2026-09-28T00:00:00.001Z',
+            user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: 'a'.repeat(40) },
+            base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } },
+          }] : []);
       } }) };
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       type Row = { taskId: string; callback: string; payload: unknown; type: 'delayed'; time: number; delayInSeconds: number };
       const rows: Row[] = [{ taskId: 'metrics', callback: 'collectMetrics', payload: '', type: 'delayed',
         time: Math.floor(Date.now() / 1000) + 60, delayInSeconds: 60 }];
       let lost = false, sequence = 0;
-      vi.spyOn(instance, 'listSchedules').mockImplementation(async method => rows.filter(row => !method || row.callback === method) as never);
+      vi.spyOn(instance, 'listSchedules').mockImplementation(async method => {
+        await listingHook?.();
+        return rows.filter(row => !method || row.callback === method) as never;
+      });
       vi.spyOn(instance, 'deleteSchedules').mockImplementation(method => {
         for (let index = rows.length - 1; index >= 0; index--) if (rows[index].callback === method) rows.splice(index, 1);
       });
@@ -219,13 +424,139 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const scans = () => rows.filter(row => row.callback === 'scanRenovate');
       const deliver = async (row: Row) => {
         if (Date.now() < row.time * 1000) throw Error('not due');
-        await (instance.scanRenovate as unknown as (payload: unknown) => Promise<void>)(row.payload);
-        const index = rows.indexOf(row); if (index >= 0) rows.splice(index, 1);
+        try { await (instance.scanRenovate as unknown as (payload: unknown) => Promise<void>)(row.payload); }
+        finally { const index = rows.indexOf(row); if (index >= 0) rows.splice(index, 1); }
       };
-      return { instance, binding, rows, reads, admissions, scans, deliver,
+      return { instance, binding, rows, reads, admissions, activities, scans, deliver,
         change: (patch: Record<string, unknown> | null) => { current = patch === null ? null : { ...current, ...patch }; },
-        loseAck: () => { lost = true; }, onRead: (hook: () => Promise<void>) => { readHook = hook; } };
+        restore: () => { current = structuredClone(original); availability = 'current'; },
+        unavailable: (kind: 'unavailable' | 'rpc-error' = 'unavailable') => { availability = kind; },
+        eligible: () => { eligible = true; },
+        legacy: () => { stored.clear(); stored.set('renovate:scan', { ...binding }); },
+        onListing: (hook?: () => Promise<void>) => { listingHook = hook; },
+        loseAck: () => { lost = true; }, onRead: (hook: (request: Request) => Promise<void>) => { readHook = hook; } };
     }
+    it('REQ-OPERATOR-061 AC1/3: explicit verified activation can replace an unbounded legacy pin', async () => {
+      const f = scheduler();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+      try {
+        f.legacy();
+        expect(await f.instance.armRenovateScan(f.binding)).toEqual({ ok: true });
+        expect(f.scans().map(row => row.delayInSeconds)).toEqual([900]);
+        f.unavailable();
+        clock.mockReturnValue(f.scans()[0].time * 1000);
+        await f.deliver(f.scans()[0]).catch(() => {});
+        expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]);
+        expect(f.scans()).toHaveLength(1);
+      } finally { clock.mockRestore(); }
+    });
+
+    it.each(['unavailable', 'rpc-error'] as const)(
+      'REQ-OPERATOR-061 AC2/3/7: due one-shot survives final %s authority loss without protected work, then admits one Activity', async fault => {
+        const f = scheduler();
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+        try {
+          expect(await f.instance.armRenovateScan(f.binding)).toEqual({ ok: true });
+          f.eligible(); f.unavailable(fault);
+          clock.mockReturnValue(f.scans()[0].time * 1000);
+          await f.deliver(f.scans()[0]).catch(() => {});
+          expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]); expect([...f.activities]).toEqual([]);
+          expect(f.scans()).toHaveLength(1);
+          // More than one outage delivery must not buy authority or duplicate successors.
+          clock.mockReturnValue(f.scans()[0].time * 1000);
+          await f.deliver(f.scans()[0]).catch(() => {});
+          expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]); expect([...f.activities]).toEqual([]);
+          expect(f.scans()).toHaveLength(1);
+          f.restore();
+          clock.mockReturnValue(f.scans()[0].time * 1000); await f.deliver(f.scans()[0]);
+          expect(f.reads.map(request => request.url)).toEqual(['https://api.github.com/repos/acme/updates',
+            'https://api.github.com/repos/acme/updates/pulls?state=open&per_page=100&page=1']);
+          const admitted = [...f.activities];
+          expect(admitted).toEqual([[expect.any(String), { executionStatus: 'completed' }]]);
+          clock.mockReturnValue(f.scans()[0].time * 1000); await f.deliver(f.scans()[0]);
+          expect([...f.activities]).toEqual(admitted);
+          expect(f.scans()).toHaveLength(1);
+        } finally { clock.mockRestore(); }
+      });
+
+    it('REQ-OPERATOR-061 AC3/5: authority loss while rearm waits for concurrent arm reconciliation retains one bounded observation', async () => {
+      const f = scheduler();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+      let releasePage!: () => void, pageEntered!: () => void;
+      const pageReady = new Promise<void>(resolve => { pageEntered = resolve; });
+      const page = new Promise<void>(resolve => { releasePage = resolve; });
+      let releaseListing!: () => void, listingEntered!: () => void;
+      const listingReady = new Promise<void>(resolve => { listingEntered = resolve; });
+      const listing = new Promise<void>(resolve => { releaseListing = resolve; });
+      try {
+        await f.instance.armRenovateScan(f.binding);
+        clock.mockReturnValue(f.scans()[0].time * 1000);
+        f.onRead(async request => { if (request.url.includes('/pulls?')) { pageEntered(); await page; } });
+        const delivered = f.deliver(f.scans()[0]);
+        await Promise.race([pageReady, delivered.then(() => { throw Error('Due scan completed without observing the held page'); })]);
+        f.onListing(async () => { listingEntered(); await listing; });
+        const reconciled = f.instance.armRenovateScan(f.binding);
+        await Promise.race([listingReady, reconciled.then(() => { throw Error('Concurrent arm did not reconcile its schedule'); })]);
+        releasePage();
+        // Let the callback finish discovery and enqueue rearm behind the held public arm.
+        // The outage is a real serialization boundary, not a selected private-call ordinal.
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        const beforeOutage = [...f.reads];
+        f.unavailable(); releaseListing();
+        await Promise.all([delivered.catch(() => {}), reconciled]);
+        f.onListing();
+        expect(f.reads).toEqual(beforeOutage); expect(f.admissions).toEqual([]); expect([...f.activities]).toEqual([]);
+        expect(f.scans()).toHaveLength(1);
+        clock.mockReturnValue(f.scans()[0].time * 1000);
+        await f.deliver(f.scans()[0]).catch(() => {});
+        expect(f.reads).toEqual(beforeOutage); expect([...f.activities]).toEqual([]);
+        expect(f.scans()).toHaveLength(1);
+        f.restore(); f.eligible();
+        clock.mockReturnValue(f.scans()[0].time * 1000); await f.deliver(f.scans()[0]);
+        expect([...f.activities]).toEqual([[expect.any(String), { executionStatus: 'completed' }]]);
+        expect(f.scans()).toHaveLength(1);
+      } finally { releasePage(); releaseListing(); clock.mockRestore(); }
+    });
+
+    it.each([1.9, 0.9])('REQ-OPERATOR-061 AC3: insufficient authority time cannot advance the configured scan interval (%s)', async remaining => {
+      const f = scheduler(900, 1000);
+      const now = Math.floor(Date.now() / 1000) * 1000;
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        await f.instance.armRenovateScan(f.binding);
+        f.unavailable(); clock.mockReturnValue(now + 1_000_000 - remaining * 1000);
+        await f.deliver(f.scans()[0]).catch(() => {});
+        expect(f.reads).toEqual([]); expect([...f.activities]).toEqual([]);
+        expect(f.scans()).toEqual([]);
+        f.restore();
+        expect(f.scans()).toEqual([]);
+      } finally { clock.mockRestore(); }
+    });
+
+    it.each(['expiry', 'denial', 'generation', 'legacy'] as const)(
+      'REQ-OPERATOR-061 AC3: %s terminates a pending outage observation without work or new authority', async fault => {
+        const f = scheduler(900, 2000), now = Math.floor(Date.now() / 1000) * 1000;
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+        try {
+          await f.instance.armRenovateScan(f.binding);
+          f.unavailable(); clock.mockReturnValue(f.scans()[0].time * 1000);
+          await f.deliver(f.scans()[0]).catch(() => {});
+          expect(f.scans()).toHaveLength(1);
+          if (fault === 'expiry') clock.mockReturnValue(now + 2_000_000);
+          else clock.mockReturnValue(f.scans()[0].time * 1000);
+          if (fault === 'denial') f.change(null);
+          if (fault === 'generation') { f.restore(); f.change({ sessionGeneration: 4 }); }
+          if (fault === 'legacy') f.legacy();
+          await f.deliver(f.scans()[0]).catch(() => {});
+          expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]); expect([...f.activities]).toEqual([]);
+          expect(f.scans()).toEqual([]);
+          f.restore();
+          // No automatic new arm when authority later becomes valid.
+          expect(f.scans()).toEqual([]);
+          expect(f.rows.find(row => row.taskId === 'metrics')).toMatchObject({ callback: 'collectMetrics' });
+        } finally { clock.mockRestore(); }
+      });
+
     it.each([900, 7200, 3600])('delivers a registered %i-second scan and one same-interval successor without touching metrics', async interval => {
       const f = scheduler(interval), now = Date.now();
       const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -321,7 +652,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     const current = { ...pin, repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
       repetitionIntervalSeconds: 900, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
       releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt: '2026-09-28T00:00:00.000Z', human, accessJwt: 'a-jwt' };
-    const retained = { repositoryId: 424242, pullRequest: 1300, head: 'a'.repeat(40), createdAt: '2026-09-27T00:00:00.000Z' };
+    const retained = { repositoryId: 424242, pullRequest: 1300, head: 'a'.repeat(40), createdAt: '2026-09-28T00:00:00.001Z' };
     let reservedId: string | undefined;
     let state: 'absent' | 'prepared' | 'queued' = 'absent';
     const history: Array<{ activityId: string; effect: string; invocation?: string }> = [];
@@ -335,6 +666,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '4' }) };
     mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
       resolveManagementExecution: async () => ({ ok: true, value: selection }),
+      observeProspectiveRenovateRegistration: async () => ({ status: 'current', registration: current }),
       currentProspectiveRenovateRegistration: async () => current,
       retainedProspectiveRenovateRetryTargets: async () => [retained],
       reserveProspectiveRenovateActivity: async (input: { activityId: string; pullRequest: number }) => {
@@ -346,12 +678,18 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     }) };
     mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
       if (id !== reservedId) throw Error('Replacement Activity');
-      return { bindProspectiveRenovateAdmission: async () => true,
-        bindDispatcherOwnerSource: async (source: { bucket: string; sessionId: string; sessionGeneration: number }) => source.bucket === actor.bucket
+      return { bindDispatcherOwnerSource: async (source: { bucket: string; sessionId: string; sessionGeneration: number }) => source.bucket === actor.bucket
           && source.sessionId === actor.sessionId && source.sessionGeneration === actor.sessionGeneration,
         getRuntimePlan: async () => null,
         getBrowserDetail: async () => state === 'absent' ? null : ({ executionStatus: state }),
-        prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
+        prepareAuthorized: async (intent: { activityId: string; expectedRevision: number;
+          expectedInstallationRevision: number; expectedControlsRevision: number; deadline: number },
+        _context: unknown, invocation: string, boundary: unknown, prospectiveAdmissionId?: string) => {
+          expect(intent).toMatchObject({ activityId: reservedId, expectedRevision: current.operatorRevision,
+            expectedInstallationRevision: current.installationRevision, expectedControlsRevision: current.controlsRevision,
+            deadline: human.expiresAt * 1000 });
+          expect(boundary).toBeUndefined();
+          expect(prospectiveAdmissionId).toBe(reservedId);
           state = 'prepared'; history.push({ activityId: intent.activityId, effect: 'prepared', invocation });
           if (lost === 'preparation') throw Error('Accepted preparation acknowledgement lost');
           return { ok: true };
@@ -400,8 +738,12 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     mockEnv.OPERATOR_ACTIVITY = {};
     mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
       retainedProspectiveRenovateRetryTargets: async () => [],
+      async observeProspectiveRenovateRegistration() {
+        return { status: 'current', registration: await this.currentProspectiveRenovateRegistration() };
+      },
       currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, installationId: 'dispatcher-install',
-        registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 }),
+        registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
+        human: { expiresAt: Math.floor(Date.now() / 1000) + 14_400 } }),
     }) };
     const instance = new ContainerClass(mockCtx as any, mockEnv);
     const scheduled: Array<{ callback: string; due: number; payload?: unknown }> = [];
@@ -463,6 +805,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }),
       } }),
       retainedProspectiveRenovateRetryTargets: async () => [],
+      async observeProspectiveRenovateRegistration() {
+        return { status: 'current', registration: await this.currentProspectiveRenovateRegistration() };
+      },
       currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt, installationId: 'dispatcher-install',
         registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
         human: { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
@@ -477,8 +822,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     }) };
     mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
       if (id !== reservedActivityId) throw Error('Uncertain admission identity changed');
-      return { bindProspectiveRenovateAdmission: async () => true,
-        getBrowserDetail: async () => ({ executionStatus: uncertainStatus }),
+      return { getBrowserDetail: async () => ({ executionStatus: uncertainStatus }),
         getRuntimePlan: async () => null,
         prepareAuthorized: async () => { uncertainStatus = 'running'; unauthorizedEffects.push('replacement-preparation');
           return { ok: true }; },
@@ -617,6 +961,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         admitManagement: async (request: object) => ({ ok: true, value: { ...request,
           admittedAt: Date.now(), selection } }), upsertOwnedActivity: async () => {},
         retainedProspectiveRenovateRetryTargets: async () => [],
+        async observeProspectiveRenovateRegistration() {
+          return { status: 'current', registration: await this.currentProspectiveRenovateRegistration() };
+        },
         currentProspectiveRenovateRegistration: async () => ({ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest, registrationId: 'registered-admin',
           activatedAt: '2026-09-28T00:00:00.000Z', installationId: 'dispatcher-install', bucket,
           sessionId: 'session0001', sessionGeneration: 3, human, accessJwt: 'sealed-admin' }),
@@ -1418,18 +1765,19 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockContainerRuntime.running = true;
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'authorized-proxy-fixture';
         return null;
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe('authorized-proxy-fixture'));
       const request = new Request('http://container/unknown-route', {
         method: 'GET',
       });
 
       const response = await instance.fetch(request);
-      // super.fetch() handles proxying (SDK manages readiness + networking)
-      expect(response).toBeDefined();
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('base fetch');
     });
   });
 
@@ -1555,6 +1903,239 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       return instance;
     }
 
+    function observeOwnedExitWork() {
+      const rejected: unknown[] = [];
+      const emitted: Array<{ level: string; message: string; data: Record<string, unknown> }> = [];
+      // Handle the actual promise registered with the DO owner immediately.
+      mockCtx.waitUntil.mockImplementation((completion: Promise<unknown>) => {
+        void Promise.resolve(completion).then(() => undefined, error => { rejected.push(error); });
+      });
+      const logger = (context: Record<string, unknown> = {}): Logger => ({
+        debug: (message, data) => { emitted.push({ level: 'debug', message, data: { ...context, ...data } }); },
+        info: (message, data) => { emitted.push({ level: 'info', message, data: { ...context, ...data } }); },
+        warn: (message, data) => { emitted.push({ level: 'warn', message, data: { ...context, ...data } }); },
+        error: (message, _error, data) => { emitted.push({ level: 'error', message, data: { ...context, ...data } }); },
+        child: data => logger({ ...context, ...data }),
+      });
+      vi.mocked(createLogger).mockImplementationOnce(() => logger());
+      return {
+        emitted,
+        async expectFailure(error: Error) {
+          await vi.waitFor(() => expect(rejected).toContain(error));
+        },
+      };
+    }
+
+    function deferExitConfirmation(mode: 'rejected' | 'refused') {
+      const original = mockEnv.USAGE_DB as D1Database;
+      let blocked = true;
+      mockEnv.USAGE_DB = {
+        prepare(sql: string) {
+          const statement = original.prepare(sql);
+          // Boundary fault injection only; outcomes never assert SQL text.
+          if (!sql.includes("SET lifecycle_state='stopped'")) return statement;
+          return { bind(...values: unknown[]) {
+            const bound = statement.bind(...values);
+            return { run: async () => {
+              if (!blocked) return bound.run();
+              if (mode === 'rejected') throw Error('exit persistence unavailable');
+              return { success: true, meta: { changes: 0 } };
+            } };
+          } };
+        },
+      };
+      return () => { blocked = false; };
+    }
+
+    function seedExitIncident(kv: ReturnType<typeof createMockKV>, key: string, generation: number, incidentId: string | null) {
+      kv._set(key, {
+        id: sessionId, userId: owner, status: incidentId ? 'unreachable' : 'running', lifecycleGeneration: generation,
+        ...(incidentId ? { unreachableIncidentId: incidentId,
+          unreachableFirstObservedAt: '2026-01-01T00:00:00.000Z', unreachableDeadlineMs: 2_000_000_000_000 } : {}),
+        createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
+      });
+    }
+
+    const exitRetryCases = (['rejected', 'refused'] as const).flatMap(mode =>
+      [null, 'original-exit-incident'].map(incidentId => ({ mode, incidentId })));
+
+    describe.each(['resolved', 'rollout'] as const)('attached %s exit scheduling ownership', completion => {
+      it.each(exitRetryCases)(
+        'REQ-SESSION-026 AC1-3: $mode confirmation with incident $incidentId rejects owned completion and remains retryable',
+        async ({ mode, incidentId }) => {
+          const observed = observeOwnedExitWork();
+          const { instance, kv, key, persisted, resolveExit, rejectExit } = await attachedMonitor(21);
+          seedExitIncident(kv, key, 21, incidentId);
+          persisted.set('usageSeconds', 23);
+          const allowConfirmation = deferExitConfirmation(mode);
+          const unavailable = Error('required exit alarm unavailable');
+          const schedule = vi.spyOn(instance, 'schedule').mockRejectedValue(unavailable);
+          try {
+            if (completion === 'rollout') rejectExit(Error('Runtime signalled the container to exit due to a new version rollout: 143'));
+            else resolveExit();
+            await observed.expectFailure(unavailable);
+            expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
+              sessionId, lifecycleGeneration: 21, incidentId, errorClass: 'schedule_failed',
+            }));
+            expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 21 });
+            expect(persisted.get('lifecycleGeneration')).toBe(21);
+            expect(persisted.get('usageSeconds')).toBe(23);
+            expect(await kv.get(key, 'json')).toMatchObject({
+              status: 'stopping', lifecycleGeneration: 21, terminationGeneration: 21,
+              terminationIntentId: 'monitored-exit-21', ...(incidentId ? { unreachableIncidentId: incidentId } : {}),
+            });
+            allowConfirmation();
+            schedule.mockRestore();
+            await reconstruct();
+            expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 21 });
+            expect(persisted.has('monitoredExitGeneration')).toBe(false);
+            expect(persisted.get('usageSeconds')).toBe(23);
+          } finally { schedule.mockRestore(); }
+        },
+      );
+    });
+
+    it.each(exitRetryCases)(
+      'REQ-SESSION-026 AC1-3: reconstruction $mode confirmation with incident $incidentId owns retry failure without poisoning startup',
+      async ({ mode, incidentId }) => {
+        const { kv, key, persisted } = await attachedMonitor(22);
+        seedExitIncident(kv, key, 22, incidentId);
+        const evidence = { owner, session: sessionId, generation: 22 };
+        persisted.set('monitoredExitGeneration', evidence);
+        persisted.set('usageSeconds', 23);
+        const allowConfirmation = deferExitConfirmation(mode);
+        const observed = observeOwnedExitWork();
+        const unavailable = Error('restored exit alarm unavailable');
+        const schedule = vi.spyOn(ContainerClass.prototype, 'schedule').mockRejectedValue(unavailable);
+        try {
+          // Startup remains usable; required work rejects through its separate DO completion.
+          const restored = await reconstruct();
+          await observed.expectFailure(unavailable);
+          expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
+            sessionId, lifecycleGeneration: 22, incidentId, errorClass: 'schedule_failed',
+          }));
+          expect(persisted.get('monitoredExitGeneration')).toEqual(evidence);
+          expect(persisted.get('lifecycleGeneration')).toBe(22);
+          expect(persisted.get('usageSeconds')).toBe(23);
+          expect(await kv.get(key, 'json')).toMatchObject({
+            status: 'stopping', lifecycleGeneration: 22, terminationGeneration: 22,
+            terminationIntentId: 'monitored-exit-22', ...(incidentId ? { unreachableIncidentId: incidentId } : {}),
+          });
+          expect(restored._sessionId).toBe(sessionId);
+          allowConfirmation();
+          schedule.mockRestore();
+          await reconstruct();
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 22 });
+          expect(persisted.has('monitoredExitGeneration')).toBe(false);
+          expect(persisted.get('usageSeconds')).toBe(23);
+        } finally { schedule.mockRestore(); }
+      },
+    );
+
+    it.each(exitRetryCases)(
+      'REQ-SESSION-026 AC1-3: metrics caller receives $mode exit-retry alarm failure with observed incident $incidentId',
+      async ({ mode, incidentId }) => {
+        const observed = observeOwnedExitWork();
+        const { instance, kv, key, persisted } = await attachedMonitor(24);
+        seedExitIncident(kv, key, 24, incidentId);
+        persisted.set('monitoredExitGeneration', { owner, session: sessionId, generation: 24 });
+        persisted.set('usageSeconds', 23);
+        const allowConfirmation = deferExitConfirmation(mode);
+        const unavailable = Error('metrics exit alarm unavailable');
+        const schedule = vi.spyOn(instance, 'schedule').mockRejectedValue(unavailable);
+        try {
+          await expect(instance.collectMetrics({ ownerKey: owner, sessionId, generation: 24 })).rejects.toBe(unavailable);
+          expect(observed.emitted.map(entry => entry.data)).toContainEqual(expect.objectContaining({
+            sessionId, lifecycleGeneration: 24, incidentId, errorClass: 'schedule_failed',
+          }));
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopping', lifecycleGeneration: 24, terminationIntentId: 'monitored-exit-24' });
+          expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 24 });
+          expect(persisted.get('usageSeconds')).toBe(23);
+          allowConfirmation();
+          schedule.mockRestore();
+          await reconstruct();
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 24 });
+          expect(persisted.has('monitoredExitGeneration')).toBe(false);
+          expect(persisted.get('usageSeconds')).toBe(23);
+        } finally { schedule.mockRestore(); }
+      },
+    );
+
+    it('REQ-SESSION-026: a transient metrics retry-alarm failure preserves its existing second chance and exit ownership', async () => {
+      const { instance, kv, key, persisted } = await attachedMonitor(25);
+      persisted.set('monitoredExitGeneration', { owner, session: sessionId, generation: 25 });
+      const allowConfirmation = deferExitConfirmation('refused');
+      const queue: unknown[] = [];
+      let unavailable = true;
+      const schedule = vi.spyOn(instance, 'schedule').mockImplementation(async (_delay, _method, payload) => {
+        if (unavailable) { unavailable = false; throw Error('transient scheduler outage'); }
+        queue.push(payload);
+        return {} as Awaited<ReturnType<typeof instance.schedule>>;
+      });
+      try {
+        await expect(instance.collectMetrics({ ownerKey: owner, sessionId, generation: 25 })).resolves.toBeUndefined();
+        expect(queue).toContainEqual({ ownerKey: owner, sessionId, generation: 25 });
+        expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopping', lifecycleGeneration: 25 });
+        expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 25 });
+        allowConfirmation();
+        schedule.mockRestore();
+        await reconstruct();
+        expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 25 });
+      } finally { schedule.mockRestore(); }
+    });
+
+    it('REQ-SESSION-026: alarm unavailability does not poison a working reconstruction without pending exit work', async () => {
+      const { kv, key, persisted } = await attachedMonitor(23);
+      let resolveRestoredExit!: () => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>(resolve => { resolveRestoredExit = resolve; }));
+      const schedule = vi.spyOn(ContainerClass.prototype, 'schedule').mockRejectedValue(Error('alarm unavailable'));
+      try {
+        const restored = await reconstruct();
+        mockTcpPortFetch.mockResolvedValueOnce(new Response('surviving workload'));
+        const response = await restored.forwardExisting(new Request('http://container/health'));
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('surviving workload');
+        expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 23 });
+        expect(persisted.has('monitoredExitGeneration')).toBe(false);
+        resolveRestoredExit();
+        await vi.waitFor(async () => expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 23 }));
+      } finally { schedule.mockRestore(); }
+    });
+
+    it.each([
+      { completion: 'resolved' as const, reason: 'unknown' },
+      { completion: 'exit-137' as const, reason: 'unknown' },
+      { completion: 'explicit-rollout' as const, reason: 'platform' },
+    ])('REQ-SESSION-025 AC1-2: $completion exit preserves observed incident without inventing an initiator', async ({ completion, reason }) => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await attachedMonitor(17);
+        seedExitIncident(f.kv, f.key, 17, 'monitor-incident-17');
+        expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+        if (completion === 'resolved') f.resolveExit();
+        else f.rejectExit(new Error(completion === 'explicit-rollout'
+          ? 'Runtime signalled the container to exit due to a new version rollout: 143'
+          : 'container exited with unexpected exit code: 137'));
+        await vi.waitFor(async () => expect(await f.kv.get(f.key, 'json')).toMatchObject({ status: 'stopped' }));
+        expect((await f.kv.get(f.key, 'json') as Record<string, unknown>).unreachableIncidentId).toBeUndefined();
+        expect(capture.entries()).toContainEqual(expect.objectContaining({ message: 'process_exit_confirmed', data: expect.objectContaining({
+          sessionId, lifecycleGeneration: 17, incidentId: 'monitor-incident-17', terminationIntentId: 'monitored-exit-17', reason,
+        }) }));
+      } finally { capture.restore(); }
+    });
+
+    it('REQ-SESSION-025 AC1: stale monitored-exit authority cannot emit confirmation for a replacement', async () => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await attachedMonitor(17);
+        f.kv._set(f.key, { id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 18 });
+        const { confirmMonitoredExit } = await import('../../container/container-lifecycle');
+        expect(await confirmMonitoredExit(mockCtx as any, mockEnv, owner, sessionId, 17)).toBe(false);
+        expect(await f.kv.get(f.key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 18 });
+        expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+      } finally { capture.restore(); }
+    });
+
     it('REQ-SESSION-024: an old scheduled generation cannot observe or signal the replacement', async () => {
       const { instance, kv, key, persisted } = await attachedMonitor(12);
       persisted.set('lifecycleGeneration', 13);
@@ -1576,7 +2157,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await vi.waitFor(() => expect(rejectExit).toBeDefined());
       rejectExit(new Error('network connection lost'));
       await vi.waitFor(() => expect((reconstructed as any).logger.warn).toHaveBeenCalledWith(
-        'Container monitor failed', { error: 'network connection lost' },
+        'Container monitor failed', { sessionId, lifecycleGeneration: 12, incidentId: null, errorClass: 'monitor_failed' },
       ));
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('running');
       expect(persisted.has('monitoredExitGeneration')).toBe(false);
@@ -1841,6 +2422,28 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(body).toHaveProperty('bucketName');
     });
 
+    it.each([undefined, 'Bearer caller-supplied'])('REQ-SEC-022 AC1: missing lifecycle credentials refuse protected forwarding (%s)', async (authorization) => {
+      mockContainerRuntime.running = true;
+      // No restored configuration: a bucket would generate a lifecycle token during hydration.
+      mockStorage.get.mockResolvedValue(null);
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
+      const upstreamState = { syncRequested: false };
+      const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
+      const upstream = vi.spyOn(proto, 'fetch').mockImplementation(async () => {
+        upstreamState.syncRequested = true;
+        return new Response('sync started', { status: 200 });
+      });
+      try {
+        const response = await instance.fetch(new Request('http://container/internal/bisync-trigger', {
+          method: 'POST', headers: authorization ? { Authorization: authorization } : {},
+        }));
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({ error: 'Container authorization unavailable' });
+        expect(upstreamState.syncRequested).toBe(false);
+      } finally { upstream.mockRestore(); }
+    });
+
     it('REQ-SEC-022 AC1: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch', async () => {
       mockContainerRuntime.running = true;
       const PRIOR_TOKEN = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -1893,6 +2496,305 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
   });
 
   describe('destroy', () => {
+    // Supplied DO storage: public reads observe actual SUT writes/deletes.
+    async function destroyFixture(withIdentity = true) {
+      const stored = new Map<string, unknown>(withIdentity ? [
+        ['bucketName', 'test-bucket'], ['_sessionId', 'sess123'],
+        ['lifecycleGeneration', 7], ['observationSequence', 6],
+        ['containerAuthToken', 'destroy-wire-token'],
+      ] : []);
+      const storage = {
+        get: async (key: string) => stored.get(key),
+        put: async (key: string, value: unknown) => { stored.set(key, structuredClone(value)); },
+        delete: async (key: string | string[]) => {
+          for (const item of typeof key === 'string' ? [key] : key) stored.delete(item);
+        },
+      };
+      mockStorage.get.mockImplementation(storage.get);
+      mockStorage.put.mockImplementation(storage.put);
+      mockStorage.delete.mockImplementation(storage.delete);
+      let ready = Promise.resolve();
+      mockCtx.blockConcurrencyWhile.mockImplementation((work: () => Promise<void>) => {
+        ready = work();
+        return ready;
+      });
+      const wire: Array<{ path: string; method: string; authorization: string | null }> = [];
+      const fetch = async (input: string | Request, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        wire.push({ path, method: request.method, authorization: request.headers.get('Authorization') });
+        return Response.json(path === '/internal/agent-events/drain'
+          ? { hostNow: Date.now(), events: [] } : { synced: true });
+      };
+      mockTcpPortFetch.mockImplementation(fetch);
+      mockContainerRuntime.running = true;
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await ready;
+      let started = false;
+      mockContainerRuntime.start.mockImplementation(() => { started = true; });
+      vi.spyOn(instance, 'stop').mockImplementation(async () => { mockContainerRuntime.running = false; });
+      return { instance, storage, fetch, wire, started: () => started };
+    }
+
+    it('REQ-SESSION-025 AC1-2: user Stop retains final-sync context and confirms only after native completion', async () => {
+      const capture = await captureLifecycleSerialization();
+      let resolveNative!: () => void;
+      try {
+        const kv = createMockKV();
+        const key = 'session:test-bucket:sess123';
+        kv._set(key, { id: 'sess123', userId: 'test-bucket', status: 'unreachable',
+          lifecycleGeneration: 7, unreachableIncidentId: 'stop-incident-7',
+          unreachableFirstObservedAt: '2026-01-01T00:00:00.000Z', unreachableDeadlineMs: 120_000 });
+        mockEnv.USAGE_DB = createMockSessionD1(kv);
+        mockEnv.CONTAINER = { idFromName: () => mockCtx.id };
+        const f = await destroyFixture();
+        let providerReached!: () => void;
+        const providerRequested = new Promise<void>(resolve => { providerReached = resolve; });
+        const nativeCompletion = new Promise<void>(resolve => { resolveNative = resolve; });
+        vi.spyOn(f.instance, 'superDestroy').mockImplementation(() => { providerReached(); return nativeCompletion; });
+        let drainObserved = false;
+        mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+          const request = new Request(input, init);
+          if (new URL(request.url).pathname !== '/internal/final-sync') return f.fetch(input, init);
+          expect(await f.storage.get('_sessionId')).toBeUndefined();
+          expect(await f.storage.get('bucketName')).toBeUndefined();
+          expect(await f.storage.get('containerAuthToken')).toBeUndefined();
+          expect(request.method).toBe('POST');
+          expect(request.headers.get('Authorization')).toBe('Bearer destroy-wire-token');
+          drainObserved = true;
+          return Response.json({ synced: true });
+        });
+        const stop = f.instance.stopSession({ bucket: 'test-bucket', sessionId: 'sess123', generation: 7 });
+        const settled = stop.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
+        try {
+          await providerRequested;
+          expect(drainObserved).toBe(true);
+          const stopping = await kv.get(key, 'json') as { terminationIntentId: string; status: string };
+          expect(stopping.status).toBe('stopping');
+          expect(stopping.terminationIntentId).toEqual(expect.any(String));
+          const context = { sessionId: 'sess123', lifecycleGeneration: 7,
+            incidentId: 'stop-incident-7', terminationIntentId: stopping.terminationIntentId };
+          const correlation = { ...context, reason: 'user' };
+          // Audit outcome reasons retain their existing meaning; initiator classification belongs to the transition log.
+          expect(await f.storage.get('finalSyncAudit')).toMatchObject({ ...context, outcome: 'completed', httpStatus: 200 });
+          expect(capture.entries()).toContainEqual(expect.objectContaining({
+            data: expect.objectContaining({ ...correlation, outcome: 'completed', httpStatus: 200 }),
+          }));
+          expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+          resolveNative();
+          expect(await settled).toEqual({ ok: true });
+          expect(await kv.get(key, 'json')).toMatchObject({ status: 'stopped', lifecycleGeneration: 7 });
+          expect(capture.entries()).toContainEqual(expect.objectContaining({ message: 'process_exit_confirmed', data: expect.objectContaining(correlation) }));
+          expect(JSON.stringify(capture.lines)).not.toContain('destroy-wire-token');
+          expect(f.started()).toBe(false);
+        } finally { resolveNative(); await settled; }
+      } finally { capture.restore(); }
+    });
+
+    it('REQ-SESSION-025 AC1-2: direct destroy retains available context without inventing authenticated user provenance', async () => {
+      const capture = await captureLifecycleSerialization();
+      try {
+        const f = await destroyFixture();
+        await f.instance.destroy();
+        expect(await f.storage.get('_sessionId')).toBeUndefined();
+        expect(await f.storage.get('finalSyncAudit')).toMatchObject({ sessionId: 'sess123', lifecycleGeneration: 7, outcome: 'completed', httpStatus: 200 });
+        expect(capture.entries()).toContainEqual(expect.objectContaining({ data: expect.objectContaining({
+          sessionId: 'sess123', lifecycleGeneration: 7, reason: 'unknown', outcome: 'completed',
+        }) }));
+        expect(mockContainerRuntime.running).toBe(false);
+        expect(f.started()).toBe(false);
+      } finally { capture.restore(); }
+    });
+
+    it.each(['host-reason', 'fetch-error', 'cleanup-error', 'stop-error', 'provider-error'] as const)(
+      'REQ-SESSION-025 AC4: teardown %s retains safe diagnostics and best-effort/exit authority', async stage => {
+        const capture = await captureLifecycleSerialization();
+        const sensitive = 'Bearer cf-sensitive-token transcript-fragment terminal-fragment /home/user/private/customer.txt';
+        try {
+          const f = await destroyFixture();
+          let nativeReached = false;
+          const stopSignals: Array<Parameters<typeof f.instance.stop>[0]> = [];
+          vi.spyOn(f.instance, 'superDestroy').mockImplementation(async () => {
+            nativeReached = true;
+            if (stage === 'provider-error') throw Error(sensitive);
+          });
+          if (stage === 'cleanup-error') {
+            mockStorage.delete.mockImplementation(async (key: string | string[]) => {
+              if (key === 'bucketName') throw Error(sensitive);
+              return f.storage.delete(key);
+            });
+          }
+          if (stage === 'stop-error') {
+            vi.spyOn(f.instance, 'stop').mockImplementation(async signal => { stopSignals.push(signal); throw Error(sensitive); });
+          }
+          let authenticatedDrain = false;
+          mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+            const request = new Request(input, init);
+            if (new URL(request.url).pathname !== '/internal/final-sync') return f.fetch(input, init);
+            expect(request.headers.get('Authorization')).toBe('Bearer destroy-wire-token');
+            authenticatedDrain = true;
+            if (stage === 'fetch-error') throw Error(sensitive);
+            return stage === 'host-reason' ? Response.json({ synced: false, reason: sensitive }, { status: 504 }) : Response.json({ synced: true });
+          });
+          if (stage === 'provider-error') {
+            await expect(f.instance.destroy()).rejects.toThrow(sensitive);
+            expect(capture.entries().filter(entry => entry.message === 'process_exit_confirmed')).toEqual([]);
+          } else if (stage === 'cleanup-error') {
+            await expect(f.instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
+          } else await expect(f.instance.destroy()).resolves.toBeUndefined();
+          expect(authenticatedDrain).toBe(true);
+          expect(nativeReached).toBe(true);
+          if (stage === 'cleanup-error') {
+            expect(await f.storage.get('bucketName')).toBe('test-bucket');
+            expect(await f.storage.get('shutdownRequested')).toEqual(expect.any(Number));
+            expect(await f.storage.get('containerAuthToken')).toBeUndefined();
+            expect((await f.instance.fetch(new Request('http://container/workspace'))).status).toBe(503);
+          }
+          if (stage === 'stop-error') expect(stopSignals).toContain('SIGTERM');
+          const audit = await f.storage.get('finalSyncAudit');
+          const outcome = stage === 'host-reason' ? 'incomplete' : stage === 'fetch-error' ? 'errored' : 'completed';
+          expect(audit).toMatchObject({ sessionId: 'sess123', lifecycleGeneration: 7, outcome });
+          if (stage === 'host-reason') expect(audit).toMatchObject({ httpStatus: 504 });
+          expect(capture.entries()).toContainEqual(expect.objectContaining({ data: expect.objectContaining({
+            sessionId: 'sess123', lifecycleGeneration: 7, outcome,
+            ...(stage === 'host-reason' || stage === 'fetch-error' ? { errorClass: expect.any(String) } : {}),
+          }) }));
+          const serialized = JSON.stringify({ logs: capture.lines, audit });
+          for (const forbidden of ['cf-sensitive-token', 'transcript-fragment', 'terminal-fragment', '/home/user/private/customer.txt', 'destroy-wire-token']) expect(serialized).not.toContain(forbidden);
+          expect(f.started()).toBe(false);
+        } finally { capture.restore(); }
+      },
+    );
+
+    it('REQ-SESSION-009 AC1: public destroy removes the forwarding credential and subsequent fetch stays unavailable without starting', async () => {
+      const f = await destroyFixture();
+      const socket = () => new Request('http://container/terminal', { headers: { Upgrade: 'websocket' } });
+      expect((await f.instance.fetch(socket())).status).toBe(200);
+      await f.instance.destroy();
+      expect((await f.instance.fetch(socket())).status).toBe(503);
+      const response = await f.instance.fetch(new Request('http://container/workspace'));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: 'Container not running' });
+      const bucket = await f.instance.fetch(new Request('http://container/_internal/getBucketName'));
+      expect(await bucket.json()).toEqual({ bucketName: null });
+      expect(await f.storage.get('containerAuthToken')).toBeUndefined();
+      expect(await f.storage.get('_sessionId')).toBeUndefined();
+      expect(f.started()).toBe(false);
+    });
+
+    it('REQ-SESSION-009 AC4: a delivered metrics callback after public destroy leaves schedules and service effects unchanged', async () => {
+      const f = await destroyFixture();
+      type Task = { taskId: string; callback: string; payload: unknown; type: 'delayed'; time: number; delayInSeconds: number };
+      let tasks: Task[] = [{ taskId: 'queued', callback: 'collectMetrics', payload: {}, type: 'delayed', time: 0, delayInSeconds: 60 }];
+      vi.spyOn(f.instance, 'listSchedules').mockImplementation(async method => tasks.filter(task => !method || task.callback === method) as never);
+      vi.spyOn(f.instance, 'deleteSchedules').mockImplementation(method => { tasks = tasks.filter(task => task.callback !== method); });
+      vi.spyOn(f.instance, 'schedule').mockImplementation(async (delay, callback, payload) => {
+        const task: Task = { taskId: 'rearmed', callback: String(callback), payload, type: 'delayed', time: 0, delayInSeconds: Number(delay) };
+        tasks.push(task);
+        return task as never;
+      });
+      await f.instance.destroy();
+      expect(await f.instance.listSchedules('collectMetrics')).toEqual([]);
+      const effects: string[] = [];
+      mockEnv.USAGE_DB = { prepare: () => { effects.push('d1'); throw Error('Destroyed session reached D1'); } };
+      mockContainerRuntime.start.mockImplementation(() => { effects.push('start'); });
+      mockContainerRuntime.signal.mockImplementation(() => { effects.push('signal'); });
+      mockContainerRuntime.destroy.mockImplementation(() => { effects.push('force'); });
+      vi.spyOn(f.instance, 'stop').mockImplementation(async () => { effects.push('stop'); });
+      const wireBefore = [...f.wire];
+      await f.instance.collectMetrics({ ownerKey: 'test-bucket', sessionId: 'sess123', generation: 7 });
+      expect(await f.instance.listSchedules('collectMetrics')).toEqual([]);
+      expect(f.wire).toEqual(wireBefore);
+      expect(effects).toEqual([]);
+      expect(await f.storage.get('observationSequence')).toBe(6);
+    });
+
+    it('REQ-SESSION-011 AC1 / REQ-SESSION-019 AC1: authenticated final-sync completion precedes SIGTERM even with a transient false running flag', async () => {
+      const f = await destroyFixture();
+      mockContainerRuntime.running = false;
+      let reached!: () => void;
+      const requested = new Promise<void>(resolve => { reached = resolve; });
+      let complete!: (response: Response) => void;
+      const response = new Promise<Response>(resolve => { complete = resolve; });
+      const order: string[] = [];
+      mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+        const request = new Request(input, init);
+        if (new URL(request.url).pathname === '/internal/final-sync') {
+          expect(request.method).toBe('POST');
+          expect(request.headers.get('Authorization')).toBe('Bearer destroy-wire-token');
+          order.push('authenticated-final-sync');
+          reached();
+          return response;
+        }
+        return Response.json({ hostNow: Date.now(), events: [] });
+      });
+      vi.spyOn(f.instance, 'stop').mockImplementation(async signal => {
+        order.push(String(signal));
+        mockContainerRuntime.running = false;
+      });
+      const completion = f.instance.destroy();
+      await requested;
+      expect(order).toEqual(['authenticated-final-sync']);
+      mockContainerRuntime.running = true;
+      order.push('sync-completed');
+      complete(Response.json({ synced: true }));
+      await completion;
+      expect(order).toEqual(['authenticated-final-sync', 'sync-completed', 'SIGTERM']);
+      expect(await f.storage.get('finalSyncAudit')).toEqual(expect.objectContaining({ outcome: 'completed', httpStatus: 200 }));
+    });
+
+    it('REQ-SESSION-019 AC1: missing token emits no outgoing request and leaves a readable bounded teardown audit', async () => {
+      const f = await destroyFixture(false);
+      const entered = Date.now();
+      await expect(f.instance.destroy()).resolves.toBeUndefined();
+      expect(f.wire).toEqual([]);
+      const audit = await f.storage.get('finalSyncAudit') as { at: number; outcome: string; reason: string; running: boolean };
+      expect(audit).toEqual({ outcome: 'errored', reason: 'missing-auth-token', at: expect.any(Number), running: true });
+      expect(audit.at).toBeGreaterThanOrEqual(entered);
+      expect(audit.at).toBeLessThanOrEqual(entered + 135_000);
+      expect(mockContainerRuntime.running).toBe(false);
+      expect(f.started()).toBe(false);
+    });
+
+    it.each(['storage-fence', 'storage-read', 'storage-delete', 'final-sync', 'response-body', 'audit-write', 'stop', 'provider'] as const)(
+      'REQ-SESSION-011 AC5: an awaited %s stall cannot extend the shared 135-second teardown deadline', async stage => {
+        vi.useFakeTimers();
+        try {
+          const f = await destroyFixture(stage !== 'storage-read');
+          let reached!: () => void;
+          const stalled = new Promise<void>(resolve => { reached = resolve; });
+          const hang = <T,>(): Promise<T> => { reached(); return new Promise<T>(() => {}); };
+          const { put, get } = f.storage;
+          const { fetch } = f;
+          if (stage === 'storage-fence' || stage === 'audit-write') {
+            mockStorage.put.mockImplementation(async (key: string, value: unknown) =>
+              key === (stage === 'storage-fence' ? 'shutdownRequested' : 'finalSyncAudit') ? hang<void>() : put(key, value));
+          }
+          if (stage === 'storage-read') mockStorage.get.mockImplementation(async (key: string) => key === 'containerAuthToken' ? hang<unknown>() : get(key));
+          if (stage === 'storage-delete') mockStorage.delete.mockImplementation(() => hang<void>());
+          if (stage === 'final-sync' || stage === 'response-body') {
+            mockTcpPortFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
+              if (new URL(new Request(input, init).url).pathname !== '/internal/final-sync') return fetch(input, init);
+              if (stage === 'final-sync') return hang<Response>();
+              reached();
+              return new Response(new ReadableStream<Uint8Array>({ start() {} }));
+            });
+          }
+          if (stage === 'stop') vi.spyOn(f.instance, 'stop').mockImplementation(() => hang<void>());
+          if (stage === 'provider') vi.spyOn(f.instance, 'superDestroy').mockImplementation(() => hang<void>());
+          let result = 'pending';
+          const completion = f.instance.destroy().then(() => { result = 'resolved'; }, error => { result = (error as Error).message; });
+          await stalled;
+          await vi.advanceTimersByTimeAsync(134_999);
+          expect(result).toBe('pending');
+          await vi.advanceTimersByTimeAsync(1);
+          await completion;
+          expect(result).toBe('teardown deadline exceeded');
+          expect(f.started()).toBe(false);
+        } finally { vi.useRealTimers(); }
+      },
+    );
+
     // Most existing tests in this block assert storage cleanup, not the new
     // graceful-shutdown polling. Default to !running so the override skips the
     // 25 s SIGTERM-and-poll branch; tests that need the graceful path opt in.
@@ -1920,7 +2822,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       });
       const instance = new ContainerClass(mockCtx as any, mockEnv);
 
-      await expect(instance.destroy()).resolves.toBeUndefined();
+      await expect(instance.destroy()).rejects.toThrow('Operational storage cleanup incomplete');
 
       const deletedKeys = mockStorage.delete.mock.calls.map((call) => call[0]);
       expect(deletedKeys).toContain('metricsTransportRecovery');
@@ -2283,7 +3185,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(superDestroySpy).toHaveBeenCalled();
       expect(loggerWarn).toHaveBeenCalledWith(
         'Forced destroy failed or exceeded teardown deadline',
-        { error: forcedError.message },
+        { sessionId: null, lifecycleGeneration: null, incidentId: null, reason: 'unknown', errorClass: 'native_destroy_failed' },
       );
     });
 
@@ -2310,14 +3212,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         expect(superDestroySpy).toHaveBeenCalled();
         expect(loggerWarn).toHaveBeenCalledWith(
           'Forced destroy failed or exceeded teardown deadline',
-          { error: 'teardown deadline exceeded' },
+          { sessionId: null, lifecycleGeneration: null, incidentId: null, reason: 'unknown', errorClass: 'teardown_deadline_exceeded' },
         );
 
         rejectForcedDestroy(new Error('late provider rejection'));
         await vi.advanceTimersByTimeAsync(0);
         expect(loggerWarn).toHaveBeenCalledWith(
           'Forced destroy failed after teardown deadline',
-          { error: 'late provider rejection' },
+          { sessionId: null, lifecycleGeneration: null, incidentId: null, reason: 'unknown', errorClass: 'native_destroy_failed' },
         );
       } finally {
         vi.useRealTimers();

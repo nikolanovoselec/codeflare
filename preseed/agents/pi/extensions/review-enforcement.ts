@@ -76,7 +76,7 @@ type ReviewContext = {
 };
 
 type ReviewPi = ToolActivationPi & {
-  on(event: "session_start" | "tool_call" | "tool_execution_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
+  on(event: "input" | "session_start" | "tool_call" | "tool_execution_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
     options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
@@ -319,6 +319,8 @@ type LaunchMessage = {
   range?: string;
   reviewers: ReviewLane[];
   ciEvent?: ReviewBoundaryEvent;
+  autonomyOverride?: boolean;
+  roundLimitEvidence?: string[];
 };
 
 function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
@@ -334,6 +336,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       "- `inherit_context`: `false`",
       "- Copy each lane's three assignment lines unchanged into its prompt:",
       ...input.reviewers.flatMap((lane) => reviewerPromptContract(input.pr, input.range, lane)),
+      ...(input.autonomyOverride ? ["Include autonomy_override=fully-autonomous in each reviewer prompt (direct current-session user authority; all other gates remain binding)."] : []),
       "- Keep every assignment on its own line. Do not add punctuation or Markdown delimiters to assignment values.",
     ].join("\n"));
   }
@@ -389,6 +392,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
       `- PR: #${input.pr.number}`,
       `- Head: \`${input.pr.headRefOid}\``,
       `- Scope: ${scopeSummary(input.pr, input.range)}`, "",
+      ...(input.roundLimitEvidence ?? []),
       ...sections.flatMap((section, index) => index === sections.length - 1 ? [section] : [section, ""]),
     ].join("\n"),
     display: true,
@@ -544,7 +548,9 @@ export type ReviewEnforcementController = {
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): ReviewEnforcementController {
   let activeRound: ActiveRound | undefined;
-  let dialogIdentity: string | undefined;
+  const dialogsInFlight = new Set<string>();
+  let generation = 0;
+  let autonomyOverride = false;
   const mergeBefore = new Map<string, Promise<{
     repo: string;
     branch?: string;
@@ -566,85 +572,99 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     consentedLaunch?: ConsentedLaunch,
     isCurrent = () => true,
   ): Promise<void> => {
-    if (!isCurrent()) return;
+    const epoch = generation;
+    const current = () => isCurrent() && generation === epoch;
+    if (!current()) return;
     const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr);
-    if (!isCurrent() || !review) return;
+    if (!current() || !review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
-    let decision: string | undefined;
-    if (ciEvent) {
-      decision = LAUNCH_REVIEW;
-    } else {
-      const key = JSON.stringify(review.identity);
-      if (dialogIdentity === key || !ctx.hasUI || !ctx.ui) return;
-      dialogIdentity = key;
-      const initial = readCompletion(review.identity);
-      try {
+    const key = JSON.stringify([review.file, review.identity.gitHost, review.identity.repository, review.identity.pr,
+      review.identity.branch, review.identity.base, review.identity.head]);
+    if (!ciEvent && dialogsInFlight.has(key)) return;
+    if (!ciEvent) dialogsInFlight.add(key);
+    try {
+      let decision: string | undefined;
+      if (ciEvent) {
+        decision = LAUNCH_REVIEW;
+      } else {
+        if (!ctx.hasUI || !ctx.ui) return;
+        const initial = readCompletion(review.identity);
         decision = await ctx.ui.select(
           `Review completion is missing for ${review.repository.split("/").at(-1)}:${review.pr.headRefName}.\nReason: ${statusReason(initial.status)}.`,
           [MARK_COMPLETE, LAUNCH_REVIEW],
         );
-      } finally {
-        dialogIdentity = undefined;
+        if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
       }
-      if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
-    }
-    if (!isCurrent()) return;
-    const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent, command, review.createdPr);
-    if (!isCurrent() || !refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
-    if (readCompletion(refreshed.identity).status === "complete") return;
-    if (decision === MARK_COMPLETE) {
-      writeCompletion(refreshed.identity);
-      return;
-    }
-    // The selector may override only an explicitly consented exposure launch.
-    // Remote unavailability never falls through to local planning/completion.
-    if (!ciEvent && consentedLaunch) {
-      await consentedLaunch(refreshed, ctx);
-      return;
-    }
-    const ancestor = latestAncestorCompletion(refreshed.identity, refreshed.repo);
-    const ackHead = ancestor?.head;
-    const range = reviewRange({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
-    const reviewers = requiredReviewLanes({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
-    if (reviewers.length === 0) {
-      try {
+      if (!current()) return;
+      const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent, command, review.createdPr);
+      if (!current() || !refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
+      if (readCompletion(refreshed.identity).status === "complete") return;
+      if (decision === MARK_COMPLETE) {
         writeCompletion(refreshed.identity);
-      } catch {
-        // Exact-head CI remains independent of completion persistence.
+        return;
       }
-      if (ciEvent) sendLaunchMessage(pi, {
-        repo: refreshed.repo,
-        pr: refreshed.pr,
+      // Each native delivery completes its own refresh. Only an established
+      // exact-head round suppresses another attempt, never a pending lookup.
+      if (activeRound && sameIdentity(activeRound.identity, refreshed.identity)) return;
+      // The selector may override only an explicitly consented exposure launch.
+      // Remote unavailability never falls through to local planning/completion.
+      if (!ciEvent && consentedLaunch) {
+        await consentedLaunch(refreshed, ctx);
+        return;
+      }
+      const ancestor = latestAncestorCompletion(refreshed.identity, refreshed.repo);
+      const ackHead = ancestor?.head;
+      const range = reviewRange({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
+      const roundLimitEvidence: string[] = [];
+      const reviewers = requiredReviewLanes({ repo: refreshed.repo, ackHead, head: refreshed.identity.head, autonomyOverride,
+        onRoundLimit: (lane, evidence) => roundLimitEvidence.push(`${lane}: counted=${evidence.counted} gate=${evidence.gate}`),
+      });
+      if (reviewers.length === 0) {
+        try {
+          writeCompletion(refreshed.identity);
+        } catch {
+          // Exact-head CI remains independent of completion persistence.
+        }
+        if (ciEvent) sendLaunchMessage(pi, {
+          repo: refreshed.repo,
+          pr: refreshed.pr,
+          boundaryToolUseId,
+          ackHead,
+          range,
+          reviewers,
+          ciEvent,
+          autonomyOverride,
+          roundLimitEvidence,
+        });
+        return;
+      }
+      const round: ActiveRound = {
+        ...refreshed,
         boundaryToolUseId,
         ackHead,
         range,
         reviewers,
         ciEvent,
+        ignoreAgentEnds: 1,
+        triageCorrectionDelivered: false,
+        launchRejectionsDelivered: new Set(),
+      };
+      sendLaunchMessage(pi, {
+        repo: round.repo,
+        pr: round.pr,
+        boundaryToolUseId,
+        ackHead,
+        range,
+        reviewers,
+        ciEvent,
+        autonomyOverride,
+        roundLimitEvidence,
       });
-      return;
+      activeRound = round;
+    } finally {
+      if (generation === epoch) dialogsInFlight.delete(key);
     }
-    const round: ActiveRound = {
-      ...refreshed,
-      boundaryToolUseId,
-      ackHead,
-      range,
-      reviewers,
-      ciEvent,
-      ignoreAgentEnds: 1,
-      triageCorrectionDelivered: false,
-      launchRejectionsDelivered: new Set(),
-    };
-    sendLaunchMessage(pi, {
-      repo: round.repo,
-      pr: round.pr,
-      boundaryToolUseId,
-      ackHead,
-      range,
-      reviewers,
-      ciEvent,
-    });
-    activeRound = round;
   };
 
   const recordCloneTargetState = (event: any, ctx: ReviewContext): void => {
@@ -678,9 +698,19 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("tool_execution_start", recordCloneTargetState);
   pi.on("tool_execution_start", recordMergeState);
 
+  pi.on("input", (event, ctx) => {
+    if (!rootSessionFile(ctx) || !["interactive", "rpc"].includes(event.source)) return;
+    // Only whole direct instructions, never markers found in prompts/history/tool data.
+    const text = typeof event.text === "string" ? event.text.trim() : "";
+    if (/^(?:(?:go|work|continue|proceed)\s+)?fully autonomous(?: for (?:this|the active) task)?[.!]?$/i.test(text)) autonomyOverride = true;
+    else if (/^(?:stop|cancel|disable|revoke) fully autonomous[.!]?$/i.test(text)) autonomyOverride = false;
+  });
+
   pi.on("session_start", async (_event, ctx) => {
+    generation += 1;
+    dialogsInFlight.clear();
+    autonomyOverride = false;
     activeRound = undefined;
-    dialogIdentity = undefined;
     if (!globalPrunePerformed) {
       globalPrunePerformed = true;
       pruneCompletionState();

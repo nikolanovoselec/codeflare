@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import { mdiViewDashboardOutline, mdiMicrosoftVisualStudioCode } from '@mdi/js';
 import Header from '../../components/Header';
 import { createSignal } from 'solid-js';
+import * as gravatar from '../../lib/gravatar';
 import type { SessionWithStatus, SleepAfterOption } from '../../types';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -108,6 +109,7 @@ const defaultSessionProps = {
 // REQ-AUTH-017: Gravatar integration
 // REQ-VAULT-018: Vault control gating and on-demand prewarm trigger
 
+// REQ-VAULT-033: Vault button availability and opening
 describe('Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -421,6 +423,18 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
       expect(icon).toBeInTheDocument();
     });
+  });
+
+  it('REQ-AUTH-017 AC1: renders the Gravatar belonging to the displayed user', async () => {
+    const probe = vi.spyOn(gravatar, 'gravatarExists').mockResolvedValue(true);
+    try {
+      render(() => <Header {...defaultSessionProps} userName="user@example.com" />);
+      expect(await screen.findByRole('img', { name: 'Avatar' })).toHaveAttribute(
+        'src', 'https://www.gravatar.com/avatar/b58996c504c5638798eb6b511e6f49af?s=48&d=404',
+      );
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+      expect(screen.getByText('user@example.com')).toBeVisible();
+    } finally { probe.mockRestore(); }
   });
 
   describe('Storage Button', () => {

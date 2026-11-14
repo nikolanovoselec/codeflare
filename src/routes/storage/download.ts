@@ -21,13 +21,17 @@ const storageDownloadRateLimiter = createRateLimiter({
   keyPrefix: 'storage-download',
 });
 
-export function buildContentDisposition(rawFilename: string): string {
-  // Strip CRLF, quotes, and backslashes for the ASCII fallback filename
-  const safeFilename = rawFilename.replace(/[\r\n"\\]/g, '_');
-  // Strip CRLF before percent-encoding for filename* (RFC 5987)
-  const sanitizedForEncoding = rawFilename.replace(/[\r\n]/g, '_');
-  const encodedFilename = encodeURIComponent(sanitizedForEncoding).replace(/'/g, '%27');
-  return `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`;
+export function buildContentDisposition(rawFilename: string, disposition: 'attachment' | 'inline' = 'attachment'): string {
+  // No raw HTTP controls in either parameter. Keep the object's key unchanged;
+  // only its suggested download name is sanitized.
+  const sanitizedForEncoding = rawFilename.replace(/[\u0000-\u001f\u007f-\u009f]/g, '_');
+  // Headers are ByteStrings. Percent-encode non-Latin-1 characters in the legacy
+  // fallback rather than dropping Unicode; filename* carries the full UTF-8 name.
+  const safeFilename = sanitizedForEncoding.replace(/["\\]/g, '_')
+    .replace(/[^\u0020-\u007e\u00a0-\u00ff]/gu, character => encodeURIComponent(character));
+  const encodedFilename = encodeURIComponent(sanitizedForEncoding).replace(/['()*]/g,
+    character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${disposition}; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`;
 }
 
 // Extension → Content-Type map for the inline (open-in-new-tab) view mode. Only
@@ -137,7 +141,7 @@ app.get('/', async (c) => {
   };
   if (inline) {
     headers['Content-Type'] = safeInlineContentType(filename);
-    headers['Content-Disposition'] = `inline; filename="${filename.replace(/[\r\n"\\]/g, '_')}"`;
+    headers['Content-Disposition'] = buildContentDisposition(filename, 'inline');
     headers['X-Content-Type-Options'] = 'nosniff';
   } else {
     headers['Content-Type'] = r2Response.headers.get('Content-Type') || 'application/octet-stream';

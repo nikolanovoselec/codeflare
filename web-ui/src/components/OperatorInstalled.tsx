@@ -1,6 +1,7 @@
-import { For, Show, createResource, createSignal, onCleanup, type Component } from 'solid-js';
+import { For, Show, createEffect, createResource, createSignal, createUniqueId, onCleanup, type Component } from 'solid-js';
 import { mdiChevronLeft, mdiMagnify } from '@mdi/js';
 import Icon from './Icon';
+import { AutomaticRunsField, RunIntervalField, createRunInterval, validRunSeconds, runSettingsHelp, runSettingsSaved } from './OperatorRunSettings';
 import OperatorActivityPages from './OperatorActivityPages';
 import { ApiError } from '../api/fetch-helper';
 import { sessionStore } from '../stores/session';
@@ -10,41 +11,125 @@ import { configureInstallation, getInstallationActivityPreview, getManagedOperat
 interface Props { locked: (value: boolean) => void; opened: (id: string) => void }
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
-/** REQ-OPERATOR-086 AC7: explicit, revision-checked scheduling; no implicit enable or launch. */
-const Scheduling: Component<{ item: InstalledOperator; saved: (message: string) => void }> = props => {
+/** Explicit role disclosure, using the incumbent Vault click/tap interaction, not its timers. */
+const RoleHelp: Component<{ profile: InstalledOperator['profile'] }> = props => {
+  const id = createUniqueId();
+  const [open, setOpen] = createSignal(false);
+  const [position, setPosition] = createSignal({ left: 12, top: 12, width: Math.min(288, window.innerWidth - 24) });
+  let wrap: HTMLDivElement | undefined;
+  let button: HTMLButtonElement | undefined;
+  let note: HTMLDivElement | undefined;
+  const role = () => props.profile === 'dispatcher' ? 'Dispatcher' : 'Conductor';
+  const place = () => {
+    if (!button || !open()) return;
+    const rect = button.getBoundingClientRect();
+    const width = Math.min(288, window.innerWidth - 24);
+    const height = note?.getBoundingClientRect().height ?? 0;
+    const below = rect.bottom + 8;
+    setPosition({ width, left: Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)),
+      top: Math.max(12, below + height <= window.innerHeight - 12 ? below : rect.top - height - 8) });
+  };
+  createEffect(() => {
+    if (!open()) return;
+    queueMicrotask(place);
+    const outside = (event: MouseEvent) => {
+      if (event.target instanceof Node && !wrap?.contains(event.target)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // Capture before the containing dropdown's document listener.
+      event.preventDefault(); event.stopImmediatePropagation(); setOpen(false); button?.focus();
+    };
+    document.addEventListener('click', outside, true);
+    document.addEventListener('keydown', escape, true);
+    document.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    onCleanup(() => {
+      document.removeEventListener('click', outside, true);
+      document.removeEventListener('keydown', escape, true);
+      document.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    });
+  });
+  return <div ref={wrap} class="operator-role">
+    <button ref={button} type="button" class="operator-role-button" aria-label={`About ${role()}`}
+      aria-expanded={open()} aria-controls={id} aria-describedby={open() ? id : undefined}
+      onClick={() => { setOpen(value => !value); button?.focus(); }}>{props.profile === 'dispatcher' ? 'D' : 'C'}</button>
+    <Show when={open()}><div ref={note} id={id} role="note" class="operator-role-help"
+      style={{ left: `${position().left}px`, top: `${position().top}px`, width: `${position().width}px` }}>
+      <strong>{role()}</strong>
+      <p>{props.profile === 'dispatcher'
+        ? 'Runs an installed workflow without a workspace container, using only its approved capabilities and the invoking person’s permissions.'
+        : 'Coordinates an installed workflow that can use owned sessions and containers, within its approved capabilities and the invoking person’s permissions.'}</p>
+    </div></Show>
+  </div>;
+};
+
+/** REQ-OPERATOR-209: Installed edits only saved settings; Administration owns explicit activation. */
+const Scheduling: Component<{ item: InstalledOperator; blocked: boolean; saved: (message: string) => void }> = props => {
+  const configId = createUniqueId();
+  const [expanded, setExpanded] = createSignal(false);
   const [automatic, setAutomatic] = createSignal(props.item.automaticRuns === true);
-  const [interval, setInterval] = createSignal(props.item.repetitionIntervalSeconds ?? 3600);
+  const runInterval = createRunInterval(props.item.repetitionIntervalSeconds ?? 3600);
+  const interval = runInterval.seconds, validInterval = runInterval.valid;
+  const dirty = () => automatic() !== props.item.automaticRuns || interval() !== props.item.repetitionIntervalSeconds;
   const [pending, setPending] = createSignal(false);
   const [message, setMessage] = createSignal('');
+  const [saveUnconfirmed, setSaveUnconfirmed] = createSignal(false);
+  let alive = true;
+  onCleanup(() => { alive = false; });
   const save = async () => {
-    if (pending() || !props.item.canManage || !Number.isSafeInteger(interval()) || interval() < 1) return;
+    if (props.blocked || pending() || saveUnconfirmed() || !props.item.canManage || !dirty() || !validInterval()) return;
+    const item = props.item;
+    const seconds = interval(), automaticRuns = automatic();
+    const currentScope = () => alive && props.item.id === item.id && props.item.revision === item.revision && props.item.canManage;
     setPending(true); setMessage('');
     try {
-      const detail = await getManagedOperator(props.item.operatorId);
-      const current = detail.installations.find(item => item.id === props.item.id);
-      if (!current || current.revision !== props.item.revision) throw new ApiError('Revision changed', 409, 'Conflict');
+      const detail = await getManagedOperator(item.operatorId);
+      if (!currentScope()) return;
+      const current = detail.installations.find(value => value.id === item.id);
+      if (!current || current.revision !== item.revision) throw new ApiError('Revision changed', 409, 'Conflict');
       const configuration = current.configuration ?? {};
       const renovate = configuration.renovate;
       if (!renovate || typeof renovate !== 'object' || Array.isArray(renovate)) throw new Error('Configuration unavailable');
       await configureInstallation(current.id, { revision: current.revision, policy: current.policy,
-        configuration: { ...configuration, renovate: { ...renovate, automaticRuns: automatic(), repetitionIntervalSeconds: interval() } } });
-      props.saved('Scheduling saved. Installation is disabled; enable it through management when ready.');
+        configuration: { ...configuration, renovate: { ...renovate, automaticRuns, repetitionIntervalSeconds: seconds } } });
+      if (currentScope()) props.saved(runSettingsSaved);
     } catch (error) {
-      setMessage(error instanceof ApiError && error.status === 409 ? 'Installation revision changed. Refresh before saving again.'
-        : 'Scheduling save not confirmed. Refresh before acting.');
-    } finally { setPending(false); }
+      if (currentScope()) {
+        setSaveUnconfirmed(true);
+        setMessage(error instanceof ApiError && error.status === 409 ? 'Installation revision changed. Refresh before saving again.'
+          : 'Run settings save not confirmed. Refresh before acting.');
+      }
+    } finally { if (currentScope()) setPending(false); }
   };
-  return <div class="operator-scheduling">
-    <label><input type="checkbox" checked={automatic()} disabled={pending()} onChange={event => setAutomatic(event.currentTarget.checked)} /> Automatic runs</label>
-    <Show when={automatic()}><label>Interval (seconds)<input type="number" min="1" step="1" value={interval()}
-      disabled={pending()} onInput={event => setInterval(event.currentTarget.valueAsNumber)} /></label></Show>
-    <Show when={automatic() !== props.item.automaticRuns || interval() !== props.item.repetitionIntervalSeconds}>
-      <small>Saving scheduling disables this installation. It does not start a run.</small>
-      <button type="button" disabled={pending() || !Number.isSafeInteger(interval()) || interval() < 1} onClick={() => void save()}>Save scheduling</button>
-    </Show>
-    <Show when={message()}><p role="status">{message()}</p></Show>
-  </div>;
+  return <section class="operator-scheduling" aria-label="Automatic runs">
+    <div class="operator-dropdown-heading"><span>Automatic runs: {props.item.automaticRuns ? 'saved on' : 'off'}</span>
+      <Show when={props.item.canManage}><button type="button" aria-expanded={expanded()} aria-controls={configId}
+        onClick={() => setExpanded(value => !value)}>Configure</button></Show>
+    </div>
+    <Show when={!props.item.canManage}><p>Management permission required to change scheduling.</p></Show>
+    <Show when={props.item.canManage && expanded()}><div id={configId} class="operator-scheduling-fields">
+      <AutomaticRunsField checked={automatic()} disabled={props.blocked || pending() || saveUnconfirmed()} onChange={value => {
+        if (!value && !validInterval()) {
+          const saved = props.item.repetitionIntervalSeconds ?? 3600;
+          runInterval.setSeconds(validRunSeconds(saved) ? saved : 3600);
+        }
+        setAutomatic(value);
+      }} />
+      <Show when={automatic()}><RunIntervalField interval={runInterval} disabled={props.blocked || pending() || saveUnconfirmed()} /></Show>
+      <Show when={dirty()}><small>{runSettingsHelp}</small>
+        <button type="button" disabled={props.blocked || pending() || saveUnconfirmed() || !validInterval()} onClick={() => void save()}>Save run settings</button>
+      </Show>
+      <Show when={message()}><p role="status">{message()}</p></Show>
+    </div></Show>
+  </section>;
 };
+
+const InstalledSettings: Component<{ item: InstalledOperator; saved: (message: string) => void }> = props =>
+  <Show when={props.item.automaticRuns !== null} fallback={<p>Automatic runs: <strong>Not configurable</strong></p>}>
+    <Scheduling item={props.item} blocked={false} saved={props.saved} />
+  </Show>;
 
 /** Capabilities stay in this request's closure, never in markup or persistent UI state. */
 const ManualRun: Component<Props & { item: InstalledOperator; back: () => void }> = props => {
@@ -154,18 +239,21 @@ const OperatorInstalled: Component<Props> = props => {
       <Show when={!error()} fallback={<div role="alert"><strong>Installations unavailable</strong><p>Readiness cannot be treated as current.</p><button type="button" onClick={refresh}>Retry installations</button></div>}>
         <Show when={visible().length} fallback={<p>{current()?.items.length ? 'No matching installed operators on this page.' : 'No installed operators on this page.'}</p>}>
           <For each={visible()}>{item => <article class="operator-installed-item" aria-label={item.installationName}>
-            <div class="operator-dropdown-heading"><h4>{item.name}</h4><span>{item.version ?? 'Version unavailable'}</span></div>
-            <p>{item.installationName}</p><Show when={item.repository}><p>{item.repository}</p></Show>
-            <p>{!item.approved ? 'Approval required' : !item.enabled ? 'Disabled' : 'Enabled'} · {item.guidedMode ? 'Manual run supported' : 'Manual input not supported here'}</p>
-            <div class="operator-installed-controls">
-              <Show when={item.automaticRuns !== null} fallback={<p>Automatic runs: <strong>Not configurable</strong></p>}>
-                <Show when={item.canManage} fallback={<p>Automatic runs: {item.automaticRuns ? 'on' : 'off'}. Management permission required to change scheduling.</p>}>
-                  <Scheduling item={item} saved={message => { setNotice(message); refresh(); }} />
-                </Show>
+            <header class="operator-installed-header">
+              <div class="operator-installed-identity"><div class="operator-dropdown-heading"><h4>{item.name}</h4><span>{item.version ?? 'Version unavailable'}</span></div>
+                <p>{item.installationName}</p><Show when={item.repository}><p>{item.repository}</p></Show>
+                <p>{!item.approved ? 'Approval required' : !item.enabled ? 'Disabled' : 'Enabled'}</p>
+              </div>
+              <RoleHelp profile={item.profile} />
+            </header>
+            <InstalledSettings item={item} saved={message => { setNotice(message); refresh(); }} />
+            <footer class="operator-installed-manual">
+              <span>{item.guidedMode ? 'Review one invocation' : 'Manual input not supported here'}</span>
+              <Show when={item.guidedMode}>
+                <button type="button" class="operator-primary-action" disabled={!item.canInvoke || !item.enabled || !item.approved}
+                  onClick={() => { if (item.canInvoke && item.enabled && item.approved && item.guidedMode) setSelected(item); }}>Run once</button>
               </Show>
-              <button type="button" class="operator-primary-action" disabled={!item.canInvoke || !item.enabled || !item.approved || !item.guidedMode}
-                onClick={() => { if (item.canInvoke && item.enabled && item.approved && item.guidedMode) setSelected(item); }}>Run manually</button>
-            </div>
+            </footer>
             <Show when={!item.canInvoke}><small>Invocation permission required. Management access does not grant invocation.</small></Show>
             <Show when={!item.canManage && item.automaticRuns === null}><small>Management permission required to configure installations.</small></Show>
           </article>}</For>

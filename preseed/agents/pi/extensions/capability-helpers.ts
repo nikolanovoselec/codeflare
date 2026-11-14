@@ -56,7 +56,7 @@ const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const PLAN_STATE_ENTRY_TYPE = "plan-mode-state";
 const INLINE_EDIT_RESULT_TOOL = "codeflare_submit_inline_result";
 const DISABLED_TOOL_NAMES = new Set(["goal_wait"]);
-const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked"] as const;
+const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked", "goal_progress"] as const;
 const PLAN_HELPER_TOOLS = ["plan_mode_question", "plan_mode_complete"] as const;
 
 function unique(values: string[]): string[] {

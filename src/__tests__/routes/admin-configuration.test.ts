@@ -47,10 +47,10 @@ function createApp(envOverrides: Partial<Env> = {}) {
   return { app, kv };
 }
 
-const commonSections = ['access', 'domain', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports', 'mcpPortals'];
+const commonSections = ['access', 'domain', 'dataGovernance', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports', 'mcpPortals'];
 const enterpriseSections = [
   'access', 'domain', 'aiRouting', 'codingAgents', 'browserRendering', 'securityEgress',
-  'dataGovernance', 'managedEnvironment', 'github', 'usageReports', 'mcpPortals',
+  'dataGovernance', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports', 'mcpPortals',
 ];
 
 describe('GET /admin/configuration (REQ-SETUP-017)', () => {
@@ -88,6 +88,16 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(body.sections.domain).toEqual({ customDomain: 'admin.example.com' });
     expect(body.sections.aiRouting).toBeUndefined();
     expect(body.sections.cloudflareConnection).toBeDefined();
+    expect(body.sections.dataGovernance).toEqual({ syncPolicyMode: 'exclude' });
+
+    await kv.put(SETUP_KEYS.SYNC_POLICY_MODE, 'include');
+    await kv.put(SETUP_KEYS.R2_SSE_DISABLED, 'active');
+    await kv.put(SETUP_KEYS.DOWNLOADS_DISABLED, 'active');
+    const before = Array.from(kv._store.entries());
+    const saved = await app.request('/admin/configuration');
+    expect(saved.status).toBe(200);
+    expect((await saved.json() as any).sections.dataGovernance).toEqual({ syncPolicyMode: 'include' });
+    expect(Array.from(kv._store.entries())).toEqual(before);
   });
 
   it.each([
@@ -145,7 +155,7 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     });
     expect(body.activeRunId).toBe('run-1');
     expect(JSON.stringify(body)).not.toContain('deployment-secret-must-not-leak');
-    expect(body.sections.cloudflareConnection).toBeUndefined();
+    expect(body.sections.cloudflareConnection).toEqual({ clientId: '', clientSecretState: 'none' });
   });
 
   it('REQ-OPERATOR-026: surfaces the managed operator webhook bypass provisioning status in Access configuration', async () => {

@@ -58,8 +58,8 @@ interface SetBucketNameBody {
   syncPolicyMode?: import('../lib/sync-policy').SyncPolicyMode;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
-  openaiApiKey?: string;
-  geminiApiKey?: string;
+  openaiApiKey?: string | null;
+  geminiApiKey?: string | null;
   githubToken?: string;
   cloudflareApiToken?: string;
   cloudflareAccountId?: string;

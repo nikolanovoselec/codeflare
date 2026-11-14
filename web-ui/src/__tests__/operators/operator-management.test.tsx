@@ -15,7 +15,7 @@ vi.mock('../../api/client', () => ({
 }));
 vi.mock('../../components/Layout', () => ({ default: () => <div data-testid="workspace" /> }));
 vi.mock('../../components/setup/SetupWizard', () => ({ default: () => <div /> }));
-vi.mock('../../stores/session', () => ({ sessionStore: { stopAllPolling: vi.fn(), setEnterpriseMode: vi.fn(), setSaasMode: vi.fn(), setAllowedAgents: vi.fn() } }));
+vi.mock('../../stores/session', () => ({ sessionStore: { preferences: {}, getActiveSession: () => undefined, stopAllPolling: vi.fn(), setEnterpriseMode: vi.fn(), setSaasMode: vi.fn(), setAllowedAgents: vi.fn() } }));
 vi.mock('../../stores/storage', () => ({ storageStore: { setWorkerName: vi.fn(), setDownloadsDisabled: vi.fn() } }));
 vi.mock('../../stores/terminal', () => ({ terminalStore: { disposeAll: vi.fn() } }));
 
@@ -68,12 +68,35 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
   });
 
   it('renders the separate management area for an authorized manager rather than Administration navigation', async () => {
-    render(() => <App />);
+    const acquisitionPat = 'ui-acquisition-pat-must-not-render';
+    const acquisitionCiphertext = 'ui-acquisition-ciphertext-must-not-render';
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      if (new URL(request.url, 'https://operators.example.test').pathname === '/api/operator-management/operators') {
+        return response({
+          items: [{
+            id: 'operator-1',
+            name: longName,
+            profile: 'conductor',
+            realm: 'internal',
+            enabled: false,
+            githubPat: acquisitionPat,
+            githubPatCiphertext: acquisitionCiphertext,
+          }],
+          cursor: null,
+        });
+      }
+      return response({ error: 'Not found' }, 404);
+    });
+
+    const { container } = render(() => <App />);
 
     expect(await screen.findByRole('heading', { name: 'Operators', level: 1 })).toBeInTheDocument();
     expect(await screen.findByText(longName)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /register operator/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: new RegExp(`manage ${longName}`, 'i') })).toBeInTheDocument();
+    expect(container.innerHTML).not.toContain(acquisitionPat);
+    expect(container.innerHTML).not.toContain(acquisitionCiphertext);
     expect(screen.queryByTestId('workspace')).not.toBeInTheDocument();
   });
 
@@ -138,11 +161,11 @@ describe('REQ-OPERATOR-049: /operators management interface', () => {
     expect(within(sections).getByRole('button', { name: 'Installed version' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(sections).getByRole('button', { name: 'Versions & updates' })).toBeInTheDocument();
     expect(screen.getByText('GitHub release #17', { selector: 'strong' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Disable' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
     const configurationChoice = screen.getByRole('combobox', { name: 'Installed configuration' });
     fireEvent.change(configurationChoice, { target: { value: 'installation-2' } });
     expect(screen.getByText('GitHub release #15', { selector: 'strong' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Enable' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
     fireEvent.change(configurationChoice, { target: { value: 'installation-1' } });
     expect(screen.queryByRole('button', { name: 'Create disabled installation' })).not.toBeInTheDocument();
     expect(within(overview).getByText('Checks repository changes under an approved Review policy.')).toBeInTheDocument();

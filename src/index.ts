@@ -85,6 +85,7 @@ export function withSecurityHeaders(
 ): Response {
   if (response.status === 101) return response;
   const secured = new Response(response.body, response);
+  secured.headers.delete('X-Powered-By');
   const frameMode = opts?.frame ?? 'deny';
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     // The vault path proxies SilverBullet, which serves its own HTML with
@@ -128,7 +129,7 @@ const logger = createLogger('index');
 // ============================================================================
 app.use('*', async (c, next) => {
   // CF-001: Hard enforcement - STRESS_TEST_MODE must never bypass rate limits in SaaS production.
-  if (c.env.SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active') {
+  if (isSaasModeActive(c.env.SAAS_MODE) && c.env.STRESS_TEST_MODE === 'active') {
     logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', undefined, { path: c.req.path });
     return withSecurityHeaders(c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503));
   }
@@ -147,6 +148,7 @@ app.use('*', async (c, next) => {
   await next();
   const duration = Date.now() - start;
 
+  if (c.res.status !== 101) c.header('X-Powered-By', undefined);
   const mcpOAuthReturn = c.req.path === '/auth/mcp/callback';
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     c.header(key, key === 'Referrer-Policy' && mcpOAuthReturn ? 'no-referrer' : value);
@@ -329,12 +331,15 @@ type AppStatusCode = 400 | 401 | 402 | 403 | 404 | 409 | 429 | 500 | 503;
 
 app.onError((err, c) => {
   const requestId = c.get('requestId') || 'unknown';
+  const lifecycleFailure = c.req.method === 'POST' && c.req.path === '/api/container/start' ? 'start_failed'
+    : c.req.method === 'DELETE' && /^\/api\/sessions\/[^/]+$/.test(c.req.path) ? 'native_destroy_failed' : undefined;
 
   if (err instanceof AppError) {
-    logger.warn(err.message, {
+    logger.warn(lifecycleFailure ? 'Lifecycle request failed' : err.message, {
       requestId,
       code: err.code,
       statusCode: err.statusCode,
+      ...(lifecycleFailure ? { errorClass: lifecycleFailure } : {}),
     });
     return c.json(err.toJSON(), err.statusCode as AppStatusCode);
   }
@@ -345,7 +350,8 @@ app.onError((err, c) => {
     return err.getResponse();
   }
 
-  logger.error('Unexpected error', toError(err), { requestId });
+  if (lifecycleFailure) logger.error('Unexpected lifecycle error', undefined, { requestId, errorClass: lifecycleFailure });
+  else logger.error('Unexpected error', toError(err), { requestId });
   return c.json({ error: 'An unexpected error occurred' }, 500);
 });
 
@@ -511,6 +517,7 @@ export default {
     // With not_found_handling = "single-page-application", missing routes get index.html
     const assetResponse = await env.ASSETS.fetch(assetRequest);
     const secureResponse = new Response(assetResponse.body, assetResponse);
+    secureResponse.headers.delete('X-Powered-By');
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       secureResponse.headers.set(key, value);
     }

@@ -239,7 +239,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
   });
 
   for (const stale of ['npm:pi-open-tui', 'npm:pi-open-tui@0.2.0',
-    { source: 'npm:pi-open-tui@0.3.13', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
+    { source: 'npm:pi-open-tui@0.4.2', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
     it(`REQ-AGENT-209 AC1/AC2 / REQ-AGENT-056: restored ${JSON.stringify(stale)} converges without deleting similarly named user packages`, () => {
       const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
       const initial = {
@@ -316,7 +316,7 @@ describe('REQ-AGENT-224: managed Fast/Ultrafast startup', () => {
 it('REQ-AGENT-069 / REQ-AGENT-217: restored managed MCP registrations converge to one replacement owner', () => {
   const custom = { source: 'npm:owner-mcp-tools@1.0.0', extensions: ['keep.ts'], ownerSetting: true };
   const initial = {
-    packages: ['npm:pi-mcp-adapter', 'npm:pi-mcp-adapter@5.3.1',
+    packages: ['npm:pi-mcp-adapter', 'npm:pi-mcp-adapter@7.0.1',
       { source: 'npm:pi-mcp-adapter@5.2.0', extensions: ['index.ts'], skills: [] },
       'npm:pi-mcp-extension@1.0.0', { source: 'npm:pi-mcp-extension@1.12.1', extensions: [] },
       'npm:pi-mcp-adapter-extra@1.0.0', './custom/pi-mcp-adapter', custom],

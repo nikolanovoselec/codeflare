@@ -93,7 +93,7 @@ Write `WORK_CHUNK` with this canonical shape:
 }
 ```
 
-Use `EXTRACTED`/1.0 for explicit structure and `INFERRED`/0.75-0.85 only for supported prose relationships. An empty but valid schema is acceptable.
+Use `EXTRACTED`/1.0 for explicit structure and `INFERRED`/0.75-0.85 only for supported prose relationships. For nonempty `changedFiles`, the request-specific post-commit chunk must contain at least one sourced node and validate against this schema. An empty chunk is failure, not evidence of successful extraction; do not publish or rename it. Only an empty `changedFiles` list is the explicit no-op described above.
 
 Then run the required merge and publication while one lock covers both:
 

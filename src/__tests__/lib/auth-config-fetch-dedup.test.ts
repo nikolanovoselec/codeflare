@@ -27,6 +27,55 @@ describe('Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (
     resetAuthConfigCache();
   });
 
+  it('REQ-SEC-001 AC4: a request arriving between domain and audience reads cannot trust an unsigned header', async () => {
+    let release!: (value: string | null) => void;
+    let audienceStarted!: () => void;
+    const started = new Promise<void>(resolve => { audienceStarted = resolve; });
+    const audience = new Promise<string | null>(resolve => { release = resolve; });
+    const env = { KV: { get: async (key: string) => {
+      if (key === 'setup:auth_domain') return 'team.cloudflareaccess.com';
+      if (key === 'setup:access_aud_list') { audienceStarted(); return audience; }
+      if (key === 'setup:access_aud') return 'aud-123';
+      return null;
+    } } } as any;
+    const request = () => new Request('https://example.test/protected', {
+      headers: { 'cf-access-authenticated-user-email': 'unsigned@example.test' },
+    });
+    const first = getUserFromRequest(request(), env);
+    await started;
+    const second = getUserFromRequest(request(), env);
+    try {
+      const admission = await Promise.race([
+        second.then(result => result.authenticated ? 'admitted' : 'denied'),
+        new Promise<string>(resolve => setTimeout(() => resolve('pending'), 10)),
+      ]);
+      expect(admission).toBe('pending');
+    } finally {
+      release(null);
+      const results = await Promise.all([first, second]);
+      for (const result of results) expect(result).toMatchObject({ authenticated: false, email: '' });
+    }
+  });
+
+  it.each(['setup:access_aud_list', 'setup:access_aud'])(
+    'REQ-SEC-001 AC5: failure reading %s cannot publish partial auth config for a repeated request', async failedKey => {
+      let fail = true;
+      const env = { KV: { get: async (key: string) => {
+        if (key === failedKey && fail) throw new Error('Synthetic KV outage');
+        if (key === 'setup:auth_domain') return 'team.cloudflareaccess.com';
+        if (key === 'setup:access_aud') return 'aud-123';
+        return null;
+      } } } as any;
+      const request = () => new Request('https://example.test/protected', {
+        headers: { 'cf-access-authenticated-user-email': 'unsigned@example.test' },
+      });
+      await expect(getUserFromRequest(request(), env)).rejects.toThrow('Synthetic KV outage');
+      await expect(getUserFromRequest(request(), env)).rejects.toThrow('Synthetic KV outage');
+      fail = false;
+      expect(await getUserFromRequest(request(), env)).toMatchObject({ authenticated: false, email: '' });
+    }
+  );
+
   function makeSlowKv(values: Record<string, string | null>) {
     const calls: string[] = [];
     const kv = {
@@ -88,6 +137,33 @@ describe('Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (
     expect(calls.filter((k) => k === 'setup:auth_domain').length).toBe(2);
     expect(calls.filter((k) => k === 'setup:access_aud').length).toBe(2);
     expect(calls.filter((k) => k === 'setup:access_aud_list').length).toBe(2);
+  });
+
+  it.each([
+    { domain: null, ttl: 30_000, state: 'negative' },
+    { domain: 'team.cloudflareaccess.com', ttl: 300_000, state: 'domain-populated, audience not yet saved' },
+  ])('REQ-SEC-016 AC3: $state cache expires and freshly saved configuration rejects header trust', async ({ domain, ttl }) => {
+    const values: Record<string, string | null> = {
+      'setup:auth_domain': domain,
+      'setup:access_aud': null,
+      'setup:access_aud_list': null,
+    };
+    const env = { KV: { get: async (key: string) => values[key] ?? null } } as any;
+    const request = () => new Request('https://example.test/protected', {
+      headers: { 'cf-access-authenticated-user-email': 'setup@example.test' },
+    });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      expect(await getUserFromRequest(request(), env)).toMatchObject({ authenticated: true, email: 'setup@example.test' });
+      values['setup:auth_domain'] = 'team.cloudflareaccess.com';
+      values['setup:access_aud'] = 'newly-saved-audience';
+      clock.mockReturnValue(1_000_000 + ttl - 1);
+      expect((await getUserFromRequest(request(), env)).authenticated).toBe(true);
+      clock.mockReturnValue(1_000_000 + ttl + 1);
+      expect(await getUserFromRequest(request(), env)).toMatchObject({ authenticated: false, email: '' });
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('AC1: the sentinel is a Promise that is awaited (concurrent callers see consistent post-fetch state)', async () => {

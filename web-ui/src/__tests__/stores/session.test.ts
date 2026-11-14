@@ -77,6 +77,7 @@ import {
   MAX_STOP_POLL_ATTEMPTS,
   MAX_STOP_POLL_ERRORS,
   SESSION_POLL_STABLE_MS,
+  SESSION_POLL_TRANSITION_MS,
   STOP_POLL_INTERVAL_MS,
 } from '../../lib/constants';
 
@@ -96,7 +97,7 @@ const mockSweepOrphanVaultCaches = vi.mocked(vaultCache.sweepOrphanVaultCaches);
 // REQ-SESSION-006: User can stop, restart, and delete sessions
 // REQ-SESSION-010: Session status observable from dashboard
 // REQ-SESSION-012: Wake-loop prevention
-// REQ-VAULT-015: Vault IDB lifecycle and listing filters
+// REQ-VAULT-034: Legacy session vault marker cleanup
 
 describe('Session Store', () => {
   beforeEach(() => {
@@ -142,6 +143,203 @@ describe('Session Store', () => {
       return { promise, resolve, reject };
     }
 
+    describe('REQ-SESSION-006 AC7 / SESSION-012 AC3 / TERM-045 AC6: 4503 is transport evidence, not session authority', () => {
+      async function ownedWorkspace() {
+        const running = { ...dashboardSession, status: 'running' as const, lifecycle: 'running' as const, revision: 3 };
+        const other = { ...running, id: `${running.id}-other` };
+        mockGetSessions.mockResolvedValue([running, other]);
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+          [running.id]: running, [other.id]: other,
+        } });
+        await sessionStore.loadSessions();
+        sessionStore._resetStartupGuards();
+        for (const session of [running, other]) {
+          sessionStore.initializeTerminalsForSession(session.id);
+          terminalLifecycle.ownedSessionIds.add(session.id);
+        }
+        sessionStore.addTerminalTab(running.id);
+        sessionStore.setActiveSession(running.id);
+        const savedTabs = JSON.parse(JSON.stringify(sessionStore.getTerminalsForSession(running.id)));
+        return { running, other, savedTabs };
+      }
+
+      function expectRetained(id: string, otherId: string, savedTabs: unknown) {
+        expect(sessionStore.activeSessionId).toBe(id);
+        expect(sessionStore.getTerminalsForSession(id)).toEqual(savedTabs);
+        expect(terminalLifecycle.ownedSessionIds.has(id)).toBe(true);
+        expect(terminalLifecycle.ownedSessionIds.has(otherId)).toBe(true);
+        expect(sessionStore.sessions.find(s => s.id === otherId)?.status).toBe('running');
+      }
+
+      it.each([
+        { generation: 1, revision: 999 },
+        { generation: 2, revision: 3 },
+      ])('older close cannot dispose accepted generation 2/revision 4 with stale D1 %o', async stale => {
+        const { running, other, savedTabs } = await ownedWorkspace();
+        mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+          [running.id]: { status: 'running', lifecycle: 'running', generation: 2, revision: 4, editorReady: true },
+          [other.id]: other,
+        } });
+        await sessionStore.refreshSessionStatuses();
+        mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+          [running.id]: { status: 'stopped', lifecycle: 'stopped', ...stale, editorReady: false },
+          [other.id]: other,
+        } });
+        terminalLifecycle.stoppedCallback?.(running.id);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sessionStore.sessions.find(s => s.id === running.id)).toMatchObject({
+          status: 'running', lifecycle: 'running', generation: 2, revision: 4, editorReady: true,
+        });
+        expectRetained(running.id, other.id, savedTabs);
+      });
+
+      it('a held close-triggered read cannot overwrite a newer accepted catalog/workspace', async () => {
+        const { running, other, savedTabs } = await ownedWorkspace();
+        const closeRead = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+        mockGetBatchSessionStatus.mockImplementation(() => closeRead.promise);
+        terminalLifecycle.stoppedCallback?.(running.id);
+        try {
+          await vi.advanceTimersByTimeAsync(0);
+          // Before D1 answers, the current workspace must remain alive.
+          expect(sessionStore.sessions.find(s => s.id === running.id)?.status).toBe('running');
+          expectRetained(running.id, other.id, savedTabs);
+          const newer = { ...running, generation: 2, revision: 4, editorReady: true };
+          // loadSessions is the existing independent catalog path: concurrent
+          // refreshSessionStatuses calls intentionally share one in-flight read.
+          mockGetSessions.mockResolvedValueOnce([newer, other]);
+          mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: { [running.id]: newer, [other.id]: other } });
+          await sessionStore.loadSessions();
+          expect(sessionStore.sessions.find(s => s.id === running.id)).toMatchObject(newer);
+          closeRead.resolve({ statuses: {
+            [running.id]: { status: 'stopped', lifecycle: 'stopped', generation: 1, revision: 999 },
+            [other.id]: other,
+          } });
+          await vi.advanceTimersByTimeAsync(0);
+          expect(sessionStore.sessions.find(s => s.id === running.id)).toMatchObject(newer);
+          expectRetained(running.id, other.id, savedTabs);
+          mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+            [running.id]: { ...newer, revision: 5 }, [other.id]: other,
+          } });
+          await sessionStore.refreshSessionStatuses();
+          expect(sessionStore.sessions.find(s => s.id === running.id)?.revision).toBe(5);
+          expectRetained(running.id, other.id, savedTabs);
+        } finally {
+          closeRead.resolve({ statuses: {} });
+          await vi.advanceTimersByTimeAsync(0);
+        }
+      });
+
+      it('failed D1 refresh after 4503 retains lifecycle and workspace until recovery', async () => {
+        const { running, other, savedTabs } = await ownedWorkspace();
+        mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('D1 unavailable'));
+        terminalLifecycle.stoppedCallback?.(running.id);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sessionStore.statusUnavailable).toBe(true);
+        expect(sessionStore.sessions.find(s => s.id === running.id)).toMatchObject({ status: 'running', generation: 1, revision: 3 });
+        expectRetained(running.id, other.id, savedTabs);
+        mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+          [running.id]: { ...running, revision: 4 }, [other.id]: other,
+        } });
+        await sessionStore.refreshSessionStatuses();
+        expect(sessionStore.statusUnavailable).toBe(false);
+        expect(sessionStore.sessions.find(s => s.id === running.id)?.revision).toBe(4);
+        expectRetained(running.id, other.id, savedTabs);
+      });
+
+      it('fresh ordered stopped after 4503 disposes only its session and preserves restart tabs', async () => {
+        const { running, other, savedTabs } = await ownedWorkspace();
+        mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+          [running.id]: { status: 'stopped', lifecycle: 'stopped', generation: 1, revision: 4 },
+          [other.id]: other,
+        } });
+        terminalLifecycle.stoppedCallback?.(running.id);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sessionStore.sessions.find(s => s.id === running.id)).toMatchObject({
+          status: 'stopped', lifecycle: 'stopped', generation: 1, revision: 4,
+        });
+        expect(terminalLifecycle.ownedSessionIds.has(running.id)).toBe(false);
+        expect(terminalLifecycle.ownedSessionIds.has(other.id)).toBe(true);
+        expect(sessionStore.sessions.find(s => s.id === other.id)?.status).toBe('running');
+        expect(sessionStore.getTerminalsForSession(running.id)).toEqual(savedTabs);
+        expect(sessionStore.activeSessionId).toBe(running.id);
+      });
+    });
+
+    it('REQ-SESSION-010/012/029: failed status reads retain workspace authority and expose unavailable until recovery', async () => {
+      const running = { ...dashboardSession, status: 'running' as const, lifecycle: 'running' as const, revision: 3 };
+      mockGetSessions.mockResolvedValueOnce([running]);
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+        [running.id]: { status: 'running', lifecycle: 'running', generation: 1, revision: 3,
+          metrics: { cpu: '12%', mem: '24%', hdd: '2%', syncStatus: 'success' } },
+      } });
+      await sessionStore.loadSessions();
+      sessionStore.initializeTerminalsForSession(running.id);
+      terminalLifecycle.ownedSessionIds.add(running.id);
+      const tabs = sessionStore.getTerminalsForSession(running.id)?.tabs.map(tab => tab.id);
+      mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('D1 read unavailable'));
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.statusUnavailable).toBe(true);
+      expect(sessionStore.sessions.find(s => s.id === running.id)).toMatchObject({ status: 'running', generation: 1, revision: 3 });
+      expect(sessionStore.getMetricsForSession(running.id)).toMatchObject({ cpu: '12%', mem: '24%' });
+      expect(sessionStore.getTerminalsForSession(running.id)?.tabs.map(tab => tab.id)).toEqual(tabs);
+      expect(terminalLifecycle.ownedSessionIds.has(running.id)).toBe(true);
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+        [running.id]: { status: 'running', lifecycle: 'running', generation: 1, revision: 4 },
+      } });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.statusUnavailable).toBe(false);
+      expect(sessionStore.sessions.find(s => s.id === running.id)).toMatchObject({ status: 'running', revision: 4 });
+      expect(terminalLifecycle.ownedSessionIds.has(running.id)).toBe(true);
+    });
+
+    it.each(['catalog', 'status', 'enrichment'] as const)('REQ-SESSION-029: %s authentication failure does not become a lifecycle availability warning', async source => {
+      const { ApiError } = await import('../../api/fetch-helper');
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const error = new ApiError('Authentication expired', 401, 'Unauthorized');
+      if (source === 'catalog') mockGetSessions.mockRejectedValueOnce(error);
+      else mockGetBatchSessionStatus.mockRejectedValueOnce(error);
+      if (source === 'status') await sessionStore.refreshSessionStatuses();
+      else {
+        if (source === 'enrichment') mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+        await sessionStore.loadSessions();
+      }
+      expect(sessionStore.statusUnavailable).toBe(false);
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject(dashboardSession);
+      if (source === 'status') expect(sessionStore.authExpired).toBe(true);
+    });
+
+    it('REQ-SESSION-029 AC3: old poll failure cannot replace newer successful catalog availability', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const oldBatch = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+      mockGetBatchSessionStatus.mockReturnValueOnce(oldBatch.promise);
+      const oldPoll = sessionStore.refreshSessionStatuses();
+      mockGetSessions.mockResolvedValueOnce([{ ...dashboardSession, revision: 4 }]);
+      await sessionStore.loadSessions();
+      oldBatch.reject(new Error('Older status read failed'));
+      await oldPoll;
+      expect(sessionStore.statusUnavailable).toBe(false);
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)?.revision).toBe(4);
+    });
+
+    it('REQ-SESSION-029 AC3: old catalog failure cannot replace newer successful poll availability', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const oldList = deferred<Awaited<ReturnType<typeof api.getSessions>>>();
+      mockGetSessions.mockReturnValueOnce(oldList.promise);
+      const oldLoad = sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+        [dashboardSession.id]: { status: 'stopped', lifecycle: 'stopped', generation: 1, revision: 5 },
+      } });
+      await sessionStore.refreshSessionStatuses();
+      oldList.reject(new Error('Older catalog read failed'));
+      await oldLoad;
+      expect(sessionStore.statusUnavailable).toBe(false);
+      expect(sessionStore.error).toBeNull();
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)?.revision).toBe(5);
+    });
+
     it('REQ-SESSION-029 AC7: initial authoritative cards appear before pending batch and ancillary reads', async () => {
       mockGetSessions.mockResolvedValueOnce([]);
       await sessionStore.loadSessions();
@@ -159,6 +357,95 @@ describe('Session Store', () => {
       await loading; // Ancillary is still unresolved: it cannot own catalog readiness.
       ancillary.resolve({ maxSessions: 3 });
       await sessionStore.refreshSessionAncillaryStatus();
+    });
+
+    it.each(['starting', 'unreachable', 'stopping', 'running', 'stopped'] as const)(
+      'REQ-SESSION-010 AC6: %s uses its transition or stable polling cadence', async status => {
+        const baseline = { ...dashboardSession, status, lifecycle: status, generation: 2, revision: 8 };
+        mockGetSessions.mockResolvedValueOnce([baseline]);
+        await sessionStore.loadSessions();
+        await sessionStore.refreshSessionAncillaryStatus();
+        sessionStore.stopSessionListPolling();
+        mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+          [baseline.id]: { status, lifecycle: status, generation: 2, revision: 9 },
+        } });
+        const interval = ['starting', 'unreachable', 'stopping'].includes(status) ? SESSION_POLL_TRANSITION_MS : SESSION_POLL_STABLE_MS;
+        sessionStore.startSessionListPolling();
+        try {
+          await vi.advanceTimersByTimeAsync(interval - 1);
+          expect(sessionStore.sessions.find(session => session.id === baseline.id)?.revision).toBe(8);
+          await vi.advanceTimersByTimeAsync(1);
+          expect(sessionStore.sessions.find(session => session.id === baseline.id)?.revision).toBe(9);
+        } finally { sessionStore.stopSessionListPolling(); }
+      },
+    );
+
+    it('REQ-SESSION-010/029 AC6: hidden polling pauses and repeated visible refreshes remain serialized', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      sessionStore.stopSessionListPolling();
+      const descriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      const visibility = (value: 'hidden' | 'visible') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+      const pending = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+      try {
+        visibility('hidden');
+        mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+          [dashboardSession.id]: { status: 'stopped', generation: 1, revision: 9 },
+        } });
+        sessionStore.startSessionListPolling();
+        await vi.advanceTimersByTimeAsync(2 * SESSION_POLL_STABLE_MS);
+        expect(sessionStore.sessions.find(session => session.id === dashboardSession.id)?.revision).toBe(2);
+        mockGetBatchSessionStatus.mockReturnValueOnce(pending.promise).mockResolvedValue({ statuses: {} });
+        visibility('visible'); visibility('visible'); visibility('visible');
+        await vi.advanceTimersByTimeAsync(SESSION_POLL_STABLE_MS);
+        expect(sessionStore.sessions.some(session => session.id === dashboardSession.id)).toBe(true);
+        pending.resolve({ statuses: {} });
+        await sessionStore.refreshSessionStatuses();
+        sessionStore.stopSessionListPolling();
+        expect(sessionStore.sessions.some(session => session.id === dashboardSession.id)).toBe(true);
+        await sessionStore.refreshSessionStatuses();
+        expect(sessionStore.sessions.some(session => session.id === dashboardSession.id)).toBe(true);
+        await sessionStore.refreshSessionStatuses();
+        expect(sessionStore.sessions.some(session => session.id === dashboardSession.id)).toBe(false);
+      } finally {
+        pending.resolve({ statuses: {} });
+        sessionStore.stopSessionListPolling();
+        if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor);
+        else Reflect.deleteProperty(document, 'visibilityState');
+      }
+    });
+
+    it('REQ-SESSION-010 AC7: failed ancillary lookup preserves last-good fields and recovery replaces them', async () => {
+      const { storageStore } = await import('../../stores/storage');
+      const before: api.SessionAncillaryStatus = { maxSessions: 7,
+        storageStats: { totalFiles: 5, totalFolders: 2, totalSizeBytes: 2048 },
+        usage: { dailySeconds: 3, monthlySeconds: 30, monthlyQuotaSeconds: 600, tier: 'advanced' },
+        managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
+        managedReleaseProgress: { phase: 'writing', completed: 2, total: 7 },
+        bucketMigrating: true, bucketMigrationPending: true, bucketMigrationPercent: 25 };
+      mockGetSessionAncillaryStatus.mockResolvedValueOnce(before);
+      await sessionStore.refreshSessionAncillaryStatus();
+      mockGetSessionAncillaryStatus.mockRejectedValueOnce(new Error('Ancillary unavailable'));
+      await expect(sessionStore.refreshSessionAncillaryStatus()).rejects.toThrow('Ancillary unavailable');
+      expect(sessionStore.maxSessions).toBe(7);
+      expect(storageStore.stats).toEqual(before.storageStats);
+      expect(getUsageState()).toEqual({ monthlySeconds: 30, monthlyQuotaSeconds: 600 });
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(sessionStore.managedReleaseProgress).toEqual(before.managedReleaseProgress);
+      expect([sessionStore.bucketMigrating, sessionStore.bucketMigrationPending, sessionStore.bucketMigrationPercent]).toEqual([true, true, 25]);
+      mockGetSessionAncillaryStatus.mockResolvedValueOnce({ maxSessions: 4,
+        storageStats: { totalFiles: 6, totalFolders: 2, totalSizeBytes: 4096 },
+        usage: { dailySeconds: 4, monthlySeconds: 40, monthlyQuotaSeconds: 900, tier: 'advanced' } });
+      await sessionStore.refreshSessionAncillaryStatus();
+      expect(sessionStore.maxSessions).toBe(4);
+      expect(storageStore.stats).toMatchObject({ totalSizeBytes: 4096 });
+      expect(getUsageState()).toEqual({ monthlySeconds: 40, monthlyQuotaSeconds: 900 });
+      expect(sessionStore.managedReleaseStatus).toBeNull();
+      expect(sessionStore.managedReleaseProgress).toBeNull();
+      expect([sessionStore.bucketMigrating, sessionStore.bucketMigrationPending, sessionStore.bucketMigrationPercent]).toEqual([false, false, null]);
     });
 
     it('REQ-SESSION-029 AC4/AC5: pending then failed refresh retains last valid cards and tabs', async () => {
@@ -194,6 +481,7 @@ describe('Session Store', () => {
       ancillary.reject(new Error('metadata unavailable'));
       await sessionStore.refreshSessionAncillaryStatus().catch(() => undefined);
       expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)?.status).toBe('unreachable');
+      expect(sessionStore.statusUnavailable).toBe(false);
     });
 
     it('REQ-SESSION-010 AC7: forced metadata refresh is preserved when joining pending status work', async () => {
@@ -313,6 +601,41 @@ describe('Session Store', () => {
       }
       expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject({ status: 'stopped', revision: 2, editorReady: true });
       expect(sessionStore.getMetricsForSession(dashboardSession.id)?.cpu).toBe('20%');
+    });
+
+    it.each([{ generation: 4, revision: 7 }, { generation: 3, revision: 99 }])(
+      'REQ-SESSION-029 AC2: stale catalog $generation/$revision preserves the complete newer session metadata', async older => {
+        const current = { ...dashboardSession, name: 'Current name', status: 'running' as const, lifecycle: 'running' as const,
+          generation: 4, revision: 8, workspace: 'terminal' as const, terminalMode: 'classic' as const,
+          lastAccessedAt: '2026-11-09T12:00:00Z', lastActiveAt: '2026-11-09T12:00:00Z',
+          editorReady: true, tabConfig: [{ id: '1', command: 'pi', label: 'Current tab' }] };
+        mockGetSessions.mockResolvedValueOnce([current]);
+        await sessionStore.loadSessions();
+        sessionStore.initializeTerminalsForSession(current.id);
+        terminalLifecycle.ownedSessionIds.add(current.id);
+        const before = JSON.parse(JSON.stringify(sessionStore.sessions.find(session => session.id === current.id)));
+        const tabs = sessionStore.getTerminalsForSession(current.id)?.tabs.map(tab => ({ ...tab }));
+        const discovered = { ...dashboardSession, id: `${current.id}-new`, name: 'Newly discovered', generation: 1, revision: 1 };
+        mockGetSessions.mockResolvedValueOnce([{ ...current, ...older, name: 'Old name', status: 'stopped', lifecycle: 'stopped',
+          lastAccessedAt: '2026-11-08T12:00:00Z', lastActiveAt: '2026-11-08T12:00:00Z', editorReady: false,
+          tabConfig: [{ id: '1', command: 'bash', label: 'Old tab' }] }, discovered]);
+        await sessionStore.loadSessions();
+        expect(sessionStore.sessions.find(session => session.id === current.id)).toEqual(before);
+        expect(sessionStore.sessions.find(session => session.id === discovered.id)).toMatchObject(discovered);
+        expect(sessionStore.getTerminalsForSession(current.id)?.tabs.map(tab => ({ ...tab }))).toEqual(tabs);
+        expect(terminalLifecycle.ownedSessionIds.has(current.id)).toBe(true);
+      },
+    );
+
+    it.each([8, 9])('REQ-SESSION-029 AC1: equal or newer catalog revision %s still updates current metadata', async revision => {
+      const current = { ...dashboardSession, generation: 4, revision: 8 };
+      mockGetSessions.mockResolvedValueOnce([current]);
+      await sessionStore.loadSessions();
+      const accepted = { ...current, name: 'Accepted name', lastAccessedAt: '2026-11-09T13:00:00Z', revision,
+        tabConfig: [{ id: '1', command: 'bash', label: 'Accepted tab' }] };
+      mockGetSessions.mockResolvedValueOnce([accepted]);
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions.find(session => session.id === current.id)).toMatchObject(accepted);
     });
 
     it.each(['list', 'list+batch', 'poll'] as const)(
@@ -924,14 +1247,21 @@ describe('Session Store', () => {
         managedReleaseStatus: 'current',
       } as never);
       await sessionStore.loadSessions();
-      mockGetSessionAncillaryStatus.mockClear();
+      vi.setSystemTime(Date.now() + 5 * 60 * 1000);
       mockGetSessionAncillaryStatus.mockRejectedValueOnce(new Error('ancillary-status unavailable'));
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.maxSessions).toBe(3);
+      expect(sessionStore.managedReleaseStatus).toBe('current');
 
-      await sessionStore.refreshSessionStatuses(true);
-      await sessionStore.refreshSessionStatuses(true);
-
-      expect(mockGetSessionAncillaryStatus).toHaveBeenNthCalledWith(1);
-      expect(mockGetSessionAncillaryStatus).toHaveBeenNthCalledWith(2);
+      mockGetSessionAncillaryStatus.mockResolvedValueOnce({
+        maxSessions: 7,
+        managedReleaseStatus: 'update_pending',
+        preseedNeedsUpgrade: true,
+      } as never);
+      // No force flag or further time advance: failed checks cannot spend the window.
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.maxSessions).toBe(7);
+      expect(sessionStore.managedReleaseStatus).toBe('update_pending');
     });
 
     it('REQ-STOR-040 AC3: retries the managed-release check after the initial batch request fails', async () => {
@@ -1125,11 +1455,14 @@ describe('Session Store', () => {
   });
 
   describe('stopSession', () => {
+    let stopGeneration = 100;
     beforeEach(async () => {
+      stopGeneration += 2;
       mockGetSessions.mockResolvedValue([
         {
           id: 'session-1',
           name: 'Test Session',
+          status: 'running', lifecycle: 'running', generation: stopGeneration, revision: 10,
           createdAt: new Date().toISOString(),
           lastAccessedAt: new Date().toISOString(),
         },
@@ -1145,11 +1478,101 @@ describe('Session Store', () => {
           path: '/workspace',
         },
       });
-      // First load (fresh) — session arrives as 'stopped'
       await sessionStore.loadSessions();
-      // Simulate user started the session
       sessionStore.updateSessionStatus('session-1', 'running');
       sessionStore.initializeTerminalsForSession('session-1');
+    });
+
+    it.each([
+      ['missing row', undefined],
+      ['unordered stopped', { status: 'stopped' }],
+      ['old generation', { status: 'stopped', generationOffset: -1, revision: 999 }],
+      ['stale revision', { status: 'stopped', generationOffset: 0, revision: 9 }],
+      ['unchanged revision', { status: 'stopped', generationOffset: 0, revision: 10 }],
+      ['another generation', { status: 'stopped', generationOffset: 1, revision: 11 }],
+    ] as const)('REQ-SESSION-006 AC7: Stop retains mounted workspace on %s until newer current-generation exit', async (_label, evidence) => {
+      mockStopSession.mockResolvedValue(undefined);
+      sessionStore.setActiveSession('session-1');
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      const tabs = JSON.parse(JSON.stringify(sessionStore.getTerminalsForSession('session-1')));
+      const projection = evidence && ('generationOffset' in evidence
+        ? { status: evidence.status, generation: stopGeneration + evidence.generationOffset, revision: evidence.revision }
+        : evidence);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: projection ? { 'session-1': projection } : {} });
+      const stopping = sessionStore.stopSession('session-1');
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')?.status).toBe('stopping');
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(true);
+      expect(sessionStore.activeSessionId).toBe('session-1');
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(tabs);
+
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 },
+      } });
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      await stopping;
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')).toMatchObject({
+        status: 'stopped', lifecycle: 'stopped', generation: stopGeneration, revision: 11,
+      });
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(false);
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(tabs);
+    });
+
+    it('REQ-SESSION-006 AC7: Stop confirms an exit already accepted by catalog refresh without timing out', async () => {
+      mockStopSession.mockResolvedValue(undefined);
+      sessionStore.setActiveSession('session-1');
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      terminalLifecycle.ownedSessionIds.add('unrelated-runtime');
+      const tabs = JSON.parse(JSON.stringify(sessionStore.getTerminalsForSession('session-1')));
+      let settled = false;
+      const stopping = sessionStore.stopSession('session-1').then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const exit = { ...sessionStore.sessions.find(s => s.id === 'session-1')!,
+        status: 'stopped' as const, lifecycle: 'stopped' as const, generation: stopGeneration, revision: 11 };
+      mockGetSessions.mockResolvedValue([exit]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': exit } });
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')).toMatchObject({
+        status: 'stopping', lifecycle: 'stopped', generation: stopGeneration, revision: 11,
+      });
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      expect(settled).toBe(true);
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')).toMatchObject({
+        status: 'stopped', lifecycle: 'stopped', generation: stopGeneration, revision: 11,
+      });
+      expect(sessionStore.error).toBeNull();
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(false);
+      expect(terminalLifecycle.ownedSessionIds.has('unrelated-runtime')).toBe(true);
+      expect(sessionStore.activeSessionId).toBe('session-1');
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(tabs);
+      await stopping;
+    });
+
+    it('REQ-SESSION-006 AC7: an in-flight old Stop cannot dispose a newly accepted generation workspace', async () => {
+      mockStopSession.mockResolvedValue(undefined);
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      sessionStore.setActiveSession('session-1');
+      const tabs = JSON.parse(JSON.stringify(sessionStore.getTerminalsForSession('session-1')));
+      let reply!: (value: unknown) => void;
+      mockGetBatchSessionStatus.mockImplementationOnce(() => new Promise(resolve => { reply = resolve; }));
+      const stopping = sessionStore.stopSession('session-1');
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      const replacement = { ...sessionStore.sessions.find(s => s.id === 'session-1')!,
+        status: 'running' as const, lifecycle: 'running' as const, generation: stopGeneration + 1, revision: 12 };
+      mockGetSessions.mockResolvedValue([replacement]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': replacement } });
+      await sessionStore.loadSessions();
+      reply({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 } } });
+      await vi.advanceTimersByTimeAsync(0);
+      await stopping;
+      // Local Stop intent may still label the row stopping; it cannot unmount the replacement.
+      expect(sessionStore.sessions.find(s => s.id === 'session-1')).toMatchObject({ generation: stopGeneration + 1, revision: 12 });
+      expect(terminalLifecycle.ownedSessionIds.has('session-1')).toBe(true);
+      expect(sessionStore.activeSessionId).toBe('session-1');
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(tabs);
     });
 
     it('REQ-SESSION-035: suppresses duplicate local Stop submissions until the first attempt finishes', async () => {
@@ -1157,7 +1580,7 @@ describe('Session Store', () => {
       const accepted = new Promise<void>(resolve => { accept = resolve; });
       const commands: string[] = [];
       mockStopSession.mockImplementation(async id => { commands.push(id); await accepted; });
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped' } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 } }, maxSessions: 3 });
       const first = sessionStore.stopSession('session-1');
       const duplicate = sessionStore.stopSession('session-1');
       try {
@@ -1176,11 +1599,11 @@ describe('Session Store', () => {
       await sessionStore.stopSession('session-1');
       expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopping' });
       expect(sessionStore.error).toContain('confirmation unavailable');
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped' } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 } }, maxSessions: 3 });
       const retry = sessionStore.stopSession('session-1');
       await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
       await retry;
-      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped' });
+      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped', generation: stopGeneration, revision: 11 });
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
     });
 
@@ -1200,11 +1623,11 @@ describe('Session Store', () => {
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
       await firstStop;
 
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped' } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11 } }, maxSessions: 3 });
       const retry = sessionStore.stopSession('session-1');
       await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
       await retry;
-      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped' });
+      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped', generation: stopGeneration, revision: 11 });
     });
 
     it('should set status to stopping immediately then stopped after polling', async () => {
@@ -1212,7 +1635,7 @@ describe('Session Store', () => {
       // First poll returns 'running' (still shutting down), second returns 'stopped'
       mockGetBatchSessionStatus
         .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'running', ptyActive: false } }, maxSessions: 3 })
-        .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
+        .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11, ptyActive: false } }, maxSessions: 3 });
 
       const stopPromise = sessionStore.stopSession('session-1');
 
@@ -1231,7 +1654,7 @@ describe('Session Store', () => {
 
     it('should preserve terminal state (dispose without cleanup)', async () => {
       mockStopSession.mockResolvedValue(undefined);
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11, ptyActive: false } }, maxSessions: 3 });
 
       const stopPromise = sessionStore.stopSession('session-1');
       await vi.advanceTimersByTimeAsync(3000);
@@ -1274,7 +1697,7 @@ describe('Session Store', () => {
 
     it('should clear initialization state if in progress', async () => {
       mockStopSession.mockResolvedValue(undefined);
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', generation: stopGeneration, revision: 11, ptyActive: false } }, maxSessions: 3 });
 
       // Simulate session being in initializing state
       sessionStore.initializeTerminalsForSession('session-1');
@@ -1664,10 +2087,18 @@ describe('Session Store', () => {
     it('REQ-SESSION-027 AC3: should set error on API failure', async () => {
       const mockUpdateSession = vi.mocked(api.updateSession);
       mockUpdateSession.mockRejectedValue(new Error('Rename failed'));
+      sessionStore.initializeTerminalsForSession('session-1');
+      sessionStore.setActiveSession('session-1');
+      const sessionsBefore = JSON.parse(JSON.stringify(sessionStore.sessions));
+      const terminalsBefore = JSON.parse(JSON.stringify(sessionStore.getTerminalsForSession('session-1')));
+      const activeBefore = sessionStore.activeSessionId;
 
       await sessionStore.renameSession('session-1', 'New Name');
 
       expect(sessionStore.error).toBe('Rename failed');
+      expect(sessionStore.sessions).toEqual(sessionsBefore);
+      expect(sessionStore.getTerminalsForSession('session-1')).toEqual(terminalsBefore);
+      expect(sessionStore.activeSessionId).toBe(activeBefore);
     });
 
     it('should not update state if session not found locally', async () => {
@@ -2204,15 +2635,6 @@ describe('Session Store', () => {
       expect(terminal.terminalStore.disposeSession).toHaveBeenCalledWith('session-1');
     });
 
-    it('applies authoritative 4503 immediately despite guard and transport ownership', async () => {
-      await loadRunningSession();
-      terminalLifecycle.ownedSessionIds.add('session-1');
-
-      terminalLifecycle.stoppedCallback?.('session-1');
-
-      expect(sessionStore.sessions[0]?.status).toBe('stopped');
-      expect(terminal.terminalStore.disposeSession).toHaveBeenCalledWith('session-1');
-    });
   });
 
   describe('disposeSession on server-side stop', () => {

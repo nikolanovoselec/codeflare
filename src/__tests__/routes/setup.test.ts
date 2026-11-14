@@ -1,3 +1,4 @@
+import { createMockSetupNamespace } from '../helpers/mock-factories';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -193,6 +194,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         CLOUDFLARE_WORKER_NAME: TEST_WORKER_NAME,
         ...envOverrides,
       } as Env;
+      c.env.CONTAINER = createMockSetupNamespace(c.env);
       return next();
     });
 
@@ -542,6 +544,63 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         'user:bob@example.com',
         expect.stringContaining('"role":"user"')
       );
+    });
+
+    describe('REQ-ENTERPRISE-018 AC1 + REQ-ENTERPRISE-019 AC1: configure server storage flag persistence', () => {
+      const flags = [
+        { field: 'r2SseDisabled', key: 'setup:r2_sse_disabled', step: 'configure_r2_sse' },
+        { field: 'downloadsDisabled', key: 'setup:downloads_disabled', step: 'configure_downloads_disabled' },
+      ] as const;
+
+      it.each(flags.flatMap(flag => [
+        { ...flag, enabled: true, expected: 'active', previous: 'inactive' },
+        { ...flag, enabled: false, expected: 'inactive', previous: 'active' },
+      ]))('persists $field=$enabled in enterprise and reports completed progress', async ({ field, key, step, enabled, expected, previous }) => {
+        mockKV._store.set(key, previous);
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+        const res = await app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...standardBody, dynamicRoutes: ['fixture-route'], [field]: enabled }),
+        });
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(await mockKV.get(key)).toBe(expected);
+        expect(lines).toContainEqual(expect.objectContaining({ step, status: 'running' }));
+        expect(lines).toContainEqual(expect.objectContaining({ step, status: 'success' }));
+      });
+
+      it.each(flags.flatMap(flag => [
+        { ...flag, enabled: true, enterpriseMode: undefined, previous: null },
+        { ...flag, enabled: false, enterpriseMode: 'inactive', previous: 'active' },
+      ]))('leaves $field unchanged outside enterprise with prior value $previous', async ({ field, key, step, enabled, enterpriseMode, previous }) => {
+        if (previous !== null) mockKV._store.set(key, previous);
+        const app = createTestApp({ ENTERPRISE_MODE: enterpriseMode });
+        mockFullSuccessFlow();
+        const res = await app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...standardBody, [field]: enabled }),
+        });
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(await mockKV.get(key)).toBe(previous);
+        expect(lines.some(line => line.step === step)).toBe(false);
+      });
+
+      it.each(flags)('preserves $field when omitted from enterprise configure', async ({ key, step }) => {
+        mockKV._store.set(key, 'active');
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+        const res = await app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...standardBody, dynamicRoutes: ['fixture-route'] }),
+        });
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(await mockKV.get(key)).toBe('active');
+        expect(lines.some(line => line.step === step)).toBe(false);
+      });
     });
 
     it('stores setup completion in KV', async () => {

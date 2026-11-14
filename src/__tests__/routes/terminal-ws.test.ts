@@ -155,6 +155,8 @@ describe('handleWebSocketUpgrade', () => {
     const body = await response.json() as { error: string; code: string };
     expect(body.error).toBe('Unauthorized');
     expect(body.code).toBe('AUTH_FAILED');
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+    expect(mockForwardExisting).not.toHaveBeenCalled();
   });
 
   it('returns 403 when authentication fails with ForbiddenError', async () => {
@@ -180,6 +182,59 @@ describe('handleWebSocketUpgrade', () => {
     const body = await response.json() as { error: string; code: string };
     expect(body.error).toBe('Session not found');
     expect(body.code).toBe('SESSION_NOT_FOUND');
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+    expect(mockForwardExisting).not.toHaveBeenCalled();
+  });
+
+  it('REQ-SEC-019: permits 30 upgrades, isolates users, resets at 60 seconds, and bypasses only the stress limiter', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    const upgrade = () => {
+      const request = createRequest();
+      return handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
+    };
+    try {
+      for (let i = 0; i < 30; i++) expect((await upgrade()).status).toBe(200);
+      const denied = await upgrade();
+      expect(denied.status).toBe(429);
+      expect(denied.headers.get('Retry-After')).toBe('60');
+      mockAuthResult.result!.user.email = 'second@example.com';
+      expect((await upgrade()).status).toBe(200);
+      mockAuthResult.result!.user.email = 'test@example.com';
+      mockEnv.STRESS_TEST_MODE = 'active';
+      expect((await upgrade()).status).toBe(200);
+      const { AuthError } = await import('../../lib/error-types');
+      mockAuthResult.error = new AuthError('Unauthorized');
+      expect((await upgrade()).status).toBe(401);
+      mockAuthResult.error = null;
+      mockEnv.STRESS_TEST_MODE = undefined;
+      expect((await upgrade()).status).toBe(429);
+      now.mockReturnValue(1_800_000_060_000);
+      expect((await upgrade()).status).toBe(200);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('REQ-TERM-002: authenticated classic terminal 6 forwards its identity while Herdr denies it before container access', async () => {
+    const key = 'session:test-bucket:testsession123';
+    const session = await mockKV.get(key, 'json') as Session;
+    const request = new Request('https://example.com/api/terminal/testsession123-6/ws', {
+      headers: { Upgrade: 'websocket', Origin: 'https://example.workers.dev' },
+    });
+    mockKV._set(key, { ...session, terminalMode: 'classic' });
+    const allowed = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
+    expect(allowed.status).toBe(200);
+    const forwarded = mockContainerFetch.mock.calls.find(([req]) => new URL(req.url).pathname === '/terminal')![0];
+    expect(new URL(forwarded.url).searchParams.get('session')).toBe('testsession123-6');
+    expect(new URL(forwarded.url).searchParams.get('terminalId')).toBe('6');
+    mockContainerFetch.mockClear();
+    mockForwardExisting.mockClear();
+    mockKV._set(key, { ...session, terminalMode: 'herdr' });
+    const denied = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
+    expect(denied.status).toBe(400);
+    expect(await denied.json()).toMatchObject({ code: 'INVALID_TERMINAL' });
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+    expect(mockForwardExisting).not.toHaveBeenCalled();
   });
 
   it('includes X-Request-ID header in responses', async () => {

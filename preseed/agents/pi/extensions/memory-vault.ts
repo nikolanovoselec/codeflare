@@ -350,9 +350,8 @@ function readSessionEntries(ctx: any): any[] {
   }
 }
 
-function sessionMessages(entries: any[], fallback: any[]): any[] {
-  const messages = entries.filter((entry) => entry?.type === "message" && entry.message).map((entry) => entry.message);
-  return messages.length > 0 ? messages : fallback;
+function sessionMessages(entries: any[]): any[] {
+  return entries.filter((entry) => entry?.type === "message" && entry.message).map((entry) => entry.message);
 }
 
 function createMemoryRequest(input: {
@@ -730,7 +729,6 @@ function sendDueExtractionMessages(
 
 export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVaultDependencies): void {
   const { paths } = dependencies;
-  let lastMessages: any[] = [];
   const queuedLaunches = new Set<string>();
   let translatedCapture: TranslatedCapture | undefined;
   const aliasServicedWindow = (session: string, before: MemoryProgress, beforeCount: number, after: MemoryProgress, afterCount: number) => {
@@ -844,7 +842,8 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     const countFile = counterPath(paths, session);
     const counterExists = existsSync(countFile);
     const progress = committedMemoryProgress(paths, session);
-    const persistedMessages = sessionMessages(entries, lastMessages);
+    const persistedMessages = sessionMessages(entries);
+    if (persistedMessages.length === 0) return;
     const messages = prompt === undefined ? persistedMessages : withCurrentPrompt(persistedMessages, prompt);
     const currentCount = realUserPromptCount(messages);
     const rebased = currentCount < progress.promptCount || (progress.transcriptFingerprint !== undefined
@@ -912,11 +911,6 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     });
   };
   pi.on("before_agent_start", (event, ctx) => reconcileEligibility(ctx, String(event?.prompt ?? "")));
-
-  pi.on("agent_end", (event, ctx) => {
-    if (isChildSession(ctx)) return;
-    lastMessages = Array.isArray(event?.messages) ? event.messages : lastMessages;
-  });
 
   const advanceExtraction = (ctx: any) => {
     if (isChildSession(ctx)) return;

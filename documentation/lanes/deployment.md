@@ -9,14 +9,15 @@ Default deployment execution, verification, rollback, and development references
 ## Contents
 
 - [Standard Deployment](#standard-deployment)
+- [Integration acceptance checklist](#integration-acceptance-checklist)
 - [Dormant Review enrollment](#dormant-review-enrollment)
 - [Enterprise Mode Secrets](#enterprise-mode-secrets)
 - [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [Production Rollback](#production-rollback)
 - [Development Reference](#development-reference)
 - [Source and Runtime Composition Aliases](#source-and-runtime-composition-aliases)
-- [Historical Cost Alias](#cost-analysis)
-- [Governed Mode migration (batch-status driven)](#governed-mode-migration-batch-status-driven)
+- [Cost estimates](#cost-analysis)
+- [Governed Mode migration (ancillary-status driven)](#governed-mode-migration-ancillary-status-driven)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
@@ -32,7 +33,7 @@ Web Push is optional. To enable it, define `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, 
 
 Without the group, Push delivery and the Settings enrollment control are unavailable. When configured, keep the private key out of Wrangler configuration and logs. Rotating the pair invalidates existing Push subscriptions across every environment and requires re-enrollment; follow [Shared settings and Web Push identity](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md). For a manual retry, confirm the failed automatic run did not already promote the same tree.
 
-**Action:** For normal promotion, retain the automatically triggered `Deploy` run. For initial deployment or retry, run GitHub's `Deploy` workflow from `main` with target **production**; the manual target defaults to integration. Never substitute a local Wrangler deploy. The workflow verifies the source tree, builds/scans or provenance-verifies a retained container image, publishes/binds its digest, and deploys the Worker and binding. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
+**Action:** For normal promotion, retain the automatically triggered `Deploy` run. For initial deployment or retry, run GitHub's `Deploy` workflow from `main` with target **production**; the manual target defaults to integration. Never substitute a local Wrangler deploy. The workflow verifies the source tree, builds/scans or provenance-verifies a retained container image, publishes and binds a fresh image by its content-addressed tag or reuses a retained image by its required provenance-verified digest, and deploys the Worker and binding. Downstream digest readback/attestation remains a separate identity check, not evidence that the fresh branch binds by digest. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
 
 **Verify:** Retain the successful run URL and deployed commit. After secret upload and service-user provisioning, confirm the final version serves 100% of traffic and verify the deployed origin explicitly:
 
@@ -45,7 +46,71 @@ Exercise the changed user path after provider discovery returns the expected `{ 
 
 **Rollback:** Stop and use [Production Rollback](#production-rollback) when a changed user path fails or the deployed version does not match the reviewed tree. Do not deploy another unreviewed tree as an incident workaround.
 
+### Deploy pipeline record inspection
+
+Read-only method for [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline). Apply [pipeline record prerequisites](ci-cd.md#pipeline-record-inspection). Inspect existing Deploy records, not the execution instructions above: this inspection authorizes no dispatch, deployment, namespace creation or settings change. Retain exact revision, run/attempt, event, environment, resolved Worker identity and verified source-tree correlation without secrets.
+
+For AC2 inspect separate retained native dispatch records for production, integration, enterprise and enterprise integration. Compare each actual environment input with **Resolve deploy target** / **Log resolved parameters**, job environment and **Deploy summary**. Production must resolve from `main`; inspect **Block production deploys from non-main branches**. Confirm the exact-tree verification path and completed deployment, not only the dispatch menu. Missing an environment's completed record is BLOCKED for that observation; wrong target/tree or a passing non-main production promotion is FAIL. Reuse the [pipeline contract](ci-cd.md#deploy-workflow-detail), including explicit-run fail-closed behavior, inline fallback, serialization and outcome safeguards.
+
+For AC5 inspect **Deploy worker** / **Resolve KV namespace** at that same revision. Correlate successful namespace listing with the resolved `${WORKER_NAME}-kv` title and reported namespace identity, then inspect the script's substitution of `id = "placeholder"` in `wrangler.toml`. Existing matching namespaces must be reused; creation applies only after a successful list returns no match. Correlate subsequent **Deploy to Cloudflare** binding output where retained. No deployed config artifact is promised by this workflow; if application of the resolved identity cannot be established from retained output/source, that part remains BLOCKED, not inferred from a green summary.
+
+Accept list/reuse and list/no-match/create branches separately from existing approved records. In retained failure records, failed listing must stop without guessing or creating, and unresolved identity must stop before Worker promotion. Wrong binding or promotion after resolution failure is FAIL. Missing branch or rejection records is BLOCKED for those observations. Setup-route mock-KV tests do not establish this deployment behavior; no namespace may be created or modified to fill the evidence gap here.
+
+For the nonmanual AC1/AC3/AC4, existing routing, gate and artifact-handoff configuration tests provide bounded definition/expression/topology coverage. Supplement acceptance by inspecting native main-push PR Checks → Deploy correlation, the prepare/build-worker/container/deploy graph and timestamps, **Build frontend**, **Build landing page**, **Upload built assets** and **Download built assets**. Require frontend before landing and one `web-ui-dist` handoff from the same run/tree. Declared parallel dependencies do not prove executed overlap; missing overlap or asset provenance is unverified. These observations do not change AC markers or replace post-secrets user-path verification.
+
 ---
+
+### Allocation and image-binding acceptance
+
+For [OPS-007/012/014](../../sdd/spec/operations.md), apply [pipeline prerequisites](ci-cd.md#pipeline-record-inspection) to existing Deploy records and private operator-retained provider readback. Match source, target, resolved profile, instance override and image digest. Missing readback is unavailable; source patches or green deploys alone do not prove provider application. No deployment or allocation experiment is authorized.
+
+| Scope | Required observation |
+|---|---|
+| OPS-007 AC1/2/5; OPS-014 AC1–3 | Compare resolved profile CPU/memory/disk and canonical defaults with effective provider configuration. Match the pushed image digest and binding, with no deploy-time rebuild. Wrong allocation/binding fails. |
+| OPS-007 AC3; OPS-012 AC1–4 | Compare retained default and positive-integer override cases across profiles. Effective cap follows the override independently of profile. Existing zero/negative/noninteger cases reject before promotion; missing cases are unavailable. |
+| OPS-007 AC4 | Compare resolved regular/admin limits with observed admission records. This is best-effort admission, not an atomic concurrency reservation or hard isolation guarantee. |
+| OPS-014 AC4/5 | Compare same-input cache-bust and baseline records: affected agent layer rebuilds while unrelated layers remain cached, then rollout binds that image. Repository SSH remains disabled/key-free; persistent identity provisioning is private-owned. |
+
+### Idle metering and identity lifecycle acceptance
+
+For OPS-006 inspect existing authorized instance analytics, last-input/idle records and confirmed sleep. CPU, provisioned-memory and local-disk totals stop increasing after reporting lag. Missing granularity is unavailable; stopped status alone is not billing evidence. Compare retained R2 restoration and local-only ephemeral absence through [replacement acceptance](storage-and-sync.md#session-replacement-storage-acceptance). Separate other Worker/DO/R2/log/storage/network charges: no Container usage does not mean no account charge.
+
+For OPS-006 cost estimates, record the intended active-session workload, instance resources, active duration and applicable current Cloudflare rates. Calculate Container cost separately from shared platform costs using the [pricing reference](#cost-analysis); do not use a fixed historical per-user quote or perform a billing experiment.
+
+For OPS-061 use the private [persistent SSH runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/container-ssh.md) and existing add/rotate/remove records. Compare effective authorized public-key identities and access outcomes. Later authorized access to the same running instance works without another configuration deployment. Private-key custody and account permissions remain separate. Missing private records are unavailable; this method authorizes no key creation, extraction, rotation, connection or deployment.
+
+## Integration acceptance checklist
+
+**When:** Qualifying an Integration release before any separately authorized sampled Production promotion ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)).
+
+**Prerequisites:** Record the exact commit and Deploy run. Use authorized Integration targets and test identities; this checklist grants no production, billing, credential or deployment permission. Account operation and spend alerts must be in place before Production history is enabled.
+
+**Action:**
+
+- Verify mode-aware navigation and every applicable Environment section in Default, Onboarding, SaaS and Enterprise.
+- Perform one non-destructive Environment review and apply, including conflict, reconnect, failure and interrupted states.
+- In Enterprise AI Routing, Discover a target and review its result. For missing unsaved proof, retain the draft and use Advanced Verify or explicit Mark as verified before Review and Confirm Save; no custom-backend description or wizard is required.
+- Run bounded target discovery and verify the Pi 0.84.4 canary's streaming, tool call, exact result replay, logical-probe/HTTP-attempt counts and non-activation. Revalidate after a route version or declared backend changes; the canary baseline is not the installed Pi runtime version.
+- Activate a successfully checked route through explicit Review changes and Confirm Save; observed-path success requires acknowledging that other backends remain untested. Verify unchecked routes cannot be activated and a stale `baseRevision` is rejected.
+- Start Pi for an explicitly enabled fallback policy and a matching group: verify only eligible allowed routes appear, startup defaults match the policy, `/model` switches routes and tool replay completes. Disabled fallback and empty first-matching policies must grant no routes.
+- In three fresh sessions, verify clean Browser IDE URLs and reject public workspace selectors at Worker and host HTTP/WebSocket boundaries ([REQ-IDE-012](../../sdd/spec/browser-ide.md#req-ide-012-fixed-clean-browser-ide-workspace-selection), [REQ-IDE-015](../../sdd/spec/browser-ide.md#req-ide-015-clean-browser-ide-url-and-private-workspace-selection)).
+- In fresh Pi, Claude and unsupported sessions, observe rendered account-free chrome ([REQ-IDE-021](../../sdd/spec/browser-ide.md#req-ide-021-account-free-browser-ide-chrome)).
+- During long panel turns, verify GPT-5.6 Sol summaries and the unchanged Qwen thinking path ([REQ-IDE-027](../../sdd/spec/browser-ide.md#req-ide-027-native-pi-panel-reasoning-and-bounded-progress)).
+- Verify an editor request renders host-owned edits or rejects without indefinite waiting ([REQ-IDE-028](../../sdd/spec/browser-ide.md#req-ide-028-native-inline-chat-dispatch-error-isolation)).
+- Verify no-change feedback and the controller-owned review journey, then immediate Panel Chat recovery after an Inline result ([REQ-IDE-029](../../sdd/spec/browser-ide.md#req-ide-029-native-inline-chat-feedback), [REQ-IDE-033](../../sdd/spec/browser-ide.md#req-ide-033-controller-owned-inline-review-lifecycle), [REQ-IDE-043](../../sdd/spec/browser-ide.md#req-ide-043-native-pi-provider-history-isolation)).
+- Before another Inline lifecycle change, classify the deployed failure using Output-channel diagnostics ([REQ-IDE-034](../../sdd/spec/browser-ide.md#req-ide-034-bounded-inline-lifecycle-diagnostics)).
+- After separately authorized disposable temporary-file cleanup, complete Plan Mode in the running Pi session without restarting its container ([REQ-AGENT-160](../../sdd/spec/agents.md#req-agent-160-durable-late-pi-extension-loading)).
+- Verify Analytics empty-history and data-start states, actual period-history chart, Timekeeper-lag disclosure, user detail, deleted-user history and CSV download.
+- Verify Reports disabled state, schedule presentation, current-month test email, provider failure and delivery history.
+- Verify Activity empty and retained-run states. Confirm records contain no submitted secrets.
+- Leave Analytics, Reports and Activity idle through a stable polling interval: their data requests must not recur. Then exercise navigation, filters, explicit refresh and an applicable run reconnect; only those actions should request their data.
+- Verify five-second transition polling, 60-second stable polling, hidden cancellation, immediate visible refresh and no overlapping requests in browser network tools.
+- Verify desktop and mobile hierarchy against the approved Administration and Analytics design catalog.
+- Confirm one caught structured error and one uncaught route exception are discoverable in Integration logs ([REQ-OPS-167 AC2](../../sdd/spec/operations.md#req-ops-167-ping-log-omission-and-failure-discoverability)).
+
+**Verify:** Retain observations bound to the exact commit, Deploy run and tested mode/target. Integration exception-visibility evidence is mandatory before sampled Production promotion; independently verify operation/spend alerts before enabling Production history. Browser and visual acceptance belongs to the operator on Integration. CI does not pretend a component snapshot proved any of this.
+
+**Rollback:** Stop promotion on failure. Restore only separately authorized Integration test changes from their recorded baseline; unresolved acceptance never grants permission to change Production or manufacture passing evidence.
 
 ## Dormant Review enrollment
 
@@ -106,7 +171,7 @@ npx wrangler versions view <CANDIDATE_VERSION_ID> --name "$WORKER_NAME"
 npx wrangler rollback <CANDIDATE_VERSION_ID> --name "$WORKER_NAME"
 ```
 
-Only runs target-labelled **Deploy production (main)** qualify as production evidence; successful main-branch dispatches may instead target an integration. Expand the ten-run history when needed. Correlate account, Worker, release and deployment timing with the run, not exact equality with its start timestamp. If identity or compatibility is uncertain, stop rather than guess a version. <!-- @impl: .github/workflows/deploy.yml -->
+Only runs target-labelled **Deploy production (main)** qualify as production evidence; successful main-branch dispatches may instead target an integration. Expand the ten-run history when needed. Correlate account, Worker, release and deployment timing with the run, not exact equality with its start timestamp. If identity or compatibility is uncertain, stop rather than guess a version. <!-- @impl: .github/workflows/deploy.yml::run-name -->
 
 For a paper rollback, leave account, origin, faulty and candidate version IDs, failed-flow baseline, and compatibility as incident parameters. The commands define the ordered procedure; absent incident inputs prevent execution or a recovery claim, not explanation of that procedure. Never substitute an integration version or invent a successful check.
 
@@ -155,15 +220,18 @@ The current repository/package map and intentional backend/frontend schema bundl
 
 <a id="cost-analysis"></a>
 <a id="per-container-pricing"></a>
-## Historical Cost Alias
+## Cost estimates
 
-The dated account arithmetic remains only in [the immutable original cost example](https://github.com/nikolanovoselec/codeflare/blob/6c1c11936740aa290266fc98fcbc360d3b5b3af1/documentation/lanes/deployment.md#cost-analysis). It is not current pricing, a per-user quote, or a complete platform-cost estimate. [Cloudflare Containers pricing](https://developers.cloudflare.com/containers/pricing/) is authoritative. [Billing](billing.md) owns metering distinctions; [Container](container.md) owns ephemeral runtime and recovery. The complete REQ-OPS-006 record, including its dated-estimate AC, remains unchanged in Operations.
+[Cloudflare Containers pricing](https://developers.cloudflare.com/containers/pricing/) is authoritative for current rates. Estimates depend on provisioned resources, active usage and workload duration; they are not a fixed per-user quote or a complete platform-cost estimate. [Billing](billing.md) owns metering distinctions; [Container](container.md) owns ephemeral runtime and recovery. Follow [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-stop-metered-container-resources) for cost-model scope.
 
 ---
 
-## Governed Mode migration (batch-status driven)
+<a id="governed-mode-migration-batch-status-driven"></a>
+## Governed Mode migration (ancillary-status driven)
 
 **Type:** Canonical private-runbook redirect.
+
+The owner's slower/event-driven `/api/sessions/ancillary-status` request plans regime reconciliation and schedules verified resumable migration advancement. Frequent `batch-status` returns only the D1 session projection; it does not drive migration. Migration never runs on the container-start path. [REQ-SESSION-244 AC2](../../sdd/spec/session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling) owns the separate ancillary scheduling boundary. <!-- @impl: src/routes/session/lifecycle.ts::app -->
 
 The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in the [Governed Mode migration runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/governed-mode-migration.md). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
 

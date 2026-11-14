@@ -71,7 +71,7 @@ describe('Setup Custom Domain', () => {
       expect(steps[0].status).toBe('success');
     });
 
-    it('throws SetupError when zone not found', async () => {
+    it('throws ValidationError when successful lookups confirm zone absence', async () => {
       const steps: SetupStep[] = [];
 
       // resolveZone - no results for any suffix
@@ -87,7 +87,7 @@ describe('Setup Custom Domain', () => {
           'http://codeflare.test.workers.dev',
           steps
         )
-      ).rejects.toThrow(SetupError);
+      ).rejects.toThrow(ValidationError);
 
       expect(steps[0].status).toBe('error');
     });

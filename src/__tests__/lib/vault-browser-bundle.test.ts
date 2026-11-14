@@ -714,7 +714,8 @@ describe('production-bundled Vault browser scripts', () => {
 
   it('REQ-VAULT-022: performs the exact-scope one-shot reload from bundled injected bytes', async () => {
     const scope = 'https://codeflare.test/api/vault/0123456789abcdef0123456789abcdef/';
-    const storage = { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() };
+    const markers = new Map<string, string>();
+    const storage = { getItem: vi.fn((key: string) => markers.get(key) ?? null), setItem: vi.fn((key: string, value: string) => { markers.set(key, value); }), removeItem: vi.fn() };
     const navigation: string[] = [];
     const locationRef = { origin: 'https://codeflare.test', reload: () => { navigation.push('reload'); } };
     const windowRef: any = { document: { baseURI: scope }, location: locationRef, sessionStorage: storage };
@@ -732,6 +733,32 @@ describe('production-bundled Vault browser scripts', () => {
 
     expect(storage.setItem).toHaveBeenCalledWith('cf-vault-sw-controlled-reload', '1');
     expect(navigation).toEqual(['reload']); // intentional one-shot navigation contract
+    vm.runInNewContext(markedScript(html, 'data-codeflare-vault-controlled-reload'), { window: windowRef, navigator: navigatorRef, URL });
+    await flushBrowserTasks();
+    expect(navigation).toEqual(['reload']);
+  });
+
+  it.each(['accessor', 'read', 'write', 'silent write', 'missing'] as const)('REQ-VAULT-022 AC5: %s storage failure stays stable across uncontrolled navigations', async failure => {
+    const script = markedScript(injectors.injectVaultControlledReload('<html><head></head></html>'), 'data-codeflare-vault-controlled-reload');
+    const navigation: string[] = [];
+    const storage = {
+      getItem() { if (failure === 'read') throw new Error('denied'); return null; },
+      setItem() { if (failure === 'write') throw new Error('denied'); },
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const windowRef: any = {
+        document: { baseURI: scope },
+        location: { origin: 'https://codeflare.test', reload() { navigation.push('reload'); } },
+        get sessionStorage() { if (failure === 'accessor') throw new Error('denied'); return failure === 'missing' ? undefined : storage; },
+      };
+      windowRef.parent = windowRef;
+      expect(() => vm.runInNewContext(script, {
+        window: windowRef, URL,
+        navigator: { serviceWorker: { controller: null, getRegistration: async () => ({ scope, active: {} }) } },
+      })).not.toThrow();
+      await flushBrowserTasks();
+    }
+    expect(navigation).toEqual([]);
   });
 
   it('clears the one-shot without reloading when the exact worker already controls the page', () => {

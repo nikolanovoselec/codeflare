@@ -96,7 +96,8 @@ The enforcement check (one walk, one rule) lives in `doc-enforce-lanes` § Layou
 - CON-* and REQ-* IDs inside Constraints/Dependencies render as markdown anchor links, not plain text — MEDIUM `cross-reference-not-linked`.
 - Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Validators in `spec-enforce-truth` (CQ-SOURCE) read these comments and verify symbol + value against source. AC bullets without an anchor are valid but generate `ac-missing-source-anchor` findings (MEDIUM); ACs carrying `<!-- @manual -->` are exempt. Same convention applies to ADR `Context:` blocks.
 - **Test-anchor parity (gated by `enforce_tdd`).** When `enforce_tdd: true`, every AC describing observable behaviour ALSO ends with at least one test anchor `<!-- @test: <path> (<describe/it title>) -->` naming a test block that proves it (the anchors sit alongside the `@impl` anchor on the same AC line). Multiple `@test` anchors are permitted when verification spans blocks or files, and validators in `spec-enforce-truth` (CQ-TEST) verify every declared anchor resolves. An AC without a test anchor is `ac-missing-test-anchor` (MEDIUM), the test parallel of `ac-missing-source-anchor`; a test anchor whose block cannot be found is `spec-test-anchor-orphaned` (HIGH), the parallel of `spec-anchor-orphaned`. ACs carrying `<!-- @manual -->` are exempt. When `enforce_tdd: false` the project has opted out of test verification, so these are informational only (never Status-mutating, never blocking).
-- **Manual-verification markers (per-AC, never REQ-level).** An AC whose behaviour genuinely cannot be verified by an automated test ends with `<!-- @manual -->` (bare) or `<!-- @manual: <procedure> -->` (when a dedicated manual procedure exists) instead of the anchors. The marker exempts that one AC from both anchor requirements; anchors present on a `@manual` AC are still validated as supplemental evidence. The REQ's `Verification:` field derives from the markers: `Manual check` when every AC carries `@manual`, else `Automated test` — disagreement is MEDIUM `verification-field-marker-drift`.
+- **Manual-verification markers (per-AC, never REQ-level).** An AC genuinely requiring human verification ends with `<!-- @manual -->` or `<!-- @manual: <procedure> -->`; supplemental anchors still require validation. Verification uses the strict linked-method grammar in `spec-enforce` § REQ rendering template: `Automated: [suite](test-path)`, `Manual: [check](procedure-path#check)`, or both, Automated first, separated by `; `. Non-manual ACs require Automated; manual ACs require Manual; all-manual REQs use Manual. Targets must exist and actually cover the requirement; manual checks contain actions and observable pass/fail outcomes. Only projects with `enforce_tdd: false` may use the canonical `Code-only: [implementation](source-path)` method instead of fabricated automated evidence. No bare labels, unlabeled links, narrative, CI/commit/session history or invented evidence.
+- **Dependencies** contains only `None.` or comma-separated Markdown links labelled with exact existing prerequisite `REQ-*`/`CON-*` IDs. Resolve each target/fragment; never put constraints, rationale, implementation paths or verification evidence here. Preserve misplaced obligations in their correct owning field or procedure rather than deleting them. Follow the canonical field validation in `spec-enforce`, not a project-specific variant.
 - **Notes** is OPTIONAL — only two shapes (see `spec-enforce` § Rule B): Partial-explanation (`Status: Partial` only, ≤3 sentences) or Doc-pointer (any status, ≤2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-references go in `Dependencies:`.
 - Each REQ ends with `---` on its own line, blank lines either side.
 - **Deprecated REQs are deleted, not tombstoned.** No `Replaced By:`, no `Removed In:`. Out-of-scope ideas go to `## Out of Scope` in the domain README.
@@ -179,9 +180,9 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 
 - The marker sits at the end of the AC bullet, in place of the anchors. Bare form for ACs with no bespoke guidance — never pad it with filler prose ("verify every acceptance criterion" is not a procedure). The `<procedure>` payload carries dedicated manual-verification steps when they exist.
 - **Detection regex:** `<!--\s*@manual(?::\s*(.+?))?\s*-->`
-- Granularity is strictly per-AC. There is NO REQ-level manual exemption, no Notes doc-pointer requirement, and no external checklist: `grep -rn '@manual' sdd/` IS the project's manual-verification inventory.
-- Anchors present on a `@manual` AC are still validated as supplemental evidence; the marker lifts the anchor *requirement*, never the truth of what is written. Retrofitting an anchor and deleting the marker is the standard coverage-improvement path; adding `@manual` to dodge a failing anchor check is `finding-downgraded-to-skip` (HIGH).
-- The `Verification:` field derives from the markers, categorically: `Manual check` ⇔ every AC carries `@manual`; otherwise any automated-verification value (`Automated test`, or a linked/labelled test-file value). Enforced as MEDIUM `verification-field-marker-drift` by `spec-enforce-truth`.
+- Granularity is strictly per-AC; there is no REQ-level exemption or required Notes pointer. `grep -rn '@manual' sdd/` inventories manual ACs. Their Verification field links the actual named procedure; it does not claim that procedure passed or replace the AC's acceptance conditions.
+- Anchors present on a `@manual` AC are still validated as supplemental evidence; the marker lifts the anchor *requirement*, never the truth of what is written. A manual method may be replaced when equivalent automated behavioural coverage is independently established; replacement is not required for `Implemented`. Adding `@manual` merely to dodge a failing anchor check is `finding-downgraded-to-skip` (HIGH).
+- Verification follows the canonical linked-method grammar above and in `spec-enforce`. Mixed automated/manual ACs name both methods. Supplemental automated evidence on all-manual ACs does not remove their Manual method. `Unspecified.` is permitted only for non-Implemented requirements with a concrete live verification-gap finding; never substitute a fabricated link or manual marker. Method/marker disagreement is MEDIUM `verification-field-marker-drift`; links and formatting alone never justify Status promotion.
 
 ## Status semantics
 
@@ -189,12 +190,14 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 |---|---|
 | `Proposed` | Being drafted, not yet committed to spec |
 | `Planned` | Committed to spec, not yet built |
-| `Partial` | Built but some AC unmet OR no automated test verification found |
-| `Implemented` | Built AND tests verify the acceptance criteria |
+| `Partial` | Some behaviour is unmet or required coverage for non-manual ACs is missing |
+| `Implemented` | Built; ACs are verified through legitimate automated and/or manual methods |
 
 **One word, no prose.** No commit SHAs, no file paths, no "Partial — missing X, Y, Z". Use the optional `Notes:` field (≤3 sentences) for Partial only. Use `pending.md` for implementation tracking.
 
-**Default Status when source exists but no test references the REQ ID:**
+Legitimate manual verification supports `Implemented`, even with TDD enabled. Manual ACs need no automated replacement or project-wide TDD opt-out. Mixed REQs retain required automation for non-manual ACs; markers/procedures alone do not prove execution, and a verification-format defect alone does not prove missing implementation.
+
+**Default Status when source exists but required non-manual test coverage is absent:**
 - `enforce_tdd: true` → `Partial`.
 - `enforce_tdd: false` → `Implemented` (opted out of test-based verification; demoting every REQ would falsely brand the spec incomplete). Each `sdd/{domain}.md` file (per domain, not `sdd/README.md`) appends `_Verification: code-only (no automated coverage)._` at the bottom when this branch fires.
 
@@ -208,12 +211,12 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 | SAFE fixes (strip non-ADR-index strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves, bulk operations) | Confirm + backup + apply | Backup + apply | Backup + apply |
 | JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy), continue | Auto-resolve conservatively, continue |
-| `enforce_tdd` default | per layout-resolved config (`sdd/spec/config.yml` nested OR `sdd/config.yml` flat; default true) | same | **Forced true** |
+| `enforce_tdd` | per layout-resolved config (`sdd/spec/config.yml` nested OR `sdd/config.yml` flat; default true) | same | Refuse when false; never silently change the setting |
 | Output | Inline confirmations | Inline reports | Inline reports; per-category commits |
 
-The fundamental difference is **how JUDGMENT is handled**. All modes push to the current branch. No PR, no new branch, no artificial change limits.
+The fundamental difference is **how JUDGMENT is handled**, not permission to change product intent or weaken guarantees. For `/sdd clean`, completed local cleanup ends with the authorized selected-branch push, then immediate turn end. CI follows repository triggers independently of PR eligibility; boundary review requires that branch's open PR to `main`/`master`/`develop`. No implicit PR/validation branch, CI dispatch, reviewer launch or CI-green-before-push gate. Post-push qualification is separate from cleanup; explicit user restrictions remain binding.
 
-Conservative JUDGMENT auto-resolution rules live in the `sdd-clean` skill (that's where they apply).
+`/sdd clean` is a finite eight-stage repair workflow: reuse evidence, remediate findings and verify each correction before advancing. `--unleashed` overrides project mode for that invocation and applies every severity plus conservative judgment repairs. Logging/escalating debt does not complete a stage or task: unresolved spec/docs/anchor findings block cleanup completion and final push. Do not hide debt by moving it, changing Status or weakening contracts. Genuine unknown intent or separately authorized behavior blocks for the exact decision, not a new investigation campaign. Review remains static/report-only with its existing scope, consent and verdict gates.
 
 ## Auto-detection — when SDD enforcement runs without /sdd
 
@@ -273,7 +276,7 @@ The setting is persistent in `sdd/config.yml` and travels with the project. Per-
 
 ## Test discipline
 
-Every REQ marked `Status: Implemented` should have at least one test file that references its REQ ID. Test discovery uses `test_globs` from `sdd/config.yml`. Detection is binary: the REQ ID literally appears in a test (in a test name, comment, or assertion message).
+Every REQ marked `Status: Implemented` with non-manual ACs should have the required test coverage referencing its REQ ID; all-manual REQs use their legitimate manual method. Test discovery uses `test_globs` from `sdd/config.yml`. Detection is binary: the REQ ID literally appears in a test (in a test name, comment, or assertion message).
 
 **Why REQ IDs in test files:** lets `spec-reviewer` verify which Implemented REQs have automated coverage without ambiguous prose matching.
 
@@ -283,7 +286,7 @@ test('REQ-AUTH-001: rejects expired JWT tokens', () => {
 });
 ```
 
-When `enforce_tdd: true` (default), REQs without test references get downgraded to `Partial` with `Notes:`, and REQs whose source exists but lacks tests get flagged + auto-promoted `Planned → Partial`. Projects that genuinely cannot admit automated testing (pure visual design systems) opt out with `enforce_tdd: false`.
+When `enforce_tdd: true` (default), these test-coverage status rules apply only to non-manual ACs. Legitimate manual coverage never causes demotion or requires `enforce_tdd: false`; mixed REQs still need the required automation for their non-manual ACs.
 
 **Bug fix discipline:** write a failing test that reproduces the bug BEFORE writing the fix. The `tdd-guide` agent enforces this.
 
@@ -299,7 +302,7 @@ Recommended defaults, configurable per project:
 | Page-level integration | 80% |
 | Default | 70% |
 
-Guidance, not enforcement. The auto-demote rule is the only hard enforcement (binary: test exists per REQ or it doesn't).
+Guidance, not enforcement. The automated-coverage status rule applies only where non-manual ACs require it; legitimate manual verification is not an implementation gap.
 
 ## Plan Mode integration
 

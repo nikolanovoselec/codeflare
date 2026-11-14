@@ -511,6 +511,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
               <p class="dashboard-recovery-message" role="status">{recreateMessage()}</p>
             </Show>
 
+            <Show when={sessionStore.statusUnavailable}>
+              <p class="dashboard-recovery-message dashboard-status-unavailable" role="status">
+                Session status unavailable. Displayed state may be outdated.
+              </p>
+            </Show>
+
             <Show when={sessionStore.bucketMigrationPending}>
               <div class="dashboard-migration-notice" role="status" data-testid="dashboard-migration-pending">
                 Storage update pending. Close your running sessions to apply it.

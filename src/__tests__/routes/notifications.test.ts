@@ -218,6 +218,28 @@ describe('REQ-TERM-025 AC1-AC6 / REQ-SEC-023 AC1-AC4/AC7: notification routes', 
     expect(await subscriptionKeys(kv, 'bucket-a')).toEqual([]);
   });
 
+  it('REQ-SEC-023: accepts exactly 4096 body bytes and rejects excess UTF-8 bytes without changing subscriptions', async () => {
+    const app = createTestApp(kv);
+    const endpoint = 'https://fcm.googleapis.com/fcm/send/body-boundary';
+    const json = JSON.stringify({ endpoint, keys: VALID_KEYS });
+    const body = json + ' '.repeat(4096 - new TextEncoder().encode(json).byteLength);
+    const send = (text: string, contentLength?: string) => app.request('/api/notifications/subscription', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(contentLength ? { 'content-length': contentLength } : {}) },
+      body: text,
+    });
+    expect((await send(body)).status).toBe(200);
+    const before = [...kv._store];
+    expect((await send(body + ' ')).status).toBe(400);
+    const unicodeJson = JSON.stringify({ endpoint: 'https://fcm.googleapis.com/' + 'é'.repeat(900), keys: VALID_KEYS });
+    const multibyte = unicodeJson + ' '.repeat(4095 - unicodeJson.length);
+    expect(multibyte.length).toBeLessThan(4096);
+    expect(new TextEncoder().encode(multibyte).byteLength).toBeGreaterThan(4096);
+    expect((await send(multibyte)).status).toBe(400);
+    expect((await send(json, '4097')).status).toBe(400);
+    expect([...kv._store]).toEqual(before);
+  });
+
   it('does not log or return endpoint and key capability material on validation failure', async () => {
     const app = createTestApp(kv);
     const endpoint = 'https://attacker.example/private-capability';

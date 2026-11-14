@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV, MockKV } from './helpers/mock-kv';
 import { createMockSessionD1 } from './helpers/mock-session-d1';
 import type { Session } from '../types';
+import { D1SessionRepository, type D1Session } from '../lib/session-repository';
 
 // ---------------------------------------------------------------------------
 // Shared mutable state - vi.hoisted ensures this runs before vi.mock factories
@@ -44,6 +45,7 @@ const testState = vi.hoisted(() => ({
   // tests can assert the drain happens BEFORE the stop.
   finalSyncCalls: 0,
   finalSyncStatus: 200,
+  finalSyncError: null as Error | null,
   agentDrainCalls: 0,
   agentFinalDrainCalls: 0,
   agentDrainStatus: 200,
@@ -56,6 +58,7 @@ const testState = vi.hoisted(() => ({
   storagePutFailures: new Set<string>(),
   storageDeleteFailures: new Set<string>(),
   storageStore: new Map<string, unknown>(),
+  waitUntilTasks: [] as Promise<unknown>[],
 }));
 
 // ---------------------------------------------------------------------------
@@ -65,10 +68,11 @@ vi.mock('@cloudflare/containers', () => {
   class MockContainer {
     ctx: {
       id: { toString: () => string };
-      container: { running: boolean; getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
+      container: { running: boolean; signal: (signal: number) => void; getTcpPort: (port: number) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } };
       storage: { get: <T>(key: string) => Promise<T | undefined>; put: (key: string, value: unknown) => Promise<void>; delete: (key: string | string[]) => Promise<void>; sync: () => Promise<void>;
         transaction: <T>(work: (tx: Pick<MockContainer['ctx']['storage'], 'get' | 'put' | 'delete'>) => Promise<T>) => Promise<T> };
       blockConcurrencyWhile: (fn: () => Promise<void>) => Promise<void>;
+      waitUntil: (promise: Promise<unknown>) => void;
       abort: (reason: string) => never;
     };
     env: Record<string, unknown>;
@@ -80,6 +84,10 @@ vi.mock('@cloudflare/containers', () => {
         id: { toString: () => 'mock-do-id' },
         container: {
           get running() { return testState.containerRunning; },
+          signal: (signal: number) => {
+            testState.platformStopSignals.push(signal);
+            testState.callOrder.push('signal');
+          },
           getTcpPort: () => ({
             fetch: async (url: string, init?: RequestInit) => {
               if (url.includes('/internal/agent-events/drain')) {
@@ -106,6 +114,7 @@ vi.mock('@cloudflare/containers', () => {
                 // can be exercised independently of the /activity+/health probes.
                 testState.finalSyncCalls += 1;
                 testState.callOrder.push('finalsync');
+                if (testState.finalSyncError) throw testState.finalSyncError;
                 if (testState.tcpFetchShouldFail) {
                   throw new Error('Connection refused');
                 }
@@ -195,6 +204,11 @@ vi.mock('@cloudflare/containers', () => {
           this.ready = fn();
           return this.ready;
         },
+        waitUntil: (promise: Promise<unknown>) => {
+          testState.waitUntilTasks.push(promise);
+          // Observe immediately; the original rejection still fails teardown below.
+          void promise.catch(() => undefined);
+        },
         abort: (reason: string): never => {
           testState.abortReasons.push(reason);
           throw new Error('mock Durable Object abort');
@@ -264,6 +278,12 @@ import {
   TRANSPORT_RECOVERY_KEY,
 } from '../container/container-metrics';
 
+afterEach(async () => {
+  while (testState.waitUntilTasks.length > 0) {
+    await Promise.all(testState.waitUntilTasks.splice(0));
+  }
+});
+
 describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)', () => {
   let mockKV: MockKV;
   let containerInstance: InstanceType<typeof container>;
@@ -286,7 +306,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storedUserEmail = 'quota@example.com';
     containerInstance = createContainerInstance();
     const timekeeperStub = {
-      fetch: vi.fn(async () => new Response(JSON.stringify({ quotaExceeded }), { status: 200 })),
+      fetch: vi.fn(async (_request: Request) => new Response(JSON.stringify({ quotaExceeded }), { status: 200 })),
     };
     const instanceEnv = (containerInstance as unknown as { env: Record<string, unknown> }).env;
     if (saasMode) instanceEnv.SAAS_MODE = 'active';
@@ -334,6 +354,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.kvRef = mockKV;
     testState.finalSyncCalls = 0;
     testState.finalSyncStatus = 200;
+    testState.finalSyncError = null;
     testState.agentDrainCalls = 0;
     testState.agentFinalDrainCalls = 0;
     testState.agentDrainStatus = 200;
@@ -359,6 +380,281 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // Observe real serialized logger output, not mock counts or a logging facade.
+  async function withStructuredLogs(work: (entries: Array<{ level: string; data?: Record<string, unknown> }>) => Promise<void>) {
+    const actual = await vi.importActual<typeof import('../lib/logger')>('../lib/logger');
+    const entries: Array<{ level: string; data?: Record<string, unknown> }> = [];
+    const capture = (line: unknown) => { entries.push(JSON.parse(String(line))); };
+    const spies = [vi.spyOn(console, 'log').mockImplementation(capture),
+      vi.spyOn(console, 'info').mockImplementation(capture),
+      vi.spyOn(console, 'warn').mockImplementation(capture),
+      vi.spyOn(console, 'error').mockImplementation(capture)];
+    const logger = actual.createLogger('lifecycle-contract');
+    actual.setLogLevel('info');
+    mockLogger.info.mockImplementation(logger.info);
+    mockLogger.warn.mockImplementation(logger.warn);
+    mockLogger.error.mockImplementation(logger.error);
+    mockLogger.debug.mockImplementation(logger.debug);
+    try { await work(entries); }
+    finally {
+      actual.setLogLevel('silent');
+      for (const spy of spies) spy.mockRestore();
+      for (const method of [mockLogger.info, mockLogger.warn, mockLogger.error, mockLogger.debug]) method.mockReset();
+    }
+  }
+
+  describe('REQ-SESSION-025: actual lifecycle observations', () => {
+    const runningSession = () => mockKV._set('session:test-bucket:testsession123456', {
+      id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+      workspace: 'terminal', createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+    } as Session);
+
+    it('AC3: repeated healthy observations retain runtime state without repeating ordinary log output', async () => {
+      runningSession();
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        const initial = structuredClone(entries);
+        await containerInstance.collectMetrics();
+        await containerInstance.collectMetrics();
+        expect(entries).toEqual(initial);
+        expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({
+          status: 'running', metrics: { cpu: '45%', mem: '1024MB', hdd: '2.5GB', syncStatus: 'success' },
+        });
+        expect(testState.platformStopSignals).toEqual([]);
+      });
+    });
+
+    it('AC1/4: an SDK error retains actionable context without exporting private payloads or changing retry timing', async () => {
+      runningSession();
+      await withStructuredLogs(async entries => {
+        await containerInstance.onError(new Error('Network connection lost. Bearer PRIVATE_RUNTIME_CANARY /private/runtime-path transcript:PRIVATE_RUNTIME_TEXT'));
+        expect(entries).toContainEqual(expect.objectContaining({ level: 'error', data: expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0, incidentId: null, errorClass: expect.any(String),
+        }) }));
+        expect(entries).toContainEqual(expect.objectContaining({ data: expect.objectContaining({ reason: 'unknown' }) }));
+        const serialized = JSON.stringify(entries);
+        for (const value of ['PRIVATE_RUNTIME_CANARY', '/private/runtime-path', 'PRIVATE_RUNTIME_TEXT']) expect(serialized).not.toContain(value);
+        expect(testState.scheduleCalls).toContainEqual([5, 'collectMetrics']);
+        expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({ status: 'running' });
+        expect(testState.platformStopSignals).toEqual([]);
+      });
+    });
+
+    const privatePayload = 'Bearer PRIVATE_METRICS_CANARY /private/metrics-path transcript:PRIVATE_METRICS_TEXT';
+    const expectPrivateSafeLogs = (entries: unknown[]) => {
+      const serialized = JSON.stringify(entries);
+      for (const value of ['PRIVATE_METRICS_CANARY', '/private/metrics-path', 'PRIVATE_METRICS_TEXT']) expect(serialized).not.toContain(value);
+    };
+
+    it.each(['error', 'string'] as const)('AC4: private-bearing %s probe failure retains classification and owned retry', async kind => {
+      runningSession();
+      const message = `Network connection lost. ${privatePayload}`;
+      testState.beforeHealthResponse = () => { throw kind === 'error' ? new Error(message) : message; };
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        const session = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session & Pick<D1Session, 'unreachableIncidentId'>;
+        expect(session).toMatchObject({ status: 'unreachable', lifecycleGeneration: 0, unreachableIncidentId: expect.any(String) });
+        expect(entries).toContainEqual(expect.objectContaining({ data: expect.objectContaining({
+          sessionId: session.id, lifecycleGeneration: 0, incidentId: session.unreachableIncidentId,
+          probes: expect.objectContaining({ activity: expect.objectContaining({ responded: false, category: 'network-lost' }) }),
+        }) }));
+        expectPrivateSafeLogs(entries);
+        expect(testState.scheduleCalls).toContainEqual([5, 'collectMetrics']);
+        expect(testState.storageStore.get('usageSeconds')).toBeUndefined();
+        expect(testState.platformStopSignals).toEqual([]);
+        expect(testState.abortReasons).toEqual([]);
+      });
+    });
+
+    it('AC4: private recovery persistence refusal retains ownership without reset', async () => {
+      runningSession();
+      testState.beforeHealthResponse = () => { throw new Error(`Connection refused ${privatePayload}`); };
+      const put = vi.mocked(storage().put).getMockImplementation()!;
+      vi.spyOn(storage(), 'put').mockImplementation(async (key, value) => {
+        if (key === TRANSPORT_FAILURE_STREAK_KEY) throw new Error(privatePayload);
+        await put(key, value);
+      });
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        const session = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session & Pick<D1Session, 'unreachableIncidentId'>;
+        expect(session).toMatchObject({ status: 'unreachable', unreachableIncidentId: expect.any(String) });
+        expect(entries).toContainEqual(expect.objectContaining({ level: 'warn', data: expect.objectContaining({
+          sessionId: session.id, lifecycleGeneration: 0, incidentId: session.unreachableIncidentId, errorClass: 'storage_write_failed',
+        }) }));
+        expectPrivateSafeLogs(entries);
+        expect(await storage().get(TRANSPORT_FAILURE_STREAK_KEY)).toBeUndefined();
+        expect(testState.scheduleCalls).toContainEqual([5, 'collectMetrics']);
+        expect(testState.platformStopSignals).toEqual([]);
+        expect(testState.abortReasons).toEqual([]);
+      });
+    });
+
+    it('AC4: retry alarm rejects with the original error without exporting its private payload', async () => {
+      runningSession();
+      const failure = new Error(privatePayload);
+      testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
+      vi.spyOn(containerInstance, 'schedule').mockRejectedValueOnce(failure);
+      await withStructuredLogs(async entries => {
+        await expect(containerInstance.collectMetrics()).rejects.toBe(failure);
+        expect(entries).toContainEqual(expect.objectContaining({ level: 'error', data: expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0, incidentId: null, errorClass: 'schedule_failed',
+        }) }));
+        expectPrivateSafeLogs(entries);
+        expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({ status: 'running' });
+        expect(testState.storageStore.get('usageSeconds')).toBeUndefined();
+        expect(testState.platformStopSignals).toEqual([]);
+      });
+    });
+
+    it.each(['read', 'write'] as const)('AC4: private startup timing %s failure cannot authorize idle stop', async operation => {
+      runningSession();
+      testState.activityResult.lastInputAt = null;
+      (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+      if (operation === 'read') {
+        const get = storage().get.bind(storage());
+        vi.spyOn(storage(), 'get').mockImplementation(async <T>(key: string): Promise<T | undefined> => {
+          if (key === 'containerStartedAt') throw new Error(privatePayload);
+          return get<T>(key);
+        });
+      } else {
+        const put = vi.mocked(storage().put).getMockImplementation()!;
+        vi.spyOn(storage(), 'put').mockImplementation(async (key, value) => {
+          if (key === 'containerStartedAt') throw privatePayload;
+          await put(key, value);
+        });
+      }
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        expect(entries).toContainEqual(expect.objectContaining({ level: 'warn', data: expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0, incidentId: null,
+          errorClass: operation === 'read' ? 'storage_read_failed' : 'storage_write_failed',
+        }) }));
+        expectPrivateSafeLogs(entries);
+        expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({ status: 'running', metrics: { cpu: '45%', syncStatus: 'success' } });
+        expect(testState.platformStopSignals).toEqual([]);
+        expect(testState.abortReasons).toEqual([]);
+        expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      });
+    });
+
+    it('AC4: private D1 projection error retains runtime and retry without billing', async () => {
+      await enableTimekeeper();
+      runningSession();
+      const d1 = (containerInstance as unknown as { env: { USAGE_DB: D1Database } }).env.USAGE_DB;
+      const prepare = d1.prepare.bind(d1);
+      vi.spyOn(d1, 'prepare').mockImplementation((sql: string) => {
+        const statement = prepare(sql);
+        if (sql.includes('observation_sequence=?4')) (statement as unknown as { run: () => Promise<unknown> }).run = async () => { throw new Error(privatePayload); };
+        return statement;
+      });
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        expect(entries).toContainEqual(expect.objectContaining({ level: 'warn', data: expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0, incidentId: null, errorClass: 'd1_projection_failed',
+        }) }));
+        expectPrivateSafeLogs(entries);
+        expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({ status: 'running' });
+        expect(testState.storageStore.get('usageSeconds')).toBeUndefined();
+        expect(testState.platformStopSignals).toEqual([]);
+        expect(testState.abortReasons).toEqual([]);
+        expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      });
+    });
+
+    it('AC4: private Timekeeper failure retains accrued usage and re-arms', async () => {
+      const timekeeper = await enableTimekeeper();
+      runningSession();
+      timekeeper.fetch.mockRejectedValueOnce(new Error(privatePayload));
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        expect(entries).toContainEqual(expect.objectContaining({ level: 'warn', data: expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0, incidentId: null, errorClass: 'timekeeper_ping_failed',
+        }) }));
+        expectPrivateSafeLogs(entries);
+        expect(await storage().get('usageSeconds')).toBe(60);
+        expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({ status: 'running' });
+        expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+        expect(testState.platformStopSignals).toEqual([]);
+      });
+    });
+
+    it('AC1/2/4: idle final-sync failure stays correlated and private-safe while best-effort stop still completes', async () => {
+      runningSession();
+      testState.storedSleepAfter = '15m';
+      testState.activityResult.lastInputAt = Date.now() - 30 * 60_000;
+      testState.finalSyncError = new Error('Bearer PRIVATE_SYNC_CANARY /private/sync-path transcript:PRIVATE_SYNC_TEXT');
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
+        expect(entries).toContainEqual(expect.objectContaining({ level: 'warn', data: expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0, incidentId: null, errorClass: expect.any(String),
+        }) }));
+        // Closed initiator metadata distinguishes policy shutdown from an unknown SDK callback.
+        expect(entries).toContainEqual(expect.objectContaining({ data: expect.objectContaining({ reason: 'idle' }) }));
+        const serialized = JSON.stringify(entries);
+        for (const value of ['PRIVATE_SYNC_CANARY', '/private/sync-path', 'PRIVATE_SYNC_TEXT']) expect(serialized).not.toContain(value);
+      });
+    });
+
+    it.each(['idle', 'quota'] as const)(
+      'REQ-SESSION-026 AC1: %s stop propagates its required alarm failure, not an ancillary failure',
+      async reason => {
+        const timekeeper = reason === 'quota' ? await enableTimekeeper({ quotaExceeded: true }) : undefined;
+        runningSession();
+        // A healthy tick begins billable, then the SDK hint drops while the host responds.
+        // Starting SDK-false would be a recovery tick and correctly skip quota polling.
+        testState.beforeHealthResponse = () => { testState.containerRunning = false; };
+        if (reason === 'idle') {
+          testState.storedSleepAfter = '15m';
+          testState.activityResult.lastInputAt = Date.now() - 30 * 60_000;
+        }
+        const failure = new Error(`required alarm unavailable ${privatePayload}`);
+        // Only the required stop alarm fails. An unrelated later re-arm would succeed;
+        // it must not hide this terminal failure. This is not the monitored-exit retry lane.
+        const schedule = vi.spyOn(containerInstance, 'schedule').mockRejectedValueOnce(failure);
+        try {
+          await withStructuredLogs(async entries => {
+            await expect(containerInstance.collectMetrics()).rejects.toBe(failure);
+            expect(entries).toContainEqual(expect.objectContaining({ data: expect.objectContaining({ reason }) }));
+            expect(entries).toContainEqual(expect.objectContaining({ level: 'error', data: expect.objectContaining({
+              sessionId: 'testsession123456', lifecycleGeneration: 0,
+              incidentId: null, errorClass: 'schedule_failed',
+            }) }));
+            expect(entries.map(entry => entry.data?.errorClass)).not.toContain('runtime_observation_failed');
+            expect(entries.map(entry => entry.data?.errorClass)).not.toContain('timekeeper_ping_failed');
+            expectPrivateSafeLogs(entries);
+          });
+          expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'signal']);
+          expect(testState.platformStopSignals).toEqual([15]);
+          expect(testState.scheduleCalls).toEqual([]);
+          expect(testState.abortReasons).toEqual([]);
+          expect(await mockKV.get('session:test-bucket:testsession123456', 'json')).toMatchObject({
+            status: 'running', lifecycleGeneration: 0, workspace: 'terminal',
+          });
+          // Quota is learned from the ordinary ping: preserve its one existing usage minute,
+          // but do not turn the failed stop into an additional billable observation.
+          expect(await storage().get('usageSeconds')).toBe(reason === 'quota' ? 60 : undefined);
+          if (timekeeper) {
+            const body = await ((timekeeper.fetch.mock.calls as unknown as Array<[Request]>)[0][0]).clone().json();
+            expect(body).toMatchObject({ totalSeconds: 60, sessionId: 'testsession123456' });
+          }
+        } finally { schedule.mockRestore(); }
+      },
+    );
+
+    it('AC2: quota shutdown is distinct from idle and still drains before stopping', async () => {
+      await enableTimekeeper({ quotaExceeded: true });
+      runningSession();
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        expect(testState.callOrder).toEqual(['agent-events-final', 'finalsync', 'stop']);
+        expect(entries).toContainEqual(expect.objectContaining({ data: expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0, reason: 'quota',
+        }) }));
+      });
+    });
   });
 
   describe('onStart', () => {
@@ -521,18 +817,21 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.agentDrainRequests[1]?.body).toEqual({ ackEventIds: ['event-a'] });
     });
 
-    it('REQ-SEC-024 AC1 / D3: rejects invalid version, kind, age, count, and display-shaped fields', async () => {
+    it.each([
+      { schemaVersion: 2, eventId: 'bad-version', kind: 'input-required', createdAt: 1_700_000_000_000 },
+      { schemaVersion: 1, eventId: 'bad-kind', kind: 'arbitrary', createdAt: 1_700_000_000_000 },
+      { schemaVersion: 1, eventId: 'too-old', kind: 'input-required', createdAt: 1_699_999_000_000 },
+      { schemaVersion: 1, eventId: 'injected', kind: 'input-required', createdAt: 1_700_000_000_000, sessionName: 'attacker' },
+    ])('REQ-SEC-024 AC1 / D3: rejects $eventId independently without delivery, ACK or payload logging', async badEvent => {
       setNotificationSession();
-      testState.agentDrainEvents = [
-        { schemaVersion: 2, eventId: 'bad-version', kind: 'input-required', createdAt: 1_700_000_000_000 },
-        { schemaVersion: 1, eventId: 'bad-kind', kind: 'arbitrary', createdAt: 1_700_000_000_000 },
-        { schemaVersion: 1, eventId: 'too-old', kind: 'input-required', createdAt: 1_699_999_000_000 },
-        { schemaVersion: 1, eventId: 'injected', kind: 'input-required', createdAt: 1_700_000_000_000, sessionName: 'attacker' },
-      ];
-
-      await containerInstance.collectMetrics();
-
-      expect(sendAgentEventPushesMock).not.toHaveBeenCalled();
+      testState.agentDrainEvents = [badEvent];
+      await withStructuredLogs(async entries => {
+        await containerInstance.collectMetrics();
+        expect(sendAgentEventPushesMock).not.toHaveBeenCalled();
+        expect(testState.agentDrainRequests.map(request => request.body)).toEqual([{ ackEventIds: [] }]);
+        expect(JSON.stringify(entries)).not.toContain(badEvent.eventId);
+        expect(JSON.stringify(entries)).not.toContain('attacker');
+      });
       expect(testState.agentDrainCalls).toBe(1);
     });
 
@@ -604,16 +903,47 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       )).toHaveLength(2);
     });
 
-    it('D3/D4: notification polling never mutates activity or usage inputs', async () => {
+    it('D3/D4: delivered notifications preserve parsed activity and cannot extend the idle deadline', async () => {
+      let now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      const timekeeper = await enableTimekeeper({ saasMode: false });
       setNotificationSession();
-      testState.agentDrainEvents = [];
-      const activityBefore = structuredClone(testState.activityResult);
+      const key = 'session:test-bucket:testsession123456';
+      const original = await mockKV.get(key, 'json') as Session;
+      const inputAt = now - 59 * 60_000;
+      const startedAt = now - 2 * 3_600_000;
+      testState.storedSleepAfter = '1h';
+      testState.activityResult.lastInputAt = inputAt;
+      await storage().put('containerStartedAt', startedAt);
+      mockKV._set(key, { ...original, lastInputAt: new Date(inputAt).toISOString() });
+      testState.agentDrainEvents = [{ schemaVersion: 1, eventId: 'idle-notification',
+        kind: 'input-required', createdAt: now - 1000 }];
 
       await containerInstance.collectMetrics();
 
-      expect(testState.activityResult).toEqual(activityBefore);
-      expect(testState.stopCalls).toBe(0);
-      expect(testState.agentDrainCalls).toBe(1);
+      // These are outputs of processing Response.json(), not the untouched host fixture.
+      const projected = await mockKV.get(key, 'json') as Session & { lastInputAt: string };
+      expect(projected.lastInputAt).toBe(new Date(inputAt).toISOString());
+      expect(projected.lastAccessedAt).toBe(original.lastAccessedAt);
+      expect(projected.lastActiveAt).toBe(original.lastActiveAt);
+      expect(await storage().get('containerStartedAt')).toBe(startedAt);
+      expect(await storage().get('usageSeconds')).toBe(60);
+      const usagePings = await Promise.all(timekeeper.fetch.mock.calls.map(async ([request]) => request.clone().json()));
+      expect(usagePings).toEqual([{ bucketName: 'test-bucket', sessionId: 'testsession123456',
+        totalSeconds: 60, email: 'quota@example.com' }]);
+      expect(testState.agentDrainRequests.map(request => request.body)).toContainEqual({ ackEventIds: ['idle-notification'] });
+      expect(testState.platformStopSignals).toEqual([]);
+
+      now += 2 * 60_000;
+      await containerInstance.collectMetrics();
+
+      expect(testState.platformStopSignals).toEqual(['SIGTERM']);
+      expect(await storage().get('containerStartedAt')).toBe(startedAt);
+      expect(await storage().get('usageSeconds')).toBe(60);
+      expect(await Promise.all(timekeeper.fetch.mock.calls.map(async ([request]) => request.clone().json())))
+        .toEqual(usagePings);
+      expect((await mockKV.get(key, 'json') as Session & { lastInputAt: string }).lastInputAt)
+        .toBe(new Date(inputAt).toISOString());
     });
 
     it('warns when /health reports an unhealthy R2 sync (failed/timeout) so an in-container bisync death is visible in Workers logs', async () => {
@@ -629,7 +959,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('collectMetrics: container R2 sync unhealthy', { syncStatus: 'failed' });
+      expect(mockLogger.warn).toHaveBeenCalledWith('collectMetrics: container R2 sync unhealthy', {
+        sessionId: 'testsession123456', lifecycleGeneration: 0, incidentId: null, syncStatus: 'failed',
+      });
 
       // A healthy sync must NOT warn (no alert noise on the steady state).
       mockLogger.warn.mockClear();
@@ -833,7 +1165,8 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
         createdAt: new Date(now).toISOString(), lastAccessedAt: new Date(now).toISOString(),
       } as Session);
-      await containerInstance.collectMetrics();
+      // Missing policy is observed once; unchanged activity age must not require another ordinary event.
+      if (scenario.provenance !== 'missing') await containerInstance.collectMetrics();
       testState.storedSleepAfter = scenario.value;
       testState.activityResult.lastInputAt = scenario.noInput ? null : now - 2 * 3_600_000;
       if (scenario.readFailure) testState.storageGetFailures.add('sleepAfter');
@@ -962,13 +1295,20 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
       testState.scheduleFailuresRemaining = 1;
 
-      // Observe the single failing tick immediately and retain its rejection
-      // as an outcome that can be asserted without another rejected promise.
-      const observed = containerInstance.collectMetrics().then(
-        () => ({ ok: true }),
-        error => ({ ok: false, error }),
-      );
-      expect(await observed).toMatchObject({ ok: false, error: new Error('schedule failed') });
+      const errors: unknown[] = [];
+      mockLogger.error.mockImplementation((...args: unknown[]) => { errors.push(args[2]); });
+      try {
+        const observed = containerInstance.collectMetrics().then(
+          () => ({ ok: true }),
+          error => ({ ok: false, error }),
+        );
+        expect(await observed).toMatchObject({ ok: false, error: new Error('schedule failed') });
+        expect(errors).toContainEqual(expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0,
+          incidentId: null, errorClass: 'schedule_failed',
+        }));
+        expect(JSON.stringify(errors)).not.toContain('agent-event-token');
+      } finally { mockLogger.error.mockReset(); }
 
       expect(testState.scheduleCalls).toEqual([]);
       expect(testState.callOrder).toEqual([]);
@@ -976,6 +1316,56 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.abortReasons).toEqual([]);
       expect(await storage().get('usageSeconds')).toBeUndefined();
       expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'running', workspace: 'terminal' });
+    });
+
+    it('REQ-SESSION-026 AC1: required alarm failure retains the observed D1 incident identity', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+      testState.tcpFetchShouldFail = true;
+      testState.scheduleFailuresRemaining = 1;
+      const errors: unknown[] = [];
+      mockLogger.error.mockImplementation((...args: unknown[]) => { errors.push(args[2]); });
+      try {
+        await expect(containerInstance.collectMetrics()).rejects.toThrow('schedule failed');
+        const env = (containerInstance as unknown as { env: { USAGE_DB: D1Database } }).env;
+        const session = await new D1SessionRepository(env.USAGE_DB).getSession('test-bucket', 'testsession123456');
+        expect(session?.unreachableIncidentId).toEqual(expect.any(String));
+        expect(errors).toContainEqual(expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0,
+          incidentId: session?.unreachableIncidentId, errorClass: 'schedule_failed',
+        }));
+        expect(await storage().get('usageSeconds')).toBeUndefined();
+        expect(JSON.stringify(errors)).not.toContain('agent-event-token');
+      } finally { mockLogger.error.mockReset(); }
+    });
+
+    it.each(['stop', 'error'] as const)('REQ-SESSION-026 AC1: %s callback alarm failures retain captured context and ownership', async (callback) => {
+      const key = 'session:test-bucket:testsession123456';
+      mockKV._set(key, {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      } as Session);
+      const env = (containerInstance as unknown as { env: { USAGE_DB: D1Database } }).env;
+      const incident = await new D1SessionRepository(env.USAGE_DB).observeUnreachable(
+        'test-bucket', 'testsession123456', 0, 0, 'observed-incident', Date.now(),
+      );
+      expect(incident?.unreachableIncidentId).toBe('observed-incident');
+      testState.scheduleFailuresRemaining = 1;
+      const errors: unknown[] = [];
+      mockLogger.error.mockImplementation((...args: unknown[]) => { errors.push(args[2]); });
+      try {
+        await expect(callback === 'stop'
+          ? containerInstance.onStop()
+          : containerInstance.onError(new Error('Network connection lost.'))).rejects.toThrow('schedule failed');
+        expect(errors).toContainEqual(expect.objectContaining({
+          sessionId: 'testsession123456', lifecycleGeneration: 0,
+          incidentId: callback === 'stop' ? 'observed-incident' : null, errorClass: 'schedule_failed',
+        }));
+        expect(await mockKV.get(key, 'json')).toMatchObject({ status: 'unreachable', unreachableIncidentId: 'observed-incident' });
+        expect(await storage().get('usageSeconds')).toBeUndefined();
+      } finally { mockLogger.error.mockReset(); }
     });
 
     it('deliberate shutdown still suppresses an unnecessary ownership-read retry alarm', async () => {
@@ -1427,13 +1817,19 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     // abort support is not established. This stub ignores the signal entirely and
     // never answers — exactly the unproven case — and the alarm must still re-arm.
     // Deleting the race in raceBudget hangs this test until its own timeout.
-    it('REQ-SESSION-020 AC1: re-arms the alarm when the Timekeeper ping never answers', async () => {
+    it.each(['headers', 'body'])('REQ-SESSION-020 AC3: bounds peer %s stalls, re-arms and permits a later tick', async stall => {
       testState.storedBucketName = 'test-bucket';
       testState.storedSessionId = 'testsession123456';
       testState.storedUserEmail = 'quota@example.com';
 
+      let cancelled = false;
       const timekeeperStub = {
-        fetch: vi.fn(() => new Promise<Response>(() => { /* never settles, signal ignored */ })),
+        fetch: vi.fn(() => stall === 'headers'
+          ? new Promise<Response>(() => { /* never settles, signal ignored */ })
+          : Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+            start(controller) { controller.enqueue(new TextEncoder().encode('{')); },
+            cancel() { cancelled = true; },
+          })))),
       };
       const TIMEKEEPER = {
         idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
@@ -1484,7 +1880,11 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         vi.useRealTimers();
       }
 
-      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      if (stall === 'body') expect(cancelled).toBe(true);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
+      timekeeperStub.fetch.mockImplementation(async () => Response.json({ quotaExceeded: false }));
+      testState.scheduleCalls = [];
+      await instance.collectMetrics();
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 

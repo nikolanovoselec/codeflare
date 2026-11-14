@@ -24,6 +24,7 @@ vi.mock('../../lib/logger', () => ({
 }));
 
 import { Timekeeper, resetUserRecordCache } from '../../timekeeper/index';
+import { getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 import { getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../../lib/kv-keys';
 import { createAccountingState } from '../../timekeeper/accounting';
 
@@ -91,6 +92,7 @@ function createBillingTimekeeper(initialUser: Record<string, unknown>) {
   return {
     timekeeper: new Timekeeper(ctx, { KV: kv, SAAS_MODE: 'active' } as any),
     readUser: () => JSON.parse(userRecords.get('user:alice@example.com') ?? '{}') as Record<string, unknown>,
+    restart: () => new Timekeeper(ctx, { KV: kv, SAAS_MODE: 'active' } as any),
   };
 }
 
@@ -126,6 +128,25 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
       const body = await res.json() as { quotaExceeded: boolean; totalMonthlySeconds: number };
       expect(body.quotaExceeded).toBe(false);
       expect(body.totalMonthlySeconds).toBe(60);
+    });
+
+    it('REQ-ENTERPRISE-001 AC3: enterprise pings retain accounting beyond SaaS quota without enforcement', async () => {
+      mockKV.get.mockImplementation(async (key: string, type?: string) => {
+        if (key.startsWith('user:')) return JSON.stringify({ subscriptionTier: 'free', billingStatus: 'active' });
+        if (key.startsWith('timekeeper:')) {
+          const record = { today: { date: TODAY, seconds: 999999 }, thisWeek: { weekStart: THIS_WEEK_START, seconds: 999999 },
+            thisMonth: { month: THIS_MONTH, seconds: 999999 }, thisYear: { year: THIS_YEAR, seconds: 999999 },
+            allTime: { seconds: 999999 }, lastUpdatedAt: NOW.toISOString() };
+          return type === 'json' ? record : JSON.stringify(record);
+        }
+        return null;
+      });
+      const tk = createTimekeeper({ ENTERPRISE_MODE: 'active' });
+      const response = await tk.fetch(pingRequest({ bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 60, email: 'alice@example.com' }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ quotaExceeded: false, totalMonthlySeconds: 1000059 });
+      const persisted = mockStorage.put.mock.calls.filter(call => call[0] === 'accountingState:v2').at(-1)![1];
+      expect(persisted).toMatchObject({ pendingSeconds: 60 });
     });
 
     it('stores bucketName on first ping', async () => {
@@ -525,8 +546,19 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
 
       await tk.alarm();
 
-      // Should re-arm alarm for retry (30s)
-      expect(mockStorage.setAlarm).toHaveBeenCalledWith(expect.any(Number));
+      // Fixed retry interval, including repeated failure; not exponential backoff.
+      vi.useFakeTimers();
+      try {
+        mockKV.put.mockRejectedValue(new Error('KV still unavailable'));
+        for (const at of [1_800_000_000_000, 1_800_000_030_000]) {
+          vi.setSystemTime(at);
+          await tk.alarm();
+          expect(mockStorage.setAlarm.mock.calls.at(-1)).toEqual([at + 30_000]);
+        }
+      } finally {
+        vi.useRealTimers();
+        mockKV.put.mockResolvedValue(undefined);
+      }
       // Unified state remains at 60; failed KV work never checkpoints it to 0.
       const lastStateWrite = mockStorage.put.mock.calls
         .filter((c: unknown[]) => c[0] === 'accountingState:v2')
@@ -537,10 +569,17 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
   });
 
   describe('trial quota enforcement (CF-020)', () => {
-    it('returns quotaExceeded=true when trialing user exceeds trialQuotaHours', async () => {
-      // Standard tier: trialQuotaHours=40 => 144000s
+    it('ends the provider trial at its distinct trial cap before the monthly cap', async () => {
+      resetTierConfigCache();
+      const tiers = getDefaultTiers().map(tier => tier.id === 'standard'
+        ? { ...tier, trialQuotaHours: 1, monthlySeconds: 40 * 3600 } : tier);
+      const requests: Array<{ url: string; method: string | undefined; body: URLSearchParams }> = [];
+      vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+        requests.push({ url: String(url), method: init?.method, body: new URLSearchParams(String(init?.body)) });
+        return new Response('{}', { status: 200 });
+      }));
       mockKV.get.mockImplementation(async (key: string, type?: string) => {
-        if (key === 'tiers:config') return null; // use defaults
+        if (key === 'tiers:config') return type === 'json' ? tiers : JSON.stringify(tiers);
         if (key.startsWith('user:')) return JSON.stringify({
           subscriptionTier: 'standard', billingStatus: 'trialing',
           stripeSubscriptionId: 'sub_123',
@@ -549,21 +588,37 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
           const record = {
             today: { date: TODAY, seconds: 0 },
             thisWeek: { weekStart: THIS_WEEK_START, seconds: 0 },
-            thisMonth: { month: THIS_MONTH, seconds: 143900 },
-            thisYear: { year: THIS_YEAR, seconds: 143900 },
-            allTime: { seconds: 143900 },
+            thisMonth: { month: THIS_MONTH, seconds: 3590 },
+            thisYear: { year: THIS_YEAR, seconds: 3590 },
+            allTime: { seconds: 3590 },
             lastUpdatedAt: new Date().toISOString(),
           };
           return type === 'json' ? record : JSON.stringify(record);
         }
         return null;
       });
-      const tk = createTimekeeper();
-      const res = await tk.fetch(pingRequest({
-        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 200, email: 'alice@example.com',
-      }));
-      const body = await res.json() as { quotaExceeded: boolean };
-      expect(body.quotaExceeded).toBe(true);
+      try {
+        const tk = createTimekeeper({ STRIPE_SECRET_KEY: 'test-stripe-key' });
+        const res = await tk.fetch(pingRequest({
+          bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 200, email: 'alice@example.com',
+        }));
+        const body = await res.json() as { quotaExceeded: boolean; totalMonthlySeconds: number };
+        expect(body.quotaExceeded).toBe(true);
+        expect(body.totalMonthlySeconds).toBeGreaterThanOrEqual(3600);
+        expect(body.totalMonthlySeconds).toBeLessThan(40 * 3600);
+        expect(requests.map(({ url, method, body }) => ({ url, method, fields: Object.fromEntries(body) })))
+          .toEqual([{
+            url: 'https://api.stripe.com/v1/subscriptions/sub_123', method: 'POST',
+            fields: {
+              trial_end: 'now',
+              billing_cycle_anchor: String(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth() + 1, 1) / 1000),
+            },
+          }]);
+        expect(mockStorage.put).toHaveBeenCalledWith('trialEnded', true);
+      } finally {
+        vi.unstubAllGlobals();
+        resetTierConfigCache();
+      }
     });
   });
 
@@ -618,6 +673,38 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
   });
 
   describe('billing sync deletion ordering', () => {
+    it('REQ-SUB-004 AC7: checkout receipts suppress reapplication and retain subscription date/trial history', async () => {
+      const { timekeeper, readUser, restart } = createBillingTimekeeper({ subscribedAt: '2025-01-01T00:00:00.000Z', stripeSubscriptionId: 'sub_old', trialUsed: true });
+      const start = async () => {
+        const res = await timekeeper.fetch(billingRequest('/billing-sync/start', { userEmail: 'alice@example.com' }));
+        return (await res.json() as { token: number }).token;
+      };
+      const patch = { stripeSubscriptionId: 'sub_old', stripeCustomerId: 'cus_old', billingStatus: 'active', cancelAtPeriodEnd: false,
+        lastSyncedAt: '2026-01-01T00:00:00.000Z', subscriptionTier: 'standard', accessTier: 'standard' };
+      const checkout = { sessionId: 'cs_old', subscribedAt: '2025-01-01T00:00:00.000Z' };
+      const apply = async () => timekeeper.fetch(billingRequest('/billing-sync/apply', { userEmail: 'alice@example.com', token: await start(), patch, checkout }));
+      expect(await (await apply()).json()).toMatchObject({ applied: true, notifyCheckout: true, subscribedAt: checkout.subscribedAt });
+      expect(await (await apply()).json()).toMatchObject({ applied: false });
+      expect(readUser()).toMatchObject({ subscribedAt: checkout.subscribedAt, trialUsed: true });
+      const replayStart = await restart().fetch(billingRequest('/billing-sync/start', { userEmail: 'alice@example.com', checkoutSessionId: checkout.sessionId }));
+      expect(await replayStart.json()).toEqual({ checkoutCompleted: true });
+    });
+
+    it('REQ-SUB-004 AC7: late deletion and update for a different subscription preserve current billing state', async () => {
+      const current = { stripeSubscriptionId: 'sub_new', stripeCustomerId: 'cus_old', billingStatus: 'active', subscriptionTier: 'max', accessTier: 'max' };
+      const { timekeeper, readUser } = createBillingTimekeeper(current);
+      for (const patch of [
+        { cleanupBillingState: true, subscriptionId: 'sub_old', billingStatus: 'canceled', subscriptionTier: 'free', accessTier: 'free', subscribedMode: 'default' },
+        { stripeSubscriptionId: 'sub_old', stripeCustomerId: 'cus_old', billingStatus: 'canceled', cancelAtPeriodEnd: false, lastSyncedAt: '2026-01-01T00:00:00.000Z' },
+      ]) {
+        const start = await timekeeper.fetch(billingRequest('/billing-sync/start', { userEmail: 'alice@example.com' }));
+        const { token } = await start.json() as { token: number };
+        const res = await timekeeper.fetch(billingRequest('/billing-sync/apply', { userEmail: 'alice@example.com', token, patch }));
+        expect(await res.json()).toEqual({ applied: false });
+        expect(readUser()).toEqual(current);
+      }
+    });
+
     it('REQ-SUB-015 AC3: canceled/free cleanup rejects an older paid apply', async () => {
       const { timekeeper, readUser } = createBillingTimekeeper({
         addedBy: 'self',

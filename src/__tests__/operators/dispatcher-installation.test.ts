@@ -4,10 +4,14 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import type { Env } from '../../types';
 import { OperatorRegistry } from '../../operators/registry';
 import { verifyDispatcherDeployment } from '../../operators/dispatcher-deployment';
-import { openOperatorSecret } from '../../operators/protected-secrets';
+import { openOperatorSecret, sealOperatorSecret } from '../../operators/protected-secrets';
+import { OperatorInstalledDispatcherCapability } from '../../operators/activity';
+import { captureError, hashDiagnostic } from '../../operators/dispatcher-diagnostics-wire';
+import { dispatcherRefusal } from '../../operators/dispatcher-refusal';
+import { setLogLevel } from '../../lib/logger';
 import { createMockKV } from '../helpers/mock-kv';
 import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture';
-import { connectionSecret, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
+import { connectionSecret, normalCallback, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
 
 let callerEmail = 'manager@example.test';
 vi.mock('../../middleware/auth', async original => ({ ...await original<typeof import('../../middleware/auth')>(),
@@ -22,7 +26,7 @@ vi.mock('../../lib/access', async original => ({ ...await original<typeof import
 }));
 import worker from '../../index';
 
-afterEach(() => { callerEmail = 'manager@example.test'; vi.unstubAllGlobals(); });
+afterEach(() => { callerEmail = 'manager@example.test'; setLogLevel('silent'); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const encryption = { ENCRYPTION_KEY: btoa('k'.repeat(32)) };
 const policy = { capabilities: [], resourceProfileId: null };
 const grant = { users: ['manager@example.test'], groups: [] };
@@ -326,4 +330,113 @@ describe('normal Dispatcher installation connection', () => {
     }
     expect(await (await f.request(`/operators/${f.operatorId}`)).json()).toEqual(before);
   }));
+});
+
+// Native installed entrypoint with authenticated Registry data and a controlled owner RPC.
+// This tests the service wire/telemetry boundary, not SDK execution or deployment acceptance.
+async function installedBoundary(owner: (generation: number, request: Request) => Promise<Response>) {
+  const connection = { ...normalDeployment, installationId: 'installation', releaseId: 'release', connectionRevision: 1,
+    manifestDigest: 'd'.repeat(64), bundleDigest: 'e'.repeat(64),
+    connectionSecretCiphertext: await sealOperatorSecret(connectionSecret, encryption,
+      { purpose: 'connection', recordId: 'installation' }) };
+  const registry = { getManagementDispatcherConnection: async () => connection,
+    getManagementDispatcherAbortConnection: async () => connection };
+  const capability = new OperatorInstalledDispatcherCapability({ props: {} } as unknown as ExecutionContext,
+    { ...encryption, OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => ({
+      dispatcherInstalledCallback: owner, dispatcherLoggingPolicy: owner, dispatcherAbortAuthority: owner,
+    }) } } as unknown as Env);
+  const lines: string[] = [];
+  for (const sink of ['log', 'warn', 'error'] as const) vi.spyOn(console, sink).mockImplementation(value => { lines.push(String(value)); });
+  setLogLevel('info');
+  return { capability, lines, records: () => lines.map(line => JSON.parse(line)) };
+}
+
+const boundaryActivity = 'PRIVATE_ACTIVITY_IDENTIFIER';
+const boundaryCorrelation = { generation: 7,
+  activityDigest: hashDiagnostic(`codeflare:installed-dispatcher:activity:v1\0${boundaryActivity}`) };
+function boundaryRequest(path: string, headers: Record<string, string> = {}) {
+  return normalCallback(boundaryActivity, path, { prompt: 'PRIVATE_REQUEST_BODY' }, {
+    'x-codeflare-operator-generation': '7', cookie: 'PRIVATE_COOKIE', 'x-private': 'PRIVATE_HEADER', ...headers,
+  });
+}
+
+// Exact metadata is the platform log privacy contract: no request/response content or raw exceptions.
+describe('installed Dispatcher boundary diagnostics', () => {
+  it('REQ-OPERATOR-063/084: authenticated 200 preserves the same readable response and emits no failure', async () => {
+    const original = new Response('PRIVATE_SUCCESS_BODY', { headers: { 'x-original': 'preserved' } });
+    const f = await installedBoundary(async () => original);
+    const request = boundaryRequest('pi/config');
+    const response = await f.capability.fetch(request);
+    expect(response).toBe(original);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-original')).toBe('preserved');
+    expect(response.bodyUsed).toBe(false);
+    expect(request.bodyUsed).toBe(false);
+    expect(await response.text()).toBe('PRIVATE_SUCCESS_BODY');
+    expect(f.lines).toEqual([]);
+  });
+
+  it.each([
+    ['pi/config', 'pi-config'], ['gateway', 'gateway'], ['model-fetch', 'model-fetch'],
+    ['model-admission', 'model-admission'], ['logging-policy', 'logging-policy'],
+    ['abort-authority', 'abort-authority'], ['PRIVATE_UNKNOWN_PATH', 'other'], ['pi/credentials', 'other'],
+  ])('REQ-OPERATOR-063/084: HTTP refusal on %s retains body and only closed correlated metadata', async (path, route) => {
+    const original = dispatcherRefusal('execution-inactive');
+    original.headers.set('x-private', 'PRIVATE_RESPONSE_HEADER');
+    const f = await installedBoundary(async () => original);
+    const request = boundaryRequest(path);
+    const response = await f.capability.fetch(request);
+    expect(response).toBe(original);
+    expect(response.status).toBe(403);
+    expect(response.bodyUsed).toBe(false);
+    expect(request.bodyUsed).toBe(false);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'execution-inactive', disposition: 'authority-denied' });
+    expect(f.records()).toEqual([expect.objectContaining({ level: 'warn', message: 'Installed Dispatcher callback failed',
+      data: { ...boundaryCorrelation, route, stage: 'owner-response', status: 403 } })]);
+    expect(f.lines.join('\n')).not.toMatch(/PRIVATE_|fixture-installation-secret|Bearer|operator\.internal/);
+  });
+
+  it('REQ-OPERATOR-063/084: authenticated async RPC rejection propagates the identical error with safe cause fingerprints', async () => {
+    const original = new SyntaxError('PRIVATE_ERROR_MESSAGE', { cause: new Error(`PRIVATE_CAUSE ${connectionSecret}`) });
+    original.stack = 'SyntaxError: PRIVATE_STACK https://private.example.test/user';
+    const f = await installedBoundary(async (generation, request) => {
+      expect(generation).toBe(7);
+      expect(request.bodyUsed).toBe(false);
+      await Promise.resolve(); throw original;
+    });
+    await expect(f.capability.fetch(boundaryRequest('pi/config'))).rejects.toBe(original);
+    expect(f.records()).toEqual([expect.objectContaining({ level: 'warn', message: 'Installed Dispatcher callback failed',
+      data: { ...boundaryCorrelation, route: 'pi-config', stage: 'owner-rpc', error: captureError(original) } })]);
+    expect(f.lines.join('\n')).not.toMatch(/PRIVATE_|fixture-installation-secret|Bearer|private\.example|operator\.internal/);
+  });
+
+  it.each(['wrong-secret', 'foreign-origin', 'foreign-version'])('REQ-OPERATOR-063: %s authentication refusal remains unchanged without correlation disclosure', async fault => {
+    const f = await installedBoundary(async () => new Response('MUST_NOT_REACH_OWNER'));
+    const request = boundaryRequest('pi/config', fault === 'wrong-secret' ? { authorization: 'Bearer PRIVATE_WRONG_SECRET' }
+      : fault === 'foreign-version' ? { 'x-codeflare-operator-worker-version': 'PRIVATE_FOREIGN_VERSION' } : {});
+    const response = await f.capability.fetch(fault === 'foreign-origin'
+      ? new Request('https://foreign.example.test/v1/dispatcher/pi/config', request) : request);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'execution-inactive', disposition: 'authority-denied' });
+    expect(f.lines).toEqual([]);
+  });
+
+  it.each(['response', 'rejection'] as const)('REQ-OPERATOR-063: failed telemetry cannot replace original %s', async outcome => {
+    const originalResponse = new Response('PRIVATE_REFUSAL_BODY', { status: 502 });
+    const originalError = new Error('PRIVATE_ORIGINAL_REJECTION');
+    const f = await installedBoundary(async () => {
+      if (outcome === 'rejection') throw originalError;
+      return originalResponse;
+    });
+    for (const sink of ['log', 'warn', 'error'] as const) vi.spyOn(console, sink).mockImplementation(() => { throw new Error('PRIVATE_LOGGER_FAILURE'); });
+    const pending = f.capability.fetch(boundaryRequest('model-fetch'));
+    if (outcome === 'rejection') await expect(pending).rejects.toBe(originalError);
+    else {
+      const response = await pending;
+      expect(response).toBe(originalResponse);
+      expect(response.status).toBe(502);
+      expect(response.bodyUsed).toBe(false);
+      expect(await response.text()).toBe('PRIVATE_REFUSAL_BODY');
+    }
+  });
 });

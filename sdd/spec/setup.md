@@ -54,7 +54,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/setup-ac-coverage.test.ts))
+**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -62,7 +62,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 ### REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile
 
-**Intent:** A single `POST /api/setup/configure` call provisions all required Cloudflare resources and stores the resulting configuration in Workers KV.
+**Intent:** A single Setup configuration request provisions all required Cloudflare resources and stores the resulting configuration in Workers KV.
 
 **Applies To:** Admin
 
@@ -78,14 +78,14 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Constraints:**
 
-- Each Cloudflare API call uses exponential backoff (3 total attempts, 1s base delay).
+- Operations wrapped in `withSetupRetry` use 3 total attempts with 1s/2s backoff; this is not an every-API-call guarantee. Zone lookup and Worker secret PUTs call the circuit breaker directly: zone lookup retains candidate-suffix/error handling, and secret writes retain the one-time code-10215 deploy-latest/retry recovery and explicit failure handling.
 - Circuit-breaker open errors are not retried.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/setup-ac-coverage.test.ts))
+**Verification:** Automated: [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -100,9 +100,9 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. Default mode uses Cloudflare Access authentication with manually allowlisted users via the setup wizard, gated by CF Access policies and a persistent allowlist. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/routes/setup-access-provisioning.test.ts (REQ-SETUP-003: CF Access provisioning gated by isSessionOidcMode + OAUTH_CLIENT_ID) -->
-2. Onboarding mode presents a public waitlist landing page for unauthenticated visitors and routes authenticated users into the application; when GitHub OAuth (`OAUTH_CLIENT_ID`) is configured the Worker authenticates via its own GitHub-OIDC session cookie and the setup wizard skips CF Access provisioning. <!-- @impl: src/lib/onboarding.ts::isOnboardingLandingPageActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
-3. SaaS mode uses a branded login and session credentials when GitHub OAuth is configured; setup skips CF Access, auto-provisions pending users, and manages state without Access groups or policies. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
-4. Deployment mode is determined at deploy time via Worker bindings; the setup wizard skips CF Access provisioning in any session-OIDC mode (SaaS OR onboarding) with `OAUTH_CLIENT_ID` set, and provisions CF Access (groups, app, policy) plus the enterprise vault SW-bypass app otherwise. <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+2. Onboarding mode presents a public waitlist landing page for unauthenticated visitors and routes authenticated users into the application. <!-- @impl: src/lib/onboarding.ts::isOnboardingLandingPageActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+3. SaaS mode uses a branded login and session credentials when GitHub OAuth is configured. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+4. Deployment mode is determined at deploy time via Worker bindings; the setup wizard skips CF Access provisioning in any session-OIDC mode (SaaS OR onboarding) with `OAUTH_CLIENT_ID` set, and provisions CF Access (groups, app, policy) plus the enterprise vault SW-bypass app otherwise. <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-access-provisioning.test.ts (REQ-SETUP-003: CF Access provisioning gated by isSessionOidcMode + OAUTH_CLIENT_ID) -->
 5. The frontend detects the active mode on load and renders the appropriate initial view: branded login for SaaS, setup wizard if unconfigured, or workspace redirect for default mode. <!-- @impl: web-ui/src/App.tsx::checkSetupStatus --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (App setup routing) -->
 
 **Constraints:**
@@ -115,7 +115,35 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/lib/onboarding.test.ts))
+**Verification:** Automated: [onboarding.test.ts](../../src/__tests__/lib/onboarding.test.ts), [setup-access-provisioning.test.ts](../../src/__tests__/routes/setup-access-provisioning.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [App.test.tsx](../../web-ui/src/__tests__/components/App.test.tsx)
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-230: Session OIDC setup provisioning
+
+**Intent:** Session-OIDC setup applies conditional Access omission and SaaS pending-user provisioning without changing deployment-mode fallback guards.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. In onboarding mode with GitHub OAuth (`OAUTH_CLIENT_ID`) configured, the Worker authenticates via its own GitHub-OIDC session cookie and the setup wizard skips CF Access provisioning. <!-- @impl: src/lib/onboarding.ts::isOnboardingLandingPageActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+2. In SaaS mode with GitHub OAuth configured, setup skips CF Access and manages state without Access groups or policies. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+3. SaaS setup auto-provisions pending users. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+
+**Constraints:**
+
+- Stress-test mode must not be active alongside SaaS mode (returns 503).
+- A session-OIDC mode (SaaS or onboarding) without `OAUTH_CLIENT_ID` configured falls back to CF Access authentication, and the setup wizard provisions CF Access for it.
+- The CF Access skip mirrors the runtime guard `isSessionOidcMode`, so a session-OIDC deployment never gets a stray Access app that would 302 the credential-less vault service-worker registration ([REQ-VAULT-017](vault.md#req-vault-017-silverbullet-native-service-worker)).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-SETUP-003](#req-setup-003-three-deployment-modes)
+
+**Verification:** Automated: [onboarding.test.ts](../../src/__tests__/lib/onboarding.test.ts)
 
 **Status:** Implemented
 
@@ -131,20 +159,27 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. Every step uses create-or-update semantics: reads are non-mutating, derived values are deterministic from the token, secrets overwrite, DNS/route/Access/Turnstile provisioning is upsert-shaped. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
 2. If a previous run partially completed, a retry updates existing resources and continues from the first step. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-004 AC2: if previous run partially completed, retry starts from step 1 and updates existing resources) -->
-3. Partial progress from failed runs is retained so the next call can resume. Setup is not marked complete on failure. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
+3. Partial progress from failed runs is retained so the next call can retry from the beginning. Failed initial setup does not mark setup complete; failed reconfiguration preserves existing completion and the post-setup admin gate. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
 4. "Already exists" errors on Worker routes and DNS records are handled only after the existing resource is verified correct or updated to the desired state; an unverified or failed update fails setup. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/routes/setup/custom-domain.test.ts (accepts an already-existing worker route only when its current state is correct) --> <!-- @test: src/__tests__/routes/setup/custom-domain.test.ts (updates an already-existing worker route whose state is wrong) --> <!-- @test: src/__tests__/routes/setup/custom-domain.test.ts (fails setup when an incorrect worker route cannot be updated) --> <!-- @test: src/__tests__/routes/setup/custom-domain.test.ts (resolves a duplicate DNS create and corrects its target and proxy state) -->
 5. The "latest version not yet deployed" error class on secret writes triggers an automatic redeploy of the latest Worker version followed by a retry. <!-- @impl: src/routes/setup/secrets.ts::handleSetSecrets --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-004 AC5: error code 10215 on secret write triggers auto-deploy then retry) -->
 
 **Constraints:**
 
-- A persistent lock prevents concurrent configure runs and is released on completion or failure; staleness has an upper bound.
-- The lock check returns an immediate error (with no step progress) if another configure run is already active and not yet stale.
+- The existing `setup:configuration` Container DO owns configure-versus-configure admission and task lifetime. A durable token and canonical input/target-worker fingerprint precede effects; submitted secrets are not stored in admission. Live overlap refuses immediately without step progress. <!-- @impl: src/container/index.ts::configureDeployment --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SETUP-004: concurrent configure cannot both publish; interrupted same-task retry recovers without takeover) --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: confirmed zone absence releases admission for corrected input) --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: live provider operation denies overlapping corrected input) --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: uncertain Access failure drains started deletions and retains changed-input fence) -->
+- Success releases the matching token.
+- Fresh admission also releases after definite terminal `ValidationError` or known pre-provisioning active-Environment refusal, once started siblings settle.
+- Wait for Environment completion before resubmitting.
+- Confirmed zone absence requires successful, well-formed empty lookups for every candidate; `SetupError` may wrap transport uncertainty and does not qualify.
+- Transport/provider uncertainty or crash retains authority until authorized identical-input success; resubmit the original validated configuration.
+- Later validation/refusal cannot clear that fence.
+- No TTL takeover, reset API or automatic replay exists.
+- `setup:configuring` KV is status only; external provider/control-plane actors remain unfenced.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/setup-ac-coverage.test.ts))
+**Verification:** Automated: [setup-provisioning-flows.test.ts](../../src/__tests__/routes/setup-provisioning-flows.test.ts), [index.test.ts](../../src/__tests__/container/index.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [custom-domain.test.ts](../../src/__tests__/routes/setup/custom-domain.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -165,14 +200,14 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Constraints:**
 
-- Admin role is resolved from the application's user record store, not from CF Access group membership, so the gate behaves identically across deployment modes.
+- Admin-gated routes accept an application-record admin or, in enterprise mode, a live match to a configured enterprise admin Access group. Group elevation is request-local to admin-gated routes; outside enterprise mode, application-role behavior is unchanged.
 - In SaaS mode the Worker enforces admin status itself; CF Access is not consulted.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Manual check
+**Verification:** Manual: [Post-setup authentication and admin-gate checks](#req-setup-005-post-setup-reconfiguration-requires-admin-auth)
 
 **Status:** Implemented
 
@@ -188,8 +223,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. The response uses NDJSON as its content type. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure response is NDJSON with Content-Type application/x-ndjson) -->
 2. Each line is a self-contained JSON object terminated by a newline. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) --> <!-- @manual: Inspect a configure response body and confirm every JSON object, including the terminal object, ends with a newline. -->
-3. Progress messages identify the step and report one of `running`, `success`, or `error`. <!-- @impl: src/routes/setup/shared.ts::SetupStep --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) -->
-4. Failure messages include a human-readable error description. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (configure error with steps) -->
+3. Progress messages identify the step and report one of `running`, `success`, or `error`. <!-- @impl: src/routes/setup/shared.ts::SetupStep --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) --> <!-- @test: src/__tests__/routes/setup.test.ts (returns error when get_account step fails) -->
+4. Failure messages include a human-readable error description. <!-- @impl: src/routes/setup/index.ts::default -->
 5. Every stream ends with exactly one terminal completion object that carries the overall success flag. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC5: response stream ends with exactly one object containing done: true) -->
 
 **Constraints:**
@@ -201,7 +236,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
+**Verification:** Automated: [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts); Manual: [Configure-response newline inspection](#req-setup-006-setup-streams-progress-via-ndjson)
 
 **Status:** Implemented
 
@@ -216,12 +251,12 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. Zone resolution walks progressively shorter suffixes of the requested hostname so multi-label TLDs are handled correctly. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC1: zone resolution tries progressively shorter domain suffixes to support ccTLDs) -->
-2. A proxied CNAME record is created or updated, pointing the custom domain at the Worker's default workers.dev hostname. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: proxied CNAME record is created pointing custom domain to workers.dev target) -->
+2. A proxied CNAME record is created or updated, pointing the custom domain at the Worker's default workers.dev hostname. Record names are relative to the resolved zone (apex `@`, otherwise the hostname minus the zone suffix) on create, update and duplicate recovery. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: proxied CNAME record is created pointing custom domain to workers.dev target) --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: record is created as "app" for app.sub.example.com in zone sub.example.com) --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: existing record keeps the name "app" on re-run in zone sub.example.com) --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: multi-label relative name a.b is kept for a.b.sub.example.com in zone sub.example.com) --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: two-label zone keeps the name "app" for app.example.com) --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: hostname equal to the zone name uses the apex name "@") --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: duplicate-create recovery update also sends the name "app" in zone sub.example.com) -->
 3. A Worker route covering the custom domain is created and mapped to the deployed Worker script. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC3: Worker route pattern {customDomain}/* is created mapped to the worker script) -->
 4. An already-existing Worker route succeeds only when its pattern and script are verified correct or its update succeeds; failed or unverified updates fail setup. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/routes/setup/custom-domain.test.ts (accepts an already-existing worker route only when its current state is correct) --> <!-- @test: src/__tests__/routes/setup/custom-domain.test.ts (updates an already-existing worker route whose state is wrong) --> <!-- @test: src/__tests__/routes/setup/custom-domain.test.ts (fails setup when an incorrect worker route cannot be updated) -->
 5. The custom domain is persisted in normalized (lowercased) form so origin comparisons are deterministic. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC5: custom domain is stored in KV as setup:custom_domain (lowercased)) -->
-6. Dynamic origins (the custom domain plus any additional origins configured via setup) are cached in-memory for a short TTL; the persistent store is the source of truth. <!-- @impl: src/lib/cors-cache.ts::isAllowedOrigin --> <!-- @test: src/__tests__/lib/cors-cache.test.ts (cors-cache / REQ-SETUP-007 (custom-domain CORS cache invalidation)) -->
-7. After setup completes, the workers.dev hostname is treated as an initialization-only fallback; production traffic flows through the custom domain. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: proxied CNAME record is created pointing custom domain to workers.dev target) -->
+6. Dynamic origins (the custom domain plus any additional origins configured via setup) are cached in-memory for a short TTL; the persistent store is the source of truth. <!-- @impl: src/lib/cors-cache.ts::isAllowedOrigin --> <!-- @test: src/__tests__/lib/cors-cache.test.ts (cors-cache / REQ-SETUP-007 (custom-domain CORS cache invalidation)) --> <!-- @test: src/__tests__/lib/cors-cache.test.ts (REQ-SETUP-007 AC6: expires old origin authority at five minutes) -->
+7. The custom domain is the intended production entry; the workers.dev hostname remains a bootstrap/recovery fallback. Setup provisions DNS and the Worker route, not post-setup hostname rejection or equivalent ingress assurance; authentication and configured Access protections remain required. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 AC2: proxied CNAME record is created pointing custom domain to workers.dev target) -->
 
 **Constraints:**
 
@@ -232,7 +267,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/setup-007-custom-domain-ac.test.ts))
+**Verification:** Automated: [cors-cache.test.ts](../../src/__tests__/lib/cors-cache.test.ts), [custom-domain.test.ts](../../src/__tests__/routes/setup/custom-domain.test.ts), [setup-007-custom-domain-ac.test.ts](../../src/__tests__/setup-007-custom-domain-ac.test.ts)
 
 **Status:** Implemented
 
@@ -248,8 +283,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. The prefill endpoint reads existing CF Access group membership and persistent configuration so the setup form repopulates correctly on redeployment. <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 2. The token-detection endpoint validates the API token and returns its account info (id and name); it does not enumerate the token's permissions/scopes. <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /detect-token) -->
-3. Both helper endpoints share the same rate limiter as the configure endpoint, so they cannot bypass setup-route throttling. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
-4. Both endpoints require admin auth after setup is complete, using the same conditional gate as the configure endpoint. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
+3. Both helper endpoints share the same rate limiter as the configure endpoint, so they cannot bypass setup-route throttling. <!-- @impl: src/routes/setup/shared.ts::setupRateLimiter -->
+4. Both endpoints require admin auth after setup is complete, using the same conditional gate as the configure endpoint. <!-- @impl: src/routes/setup/index.ts::createConditionalSetupAuth -->
 
 **Constraints:**
 
@@ -260,7 +295,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth)
 
-**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
+**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts)
 
 **Status:** Implemented
 
@@ -277,10 +312,10 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. The subscribe page shows the available tiers with their features, included hours, session limits, storage, and pricing. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending users) / REQ-SUB-017 (tier selection UI)) -->
 2. The flow is a two-phase wizard: an overview phase and a tier-selection phase; checkout is an external payment-provider handoff, not an internal phase. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending users) / REQ-SUB-017 (tier selection UI)) -->
-3. New subscriptions are gated by a CAPTCHA challenge whose token is passed to and verified by the Worker before a paid checkout is created; missing/rejected tokens produce no Stripe call or user mutation, while active-subscriber plan switches remain exempt. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @impl: src/routes/billing.ts::default --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC3: Turnstile CAPTCHA is initialized for pending users when turnstileSiteKey is provided) -->
+3. New paid checkout requires configured Turnstile secret and site key, a token and successful Worker verification. Missing configuration, missing/rejected tokens or unavailable verification produce no Stripe call or user mutation; active or trialing subscribers remain exempt. Payment-free direct activation retains its separate conditional-configuration behavior. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @impl: src/routes/billing.ts::default --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC3: Turnstile CAPTCHA is initialized for pending users when turnstileSiteKey is provided) --> <!-- @test: src/__tests__/routes/billing.test.ts (REQ-SETUP-009 AC3: %s challenge failure has no billing/user effects) --> <!-- @test: src/__tests__/routes/billing.test.ts (REQ-SETUP-009 AC3: %s subscriber remains CAPTCHA-exempt) --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC3: missing site key disables paid checkout, without blocking the payment-free tier) -->
 4. The page exposes a mode toggle between the two subscription mode families. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending users) / REQ-SUB-017 (tier selection UI)) -->
 5. The free tier activates immediately without an external checkout step. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC5: free tier activates immediately via subscribe API call (no Stripe checkout)) -->
-6. Paid tiers hand off to the external payment provider's hosted checkout. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC6: paid tiers show "Start Trial" CTA indicating Stripe checkout path) -->
+6. Paid tiers hand off to the external payment provider's hosted checkout. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
 
 **Constraints:** None.
 
@@ -288,7 +323,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test ([Integration test](../../web-ui/src/__tests__/components/SubscribePage.test.tsx))
+**Verification:** Automated: [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx)
 
 **Status:** Implemented
 
@@ -316,7 +351,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([setup-010-og-metadata](../../web-ui/src/__tests__/setup-010-og-metadata.test.ts))
+**Verification:** Automated: [setup-010-og-metadata.test.ts](../../web-ui/src/__tests__/setup-010-og-metadata.test.ts); Manual: [Share card interface acceptance](../../documentation/lanes/configuration.md#share-card-interface-acceptance)
 
 **Status:** Implemented
 
@@ -332,7 +367,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. Successful completion carries the same ordered, upserted per-step status list used by streamed transitions, plus the workers.dev URL and custom-domain URL. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/setup/shared.ts::upsertStep --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (keeps one immutable ordered status list across running, success, and failure transitions) -->
 2. Failed completion carries that cumulative list including the failed step, plus a top-level error description. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/setup/shared.ts::upsertStep --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (keeps one immutable ordered status list across running, success, and failure transitions) -->
-3. Lock contention produces an immediate terminal completion with success=false and no intervening step progress messages. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
+3. Lock contention produces an immediate terminal completion with success=false and no intervening step progress messages. <!-- @impl: src/routes/setup/index.ts::default -->
 4. Clients detect completion by parsing stream entries until the terminal completion marker, then read the success flag. <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) -->
 
 **Constraints:**
@@ -343,7 +378,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** Automated test ([handlers](../../src/__tests__/routes/setup/handlers.test.ts))
+**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts)
 
 **Status:** Implemented
 
@@ -373,7 +408,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test ([setup-ac-coverage](../../src/__tests__/setup-ac-coverage.test.ts))
+**Verification:** Automated: [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -405,7 +440,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-012](#req-setup-012-setup-wizard-step-sequence), [REQ-SETUP-014](#req-setup-014-managed-repository-credential-boundary), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-148](agents.md#req-agent-148-protected-managed-release-publication)
 
-**Verification:** Automated Setup-route, payload-boundary, and transactional trust tests
+**Verification:** Automated: [setup-managed-environment.test.ts](../../src/__tests__/routes/setup-managed-environment.test.ts), [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts)
 
 **Status:** Implemented
 
@@ -436,7 +471,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated credential storage, prefill, host, redirect, diagnostic, storage, and container-boundary tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [setup-managed-environment.test.ts](../../src/__tests__/routes/setup-managed-environment.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 
@@ -463,7 +498,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-013](#req-setup-013-managed-environment-configuration)
 
-**Verification:** Automated Setup UI, normalization, parent-child, and stored-state tests
+**Verification:** Automated: [ManagedEnvironmentSection.test.tsx](../../web-ui/src/__tests__/components/ManagedEnvironmentSection.test.tsx), [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [setup-managed-environment.test.ts](../../web-ui/src/__tests__/stores/setup-managed-environment.test.ts)
 
 **Status:** Implemented
 
@@ -491,7 +526,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-015](#req-setup-015-managed-resource-persistence-controls), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress)
 
-**Verification:** Automated policy-shape, availability, rolling-activation, update-pending, reconciliation, and trust-fingerprint tests
+**Verification:** Automated: [remote-curation.test.ts](../../src/__tests__/lib/remote-curation.test.ts), [setup-managed-environment.test.ts](../../src/__tests__/routes/setup-managed-environment.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [managed-storage-guard.test.ts](../../src/__tests__/lib/managed-storage-guard.test.ts)
 
 **Status:** Implemented
 
@@ -505,22 +540,25 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. `GET /api/admin/configuration` requires shared authentication and administrator authorization in every deployment mode. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (rejects unauthenticated and non-admin requests) -->
-2. The response returns effective mode, revision, applicable closed sections, non-secret values, active run identity, and direct latest terminal summaries. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: src/lib/admin-configuration.ts::applicableConfigurationSections --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns one non-enterprise mode contract for %s) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
+1. Administration configuration reads require shared authentication and administrator authorization in every deployment mode. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (rejects unauthenticated and non-admin requests) -->
+2. The response returns effective mode, revision, applicable closed sections, non-secret values, active run identity, and direct latest terminal summaries; Integrations and Data governance are applicable in Default, Onboarding, SaaS, and Enterprise. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: src/lib/admin-configuration.ts::applicableConfigurationSections --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns one non-enterprise mode contract for %s) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
 3. Secret fields return only `administration`, `deployment`, or `none`; no secret bytes, expiry claims, or submitted values are returned. <!-- @impl: src/routes/admin/configuration.ts::secretState --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) -->
 4. Enterprise AI Gateway reports effective URL and API-token source, resolving Administration values independently before deployment fallbacks. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
 5. Browser Run remains optional with no enable flag: no stored pair is valid, while a configured state requires account ID plus saved token. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
 6. Default, Onboarding, and SaaS preserve existing Users behavior; SaaS preserves Subscription Tiers; Enterprise continues rejecting both backend resources. <!-- @impl: src/routes/users.ts::app --> <!-- @impl: src/routes/admin/tiers.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC1: /api/users fails closed in enterprise mode) --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC5: admin tier config routes 403 in enterprise mode) -->
 
-7. Data governance exposes the deployment-wide saved sync policy as `exclude` or `include`, defaulting to `exclude` when no value has been stored; the policy is non-secret and does not change workspace scope or managed-resource authority. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018: sync policy defaults, previews without writes, applies both modes, and preserves omitted requests) -->
+7. Data governance exposes only deployment-wide `syncPolicyMode` outside Enterprise; Enterprise retains its aggregate encryption/download controls. Saved policy is `exclude` or `include`, defaulting to `exclude` only when absent, without changing workspace scope or managed authority. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018/028: %s sync policy defaults, previews without writes, applies both directions, and preserves omission) -->
 
-**Constraints:** Reuse Setup readers and existing mode owners. Configuration reads do not list Activity records.
+**Constraints:**
+
+- Reuse Setup readers and existing mode owners.
+- Configuration reads do not list Activity records.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-ENTERPRISE-017](setup.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
 
-**Verification:** Automated route and mode-hardening tests
+**Verification:** Automated: [admin-configuration.test.ts](../../src/__tests__/routes/admin-configuration.test.ts), [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts), [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts)
 
 **Status:** Implemented
 
@@ -545,7 +583,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-ENTERPRISE-053](models-and-routing.md#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Automated Administration configuration route tests
+**Verification:** Automated: [admin-configuration.test.ts](../../src/__tests__/routes/admin-configuration.test.ts)
 
 **Status:** Implemented
 
@@ -560,22 +598,50 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Preview accepts one closed section, complete values, and base revision; it persists nothing and returns normalized changes, exact tasks, warnings, and exclusions. <!-- @impl: src/routes/admin/configuration-previews.ts::default --> <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (POST /admin/configuration-previews (REQ-SETUP-018)) -->
-2. Apply recomputes validation, uses best-effort KV admission, rechecks revision before external work, and returns typed `409` conflicts before streaming. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-3. Runs persist sanitized versioned state, named task transitions, initiator, revisions, and terminal outcomes for 90 days; values and secrets never enter records, streams, or logs. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-4. Reconnect returns the same run shape, and Activity lists newest-first with a stable cursor. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-5. Task failure stops dependent work, marks remaining tasks skipped, records operator action, and never performs automatic rollback or replay. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-6. A stale 15-minute active pointer is recovered as `interrupted`; the accepted cross-isolate KV race remains bounded by idempotent operations and revision checks. <!-- @impl: src/routes/admin/configuration-runs.ts::recoverInterruptedRun --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
-7. Setup and routine execution check each other's existing admission pointers, while first-run `POST /api/setup/configure` keeps its observable sequence and outcome. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-018 AC7: Setup refuses to overlap an active Environment run) -->
+1. Preview accepts one closed section, complete mode-applicable values, and base revision; it persists nothing and returns normalized changes, exact tasks, warnings, and exclusions. Non-Enterprise Data governance strictly accepts only sync policy and plans only `configure_sync_policy`; Enterprise retains its aggregate. <!-- @impl: src/routes/admin/configuration-previews.ts::default --> <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018/028: %s sync policy defaults, previews without writes, applies both directions, and preserves omission) --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (rejects forged governance fields %j in preview AND direct Apply) -->
+2. Apply revalidates mode-applicable values, rejecting Enterprise-only fields elsewhere, with best-effort KV admission. Pre-admission conflicts return typed HTTP `409` before streaming; admitted pre-work revision conflicts return HTTP `200`, failed NDJSON code `configuration_revision_conflict`, all tasks skipped and no external work. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-SETUP-018 AC2: an admitted revision conflict leaves Domain and Access provider state unchanged) --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (rejects forged governance fields %j in preview AND direct Apply) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (preserves stored bytes when %s guard rejects before streaming) -->
+3. Task failure stops dependent work, marks remaining tasks skipped, records operator action, and never performs automatic rollback or replay. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+4. A stale 15-minute active pointer is recovered as `interrupted`; the accepted cross-isolate KV race remains bounded by idempotent operations and revision checks. <!-- @impl: src/routes/admin/configuration-runs.ts::recoverInterruptedRun --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+5. Setup and routine execution check each other's existing admission pointers, while first-run Setup configuration keeps its observable sequence and outcome. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-018 AC7: Setup refuses to overlap an active Environment run) -->
 
+**Constraints:**
 
-**Constraints:** Eleven known sections use one discriminated union. No JSON Patch, stored preview, workflow engine, coordinator Durable Object, or generic rollback layer.
+- Eleven known sections use one discriminated union.
+- No JSON Patch, stored preview, workflow engine, coordinator Durable Object, or generic rollback layer.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SETUP-004](#req-setup-004-setup-is-idempotent), [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
 
-**Verification:** Automated request, persistence, conflict, redaction, executor-boundary, and first-run compatibility tests
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts)
+
+**Status:** Implemented
+
+---
+
+<a id="req-setup-029-retained-environment-run-history"></a>
+### REQ-SETUP-029: Retained Environment run history
+
+**Intent:** An administrator can reconnect to the same sanitized Environment run and browse retained Activity in a stable order.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Runs persist sanitized versioned state, named task transitions, initiator, revisions, and terminal outcomes for 90 days; values and secrets never enter records, streams, or logs. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+2. Reconnect returns the same run shape. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+3. Activity lists newest-first with a stable cursor. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+
+**Constraints:**
+
+- Eleven known sections use one discriminated union.
+- No JSON Patch, stored preview, workflow engine, coordinator Durable Object, or generic rollback layer.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-004](#req-setup-004-setup-is-idempotent), [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
+
+**Verification:** Automated: [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts)
 
 **Status:** Implemented
 
@@ -589,7 +655,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. The shell exposes `/admin`, `/admin/environment`, `/admin/analytics`, `/admin/reports`, and `/admin/activity`; no user-facing `/admin/configuration` route exists. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-SETUP-019 AC1: exposes Administration routes) -->
+1. The shell exposes Administration home, Environment, Analytics, Reports and Activity pages, with no separate user-facing Configuration page. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-SETUP-019 AC1: exposes Administration routes) -->
 2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @test: web-ui/src/__tests__/components/AdministrationLayout.test.tsx (REQ-SETUP-019 AC2: gates navigation by deployment mode) -->
 3. Existing Users and Subscription Tiers components are embedded in their Administration routes. <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-SETUP-019 AC3: embeds existing administration components) -->
 4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
@@ -597,13 +663,17 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
 7. Overview includes every mode-applicable Environment summary, linked directly to its bounded editor without duplicating the sidebar's Environment navigation. <!-- @impl: web-ui/src/components/admin/AdministrationOverview.tsx::AdministrationOverview --> <!-- @test: web-ui/src/__tests__/components/AdministrationOverview.test.tsx (Administration overview Environment navigation) -->
 
-**Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added. The enterprise-only Operators extension is specified separately by [REQ-OPERATOR-008](operators.md#req-operator-008-enterprise-operator-administration-surface) and reuses this shell.
+**Constraints:**
+
+- One authoritative response owns mode gating.
+- No UI framework, chart package, icon package, or duplicate mode logic is added.
+- The enterprise-only Operators extension is specified separately by [REQ-OPERATOR-008](operators.md#req-operator-008-enterprise-operator-administration-surface) and reuses this shell.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
+**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-AUTH-023](authentication.md#req-auth-023-admin-user-browsing-and-mode-specific-controls), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
 
-**Verification:** Automated route, mode, composition, and backend mode-gate tests; user-owned manual terminology and responsive acceptance on Integration
+**Verification:** Automated: [App.test.tsx](../../web-ui/src/__tests__/components/App.test.tsx), [AdministrationLayout.test.tsx](../../web-ui/src/__tests__/components/AdministrationLayout.test.tsx), [AdministrationOverview.test.tsx](../../web-ui/src/__tests__/components/AdministrationOverview.test.tsx); Manual: [Administration and setup interface acceptance](../../documentation/lanes/configuration.md#administration-and-setup-interface-acceptance)
 
 **Status:** Implemented
 
@@ -617,7 +687,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Administration presents report timezones as a dropdown populated with canonical IANA choices. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-SETUP-020 AC1: renders canonical IANA timezone choices as a select) -->
+1. Administration presents report timezones as a dropdown of bundled IANA names, retaining accepted nonbundled values (AC2). Backend canonical-timezone validation remains authoritative. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-SETUP-020 AC1: renders canonical IANA timezone choices as a select) -->
 2. An accepted stored timezone remains selected when it is absent from the bundled choices. <!-- @impl: web-ui/src/lib/iana-timezones.ts::ianaTimezoneOptions --> <!-- @test: web-ui/src/__tests__/lib/iana-timezones.test.ts (REQ-SETUP-020 AC2: preserves accepted stored timezone values) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-SETUP-020 AC2: retains an accepted stored timezone outside bundled choices) -->
 
 **Constraints:** Backend report-setting validation remains authoritative.
@@ -626,7 +696,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SUB-027](subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution)
 
-**Verification:** Automated timezone-option behavior and user-owned manual UI acceptance on Integration
+**Verification:** Automated: [EnvironmentAreaFields.test.tsx](../../web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx), [iana-timezones.test.ts](../../web-ui/src/__tests__/lib/iana-timezones.test.ts); Manual: [Administration display inspection](../../documentation/lanes/configuration.md#administration-display-inspection)
 
 **Status:** Implemented
 
@@ -648,7 +718,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-013](#req-setup-013-managed-environment-configuration), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
 
-**Verification:** Automated summary-state mapping and user-owned manual UI acceptance on Integration
+**Verification:** Automated: [environment-areas.test.ts](../../web-ui/src/__tests__/components/environment-areas.test.ts); Manual: [Administration display inspection](../../documentation/lanes/configuration.md#administration-display-inspection)
 
 **Status:** Implemented
 
@@ -676,7 +746,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
 
-**Verification:** Automated hydration-order, recovery-action, and failure-state behavior plus user-owned manual UI acceptance on Integration
+**Verification:** Automated: [SetupWizard.test.tsx](../../web-ui/src/__tests__/components/SetupWizard.test.tsx), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts); Manual: [User-owned Integration navigation acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist)
 
 **Status:** Implemented
 
@@ -700,7 +770,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
 
-**Verification:** Automated filtering behavior and user-owned manual empty-result acceptance on Integration
+**Verification:** Automated: [environment-areas.test.ts](../../web-ui/src/__tests__/components/environment-areas.test.ts), [McpEnvironment.test.tsx](../../web-ui/src/__tests__/components/admin/McpEnvironment.test.tsx); Manual: [Administration and setup interface acceptance](../../documentation/lanes/configuration.md#administration-and-setup-interface-acceptance)
 
 **Status:** Implemented
 
@@ -714,8 +784,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. An explicitly blank GitHub App, GitHub OAuth, or Cloudflare OAuth client ID removes that saved identifier. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-SETUP-024: removes explicitly cleared non-secret OAuth client IDs) -->
-2. A blank GitHub App, GitHub OAuth, or Cloudflare OAuth replacement secret preserves the saved secret. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-SETUP-024: preserves saved OAuth secrets when replacements are blank) -->
+1. An explicitly blank GitHub App, GitHub OAuth, or Cloudflare OAuth client ID removes that saved identifier. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-SETUP-024: removes explicitly cleared non-secret OAuth client IDs in %j) -->
+2. A blank GitHub App, GitHub OAuth, or Cloudflare OAuth replacement secret preserves the saved secret. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-SETUP-024: preserves saved OAuth secrets when replacements are blank in %j) -->
 3. When the internal Initialization compatibility submission omits one of those client IDs, the saved identifier is preserved. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-SETUP-024: omitted client IDs preserve stored values during internal initialization compatibility calls) -->
 
 **Constraints:** Client IDs remain non-secret KV values; secret replacement remains encrypted and no-clobber on blank.
@@ -724,7 +794,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
 
-**Verification:** Automated Administration-run and Initialization compatibility tests
+**Verification:** Automated: [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts)
 
 **Status:** Implemented
 
@@ -746,7 +816,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
 
-**Verification:** Manual check
+**Verification:** Manual: [Administration and setup interface acceptance](../../documentation/lanes/configuration.md#administration-and-setup-interface-acceptance)
 
 **Status:** Implemented
 
@@ -760,16 +830,16 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Completed deployments expose one workspace Settings entry linking to `/admin` in every deployment mode. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SETUP-026 AC1-AC2: routes all admin access through one Administration entry) -->
+1. Completed deployments expose one workspace Settings entry linking to Administration in every deployment mode. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SETUP-026 AC1-AC2: routes all admin access through one Administration entry) -->
 2. Workspace Settings exposes no duplicate user-management or bootstrap-recovery action. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SETUP-026 AC1-AC2: routes all admin access through one Administration entry) -->
 
 **Constraints:** Administration route contents remain mode-gated by [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell) AC2.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management)
+**Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-AUTH-023](authentication.md#req-auth-023-admin-user-browsing-and-mode-specific-controls)
 
-**Verification:** Automated Settings composition tests
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx)
 
 **Status:** Implemented
 
@@ -784,11 +854,11 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. `AIG_GATEWAY_URL` and `AIG_TOKEN` may be configured as Worker secrets so they are not stored in plaintext config or exposed to the container. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual: Inspect the deployed Worker bindings and a running container environment; confirm the values are secret bindings and absent from the container. -->
-2. Enterprise mode is a non-secret deployment setting; dynamic route catalog and default remain wizard-managed KV configuration. <!-- @impl: wrangler.toml::binding --> <!-- @manual -->
+1. `AIG_GATEWAY_URL` and `AIG_TOKEN` may be configured as Worker secrets so they are not stored in plaintext config or exposed to the container. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @manual: Inspect the deployed Worker bindings and a running container environment; confirm the values are secret bindings and absent from the container. -->
+2. Enterprise mode is a non-secret deployment setting; dynamic route catalog and default remain wizard-managed KV configuration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @manual -->
 3. Enterprise Mode is off by default: an absent or empty `ENTERPRISE_MODE` binding resolves to disabled. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (REQ-ENTERPRISE-001 AC1 / REQ-ENTERPRISE-006 AC3: isEnterpriseMode) -->
-4. When `ENTERPRISE_MODE` is enabled, sanctioned Gateway requests fail closed (503) if the resolved AI Gateway URL (wizard KV or deploy-secret fallback, [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)) is missing or unparseable (no `/v1/{account_id}/{gateway_id}` segments). <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) --> <!-- @impl: src/container/container-interception.ts::llm -->
-5. When `ENTERPRISE_MODE` is configured, the CF Access application created by the setup wizard is host-scoped (bare custom domain, no path suffix) so the session cookie covers all paths uniformly; non-enterprise deployments retain the path-scoped (`/app/*`) application. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (enterprise mode creates a host-scoped app (bare host domain + whole-host destination)) -->
+4. When `ENTERPRISE_MODE` is enabled, sanctioned Gateway requests fail closed (503) if the resolved AI Gateway URL (wizard KV or deploy-secret fallback, [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)) is missing or fails the documented account-and-gateway identity parse. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) --> <!-- @impl: src/container/container-interception.ts::llm -->
+5. When `ENTERPRISE_MODE` is configured, the setup-created CF Access application is host-scoped, with no path suffix, so the session cookie covers all paths uniformly; non-enterprise deployments retain the existing application-path scope. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (enterprise mode creates a host-scoped app (bare host domain + whole-host destination)) -->
 6. Enterprise setup best-effort provisions a higher-priority public service-worker bypass. It never aborts host setup, stores the app ID only after policy success, and rolls back a new app on policy failure; non-enterprise creates none. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/routes/setup/access.test.ts (Setup Access) -->
 7. The deployment workflow exposes `enterprise` and `enterprise integration` as manual-dispatch environments deployable from any branch, separate from production and integration. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 
@@ -804,7 +874,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes)
 
-**Verification:** Automated test
+**Verification:** Automated: [enterprise-mode.test.ts](../../src/__tests__/lib/enterprise-mode.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [access.test.ts](../../src/__tests__/routes/setup/access.test.ts); Manual: [Setup credential boundary record acceptance](../../documentation/lanes/configuration.md#setup-credential-boundary-record-acceptance)
 
 **Status:** Implemented
 
@@ -821,7 +891,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 1. The "Manage Subscriptions" entry in Settings → Administration renders only in SaaS mode. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-ENTERPRISE-008 AC1-AC2 and REQ-SETUP-026 AC1-AC2: SettingsPanel and session mode) -->
 2. The Standard/Pro session-mode selector renders only in SaaS mode; in enterprise every user is implicitly Pro (advanced) per [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2, and onboarding/default deployments have no Standard/Pro plans. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-ENTERPRISE-008 AC2: SessionSection mode selector) -->
 3. The monthly-quota warning banners and their "Upgrade" calls-to-action render only in SaaS mode. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx (REQ-ENTERPRISE-008 AC3: quota banners render only in SaaS mode) -->
-4. In enterprise mode, a first-time auto-provisioned user is routed to the application home instead of `/app/subscribe` or the self-serve onboarding/waitlist flow. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (REQ-ENTERPRISE-008 AC4: enterprise first-login routing) -->
+4. In enterprise mode, a first-time auto-provisioned user reaches application home instead of subscription selection or self-serve onboarding/waitlist. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (REQ-ENTERPRISE-008 AC4: enterprise first-login routing) -->
 
 **Constraints:**
 
@@ -833,14 +903,14 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 - Personal usage data and account actions are governed separately by [REQ-SUB-022](subscription.md#req-sub-022-cross-mode-personal-usage-data) and [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
 - `GET /api/user` exposes both signals to `sessionStore`; `GET /api/auth/status` also exposes `saasMode` for `SubscribeGuard`.
 - Enterprise's public `/public/auth/providers` projection is empty, so SPA root navigation cannot select the marketing login from configured Access IdPs; default, onboarding and SaaS provider projections remain unchanged. <!-- @impl: src/index.ts::app --> <!-- @test: src/__tests__/index.test.ts (REQ-ENTERPRISE-008/REQ-AUTH-022: Enterprise public providers cannot select a SaaS login on SPA root navigation) -->
-- Other suppression is render-gating only: it removes no component code path for non-enterprise deployments and deletes no stored user state.
+- Other suppression is render-only, preserving non-enterprise component paths and stored user state.
 - Billing and session-mode visibility: this REQ adds the client `SubscribeGuard` saasMode redirect plus the subscription, mode-selector, quota-banner, and first-login-routing surfaces; the matching routes are made unreachable server-side in [REQ-ENTERPRISE-009](security.md#req-enterprise-009-enterprise-backend-route-hardening).
 
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](subscription.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions)
 
-**Verification:** Automated tests ([enterprise-surface-suppression](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx), [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx), and [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx))
+**Verification:** Automated: [enterprise-surface-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx), [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx), [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx)
 
 **Status:** Implemented
 
@@ -855,23 +925,25 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. Existing setup configure saves chip-list access groups and routes without a new endpoint. Names are trimmed, 1–256 characters, allow spaces, and reject commas, carriage returns, or line feeds; groups use lossless joined storage and prefill returns the trimmed values. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (rejects a group containing %s before setup starts) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (round-trips trimmed access-group values through prefill) -->
-2. The JSON route catalog defaults to its first entry with reasoning off; configured defaults must belong or return 400. Optional per-group route/default/reasoning maps persist separately. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
-3. `GET /api/setup/prefill` round-trips the stored groups, catalog, and default route so a setup re-run shows the current configuration; a malformed stored value degrades to empty defaults rather than failing the prefill. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill degrades to empty defaults when stored route JSON is malformed) -->
+2. The catalog default is optional and explicit; a supplied default outside the catalog returns 400. Per-group route/default/reasoning maps persist separately. Runtime access follows the first matching group or enabled fallback, never implicit first-catalog authorization or assumed reasoning-Off. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-012 AC2: an omitted default stays absent without selecting the first catalog route) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (clears the default-route key when defaultRoute is null) -->
+3. Setup prefill round-trips stored groups, catalog and default route for reconfiguration; malformed stored values degrade to empty defaults rather than failing prefill. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill degrades to empty defaults when stored route JSON is malformed) -->
 4. One route configuration supplies interception, container routing, JIT access, group metadata, and per-group editing ([REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](models-and-routing.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing)). <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (first matching group and optional fallback (REQ-ENTERPRISE-013/-044)) -->
 5. When `ENTERPRISE_MODE` is unset, the dynamic-route catalog UI and KV reads add no behavior; the access-group field already existed and is unchanged for non-enterprise deployments. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill omits the enterprise extras when ENTERPRISE_MODE is unset (regression)) -->
 6. In enterprise mode, the AI-routing stage blocks "Continue" until at least one dynamic route, a Gateway URL, and a saved or newly entered Gateway token are present. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (blocks AI-routing Continue when route, Gateway URL, or token is missing (REQ-ENTERPRISE-012 AC6)) --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (enables AI-routing Continue once route, Gateway URL, and token exist (REQ-ENTERPRISE-012 AC6)) -->
-7. `POST /api/setup/configure` rejects empty or absent `dynamicRoutes` with `400` before any KV write. Runtime empty-catalog denial follows [REQ-ENTERPRISE-032](models-and-routing.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation) AC6. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (POST /api/setup/configure) -->
+7. Enterprise Setup configuration rejects an empty or absent dynamic-route catalog with 400 before any KV write. Runtime empty-catalog denial follows [REQ-ENTERPRISE-032](models-and-routing.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation) AC6. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (POST /api/setup/configure) -->
 
 **Constraints:**
 
 - No new persistence layer or endpoint: the lists ride the existing setup wizard configure flow and KV (`SETUP_KEYS`), consistent with how `ENTERPRISE_ACCESS_GROUP` was already stored ([REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning)).
 - Access groups are stored comma/newline-joined (back-compat with the prior single-value config) and routes as a JSON array; the comma/newline ban on names keeps the joined encoding lossless.
+- Setup omission preserves a saved default, or leaves it absent when none is saved; explicit null clears it. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-012 AC2: Setup preserves a saved default when defaultRoute is omitted) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-012 AC2: an omitted default stays absent without selecting the first catalog route) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (clears the default-route key when defaultRoute is null) -->
+- Lower-level `executeConfigurationTask` for `configure_model_routing` serializes omitted/null defaults as deletion through `persistAiRoutingSettings`; this is not a general Administration API omission contract. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @impl: src/lib/admin-configuration.ts::persistAiRoutingSettings -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](models-and-routing.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** Automated test ([Setup configure tests](../../src/__tests__/routes/setup.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [route-config resolver tests](../../src/__tests__/lib/enterprise-route-config.test.ts), [access-group parsing](../../src/__tests__/lib/access-group-resolution.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx))
+**Verification:** Automated: [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [enterprise-route-config.test.ts](../../src/__tests__/lib/enterprise-route-config.test.ts), [access-group-resolution.test.ts](../../src/__tests__/lib/access-group-resolution.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx)
 
 **Status:** Implemented
 
@@ -886,15 +958,18 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. In enterprise mode, the setup wizard's "Regular Users" section is not rendered. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
-2. Outside enterprise mode, the setup wizard's "Regular Users" section renders unchanged. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
+2. Outside enterprise and SaaS modes, the setup wizard's "Regular Users" section renders unchanged; SaaS retains its existing suppression. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
 
-**Constraints:** Enterprise setup still configures Admin Users and the optional Cloudflare Access group per [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning). Account-menu actions are owned by [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
+**Constraints:**
+
+- Enterprise setup still configures Admin Users and the optional Cloudflare Access group per [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning).
+- Account-menu actions are owned by [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
 
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-008](#req-enterprise-008-enterprise-frontend-surface-suppression), [REQ-ENTERPRISE-010](authentication.md#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** Automated test ([ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx))
+**Verification:** Automated: [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx)
 
 **Status:** Implemented
 
@@ -909,29 +984,28 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. Enterprise Setup persists the gateway URL and encrypted token. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-017: persists the AI Gateway URL (plain) + token (encrypted) and emits configure_ai_gateway) -->
-2. `GET /api/setup/prefill` round-trips the AI Gateway config (enterprise-only): it surfaces the non-secret `aigGatewayUrl` and optional `aigGatewayId` plus a masked `aigTokenSet` boolean (never the token itself), reports unset/empty when nothing is stored, and omits these fields entirely in a non-enterprise prefill. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
+2. Enterprise-only Setup prefill round-trips the non-secret AI Gateway URL, optional gateway name and masked token-presence Boolean, never the token; absent storage reports unset/empty, and non-enterprise prefill omits these fields entirely. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 3. Gateway configuration prefers saved fields and permits deployment fallback only when saved state is absent; unreadable saved credentials fail closed without throwing. <!-- @impl: src/lib/aig-config.ts::getAigConfig --> <!-- @test: src/__tests__/lib/aig-config.test.ts (env fallback: with KV unset, the deploy-secret env values are used) --> <!-- @test: src/__tests__/lib/aig-config.test.ts (fails closed without throwing when a saved credential cannot be decrypted) -->
 4. Each session's LLM interceptor receives the resolved gateway URL, optional account-API gateway name, and token, with deployment fallback only for absent properties under AC3. <!-- @impl: src/container/container-interception.ts::llm --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) -->
 5. The Setup wizard renders the enterprise-only AI Gateway URL, conditional account-API gateway name, and token fields inside an organized group; they are not rendered outside enterprise mode, and their inputs persist through setup state. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/components/setup/SetupSection.tsx::SetupSection --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
-6. The "Configuring Codeflare" progress screen reflects the steps it runs: the configure endpoint emits named `configure_*` steps (`configure_access_groups`, `configure_model_routing`, `configure_ai_gateway`, `configure_browser_rendering`, `configure_strict_egress`), and the progress UI maps each to a friendly label. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
+6. The "Configuring Codeflare" progress screen reflects executed Access-group, model-routing, AI Gateway, Browser Rendering and strict-egress tasks: configuration emits named progress steps and the UI maps each to a friendly label. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual --> <!-- @impl: web-ui/src/components/setup/ProgressStep.tsx::ProgressStep --> <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-ENTERPRISE-017 AC6: renders friendly labels for the executed enterprise configuration tasks) -->
 7. Enterprise AI Gateway guidance names the Workers AI, AI Gateway Run, and AI Gateway Read permissions required for inference and route discovery. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (shows the required gateway token permissions (REQ-ENTERPRISE-017 AC7)) -->
 
 **Constraints:**
 
-- The token is a secret: stored encrypted (kv-crypto, same shape as the Browser Rendering token, [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)), masked on prefill, no-clobber on blank, and never returned to the client; The URL is non-secret and stored plain.
-- URL and token resolve independently with wizard KV before deploy secrets, allowing mixed sources only when the corresponding saved value is absent ([REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC1).
-- Unreadable saved credentials deny inference under AC3.
-- The token never enters the container, as required by [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC4.
-- Grouping fields into `SetupSection`s preserves every field, store binding, and conditional gate; only visual grouping changes.
-- `SetupSection` is a reusable structure-only component with no copy.
-- Routine Administration reads and validates the same effective URL and token through [REQ-SETUP-017](setup.md#req-setup-017-mode-aware-administration-configuration-read); no Worker-binding or unauthenticated transport is added.
-- The effective token carries Workers AI, AI Gateway Run, and AI Gateway Read so authenticated Administration can discover the gateway-owned Dynamic Route catalog without exposing the credential or duplicating route handles.
+- Token storage uses encrypted kv-crypto under [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), masked prefill and blank-update preservation; clients never receive it.
+- Nonsecret URL stays plain.
+- URL/token resolve independently: wizard KV before deploy secrets; mixed sources only when the corresponding saved value is absent ([REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC1).
+- Unreadable saved credentials deny inference (AC3); token never enters containers ([REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC4).
+- `SetupSection` grouping preserves every field/store binding/conditional gate; it is reusable, structure-only and copy-free; only visual grouping changes.
+- Routine Administration reads/validates the same effective URL/token through [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), without new Worker bindings/unauthenticated transport.
+- Effective token requires Workers AI, AI Gateway Run and AI Gateway Read for authenticated gateway-owned Dynamic catalog discovery without credential exposure or duplicate route handles.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
 
-**Verification:** Automated test
+**Verification:** Automated: [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [aig-config.test.ts](../../src/__tests__/lib/aig-config.test.ts), [llm-interceptor.test.ts](../../src/__tests__/llm-interceptor.test.ts), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [SetupWizard.test.tsx](../../web-ui/src/__tests__/components/SetupWizard.test.tsx); Manual: [Administration and setup interface acceptance](../../documentation/lanes/configuration.md#administration-and-setup-interface-acceptance)
 
 **Status:** Implemented
 
@@ -946,7 +1020,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. The wizard's Coding Agents offering and pre-checked selection derive from the setup prefill: installed stored selections when present, every installed capable agent otherwise. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (hydrates the selection and the governable universe from the enterprise prefill) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill defaults to every governable agent when nothing is stored) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-025 AC1: GET /prefill hides capable agents omitted from the image) -->
-2. The admin's selection persists through its own `configure_active_agents` setup step to KV `setup:active_agents` and round-trips on the wizard prefill together with the governable universe. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-025: persists the active-agent selection as JSON with its own step) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill surfaces the stored selection plus the governable universe) -->
+2. The admin's selection persists through its dedicated agent-selection setup step to KV `setup:active_agents` and round-trips through wizard prefill together with the governable universe. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-025: persists the active-agent selection as JSON with its own step) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill surfaces the stored selection plus the governable universe) -->
 3. The configure endpoint rejects an empty, non-capable, or build-omitted agent selection. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-025: rejects an empty active-agent selection with 400) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-025 AC3: rejects a capable agent whose CLI is omitted from the image) -->
 4. The wizard blocks unchecking the last active agent (minimum one). <!-- @impl: web-ui/src/stores/setup.ts::toggleActiveAgent --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (toggling removes an active agent but never the last one) -->
 5. A reconfigure that omits the field leaves the stored selection untouched, and non-enterprise setups never write it. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-ENTERPRISE-025: never writes the selection when the field is absent) -->
@@ -961,7 +1035,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-OPS-040](operations.md#req-ops-040-selected-coding-agent-packaging)
 
-**Verification:** Automated test ([Setup persistence + validation](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [wizard store](../../web-ui/src/__tests__/stores/setup.test.ts))
+**Verification:** Automated: [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts)
 
 **Status:** Implemented
 
@@ -975,34 +1049,69 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Administration lists live gateway routes. Explicit saved-connection reconciliation permanently removes authoritatively absent Dynamic settings and owned Native policy references without widening access. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+1. Administration lists live gateway routes. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) -->
 2. Normal Discover automatically adopts a qualified shared contract and server receipt, without a profile chooser, naming step or separate Verify. Manual controls remain under Advanced. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCapabilityDiscovery --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (automatically adopts the generated contract and receipt without choosing, naming or verifying a profile) -->
 3. Detected models load automatically through read-only inventory and appear inside the selected route, outside advanced technical details. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route) -->
 4. Group, default, preview, and Apply controls require neither editable JSON nor manual route duplication. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-034: adds a discovered route only after verification and policy assignment and preserves apply-to-all) -->
 5. In the retained Advanced matcher, explicit administrator selection places the exact revision in the draft; normal Discover performs that selection automatically after qualification. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (uses the exact matched $name catalog revision only in the route draft until verification) -->
 6. Historical Advanced mapping and selected-profile checks retain their fixed 4,096-token budget. Normal capability discovery and generated-Native verification use the bounded campaign in REQ-ENTERPRISE-035/075. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (starts on mount with fixed 4096 and offers no second start or token input, including after incomplete results) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-038: Verify Profile uses fixed 4096 and attaches the server receipt only to the exact route draft) -->
-7. A verified existing-profile assignment can be saved independently of unfinished gateway routes. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: one working group route permits Save despite incomplete inactive routes) -->
+7. A verified existing-profile assignment can be saved independently of unfinished gateway routes. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/lib/admin-configuration.ts::normalizeValues --> <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: one working group route permits Save despite incomplete inactive routes) -->
+
+**Notes:** [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist) is separate from component coverage and historical receipts.
 
 **Constraints:**
 
-- Prune absent Dynamic assignments, contexts, defaults and policies; retain shared revisions/receipts and valid independent source/permission preferences. Native-looking names remain Dynamic without a saved Native owner. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/live-routing-reconciliation.ts::prepareSavedRoutingReconciliation --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
-
-- Use existing admission/revision ownership. Revision, connection, Setup or ownership drift aborts writes; applied cleanup advances revision and invalidates previews. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
-
-- Accept `data.page`/`data.per_page` without mandatory totals; collect complete inventories within ten pages/1,000 routes. <!-- @impl: src/lib/ai-gateway-management.ts::listDynamicRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)) -->
-- Failed pages, pagination drift, duplicates or exhausted bounds never authorize deletion. <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)) -->
-- Only `POST /catalog {reconcileSaved:true,baseRevision}` reconciles complete saved-Gateway inventories. GET, ordinary POST and overlays are read-only; reject reconciliation overlays and deletion lists. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
-
-- Gateway-owned routes/backends cannot be forced or inferred.
-- Manual assignment needs no discovery.
-- UI checks never retry or escalate automatically.
-- Advanced discovery retains 32–16,384 tokens (default 4,096), independently of target discovery.
+- Prune absent Dynamic assignments/contexts/defaults/policies; retain shared revisions/receipts and valid independent source/permission preferences. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/live-routing-reconciliation.ts::prepareSavedRoutingReconciliation --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+- Native-looking names stay Dynamic without a saved Native owner.
+- Existing admission/revision ownership applies; revision/connection/Setup/ownership drift aborts writes. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
+- Applied cleanup advances revision/invalidates previews.
+- Accept `data.page`/`data.per_page` without mandatory totals; complete inventories cap at ten pages/1,000 routes. <!-- @impl: src/lib/ai-gateway-management.ts::listDynamicRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)) -->
+- Failed pages/pagination drift/duplicates/exhausted bounds never authorize deletion. <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)) -->
+- Only `POST /catalog {reconcileSaved:true,baseRevision}` reconciles complete saved-Gateway inventories; GET/ordinary POST/overlays stay read-only. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
+- Reject reconciliation overlays/deletion lists.
+- Never force/infer Gateway-owned routes/backends; manual assignment needs no discovery; UI checks never automatically retry/escalate.
+- Advanced discovery retains 32–16,384 tokens, default 4,096, independently of target discovery.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](models-and-routing.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence)
 
-**Verification:** Route administration and saved-policy reconciliation have automated behavioral coverage, including saved-source compatibility and safe check failure recovery. The current gap fixes await exact-head CI and deployed acceptance; historical qualification is not evidence for the new diff.
+**Verification:** Automated: [admin-reasoning.test.ts](../../src/__tests__/routes/admin-reasoning.test.ts), [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx), [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [ReasoningProfileEditor.test.tsx](../../web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx), [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-099: Saved-connection routing reconciliation
+
+**Intent:** Explicit saved-connection reconciliation removes only authoritatively absent Dynamic settings and owned Native policy references, preserving access boundaries, independent preferences, shared evidence and revision ownership.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Explicit saved-connection reconciliation permanently removes authoritatively absent Dynamic settings and owned Native policy references without widening access. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+
+**Notes:** [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist) is separate from component coverage and historical receipts.
+
+**Constraints:**
+
+- Prune absent Dynamic assignments/contexts/defaults/policies; retain shared revisions/receipts and valid independent source/permission preferences. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/live-routing-reconciliation.ts::prepareSavedRoutingReconciliation --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+- Native-looking names stay Dynamic without a saved Native owner.
+- Existing admission/revision ownership applies; revision/connection/Setup/ownership drift aborts writes. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
+- Applied cleanup advances revision/invalidates previews.
+- Accept `data.page`/`data.per_page` without mandatory totals; complete inventories cap at ten pages/1,000 routes. <!-- @impl: src/lib/ai-gateway-management.ts::listDynamicRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: Cloudflare page/per_page inventory remains connected and prunes only after completion ($label)) -->
+- Failed pages/pagination drift/duplicates/exhausted bounds never authorize deletion. <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-047: an incomplete Cloudflare paged inventory preserves all saved settings (%s)) -->
+- Only `POST /catalog {reconcileSaved:true,baseRevision}` reconciles complete saved-Gateway inventories; GET/ordinary POST/overlays stay read-only. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-042: GET and draft catalog checks remain read-only and cannot smuggle edits into reconciliation) -->
+- Reject reconciliation overlays/deletion lists.
+- Never force/infer Gateway-owned routes/backends; manual assignment needs no discovery; UI checks never automatically retry/escalate.
+- Advanced discovery retains 32–16,384 tokens, default 4,096, independently of target discovery.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](models-and-routing.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration)
+
+**Verification:** Automated: [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts)
 
 **Status:** Implemented
 
@@ -1017,10 +1126,10 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. Create & Assign adds a named immutable custom revision to the configuration draft. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (Discover Profile starts exactly once and creates a canonical route draft without submitting Save) -->
-2. Create & Assign selects that exact revision only for the mapped route's draft assignment. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (saves a mapped custom revision while preserving another configured route and its saved custom profile) -->
-3. Returning from Save confirmation to edit retains the revision and assignment draft. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (creates and assigns to the mapped route only, retaining the canonical draft until explicit Save) -->
+2. Create & Assign selects that exact revision only for the mapped route's draft assignment. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-036: saves a mapped custom revision while preserving another configured route and its saved custom profile) -->
+3. Returning from Save confirmation to edit retains the revision and assignment draft. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-036: creates and assigns to the mapped route only, retaining the canonical draft until explicit Save) -->
 4. Save confirmation persists the named revision and route assignment atomically. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-ENTERPRISE-031: persists named custom revisions and exact assignments through Save→GET and preserves the catalog when legacy saves omit it) -->
-5. Reloading saved configuration restores the custom profile and exact route assignment. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-ENTERPRISE-031: persists named custom revisions and exact assignments through Save→GET and preserves the catalog when legacy saves omit it) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (creates and assigns to the mapped route only, retaining the canonical draft until explicit Save) -->
+5. Reloading saved configuration restores the custom profile and exact route assignment. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-ENTERPRISE-031: persists named custom revisions and exact assignments through Save→GET and preserves the catalog when legacy saves omit it) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-036: creates and assigns to the mapped route only, retaining the canonical draft until explicit Save) -->
 
 **Constraints:**
 
@@ -1030,7 +1139,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-035](models-and-routing.md#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-037](models-and-routing.md#req-enterprise-037-enterprise-pi-custom-profile-generation)
 
-**Verification:** Automated tests in the anchored Administration web-ui and configuration-run suites above.
+**Verification:** Automated: [ReasoningProfileEditor.test.tsx](../../web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts)
 
 **Status:** Implemented
 
@@ -1046,25 +1155,26 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. The initial route overview presents route names and status without expanding every route's controls. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route) -->
 2. Opening another route preserves unsaved edits in the previous route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: switching route details preserves unsaved values) -->
-3. Connection, Dynamic routes, Native routes, and access policies have distinct, keyboard-operable section navigation. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: section navigation retains configuration state) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-041: navigates Dynamic routes and Native routes and adds a Native Route) -->
-4. Add Native Route adds a native draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-041: navigates Dynamic routes and Native routes and adds a Native Route) -->
+3. Connection, Dynamic routes, Native routes, and access policies have distinct, keyboard-operable section navigation. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: section navigation retains configuration state) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-041: navigates Dynamic routes and Native routes and adds a Native Route) -->
+4. Add Native Route adds a native draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-041: navigates Dynamic routes and Native routes and adds a Native Route) -->
 
 **Constraints:**
 
-- The incumbent Administration tokens, responsive layout and accessible controls remain authoritative.
-- Discover and Advanced verification share one visible Check result above a single Advanced: choose a profile disclosure. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-038: Advanced verification updates the same visible result without requiring the disclosure to stay open) -->
-- Tool calling, Reasoning, Streaming and Input caching remain visible as four independently labelled outcomes, including partial results and per-level Native differences; no current grade is shown. Technical attempts/diagnostics start collapsed while Review changes → Confirm Save → next normal session guidance remains visible. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: Discover leaves one visible result and the review/save next step outside optional profile controls) --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: %s mixed evidence keeps four independent capability outcomes visible with details collapsed) --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: legacy grades never appear in the result or expanded attempt history) -->
+- Existing Administration tokens/responsive layout/accessibility remain authoritative.
+- Discover/Advanced verification share one visible Check result above one Advanced: choose a profile disclosure. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-038: Advanced verification updates the same visible result without requiring the disclosure to stay open) -->
+- Keep Tool calling, Reasoning, Streaming and Input caching independently labelled, including partial/per-level Native outcomes; no current grade. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCheckResult --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: Discover leaves one visible result and the review/save next step outside optional profile controls) --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: %s mixed evidence keeps four independent capability outcomes visible with details collapsed) --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: legacy grades never appear in the result or expanded attempt history) -->
+- Technical attempts/diagnostics start collapsed; Review changes → Confirm Save → next normal session guidance stays visible.
 - Non-Bedrock Native profile controls start expanded. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-041: non-Bedrock Native keeps its consolidated Advanced controls open and publishes verification outside them) -->
-- Mobile layout keeps fields, identifiers, results and 44px actions within the viewport. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @manual: Check single-column mobile fields, wrapped model identifiers, visible result/next step, and 44px action targets without horizontal overflow. -->
-- Section and route navigation must not discard drafts or start paid checks.
-- Mapping and verification use one compact indeterminate progress indicator at the active route, without repeated headings, explanatory paragraphs, or duplicate bottom-of-form status. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: verification progress is visible beside the route without a bottom duplicate) -->
-- A finished mapping error does not lock profile selection; choosing another profile dismisses the old result. <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: mapping failure unlocks profile selection and keeps progress local) -->
+- Mobile fields/identifiers/results/44px actions fit the viewport. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @manual: Check single-column mobile fields, wrapped model identifiers, visible result/next step, and 44px action targets without horizontal overflow. -->
+- Navigation never discards drafts or starts paid checks.
+- Mapping/verification uses one compact indeterminate active-route indicator, without repeated headings/explanatory paragraphs/duplicate bottom status. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: verification progress is visible beside the route without a bottom duplicate) -->
+- Finished mapping errors never lock profile selection; choosing another profile dismisses the old result. <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: mapping failure unlocks profile selection and keeps progress local) -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-040](models-and-routing.md#req-enterprise-040-enterprise-pi-check-lifecycle)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only.
+**Verification:** Automated: [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Implemented
 
@@ -1091,15 +1201,17 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-ENTERPRISE-038](models-and-routing.md#req-enterprise-038-enterprise-pi-selected-profile-verification)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
-### REQ-ENTERPRISE-044: Enterprise Pi Minimum Save and Access Policies
+<a id="req-enterprise-044-enterprise-pi-minimum-save-and-access-policies"></a>
 
-**Intent:** Save gateway and provider configuration independently while activating only complete access policies.
+### REQ-ENTERPRISE-044: Enterprise Pi Draft Save and Review
+
+**Intent:** Save gateway and provider configuration independently and submit semantically changed drafts to authoritative Review validation.
 
 **Applies To:** Admin
 
@@ -1107,20 +1219,11 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. A checked gateway connection can be saved without any Dynamic Route, group assignment, or fallback route. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (accepts an AI Gateway connection before routes or access policies exist) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044: reviews a checked connection change before routes or access policies exist) -->
 2. Invalid inactive context inputs do not block Save or discard valid retained draft windows. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (preserves valid inactive draft context windows and ignores invalid replacements without exposing inactive routes) -->
-3. Adding a group with exactly one eligible route preselects that route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
-4. New default reasoning prefers Medium, then Off, then the first supported level. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
-5. Unmatched users receive only the enabled fallback subset, or no routes when fallback is disabled. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (disabled fallback denies unmatched users and enabled fallback exposes only its allowed verified subset) -->
-6. The first matching configured group remains authoritative even when reconciliation removes every route. Empty deny-only groups survive; exhausted fallback is disabled rather than widened. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not fall through from the first matching policy when its routes become ineligible) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (saves and retains an explicit empty deny-only first group alongside a working group) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-044: complete empty inventories persist deny-only groups and disabled fallback, then reconcile idempotently) -->
-7. Any editable draft that differs semantically from saved state can reach authoritative Review validation without a client-side readiness gate. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044/057: replacement credentials preserve saved policies regardless of connection edit order (%s)) -->
+3. Any editable draft that differs semantically from saved state can reach authoritative Review validation without a client-side readiness gate. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::ConfigurationAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044/057: connection drafts preserve saved policies before and after checking (%s)) -->
 
 **Constraints:**
 
-- Cleanup preserves surviving policy order and supported defaults. If a default disappears, choose only a surviving allowed route and supported reasoning; an empty global default uses Off. Repeated unchanged reconciliation does not advance the revision. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-044: complete empty inventories persist deny-only groups and disabled fallback, then reconcile idempotently) -->
-
-- Active dynamic routes are the union of eligible group and enabled fallback routes.
 - Inactive profile assignments remain editable drafts.
-- Only explicit policy removal deletes an empty configured group.
-- Fallback uses the same available-route and supported-default controls as groups.
 - The primary action is labeled Review changes, matching other Environment areas; Confirm Save retains warning acknowledgements and baseRevision protection.
 - Connection/inventory loading and policy normalization alone are not edits; reverting edits disables review again.
 - Back to edit preserves the editor draft and verification receipts without treating that draft as a new clean baseline.
@@ -1130,10 +1233,43 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-043](models-and-routing.md#req-enterprise-043-enterprise-pi-verified-route-activation)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
+---
+
+### REQ-ENTERPRISE-098: Enterprise Pi Access Policy Resolution
+
+**Intent:** Activate only complete access policies while preserving supported defaults, first-match authority and deny-only fallback boundaries.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Adding a group with exactly one eligible route preselects that route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
+2. New default reasoning prefers Medium, then Off, then the first supported level. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
+3. Unmatched users receive only the enabled fallback subset, or no routes when fallback is disabled. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (disabled fallback denies unmatched users and enabled fallback exposes only its allowed verified subset) -->
+4. The first matching configured group remains authoritative even when reconciliation removes every route. Empty deny-only groups survive; exhausted fallback is disabled rather than widened. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not fall through from the first matching policy when its routes become ineligible) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (saves and retains an explicit empty deny-only first group alongside a working group) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-044: complete empty inventories persist deny-only groups and disabled fallback, then reconcile idempotently) -->
+
+**Constraints:**
+
+- Cleanup preserves surviving policy order and supported defaults.
+- If a default disappears, choose only a surviving allowed route and supported reasoning.
+- An empty global default uses Off.
+- Repeated unchanged reconciliation does not advance the revision. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-044: complete empty inventories persist deny-only groups and disabled fallback, then reconcile idempotently) -->
+- Active dynamic routes are the union of eligible group and enabled fallback routes.
+- Inactive profile assignments remain editable drafts.
+- Only explicit policy removal deletes an empty configured group.
+- Fallback uses the same available-route and supported-default controls as groups.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-043](models-and-routing.md#req-enterprise-043-enterprise-pi-verified-route-activation)
+
+**Verification:** Automated: [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx)
+
+**Status:** Implemented
 ---
 
 ### REQ-ENTERPRISE-045: Pi Compatibility Profile Communication
@@ -1149,7 +1285,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 3. Custom profile names remain user-owned and do not acquire an invented tested provider. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: web-ui/src/__tests__/components/pi-profile-presentation.test.ts (preserves a custom name without inventing a tested provider) -->
 4. The Advanced matcher retains named Create & Assign for an unmatched compatible draft. Normal Discover automatically creates/reuses a shared contract without requiring a name. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (Discover Profile starts exactly once and creates a canonical route draft without submitting Save) -->
 5. A provider-controlled profile permits an Off default preference with visible Provider-default/no-override help, never a verified-disabled claim. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-045: %s receipt permits an Off default preference and access without inventing cache or saving) -->
-6. A provider-controlled route summary shows Provider default rather than unsupported Off or missing levels. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-045/070: presents Dynamic Bedrock reasoning as provider-controlled instead of unsupported Off) -->
+6. A provider-controlled route summary shows Provider default rather than unsupported Off or missing levels. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-045/070: presents Dynamic Bedrock reasoning as provider-controlled instead of unsupported Off) -->
 7. A matched provider-controlled profile shows Provider default rather than missing levels. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-045: shows a matched empty level set as Provider default and preserves its assignment) -->
 
 **Constraints:**
@@ -1162,7 +1298,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-035](models-and-routing.md#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-036](#req-enterprise-036-enterprise-pi-custom-profile-draft-lifecycle)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only.
+**Verification:** Automated: [AiRoutingWorkspace.test.tsx](../../web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx), [ReasoningProfileEditor.test.tsx](../../web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx), [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [pi-profile-presentation.test.ts](../../web-ui/src/__tests__/components/pi-profile-presentation.test.ts)
 
 **Status:** Implemented
 
@@ -1181,15 +1317,16 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Constraints:**
 
-- Secret values never appear in summaries; technical identifiers remain in a disclosure. Existing redaction applies to Native labels; missing/deleted names remain honestly unavailable, never fabricated or sourced from browser-only values. Opaque policy payload IDs are unchanged. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingSummary --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-046: resolves $section allowed and default native routes from authoritative $source labels, not submitted values (saved: $saved)) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-046: labels changed route sections Dynamic routes and Native routes (saved: %s)) -->
-- Confirmation preserves the reviewed values, warning codes, and baseRevision.
-- Reviewed Environment execution keeps per-task running and succeeded statuses visible outside Technical details, using the existing configuration-run stream and status styling. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-041: streams visible task progress outside technical details) -->
+- Summaries never expose secrets; technical identifiers stay in a disclosure.
+- Native labels retain existing redaction; missing/deleted names stay honestly unavailable, never fabricated or sourced from browser-only values; opaque policy IDs stay unchanged. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingSummary --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-046: resolves $section allowed and default native routes from authoritative $source labels, not submitted values (saved: $saved)) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-046: labels changed route sections Dynamic routes and Native routes (saved: %s)) -->
+- Confirmation preserves reviewed values/warning codes/`baseRevision`.
+- Reviewed Environment execution keeps per-task running/succeeded statuses visible outside Technical details using existing configuration-run stream/status styling. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-041: streams visible task progress outside technical details) -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration)
 
-**Verification:** Anchored behavioral fixtures; execution is CI-only.
+**Verification:** Automated: [AiRoutingReview.test.tsx](../../web-ui/src/__tests__/components/AiRoutingReview.test.tsx)
 
 **Status:** Implemented
 
@@ -1204,11 +1341,11 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Administrators can select any uniquely selectable provider, and the selection updates the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls) -->
-2. Administrators can edit a target label, and the edited label remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: edits the target label and context window in the native draft) -->
-3. Administrators can enter an exact model identifier that is absent from the suggestions, and that exact value remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: accepts an exact model independently of provider-scoped optional suggestions) -->
-4. Administrators can edit a target context window, and the numeric value remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: edits the target label and context window in the native draft) -->
-5. Route-derived model suggestions contain only models for the selected provider and do not constrain the exact-model input. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: accepts an exact model independently of provider-scoped optional suggestions) -->
+1. Administrators can select any uniquely selectable provider, and the selection updates the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls) -->
+2. Administrators can edit a target label, and the edited label remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-051: edits the target label and context window in the native draft) -->
+3. Administrators can enter an exact model identifier that is absent from the suggestions, and that exact value remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-051: accepts an exact model independently of provider-scoped optional suggestions) -->
+4. Administrators can edit a target context window, and the numeric value remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-051: edits the target label and context window in the native draft) -->
+5. Route-derived model suggestions contain only models for the selected provider and do not constrain the exact-model input. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-051: accepts an exact model independently of provider-scoped optional suggestions) -->
 
 **Constraints:** Administration remains retryable while profile lifecycle, identity, and Save authority stay with [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration), [REQ-ENTERPRISE-053](models-and-routing.md#req-enterprise-053-native-target-identity-and-document), and [REQ-ENTERPRISE-055](models-and-routing.md#req-enterprise-055-native-target-authority-and-save).
 
@@ -1216,7 +1353,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-047](models-and-routing.md#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](models-and-routing.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-053](models-and-routing.md#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Implemented
 
@@ -1230,13 +1367,13 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Selecting a built-in profile stores that exact immutable revision reference in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: selects the exact %s profile revision in the target draft) -->
-2. Selecting a saved custom profile stores that exact immutable revision reference in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: selects the exact %s profile revision in the target draft) -->
-3. Advanced Discover Profile retains compatibility matching without automatic draft adoption. Normal Bedrock Discover instead verifies/adopts the exact target under REQ-ENTERPRISE-075. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: invokes native compatibility discovery for the current target draft) -->
-4. Verify Profile verifies the exact selected profile and records only the returned server-issued check and target identity in the draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: verifies the exact selected profile and records its server-issued draft state) -->
-5. Eligible selected profiles, including generated contracts, may be explicitly administrator-confirmed through an exact server-issued receipt without inventing automated evidence or generated-profile cache permission. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: verification automatically enables the native target draft) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: confirms selected Native $profile.id through endpoint, Save and runtime without borrowing tools or cache evidence) -->
-6. Successful verification or administrator confirmation makes the target Ready automatically. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: verification automatically enables the native target draft) -->
-7. Remove target deletes that target from the editable draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-054: removes a native target from the editable draft) -->
+1. Selecting a built-in profile stores that exact immutable revision reference in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: selects the exact %s profile revision in the target draft) -->
+2. Selecting a saved custom profile stores that exact immutable revision reference in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: selects the exact %s profile revision in the target draft) -->
+3. Advanced Discover Profile retains compatibility matching without automatic draft adoption. Normal Bedrock Discover instead verifies/adopts the exact target under REQ-ENTERPRISE-075. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: invokes native compatibility discovery for the current target draft) -->
+4. Verify Profile verifies the exact selected profile and records only the returned server-issued check and target identity in the draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: verifies the exact selected profile and records its server-issued draft state) -->
+5. Eligible selected profiles, including generated contracts, may be explicitly administrator-confirmed through an exact server-issued receipt without inventing automated evidence or generated-profile cache permission. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: #105 confirms a generated Native selection without inventing automated facts or assigning access) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) --> <!-- @test: src/__tests__/routes/target-capability-discovery.test.ts (REQ-ENTERPRISE-075: confirms selected Native $profile.id through endpoint, Save and runtime without borrowing tools or cache evidence) -->
+6. Successful verification or administrator confirmation makes the target Ready automatically. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: verification automatically enables the native target draft) -->
+7. Remove target deletes that target from the editable draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-054: removes a native target from the editable draft) -->
 
 **Constraints:** Administrator confirmation remains an Admin action and never claims automated evidence.
 
@@ -1244,9 +1381,9 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-048](models-and-routing.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-052](models-and-routing.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](models-and-routing.md#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](models-and-routing.md#req-enterprise-055-native-target-authority-and-save)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [target-capability-discovery.test.ts](../../src/__tests__/routes/target-capability-discovery.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1259,11 +1396,13 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Administration lists each added target as one collapsed provider-model row. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls) -->
-2. Opening a target row exposes its fields and current Check result, retaining saved independent capability detail after reload; profile actions are grouped in one Advanced disclosure. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls) -->
-3. Targets without current proof show orange Not ready status; ready targets distinguish green Verified from Administrator-confirmed without a fresh check. <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-043: saved Native %s authority has a distinct visible basis without a fresh check) --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
-4. Only targets with current proof and valid context are ready for access policies. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
-5. Access-policy checkboxes and default-route choices show each native target's provider and trimmed user label, falling back to its exact model when the label is absent or blank. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
+1. Administration lists each added target as one collapsed provider-model row. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls) -->
+2. Opening a target row exposes its fields and current Check result, retaining saved independent capability detail after reload; profile actions are grouped in one Advanced disclosure. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls) -->
+3. Targets without current proof show orange Not ready status; ready targets distinguish green Verified from Administrator-confirmed without a fresh check. <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (REQ-ENTERPRISE-043: saved Native %s authority has a distinct visible basis without a fresh check) --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
+4. Only targets with current proof and valid context are ready for access policies. <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-056 AC4: context bounds control %s readiness and policy eligibility without replacing proof) --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
+5. Access-policy checkboxes and default-route choices show each native target's provider and trimmed user label, falling back to its exact model when the label is absent or blank. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
+
+**Notes:** Client readiness and policy eligibility share the existing server context-window ceiling. Invalid context removes policy eligibility without replacing saved proof; restoring valid context restores eligibility when that proof remains current ([routing publication](../../documentation/lanes/models-and-routing.md#reasoning-and-model-publication)).
 
 **Constraints:** Readiness has no separate toggle while editing and lifecycle remain with [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace) and [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration).
 
@@ -1271,9 +1410,9 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [TargetCapabilityDiscovery.test.tsx](../../web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1285,7 +1424,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. A successful management check after rotating gateway coordinates or credentials preserves saved route authority only when profile and topology still match. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057: rebinds saved route authority after a replacement connection passes management topology validation) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-057: a successfully checked credential change preserves saved route authority for Review changes) -->
+1. A successful management check after rotating gateway coordinates or credentials preserves saved route authority only when profile and topology still match. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057: rebinds saved route authority after a replacement connection passes management topology validation) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-057: a successfully checked credential change preserves saved route authority for Review changes) -->
 2. Editing gateway coordinates or credentials preserves and submits matching saved Dynamic Route and native policy selections to Review before a management check. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044/057: connection drafts preserve saved policies before and after checking (%s)) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-057: preserves a native-only policy before and after checking connection changes) -->
 3. Authoritative preview rebinds retained Dynamic Route authority only when its saved identity and topology still match. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/routes/admin/configuration-previews.ts::app --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057: rebinds saved route authority after a replacement connection passes management topology validation) -->
 4. Authoritative preview rejects mismatched saved Dynamic Route authority before Save. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/routes/admin/configuration-previews.ts::app --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects a receipt after $identity identity changes (administrator: $administratorConfirmed)) -->
@@ -1296,7 +1435,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-ENTERPRISE-042](#req-enterprise-042-enterprise-pi-draft-connection-and-verification), [REQ-ENTERPRISE-063](#req-enterprise-063-ai-gateway-management-url-compatibility)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx)
 
 **Status:** Implemented
 
@@ -1318,7 +1457,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-053](models-and-routing.md#req-enterprise-053-native-target-identity-and-document)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts)
 
 **Status:** Implemented
 
@@ -1342,7 +1481,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts)
 
 **Status:** Implemented
 
@@ -1356,10 +1495,10 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Dynamic Route detection accepts legacy and account API gateway URLs. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the account API base URL and configured gateway name for Dynamic Route inspection) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the legacy gateway URL for Dynamic Route inspection) -->
-2. Dynamic Route inventory accepts legacy and account API gateway URLs. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-063: loads Dynamic Route inventory through the %s URL) -->
-3. Profile discovery accepts legacy and account API gateway URLs. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the account API URL) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the legacy URL) -->
-4. Connection checks accept legacy and account API gateway URLs. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the account API base URL and configured gateway name for Dynamic Route inspection) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the legacy gateway URL for Dynamic Route inspection) -->
+1. Dynamic Route detection accepts legacy and account API gateway URLs. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @impl: src/routes/admin/reasoning.ts::catalog --> <!-- @impl: src/lib/live-routing-reconciliation.ts::loadLiveRoutingInventory --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the account API base URL and configured gateway name for Dynamic Route inspection) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the legacy gateway URL for Dynamic Route inspection) -->
+2. Dynamic Route inventory accepts legacy and account API gateway URLs. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @impl: src/routes/admin/reasoning.ts::routeInventory --> <!-- @impl: src/lib/reasoning-verification.ts::loadCheckedRouteInventory --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-063: loads Dynamic Route inventory through the %s URL) -->
+3. Profile discovery accepts legacy and account API gateway URLs. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/reasoning-verification.ts::loadCheckedRouteInventory --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the account API URL) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the legacy URL) -->
+4. Connection checks accept legacy and account API gateway URLs. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @impl: src/lib/live-routing-reconciliation.ts::loadLiveRoutingInventory --> <!-- @impl: src/lib/reasoning-verification.ts::connectionFingerprint --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the account API base URL and configured gateway name for Dynamic Route inspection) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the legacy gateway URL for Dynamic Route inspection) -->
 5. Account API gateway URLs require the gateway name. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects invalid draft gateway coordinates, credentials and provenance before external I/O) -->
 6. Account API suffixes after the account ID are removed before use. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the account API URL) -->
 7. Routine Administration returns either saved URL form and its conditional gateway name. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) -->
@@ -1370,7 +1509,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-042](#req-enterprise-042-enterprise-pi-draft-connection-and-verification)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [admin-configuration.test.ts](../../src/__tests__/routes/admin-configuration.test.ts), [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts)
 
 **Status:** Implemented
 
@@ -1384,10 +1523,12 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Configured and assignable Dynamic Routes display as `Dynamic Route - <route name>`. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034/064: presents and preserves named Dynamic Routes in many-to-many group policies) -->
-2. Configured and assignable native targets display as `Native Route - <provider> - <user label>`, using the exact model only when the trimmed label is empty or absent. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
-3. Policy submission retains the selected route name or opaque native handle rather than its presentation label. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
+1. Configured and assignable Dynamic Routes display as `Dynamic Route - <route name>`. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-034/064: presents and preserves named Dynamic Routes in many-to-many group policies) -->
+2. Configured native rows use `Native Route - <provider> - <model>` for title/Configure, with the user label secondary. Policy options use `Native Route - <provider> - <trimmed label>`, falling back to the model for absent or blank labels. <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls) --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
+3. Policy submission retains the selected route name or opaque native handle rather than its presentation label. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-064: #110 uses the native label or model fallback in group and fallback policies (%s)) -->
 4. Built-in compatibility profile labels begin with `Dynamic Route` or `Native Route` and identify the provider and supported model family without transport mechanics in the profile name. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: web-ui/src/__tests__/components/pi-profile-presentation.test.ts (presents the three Bedrock choices by route category and model family without transport jargon) -->
+
+**Notes:** Configured rows identify the model first; policy options identify the user-assigned label first. Presentation does not change submitted identities ([configuration presentation](../../documentation/lanes/configuration.md)).
 
 **Constraints:** Presentation labels do not change route names, profile references, native target identities, or submitted policy values.
 
@@ -1395,9 +1536,9 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-056](#req-enterprise-056-native-target-disclosure-and-readiness)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Automated: [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [pi-profile-presentation.test.ts](../../web-ui/src/__tests__/components/pi-profile-presentation.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1409,9 +1550,9 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. A complete disabled native provider-model draft can be saved without any Dynamic Route, group assignment, or fallback route. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-066: accepts a disabled native provider target before routes or access policies exist) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-066: enables Save for a complete disabled native draft without access policies) -->
-2. Save remains unavailable while the draft contains an invalid model identifier or context window. <!-- @impl: src/lib/native-ai-target-draft.ts::nativeTargetDraftShapeValid --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-066: enables Save for a complete disabled native draft without access policies) -->
-3. Save remains unavailable while the draft references a profile absent from the current catalog. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-066: keeps Save unavailable for a native draft whose profile is unavailable) -->
+1. A complete disabled native provider-model draft can be saved without any Dynamic Route, group assignment, or fallback route. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-066: saves a disabled native provider target before routes or access policies exist without granting access) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-066: enables Save for a complete disabled native draft without access policies) -->
+2. Authoritative Review rejects invalid model identifiers/context windows before Apply/Confirm Save can persist. The public Review button gates dirty/busy/active-run state, not legacy readiness; rejection preserves the editable draft, displays the qualified error below, and opens no confirmation. <!-- @impl: src/lib/native-ai-target-draft.ts::nativeTargetDraftShapeValid --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-066: enables Save for a complete disabled native draft without access policies) --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-066: rejected authoritative Review for %s leaves the draft editable without confirmation or Apply) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-066: public Review failure displays the qualified fallback outcome %#) -->
+3. Authoritative Review validation rejects a new, edited or enabling target whose profile is absent from the current catalog. An existing disabled target may retain its missing profile only when its saved identity, label, provider, model, transport, region, context window and exact profile reference are unchanged; this exception grants neither edits, activation nor new evidence. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-066: keeps Save unavailable for a native draft whose profile is unavailable) --> <!-- @impl: src/lib/native-ai-target-draft.ts::preservesDisabledNativeTarget --> <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-066: preserves an exact unchanged disabled missing-profile target alongside a complete edit without granting evidence) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-066: successful Review precedes explicit Confirm Save and applies the exact retained disabled draft) -->
 4. Browser validation treats a draft that omits its provider as an AWS Bedrock draft. <!-- @impl: src/lib/native-ai-target-draft.ts::nativeTargetDraftShapeValid --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-066: browser validation treats an omitted provider as AWS Bedrock) -->
 5. API validation defaults an omitted draft provider to AWS Bedrock. <!-- @impl: src/lib/native-ai-targets.ts::nativeTargetDraftSchema --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-066: API validation defaults an omitted provider to AWS Bedrock) -->
 6. Browser validation rejects undeclared top-level draft fields. <!-- @impl: src/lib/native-ai-target-draft.ts::nativeTargetDraftShapeValid --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-066: browser validation rejects undeclared native draft fields) -->
@@ -1421,12 +1562,13 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 - Persisting a disabled draft does not make it eligible for runtime access.
 - Provider and profile authority remain Worker-validated.
+- Review failures display distinct nonblank string field reasons when available; otherwise the Error message, or `Environment values are invalid.` for a non-Error. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::configurationErrorMessage --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-066: public Review failure displays the qualified fallback outcome %#) -->
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-055](models-and-routing.md#req-enterprise-055-native-target-authority-and-save)
+**Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-098](#req-enterprise-098-enterprise-pi-access-policy-resolution), [REQ-ENTERPRISE-055](models-and-routing.md#req-enterprise-055-native-target-authority-and-save)
 
-**Verification:** Anchored backend behavioral test; execution is CI-only.
+**Verification:** Automated: [reasoning-eligibility.test.ts](../../src/__tests__/routes/reasoning-eligibility.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [native-ai-targets.test.ts](../../src/__tests__/lib/native-ai-targets.test.ts)
 
 **Status:** Implemented
 
@@ -1452,7 +1594,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-041](#req-enterprise-041-enterprise-pi-administrator-workspace)
 
-**Verification:** Manual verification on the protected Enterprise Integration deployment.
+**Verification:** Manual: [Protected Enterprise Integration section-navigation inspection](#req-enterprise-067-enterprise-pi-section-navigation-layout)
 
 **Status:** Implemented
 
@@ -1475,7 +1617,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-041](#req-enterprise-041-enterprise-pi-administrator-workspace)
 
-**Verification:** Manual verification on the protected Enterprise Integration deployment.
+**Verification:** Manual: [Protected Enterprise Integration connection-control inspection](#req-enterprise-068-enterprise-pi-connection-control-layout)
 
 **Status:** Implemented
 
@@ -1489,7 +1631,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. A verified Dynamic Route profile assignment can reach Review without a group assignment or fallback route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-069: enables Review for a verified Dynamic Route profile without an access policy) -->
+1. A verified Dynamic Route profile assignment can reach Review without a group assignment or fallback route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-069: enables Review for a verified Dynamic Route profile without an access policy) -->
 2. Review and saved summaries include changed inactive route profiles and context windows without granting access. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingSummary --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-041: reviews, saves and reloads an inactive administrator-confirmed profile and context without assigning access) -->
 3. Preview reports changed inactive assignments and context windows. <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-043/069: previews, saves, and reloads an inactive administrator-confirmed Dynamic Bedrock assignment and changed context) -->
 4. Save persists inactive assignments and context windows without activating access. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-043/069: previews, saves, and reloads an inactive administrator-confirmed Dynamic Bedrock assignment and changed context) -->
@@ -1505,9 +1647,9 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-043](models-and-routing.md#req-enterprise-043-enterprise-pi-verified-route-activation), [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies)
+**Dependencies:** [REQ-ENTERPRISE-043](models-and-routing.md#req-enterprise-043-enterprise-pi-verified-route-activation), [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-098](#req-enterprise-098-enterprise-pi-access-policy-resolution)
 
-**Verification:** Anchored behavioral fixture; execution is CI-only.
+**Verification:** Automated: [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx), [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [AiRoutingReview.test.tsx](../../web-ui/src/__tests__/components/AiRoutingReview.test.tsx)
 
 **Status:** Implemented
 
@@ -1529,9 +1671,9 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies)
+**Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-098](#req-enterprise-098-enterprise-pi-access-policy-resolution)
 
-**Verification:** Anchored behavioral fixtures and CI.
+**Verification:** Automated: [client.test.ts](../../web-ui/src/__tests__/api/client.test.ts), [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx)
 
 **Status:** Implemented
 
@@ -1554,6 +1696,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 5. An omitted Pi source resolves to managed for both group and enabled-fallback policies. <!-- @impl: src/lib/personal-pi-policy.ts::resolvePersonalPiPolicy --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC5: omitted group and fallback sources resolve to managed) -->
 6. Choosing a Native default never grants personal-provider permission when that permission is false or omitted. <!-- @impl: src/lib/personal-pi-policy.ts::resolvePersonalPiPolicy --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC6: a native default never grants permission when permission is %s) -->
 
+**Notes:** Administration tests do not establish live startup, provider or Operator acceptance; those boundaries remain with [Container Environment](../../documentation/lanes/configuration.md#container-environment).
+
 **Constraints:**
 
 - Additive `allowPersonalPiProviders`, default off.
@@ -1569,7 +1713,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-058](models-and-routing.md#req-enterprise-058-native-model-container-publication)
 
-**Verification:** Administration, saved-reconciliation and shared editor tests cover persistence/payloads; separate actual Review component regressions cover grant/revocation rendering without changing sanctioned defaults. Current gap-fix test execution and exact-head CI remain unverified; startup/provider/Operator evidence belongs to the siblings below.
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [personal-pi-policy.test.ts](../../src/__tests__/lib/personal-pi-policy.test.ts), [ai-routing-fields-suite.tsx](../../web-ui/src/__tests__/components/ai-routing-fields-suite.tsx), [AiRoutingReview.test.tsx](../../web-ui/src/__tests__/components/AiRoutingReview.test.tsx), [live-routing-reconciliation.test.ts](../../src/__tests__/routes/live-routing-reconciliation.test.ts)
 
 **Status:** Implemented
 
@@ -1587,6 +1731,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 2. A failed check preserves the connection for an explicit retry. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-093 AC1/AC2: saved connection failures show safe recovery guidance and preserve the connection for retry) -->
 3. Unexpected exceptions retain generic recovery guidance without exposing raw private error details. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-093 AC3: unexpected connection exceptions retain a safe fallback without exposing raw error details) -->
 
+**Notes:** [Integration acceptance](../../documentation/lanes/deployment.md#integration-acceptance-checklist) remains separate from component recovery tests.
+
 **Constraints:**
 
 - No automatic retry or escalation.
@@ -1596,7 +1742,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration)
 
-**Verification:** Existing component recovery regressions cover safe errors, retained connection and explicit retry; exact-head CI and hosted acceptance remain required.
+**Verification:** Automated: [EnvironmentIndex.test.tsx](../../web-ui/src/__tests__/components/EnvironmentIndex.test.tsx)
 
 **Status:** Implemented
 
@@ -1610,13 +1756,13 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. An explicit sync-policy selection persists and reloads in either direction through the existing Data governance preview/apply workflow. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018: sync policy defaults, previews without writes, applies both modes, and preserves omitted requests) -->
-2. An older client omitting the policy preserves the saved selection. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018: sync policy defaults, previews without writes, applies both modes, and preserves omitted requests) -->
-3. Invalid submitted policy values reject without configuration mutation. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::sectionSchemas --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-018: rejects unknown sync policy %s before mutation) -->
-4. Malformed stored policy does not silently select Exclude. <!-- @impl: src/lib/sync-policy.ts::parseStoredSyncPolicyMode --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018: malformed stored sync policy fails closed rather than selecting exclude) -->
+1. An explicit sync-policy selection persists and reloads in either direction through Data governance in Default, Onboarding, SaaS, and Enterprise. Outside Enterprise, applying it changes no encryption, download, managed-resource, or unrelated settings. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018/028: %s sync policy defaults, previews without writes, applies both directions, and preserves omission) -->
+2. In every deployment mode, an older client omitting the policy preserves the saved selection. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018/028: %s sync policy defaults, previews without writes, applies both directions, and preserves omission) -->
+3. Invalid submitted policy values reject in preview and direct Apply without configuration mutation in every deployment mode. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (rejects unknown submitted sync policy %s before mutation) -->
+4. In every deployment mode, malformed stored policy fails reads and omitted-policy preview/direct Apply without mutation rather than silently selecting Exclude. <!-- @impl: src/lib/sync-policy.ts::parseStoredSyncPolicyMode --> <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (rejects malformed stored sync policy on GET and omitted preview/direct Apply without selecting Exclude) -->
 5. The selector explains R2 restoration in ordinary language: Exclude can persist temporary downloads within sync scope; Include cannot restore files outside approved locations. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (Data governance copy contract: accessible persistence choice %s explains consequences and submits both directions) -->
 6. Copy explains that new nested agent files remain eligible, workspace and managed restrictions remain, and changing policy does not delete existing stored files. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (Data governance copy contract: accessible persistence choice %s explains consequences and submits both directions) -->
-7. The saved policy applies to new or restarted sessions, not running daemons; saving does not automatically restart sessions. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (Data governance copy contract: accessible persistence choice %s explains consequences and submits both directions) -->
+7. The saved policy applies to new or restarted sessions, not running daemons; saving does not automatically restart sessions. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (Data governance copy contract: accessible persistence choice %s explains consequences and submits both directions) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-008: transports current global sync policy %s on start) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-SESSION-008: sync policy survives initial configuration, both restart directions, and DO wake) -->
 
 **Constraints:** Reuse the existing Data governance workflow without hot-changing running daemons.
 
@@ -1624,6 +1770,35 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution)
 
-**Verification:** Existing named behavioral tests; CI qualification remains separate.
+**Verification:** Automated: [admin-configuration-preview.test.ts](../../src/__tests__/routes/admin-configuration-preview.test.ts), [EnvironmentAreaFields.test.tsx](../../web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx), [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts), [container/index.test.ts](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-230: Administrator Cloudflare OAuth client configuration
+
+**Intent:** Administrators configure the shared Cloudflare OAuth client through Administration → Environment → Integrations in every deployment mode, while each user’s grant remains separate.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration → Environment → Integrations configures the shared Cloudflare OAuth client in every mode, retaining administrator authorization and encrypted secret storage. <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (rejects a Cloudflare client secret with no ENCRYPTION_KEY (fail closed, no write)) --> <!-- @manual --> <!-- @impl: src/routes/setup/index.ts::app --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-AGENT-230: admin configure persists Cloudflare OAuth ciphertext that independently decrypts with the immutable key) --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-AGENT-230: non-admin configure is rejected with the stored configuration unchanged) -->
+
+**Constraints:**
+
+- One OAuth client per operator account; each user authorizes their own Cloudflare account.
+- The operator's OAuth client must be registered with `token_endpoint_auth_method = client_secret_post`.
+- Cloudflare's client-secret **rotation is broken** (Cloudflare-side bug): only the secret returned at client *creation* authenticates.
+- The exact OAuth scope set must be granted on the operator's client — see the [Configuration](../../documentation/lanes/configuration.md) lane and verify against `GET /client/v4/oauth/scopes`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-AGENT-029](agents.md#req-agent-029-deploy-credential-propagation-to-container)
+
+**Verification:** Manual: [Setup credential boundary record acceptance](../../documentation/lanes/configuration.md#setup-credential-boundary-record-acceptance)
+
+**Status:** Implemented
+
+---

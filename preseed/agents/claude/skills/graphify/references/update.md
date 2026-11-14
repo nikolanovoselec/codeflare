@@ -11,22 +11,23 @@ Three modes:
 
 ### --update procedure
 
-Use when you've added or modified files since the last run. Only re-extracts changed files - saves tokens and time.
+Use when you've added or modified files since the last run. Only re-extracts changed files - saves tokens and time. Replace `'<scan-root>'` with the selected root as one shell-quoted literal argument, using Step 1's quoting rules; never substitute it into Python source.
 
 ```bash
-/root/.local/share/uv/tools/graphifyy/bin/python -c "
+/root/.local/share/uv/tools/graphifyy/bin/python - '<scan-root>' <<'PY'
 import json
+import sys
 from graphify.detect import detect_incremental, save_manifest
 from pathlib import Path
 
-result = detect_incremental(Path('INPUT_PATH'))
+result = detect_incremental(Path(sys.argv[1]).resolve())
 new_total = result.get('new_total', 0)
 Path('.graphify_incremental.json').write_text(json.dumps(result))
 if new_total == 0:
  print('No files changed since last run. Nothing to update.')
  raise SystemExit(0)
 print(f'{new_total} new/changed file(s) to re-extract.')
-"
+PY
 ```
 
 If new files exist, first check whether all changed files are code files:

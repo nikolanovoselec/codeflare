@@ -14,10 +14,10 @@
  * outcome is controlled independently.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { getContainer } from '@cloudflare/containers';
 import type { Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
-import { buildSessionMetadata } from '../../lib/kv-keys';
 
 vi.mock('../../lib/logger', () => ({
   createLogger: vi.fn(() => ({
@@ -85,7 +85,7 @@ describe('CF-040 / REQ-STOR-015: POST /api/sessions/sync fan-out', () => {
 
   function seedRunning(id: string) {
     const session = makeSession(id, 'running');
-    mockKV._set(`session:test-bucket:${id}`, session, buildSessionMetadata(session));
+    mockKV._set(`session:test-bucket:${id}`, session);
   }
 
   // AC1: every running session is triggered (host returns 202).
@@ -138,7 +138,7 @@ describe('CF-040 / REQ-STOR-015: POST /api/sessions/sync fan-out', () => {
   it('skips stopped sessions (only running sessions are fanned out)', async () => {
     seedRunning('aabbccdd11223344');
     const stopped = makeSession('eeff001122334455', 'stopped');
-    mockKV._set('session:test-bucket:eeff001122334455', stopped, buildSessionMetadata(stopped));
+    mockKV._set('session:test-bucket:eeff001122334455', stopped);
     containerBehavior.map.set('test-bucket-aabbccdd11223344', { status: 202 });
 
     const app = createApp();
@@ -158,6 +158,7 @@ describe('CF-040 / REQ-STOR-015: POST /api/sessions/sync fan-out', () => {
     seedRunning('aabbccdd11223344');
     containerBehavior.map.set('test-bucket-aabbccdd11223344', { status: 202 });
     mockKV._set('r2-regime:test-bucket', { status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0 });
+    vi.mocked(getContainer).mockClear();
 
     const app = createApp();
     const res = await app.request('/sessions/sync', { method: 'POST' });
@@ -166,5 +167,6 @@ describe('CF-040 / REQ-STOR-015: POST /api/sessions/sync fan-out', () => {
     const body = await res.json() as { count: number; sessions: unknown[] };
     expect(body.count).toBe(0);
     expect(body.sessions).toEqual([]);
+    expect(getContainer).not.toHaveBeenCalled();
   });
 });

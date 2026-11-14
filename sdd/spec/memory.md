@@ -2,6 +2,8 @@
 
 Vault-based cross-session memory, automatic capture, hook delivery, and session-mode gating.
 
+Persistence and derived-graph artifact identities are documented in [Vault](../../documentation/lanes/vault.md).
+
 **Domain owner:** vault subsystem, entrypoint.sh, memory-capture.sh, preseed pipeline
 
 ### Key Concepts
@@ -35,11 +37,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. A UserPromptSubmit hook injects a short capture instruction into the active agent context on each trigger. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::emit_context --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+1. Each capture trigger launches a detached runner through Claude’s UserPromptSubmit hook, with a user-visible `systemMessage`, not a model-spawn instruction. First-message graph guidance remains separate `additionalContext` owned by REQ-MEM-010 AC3; launch never advances the successful capture counter. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::emit_context --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::launch_capture --> <!-- @test: host/__tests__/memory-capture-hook.test.js (names the first launch and the file the capture will write) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (arms a request carrying the capture path the publisher will verify) -->
 2. Pi excludes tool results and known synthetic agent envelopes from its real-user count while preserving genuine code-like prompts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001 AC2: Pi excludes synthetic envelopes and preserves genuine code-like prompts) -->
 3. Each triggered Claude capture receives bounded uncaptured user/assistant content from the durable transcript. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh::is_synthetic_marker --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) -->
 4. Capture-file timestamps use the configured user timezone, then the process timezone, then UTC, per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureTimestamp --> <!-- @test: host/__tests__/memory-iso-ts-script.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (prefers USER_TIMEZONE over TZ when both are present) -->
-5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md::captured_at --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md::captured_at --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (REQ-MEM-001 AC5: parses a synthetic Claude capture artifact after runner publication) -->
 6. A capture is complete only after its required publication outputs are durably accepted; any failure remains incomplete and retryable without advancing the captured message range. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::VARS_FILE --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (publish-memory-capture.sh (REQ-MEM-001 AC6)) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
 7. Pi builds each capture request from only the root-bounded uncaptured interval after the last successful counter. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only prompts after the root-owned successful counter) -->
 
@@ -52,7 +54,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Claude uses Sonnet with medium reasoning per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad).
 - Pi uses its provider-neutral model lever with medium reasoning per [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 - Capture agents produce graph output directly; the headless extraction CLI is not invoked.
-- Claude keeps its scratchpad and retry carrier until cumulative merge and global publication succeed.
+- Claude keeps its durable retry carrier until cumulative merge and global publication succeed; failures remain retryable without advancing capture progress.
 - Pi requires an exact successful call plus post-commit note and graph-chunk artifacts before advancing its root-owned counter.
 - Claude reads hook-provided transcript JSONL; Pi reads persisted session messages.
 - Both skip capture for an empty transcript.
@@ -61,7 +63,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude capture pipeline tests](../../host/__tests__/memory-capture-pipeline.test.js))
+**Verification:** Automated: [memory-capture-pipeline.test.js](../../host/__tests__/memory-capture-pipeline.test.js), [memory-iso-ts-script.test.js](../../host/__tests__/memory-iso-ts-script.test.js), [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -75,7 +77,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. Capture reads each runtime's durable resume transcript, never volatile memory, so reload and resume retain full history; an empty resolved transcript skips capture instead of writing a placeholder. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the twentieth real prompt and emits a visible reminder without private spawn) -->
+1. Capture reads each runtime's durable resume transcript, never volatile memory, so reload and resume retain full history; an empty resolved transcript skips capture instead of writing a placeholder. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the twentieth real prompt and emits a visible reminder without private spawn) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC1: an empty durable transcript never captures volatile agent_end history) -->
 2. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps all handlers inert in child sessions) -->
 3. After root-session reload or resume, Pi reconstructs each active capture's launch, reminder, running, failure, and success state from durable session JSONL; a bounded turn-limit completion qualifies only with the job's post-commit artifacts, and unrelated or superseded results never count. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (correlates exact public calls and reconstructs running, failed, and successful state) -->
 4. Due memory, Vault and transcript-maintenance jobs share one launch showing a job/delivery summary and bounded request JSON exactly matching durable metadata. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC4: exposes identical extraction items to the model and durable metadata) --> <!-- @test: host/__tests__/pi-shared-transcript-trim.test.js (REQ-MEM-015 AC3: memory Vault and trim share one extraction launch and queued-boundary deduplication) -->
@@ -94,7 +96,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
 
-**Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [child-session guard tests](../../src/__tests__/lib/pi-child-session-guard.test.ts), [session JSONL fuzz coverage](../../src/__tests__/fuzz/vault-migration.fuzz.test.ts))
+**Verification:** Automated: [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [pi-child-session-guard.test.ts](../../src/__tests__/lib/pi-child-session-guard.test.ts), [vault-migration.fuzz.test.ts](../../src/__tests__/fuzz/vault-migration.fuzz.test.ts)
 
 **Status:** Implemented
 
@@ -109,9 +111,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The hook persists the number of user messages since the last capture for each session. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 20 user messages)) -->
+1. The hook persists the number of user messages since the last capture for each session. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (first run on a brand-new session baselines and emits memory-scan directive) -->
 2. A first run with exactly one user prompt initializes transcript baseline and counter, injects the first-message graph-query directive, and exits without capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MEMORY_SCAN --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
-3. If the counter file exists and the delta since the last capture is less than 20 messages, the hook exits without memory capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 20 user messages)) -->
+3. If the counter file exists and the delta since the last capture is less than 20 messages, the hook exits without memory capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (does NOT trigger when 19 new real prompts (boundary, delta < 20)) -->
 4. When the delta reaches 20, capture is triggered; Pi uses that same memory baseline to arm Vault checks and size-eligible transcript maintenance. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (triggers capture when 20+ NEW real prompts since last_count) --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC4: baselines the first prompt and arms all three jobs only after twenty new prompts) -->
 5. After a Pi memory request reaches GIVEUP, twenty later real-user prompts re-arm capture without allowing generated extraction follow-ups to advance the cadence. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC5: re-arms only after twenty later real prompts) -->
 6. Only the Pi root advances the prompt counter, after an exact correlated successful result and post-commit capture note/chunk; failed, late, incomplete, or superseded results cannot advance the counter or clear replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
@@ -129,7 +131,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)
 
-**Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude hook cadence tests](../../host/__tests__/memory-capture-hook.test.js))
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [pi-capture-turn-boundary.test.js](../../host/__tests__/pi-capture-turn-boundary.test.js), [pi-transcript-agent.test.js](../../host/__tests__/pi-transcript-agent.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -162,7 +164,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume)
 
-**Verification:** Automated Pi extraction lifecycle tests
+**Verification:** Automated: [pi-transcript-cadence-integration.test.js](../../host/__tests__/pi-transcript-cadence-integration.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -176,13 +178,13 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. A missing counter with multiple real-user prompts triggers resumed-session capture immediately on the first new prompt. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
-2. Resumed capture starts after durable successful progress only when that progress still belongs to the retained transcript. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
+1. A missing counter with multiple real-user prompts triggers resumed-session capture immediately on the first new prompt. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
+2. Resumed capture starts after durable successful progress only when that progress still belongs to the retained transcript. Claude requires an in-range saved count and matching SHA-256 of the retained real-prompt prefix; legacy or mismatched counts cannot skip unproven history. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (REQ-MEM-026 AC2: Claude durable retained-prefix recovery) -->
 3. Pi restores the most recent successful checkpoint by capture instant and name; an older, larger prompt count cannot override a later rebased capture. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-026: restores successful rebased progress ahead of an older larger count after restart) -->
 4. Only exact correlated success with the required note and graph chunk commits rebased Pi progress. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-026: does not commit rebased progress for a %s request) -->
 5. A successful Pi capture retains enough progress metadata to recover after all ephemeral state is lost. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-026: restores successful rebased progress ahead of an older larger count after restart) -->
-6. Ordinary appends after rebasing resume the twenty-prompt cadence without recapturing the unchanged prefix. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-026: keeps the twenty-prompt cadence for an unchanged captured prefix after rebasing) -->
-7. Legacy captures without a fingerprint remain readable. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: resumes retained history when only a durable 1013 capture count survives) -->
+6. Ordinary appends after rebasing resume the twenty-prompt cadence without recapturing the unchanged prefix. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::shouldCapture --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-026: keeps the twenty-prompt cadence for an unchanged captured prefix after rebasing) -->
+7. Legacy captures without a fingerprint remain readable. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: resumes retained history when only a durable 1013 capture count survives) -->
 
 **Constraints:**
 
@@ -193,7 +195,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-025](#req-mem-025-pi-capture-follows-transcript-epochs)
 
-**Verification:** Automated Pi extraction lifecycle and Claude hook cadence tests
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -207,11 +209,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. In advanced mode, the user's vault directory and cumulative `vault-graph.json` source of truth are included in R2 sync. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
+1. In advanced mode, the user's vault directory and cumulative Vault graph source of truth are included in R2 sync. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
 2. On container boot, the vault is pulled from R2 before any initialization runs so returning sessions inherit their persisted content untouched. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
-3. Vault directory initialization is idempotent; re-running on a populated vault creates nothing. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (init_user_vault does not clobber existing user vault content on re-run (REQ-MEM-004 AC3)) -->
+3. Vault directory initialization preserves existing user content while filling missing managed directories and the missing graph page. Repeating complete initialization creates neither further directories nor a graph page; populated but incomplete vaults may receive these missing resources. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (init_user_vault does not clobber existing user vault content on re-run (REQ-MEM-004 AC3)) -->
 4. Vault changes are pushed back to R2 on three triggers: the regular sync cadence ([REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)), the Sync-now button ([REQ-STOR-015](storage.md#req-stor-015-explicit-sync-trigger-from-ui)), and the final shutdown bisync ([REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)). <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-003 AC2 / REQ-STOR-015 AC5 / REQ-MEM-004 AC4: SIGUSR1 trigger)) -->
-5. The ephemeral unified-graph layer and derived Vault `graph.json`/`graph.html` outputs are rebuilt locally and not synced; the served visualization persists at `Vault/Raw/Graphs/vault-graph.html`. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: excludes the per-run derived vault graph.json but keeps the cumulative one (REQ-MEM-004 AC5: derived layer not synced)) -->
+5. The ephemeral unified-graph layer and derived Vault graph/visualization intermediates are rebuilt locally and not synced; the served visualization remains durably stored in the Vault. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: excludes the per-run derived vault graph.json but keeps the cumulative one (REQ-MEM-004 AC5: derived layer not synced)) -->
 6. The shutdown handler watchdog allows the final bisync up to 120s to drain pending writes before forced termination. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 
 **Constraints:**
@@ -223,7 +225,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-001](vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test ([Behavioral test](../../host/__tests__/entrypoint-rclone-filters.test.js))
+**Verification:** Automated: [entrypoint-bisync-behavior.test.js](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js)
 
 **Status:** Implemented
 
@@ -250,7 +252,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js); Manual: [Memory manifest and prompt delivery acceptance](../../documentation/lanes/preseed.md#memory-manifest-and-prompt-delivery-acceptance)
 
 **Status:** Implemented
 
@@ -265,7 +267,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. The capture prompt is preseeded into the session-installed memory plugin alongside its scripts. <!-- @manual -->
-2. The memory plugin's scripts (hook, prompt, prefilter) and the capture subagent definition (pinned to sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)) are all delivered via the manifest pipeline that seeds named subagents like architect and code-reviewer ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start)). <!-- @impl: preseed/agents/claude/manifest.json::modes --> <!-- @manual -->
+2. The memory plugin's scripts (hook, prompt, prefilter) and the capture subagent definition (with overridable Sonnet defaults per [AD124](../../documentation/decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block)) are all delivered via the manifest pipeline that seeds named subagents like architect and code-reviewer ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start)). <!-- @impl: preseed/agents/claude/manifest.json::modes --> <!-- @manual -->
 3. All memory-plugin entries are marked advanced-only in the manifest. <!-- @manual -->
 4. The hook script is delivered via the plugin but registered via the session settings merge, not the plugin loader. <!-- @manual -->
 5. Memory-plugin source lives in the single preseed source tree. <!-- @manual -->
@@ -281,7 +283,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-AGENT-003](agents.md#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Memory manifest and prompt delivery acceptance](../../documentation/lanes/preseed.md#memory-manifest-and-prompt-delivery-acceptance)
 
 **Status:** Implemented
 
@@ -299,13 +301,12 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. Each pass emits at most one graph node for each node ID. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1/AC2: successive merges preserve prior nodes and deduplicate IDs) -->
 3. Duplicate ordinary edge evidence collapses. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple) -->
 4. Structurally malformed edge entries are ignored without aborting the merge. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::node_link_edges --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::node_link_edges --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC4: malformed edge entries are ignored without crashing) -->
-5. The boot seed publishes the cumulative vault graph under the `user_vault` tag, never the derived sibling graph that is empty until the first extraction. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes vault-graph.json under the user_vault tag, never the empty scaffold (REQ-MEM-009)) -->
-6. A first boot with no captures yet, and therefore no cumulative vault graph on disk, publishes nothing to the global graph and reports no failure. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes nothing when no cumulative vault graph exists yet (REQ-MEM-009)) -->
-7. Evidence from separate archived captures remains distinct through later merges. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
+5. Evidence from separate archived captures remains distinct through later merges. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
 
 **Constraints:**
 
 - Vault-extract and memory-capture writers on both runtimes author request chunks and fold them through the shared merge path.
+- Vault is always-on in the global graph.
 - Vault graph merges share the capture-pipeline/global-graph lock; its short timeout prevents a crashed holder from blocking extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
 - Missing or unreadable graph files retain the established fresh-graph recovery path.
 - Each merge copies the cumulative `vault-graph.json` to the sibling `graph.json`; only `vault-graph.json` is read back and published, and an empty `graph.json` at boot is not evidence there is nothing to publish.
@@ -313,12 +314,40 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown) (vault is always-on in the global graph)
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)
 
-**Verification:** Automated test ([vault-extract-merge](../../host/__tests__/vault-extract-merge.test.js))
+**Verification:** Automated: [vault-extract-merge.test.js](../../host/__tests__/vault-extract-merge.test.js)
 
 **Status:** Implemented
 
+---
+
+### REQ-MEM-034: Cumulative Vault Graph Boot Publication
+
+**Intent:** Boot publishes the cumulative vault contribution without replacing it with an empty derived scaffold or failing before the first capture.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. The boot seed publishes the cumulative vault graph under the `user_vault` tag, never the derived sibling graph that is empty until the first extraction. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes vault-graph.json under the user_vault tag, never the empty scaffold (REQ-MEM-009)) -->
+2. A first boot with no captures yet, and therefore no cumulative vault graph on disk, publishes nothing to the global graph and reports no failure. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes nothing when no cumulative vault graph exists yet (REQ-MEM-009)) -->
+
+**Constraints:**
+
+- Vault is always-on in the global graph.
+- Missing or unreadable graph files retain the established fresh-graph recovery path.
+- Vault graph merges share the capture-pipeline/global-graph lock; its short timeout prevents a crashed holder from blocking extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
+- Each merge copies the cumulative `vault-graph.json` to the sibling `graph.json`; only `vault-graph.json` is read back and published, and an empty `graph.json` at boot is not evidence there is nothing to publish.
+- No HTML visualization is generated for the unified global graph; structural queries are the interface; only the curated vault subset receives a rendered visualization shipped to users.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)
+
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js)
+
+**Status:** Implemented
 ---
 
 ### REQ-MEM-010: Memory capture hook plumbing
@@ -330,7 +359,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. The hook tolerates tilde-prefixed transcript paths. <!-- @test: host/__tests__/memory-capture-hook.test.js (expands ~ in transcript_path to $HOME) --> <!-- @manual -->
-2. Variables shared between the hook and the capture subagent are passed via a small carrier file rather than inline context. <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) --> <!-- @manual -->
+2. A small durable carrier transfers variables from hook to runner, remaining retry state until successful publication. The model receives a self-contained inline request containing bounded metadata and prefiltered uncaptured user/assistant transcript, never a raw transcript path to retrieve. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/run-memory-capture.sh::TASK --> <!-- @test: host/__tests__/run-memory-capture.test.js (hands the model a prepared payload instead of the raw transcript) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 20 user messages)) --> <!-- @manual -->
 3. On the first message of a new container session, the hook injects graph-query guidance before the agent responds. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MEMORY_SCAN --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 4. The hook resolves the capture timezone from the user preference ([REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)), falling back to the container default and finally to UTC. <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) --> <!-- @manual -->
 5. The capture timestamp is validated against the current wall clock and rejected if fabricated, missing a timezone offset, or mismatching the resolved timezone. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @test: host/__tests__/memory-iso-ts-script.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) -->
@@ -346,7 +375,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** Automated test
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [memory-iso-ts-script.test.js](../../host/__tests__/memory-iso-ts-script.test.js); Manual: [Memory hook and short prompt acceptance](../../documentation/lanes/vault.md#memory-hook-and-short-prompt-acceptance)
 
 **Status:** Implemented
 
@@ -370,7 +399,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
 
-**Verification:** Automated test ([Claude memory hook tests](../../host/__tests__/memory-capture-hook.test.js))
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js)
 
 **Status:** Implemented
 
@@ -385,9 +414,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. In default mode, only baseline agent permissions are applied; capture hooks are not registered. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
-2. If no session mode has been explicitly set, the default mode applies. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) -->
+2. If no session mode has been explicitly set, the default mode applies unless [Enterprise policy](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) forces Pro. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-ENTERPRISE-001 AC2 (enterprise forces Pro regardless of the stored preference)) -->
 3. Agent configuration reconciles on initial bucket creation, explicit "Recreate AI agent skills & rules", a persisted session-mode preference change, subscription-driven mode change, and the one-time enterprise Pro upgrade at session start ([REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC6). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-MEM-011 AC3: reconcileAgentConfigs gated on the new-bucket trigger) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 AC6: enterprise upgrade reconcile for pre-existing users) -->
-4. On a mode change, preseed files are reconciled to match the new mode: mode-appropriate files are written, preseed-managed files not in the new mode are removed, and user-created files are never modified. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) -->
+4. On a mode change, mode-appropriate managed files are written and out-of-mode files are removed under existing [ownership rules](storage.md#req-stor-021-managed-content-ownership); unrelated user files remain untouched. Desired managed paths may be overwritten, and active [exclusive-policy roots](storage.md#req-stor-032-exclusive-managed-resource-boundaries) retain their authorized cleanup semantics. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) -->
 5. Successful managed mode-change publication preserves unrelated preference fields in its publication snapshot. <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC5: target journaling preserves concurrent preference changes) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC5: preserves a preference update during applied digest preparation) -->
 6. A managed mode change does not publish applied state when its publication snapshot contains a different selected mode or managed state. <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC6: final publication snapshot rejects a concurrent mode change) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-MEM-011 AC6: aborts stale reconciliation without reverting a concurrent mode update) -->
 
@@ -400,7 +429,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** Automated test ([Integration test](../../host/__tests__/entrypoint-hooks-merge.test.js))
+**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [preferences.test.ts](../../src/__tests__/routes/preferences.test.ts)
 
 **Status:** Implemented
 
@@ -431,7 +460,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume)
 
-**Verification:** Automated test ([memory-capture-hook](../../host/__tests__/memory-capture-hook.test.js), [entrypoint hook merge](../../host/__tests__/entrypoint-hooks-merge.test.js))
+**Verification:** Automated: [entrypoint-hooks-merge.test.js](../../host/__tests__/entrypoint-hooks-merge.test.js), [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js)
 
 **Status:** Implemented
 
@@ -462,7 +491,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-020](#req-mem-020-capture-requests-are-re-delivered-under-a-bound)
 
-**Verification:** Automated test ([memory-capture-hook](../../host/__tests__/memory-capture-hook.test.js))
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [pi-memory-capture-recovery.test.js](../../host/__tests__/pi-memory-capture-recovery.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -481,16 +510,16 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. The hook fires at most once per session (gated by its own atomic mkdir sentinel, claimed only after a successful graph query; independent of the memory-capture counter). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC3: fires at most once per session (sentinel directory prevents re-fire)) -->
 4. Prompts shorter than 20 characters are skipped (insufficient signal for keyword extraction). <!-- @test: host/__tests__/memory-context-inject.test.js (AC4: skips prompts shorter than 20 characters) --> <!-- @manual -->
 5. The unified graph is the only source queried; no per-repo graph is accepted as a substitute for it. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::GLOBAL_GRAPH --> <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::resolveGraphPath --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: reads the unified graph only, and only within the ceiling) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: substitutes no repo graph even when one sits in the working directory) -->
-6. The Pi runtime performs the same query on the first real prompt of a session, with the same keyword rule, ranking, node cap and one-shot sentinel, injecting the result into that turn. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject --> <!-- @impl: preseed/agents/pi/extensions/memory-inject-helpers.ts::selectNodes --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC1: injects matched nodes into the turn as a message) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC3: fires at most once per session) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC2: at most ten nodes are carried) -->
+6. Pi injects first-real-prompt query results with shared ranking, node cap and one-shot sentinel. Keyword preselection uses Claude’s first 200 bytes (`head -c 200`) versus Pi’s first 200 UTF-16 code units (`slice(0, 200)`); multibyte keyword selection need not match. <!-- @impl: preseed/agents/pi/extensions/memory-inject.ts::registerMemoryInject --> <!-- @impl: preseed/agents/pi/extensions/memory-inject-helpers.ts::selectNodes --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC1: injects matched nodes into the turn as a message) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC3: fires at most once per session) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC2: at most ten nodes are carried) -->
 7. A graph beyond the configured size ceiling is skipped without claiming the session sentinel, so injection resumes on a later prompt once the graph is readable again. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::MAX_GRAPH_BYTES --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: skips a graph past the ceiling without spending the session sentinel) -->
 
 **Constraints:**
 
-- The size ceiling is a memory guard, not a latency one, and is overridable, so a graph that outgrows the default cannot silently disable injection.
-- An implausible override falls back to the default, so the guard cannot be present and inert. <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
+- The input-JSON size ceiling defaults to 104857600 bytes (100 MiB). Both runtimes accept only positive decimal overrides from 1 through 1073741824 bytes (1 GiB); this is not a resident-memory allocation guarantee or latency bound.
+- An invalid or out-of-range override falls back to 100 MiB, so the guard cannot be present and inert. <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (REQ-MEM-013: accepts only positive decimal overrides up to 1 GiB) --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
 - The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
 - The hook reads graph JSON directly.
-- Claude and Pi carry separate implementations for differing injection surfaces, while the keyword rule, ranking weights, node cap, rendered shape and sentinel semantics are the same in both.
+- Claude and Pi carry separate implementations for differing injection surfaces. Ranking weights, node cap, rendered shape, UTF-8 output ceiling and sentinel semantics are shared; keyword-preselection units are runtime-specific as stated in AC6, not a multibyte-equivalence guarantee.
 - The Pi side skips synthetic prompts, which the hook runtime never delivers.
 - The hook is fail-safe: any error exits silently with no output; A failed injection must never block the session.
 - Keyword extraction strips all non-alphanumeric characters and filters to words of 4+ characters to avoid noise.
@@ -499,7 +528,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-004](vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
-**Verification:** Automated test ([memory-context-inject](../../host/__tests__/memory-context-inject.test.js))
+**Verification:** Automated: [memory-context-inject.test.js](../../host/__tests__/memory-context-inject.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [pi-memory-inject.test.ts](../../src/__tests__/lib/pi-memory-inject.test.ts); Manual: [Memory hook and short prompt acceptance](../../documentation/lanes/vault.md#memory-hook-and-short-prompt-acceptance)
 
 **Status:** Implemented
 
@@ -518,25 +547,25 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. No context is injected for a session that did not resume from compaction, so sessions that never lost context pay nothing. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::SOURCE --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC3: stays silent unless the session started from compaction) -->
 4. Each extract's complete rendered contribution—title, source path, section bodies, and any truncation marker—fits one UTF-8 byte budget. Both runtimes reserve the exact Source path before title/body bytes and omit a block when even minimal source metadata cannot fit. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall-helpers.ts::recallBlock --> <!-- @test: host/__tests__/memory-context-inject.test.js (REQ-MEM-019 AC4: charges title, multibyte source path, body, and marker to one extract budget) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (bounds complete Pi injection and recall output with multibyte metadata) -->
 5. Content dropped by that bound is marked as truncated, with the exact multibyte source path retained so the remainder stays reachable. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall-helpers.ts::recallBlock --> <!-- @test: host/__tests__/memory-context-inject.test.js (REQ-MEM-019 AC4: charges title, multibyte source path, body, and marker to one extract budget) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (bounds complete Pi injection and recall output with multibyte metadata) -->
-6. The Pi runtime covers the same boundary at its own compaction event, selecting and bounding the same extracts and delivering them as a message persisted in the session, and never inside a child session. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureFilenameAt --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (delivers the recall on compaction as a persisted follow-up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (stays out of a child session) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: builds the digest newest-first, bounded by the extract count) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC6: selects a filename produced by Pi capture alongside Claude extracts) -->
+6. The Pi runtime covers the same boundary at its own compaction event, selecting and bounding the same extracts with identical injected wording and delivering them as a message persisted in the session, and never inside a child session. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureFilenameAt --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (delivers the recall on compaction as a persisted follow-up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (stays out of a child session) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: builds the digest newest-first, bounded by the extract count) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC6: selects a filename produced by Pi capture alongside Claude extracts) -->
+7. Only the narrative and decision sections are injected; the rest is reachable through the emitted source path. A heading inside a fenced block is content, not a section heading. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall-helpers.ts::recallBlock --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: carries Context and Decisions, and never Observations) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (does not end a section at a "## " line inside a fenced block) -->
+
+**Notes:** Claude and Pi carry separate implementations for differing injection surfaces. Recall delivery is documented at [memory delivery](../../documentation/lanes/vault.md#first-prompt-and-post-compaction-retrieval).
 
 **Constraints:**
 
-- Only the narrative and decision sections are injected; the rest is reachable through the emitted source path.
 - Injected text is a record, not instructions.
 - The hook plugin is advanced-session-only by manifest declaration; standard sessions never receive it.
-- A heading inside a fenced block is content, not a section heading.
 - The per-extract bound is a byte bound and is never exceeded; the truncation notice is spent from it and dropped when it cannot fit. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC4: holds the bound even when the cap cannot fit the marker) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: a nonsensical cap carries nothing rather than everything) -->
 - Two extracts sharing a capture instant are ordered by name descending, so the two runtimes agree on a tie. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC2: breaks a shared instant on the name, descending) -->
 - Both runtimes are fail-safe: an error anywhere — including inside Pi's compaction dispatch — is swallowed with no output and never blocks the session. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (swallows a delivery failure instead of throwing into the compaction dispatch) -->
-- Claude and Pi carry separate implementations for differing injection surfaces; the selection, bounds and injected wording are identical.
 - Session selection follows the bounded lookup in [REQ-MEM-027](#req-mem-027-session-scoped-post-compaction-recall).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-013](#req-mem-013-proactive-memory-injection-on-first-prompt)
 
-**Verification:** Automated tests ([post-compaction-recall](../../host/__tests__/post-compaction-recall.test.js), [pi-post-compaction-recall](../../src/__tests__/lib/pi-post-compaction-recall.test.ts))
+**Verification:** Automated: [memory-context-inject.test.js](../../host/__tests__/memory-context-inject.test.js), [post-compaction-recall.test.js](../../host/__tests__/post-compaction-recall.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [pi-post-compaction-recall.test.ts](../../src/__tests__/lib/pi-post-compaction-recall.test.ts)
 
 **Status:** Implemented
 
@@ -568,7 +597,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-019](#req-mem-019-post-compaction-recall-of-recent-session-extracts)
 
-**Verification:** Automated Claude and Pi post-compaction recall tests
+**Verification:** Automated: [post-compaction-recall.test.js](../../host/__tests__/post-compaction-recall.test.js), [pi-post-compaction-recall.test.ts](../../src/__tests__/lib/pi-post-compaction-recall.test.ts)
 
 **Status:** Implemented
 
@@ -583,14 +612,14 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. Pi ships a full capture-contract prompt file and a vault-extract prompt file, replacing the prior thin inline contract that the extension wrote at runtime. <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md::pi-memory-capture-contract --> <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::pi-vault-extraction-contract --> <!-- @manual -->
-2. The Pi extension points its prompt-file constants at the deployed prompt files under `~/.pi/agent/prompts/` and no longer writes the prompt contracts inline. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::defaultDependencies --> <!-- @manual -->
-3. The seed generator maps `prompts/` source files to the deployed `~/.pi/agent/prompts/` location, and both prompt files are delivered advanced-only via the Pi manifest. <!-- @impl: scripts/agent-seed-core.mjs::piNativeKey --> <!-- @impl: preseed/agents/pi/manifest.json::prompts/memory-agent-prompt.md --> <!-- @manual -->
+2. Pi capture/extraction loads the deployed prompt files rather than inlining their contracts. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::defaultDependencies --> <!-- @manual -->
+3. Both capture/extraction prompt files are delivered advanced-only through the manifest-driven seed projection into Pi's user prompt directory. <!-- @impl: scripts/agent-seed-core.mjs::piNativeKey --> <!-- @impl: preseed/agents/pi/manifest.json::prompts/memory-agent-prompt.md --> <!-- @manual -->
 4. Capture input contains only uncaptured user/assistant text. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
 5. Capture input is bounded by a fixed character budget, spent newest-first on user prompts before assistant turns, with each turn individually capped and its citation rescue bounded to a fixed reference count. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::selectTurns --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::capTurn --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
-6. Each Pi capture/extract request includes the optional model from `CODEFLARE_MEMORY_MODEL` only when non-empty; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (builds one bounded medium-reasoning public background request) -->
+6. Each Pi capture/extract request includes the optional configured model only when non-empty; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (builds one bounded medium-reasoning public background request) -->
 7. Each Pi memory launch makes its immutable execution snapshot readable before exposing the public request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryExecutionVarsPath --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the twentieth real prompt and emits a visible reminder without private spawn) -->
 
-**Notes:** Public delivery is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). The execution profile is owned by [REQ-MEM-016](#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile) and [REQ-MEM-018](#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile), and documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
+**Notes:** Public delivery is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). The bounded execution profile and its requirement ownership are documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
 **Constraints:**
 
@@ -605,7 +634,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-008](#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts); Manual: [Memory manifest and prompt delivery acceptance](../../documentation/lanes/preseed.md#memory-manifest-and-prompt-delivery-acceptance)
 
 **Status:** Implemented
 
@@ -622,7 +651,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. Every emitted Pi capture/extract request disables inherited context. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
 2. Every emitted Pi capture/extract request uses provider-neutral medium reasoning. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
-3. New Pi memory-capture requests stop after ten agent turns and reserve the final turn for native completion. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+3. New Pi memory-capture requests stop after ten agent turns and reserve the final turn for native completion. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md::Execution budget --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
 4. Vault extraction retains seven turns. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
 5. Existing seven-turn memory calls remain correlatable so their qualified completion is not lost after upgrade. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016 / REQ-MEM-021: an in-flight legacy seven-turn terminal success still commits after upgrade) -->
 
@@ -636,7 +665,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-014](#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever)
 
-**Verification:** Automated test ([Generated agent contract tests](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+**Verification:** Automated: [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -664,7 +693,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-016](#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
 
-**Verification:** Automated test ([Generated agent contract tests](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+**Verification:** Automated: [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -692,7 +721,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
 
-**Verification:** Automated test ([Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js))
+**Verification:** Automated: [pi-memory-graph-builder.test.js](../../host/__tests__/pi-memory-graph-builder.test.js)
 
 **Status:** Implemented
 
@@ -723,7 +752,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
 
-**Verification:** Automated compaction and graph-relocation tests plus manual instruction review
+**Verification:** Automated: [session-capture-compaction.test.js](../../host/__tests__/session-capture-compaction.test.js), [vault-extract-merge.test.js](../../host/__tests__/vault-extract-merge.test.js), [entrypoint-session-capture-compaction.test.js](../../host/__tests__/entrypoint-session-capture-compaction.test.js); Manual: [Archive ownership instruction review](../../documentation/lanes/vault.md#req-vault-032-manual-qualification)
 
 **Status:** Implemented
 
@@ -748,7 +777,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-023](#req-mem-023-cold-session-captures-compact-without-losing-memory)
 
-**Verification:** Automated test ([session-capture-compaction](../../host/__tests__/session-capture-compaction.test.js))
+**Verification:** Automated: [session-capture-compaction.test.js](../../host/__tests__/session-capture-compaction.test.js)
 
 **Status:** Implemented
 
@@ -763,20 +792,23 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. Maintenance above 50,000,000 bytes joins the existing shared memory/Vault cadence or a loaded-parent manual request; no separate watcher or prompt counter is added. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::CAP = 50_000_000 --> <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-start.test.js (REQ-MEM-030 AC1: shared cadence skips small transcripts while memory delivery remains available) -->
-2. Only the loaded owner session/file is eligible; bounded persisted-header validation rejects foreign IDs, child sessions and unsupported versions. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC2: switching the loaded owner revokes activation without touching its file) --> <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::validateSessionHeader --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC2: automatic admission refuses foreign session without changing its file) --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC2: automatic admission refuses child session without changing its file) -->
-3. Calculate one byte cutoff targeting 20,000,000 bytes, align forward to a newline, and accept only results within 15,000,000–25,000,000 inclusive. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::TARGET = 20_000_000 --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::MINIMUM = 15_000_000 --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::MAXIMUM = 25_000_000 --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::rawCut --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for 80 MiB copies the exact header and suffix into the size window) -->
-4. Preserve the first session-header line and copy the retained suffix byte-for-byte, cutting through the next newline without history-record parsing or semantic refinement. Discarded prefix messages/state/ancestry are intentionally lost. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for 120 MiB copies the exact header and suffix into the size window) -->
+2. Only the loaded owner session/file is eligible; bounded persisted-header validation rejects foreign IDs, child sessions and unsupported versions. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC2: switching the loaded owner revokes activation without touching its file) --> <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::validateSessionHeader --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC2: automatic admission refuses ${name} without changing its file) -->
+3. Calculate one byte cutoff targeting 20,000,000 bytes, align forward to a newline, and accept only results within 15,000,000–25,000,000 inclusive. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::TARGET = 20_000_000 --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::MINIMUM = 15_000_000 --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::MAXIMUM = 25_000_000 --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::rawCut --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for ${size} MiB copies the exact header and suffix into the size window) -->
+4. Preserve the first session-header line and copy the retained suffix byte-for-byte, cutting through the next newline without history-record parsing or semantic refinement. Discarded prefix messages/state/ancestry are intentionally lost. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for ${size} MiB copies the exact header and suffix into the size window) -->
 5. Maintenance leaves the loaded SDK cache unchanged. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC5: streamed cut preserves loaded SDK state, same-path append and disk reopen) -->
 6. A later SDK rewrite can regrow the file; only a later legitimate cadence maintains it again. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC6: a later rewrite waits for the next public due mark) -->
 7. Postcommit appends are reported separately from the verified retained-prefix byte count. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-worker-lifecycle.test.js (REQ-MEM-030 AC7: postcommit ordinary growth is verified separately from the accepted committed prefix, without replacement replay) -->
 
-**Constraints:** No per-installation policy, semantic categories, padding, transcript backup, SDK mutation or loaded-memory reclamation claim. Other sessions, credentials and configuration remain unchanged.
+**Constraints:**
+
+- No per-installation policy, semantic categories, padding, transcript backup, SDK mutation or loaded-memory reclamation claim.
+- Other sessions, credentials and configuration remain unchanged.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
 
-**Verification:** Streamed byte-copy and live-owner lifecycle tests; CI and local adoption remain separate.
+**Verification:** Automated: [pi-transcript-start.test.js](../../host/__tests__/pi-transcript-start.test.js), [pi-trim-byte-cut.test.js](../../host/__tests__/pi-trim-byte-cut.test.js), [pi-transcript-trimming.test.js](../../host/__tests__/pi-transcript-trimming.test.js), [pi-trim-worker-lifecycle.test.js](../../host/__tests__/pi-trim-worker-lifecycle.test.js)
 
 **Status:** Implemented
 
@@ -790,21 +822,25 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. A changed authorized prefix, unsafe path, foreign ownership or revoked owner refuses without overwriting the current file. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-029 AC1: a changed authorized prefix is not overwritten) -->
+1. A changed authorized prefix, unsafe path, foreign ownership or revoked owner refuses without overwriting the current file. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-029 AC1: a changed authorized prefix is not overwritten) --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-029 AC1: activation rejects a rewritten branch without replacing source bytes) -->
 2. Only the live owner atomically replaces the same pathname after worker preparation. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-030 AC4/7: activation includes appended tail and recalculates one cutoff before committing) -->
 3. Committed readback verifies the retained prefix. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-worker-lifecycle.test.js (REQ-MEM-030 AC7: postcommit ordinary growth is verified separately from the accepted committed prefix, without replacement replay) -->
 4. A whole-line cut below 15,000,000 bytes or no feasible result at most 25,000,000 bytes refuses without replacement or padding. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::rawCut --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-029 AC1/4: a line-aligned cut below fifteen MB refuses without replacing the source) --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-029 AC4: an append tail above the ceiling refuses without replacing the source) -->
-5. Maintenance creates no transcript backup/archive. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::cleanupRequest --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for 60 MiB copies the exact header and suffix into the size window) -->
-6. Completion or cancellation removes only owned staging. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::cleanupRequest --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for 60 MiB copies the exact header and suffix into the size window) -->
+5. Maintenance creates no transcript backup/archive. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::cleanupRequest --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for ${size} MiB copies the exact header and suffix into the size window) -->
+6. Completion or cancellation removes only owned staging. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::cleanupRequest --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for ${size} MiB copies the exact header and suffix into the size window) -->
 7. Verification-pending recovery is read-only and never replays replacement. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-adaptive.test.js (REQ-MEM-030 AC7: unavailable asynchronous readback keeps a committed receipt and recovers without a second replacement) -->
 
-**Constraints:** The owner alone renames live history. Directory-sync failure is not a rollback. Heavy copying/readback stays off the owner event loop; no hidden model invocation or unrelated cleanup.
+**Constraints:**
+
+- The owner alone renames live history.
+- Directory-sync failure is not a rollback.
+- Heavy copying/readback stays off the owner event loop; no hidden model invocation or unrelated cleanup.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
-**Verification:** Controlled byte, ownership, append and recovery outcomes; production acceptance remains separate.
+**Verification:** Automated: [pi-trim-byte-cut.test.js](../../host/__tests__/pi-trim-byte-cut.test.js), [pi-trim-worker-lifecycle.test.js](../../host/__tests__/pi-trim-worker-lifecycle.test.js), [pi-trim-adaptive.test.js](../../host/__tests__/pi-trim-adaptive.test.js)
 
 **Status:** Implemented
 
@@ -819,20 +855,24 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. The parent requests maintenance with `request` only and forwards the controller-issued public background request unchanged; scoped operations require its owner-bound worker. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerTranscriptTrimTool --> <!-- @test: host/__tests__/pi-trim-request-budget.test.js (REQ-MEM-030 AC1: parent request uses shared launch before cadence and scoped trim immediately admits roughly twenty MB) -->
-2. The scoped `trim` operation prepares, activates and verifies before return without native Done or parent handover. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerTranscriptTrimTool --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for 60 MiB copies the exact header and suffix into the size window) --> <!-- @test: host/__tests__/pi-trim-worker-cancel.test.js (REQ-MEM-030 AC2: owner cancellation settles the CPU child before returning cancellation) -->
-3. The worker streams fixed-size byte chunks without parsing or classifying transcript records or asking the model to select reductions. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::copyRange --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for 120 MiB copies the exact header and suffix into the size window) -->
-4. Activation recalculates the cutoff using the latest admitted tail and preserves those append bytes exactly. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-030 AC4/7: activation includes appended tail and recalculates one cutoff before committing) -->
+2. The scoped `trim` operation prepares, activates and verifies before return without native Done or parent handover. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerTranscriptTrimTool --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for ${size} MiB copies the exact header and suffix into the size window) --> <!-- @test: host/__tests__/pi-trim-worker-cancel.test.js (REQ-MEM-030 AC2: owner cancellation settles the CPU child before returning cancellation) -->
+3. The worker streams fixed-size byte chunks without parsing or classifying transcript records or asking the model to select reductions. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::copyRange --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-028 AC3/4: one byte cutoff for ${size} MiB copies the exact header and suffix into the size window) -->
+4. Activation recalculates the cutoff using the latest admitted tail and preserves those append bytes exactly. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-030 AC4/7: activation includes appended tail and recalculates one cutoff before committing) --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-030 AC4: activation preserves a notification appended after its branch snapshot) -->
 5. Changed source or later native compaction invalidates stale uncommitted authority while preserving the existing cumulative delivery budget. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-adaptive.test.js (REQ-MEM-030 AC5/6: fresh native compaction coverage revokes settled scope without duplicating running work or resetting six total attempts) -->
 6. Uncommitted failures use the existing shared six-total-attempt budget. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-window-retry.test.js (REQ-MEM-030 AC6: native failure advances the same reminder and native stop cancels rather than retries) -->
 7. Only verified persisted `trimmed` output establishes success. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-worker-lifecycle.test.js (REQ-MEM-030 AC7: postcommit ordinary growth is verified separately from the accepted committed prefix, without replacement replay) -->
 
-**Constraints:** CPU work remains asynchronous and cancelable; explicit stop cancels maintenance. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-worker-cancel.test.js (REQ-MEM-030 AC2: owner cancellation settles the CPU child before returning cancellation) --> No independent live writer, new orchestration framework, invented ancestry, Goal/SDK mutation or new model configuration. Old prefix content is intentionally discarded; retained bytes are not semantically rewritten.
+**Constraints:**
+
+- CPU work remains asynchronous and cancelable; explicit stop cancels maintenance. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-worker-cancel.test.js (REQ-MEM-030 AC2: owner cancellation settles the CPU child before returning cancellation) -->
+- No independent live writer, new orchestration framework, invented ancestry, Goal/SDK mutation or new model configuration.
+- Old prefix content is intentionally discarded; retained bytes are not semantically rewritten.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-028](#req-mem-028-pi-active-transcript-size-retention), [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
 
-**Verification:** Public scoped-operation and controlled kernel/byte outcomes; only persisted readback establishes completion.
+**Verification:** Automated: [pi-trim-request-budget.test.js](../../host/__tests__/pi-trim-request-budget.test.js), [pi-trim-byte-cut.test.js](../../host/__tests__/pi-trim-byte-cut.test.js), [pi-trim-worker-cancel.test.js](../../host/__tests__/pi-trim-worker-cancel.test.js), [pi-trim-adaptive.test.js](../../host/__tests__/pi-trim-adaptive.test.js), [pi-trim-window-retry.test.js](../../host/__tests__/pi-trim-window-retry.test.js), [pi-trim-worker-lifecycle.test.js](../../host/__tests__/pi-trim-worker-lifecycle.test.js)
 
 **Status:** Implemented
 
@@ -856,7 +896,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-AGENT-210](agents.md#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Existing named behavioral tests; CI qualification remains separate.
+**Verification:** Automated: [entrypoint-managed-curation.test.js](../../host/__tests__/entrypoint-managed-curation.test.js)
 
 **Status:** Implemented
 
@@ -875,13 +915,16 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. OOM-killed workers report `worker-oom-killed`, without asserting whether their local limit, ancestor limits or global pressure caused the kill. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::runTrimWorker --> <!-- @test: host/__tests__/pi-trim-worker-memory.test.js (REQ-MEM-032 AC3: kernel memory exhaustion kills only bounded workers and leaves the owner usable) -->
 4. Pending or running maintenance work is never duplicated. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-window-retry.test.js (REQ-MEM-030 AC6: native failure advances the same reminder and native stop cancels rather than retries) --> <!-- @test: host/__tests__/pi-trim-adaptive.test.js (REQ-MEM-030 AC7: unavailable asynchronous readback keeps a committed receipt and recovers without a second replacement) -->
 
-**Constraints:** No heap-only substitute, unbounded fallback or change to the Pi owner's memory limit. Owner allocations and ancestor/global OOM survival are outside this guarantee.
+**Constraints:**
+
+- No heap-only substitute, unbounded fallback or change to the Pi owner's memory limit.
+- Owner allocations and ancestor/global OOM survival are outside this guarantee.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
 
-**Verification:** Controlled kernel-boundary fixtures; memory-exhaustion stress runs in CI only, never the active session.
+**Verification:** Automated: [pi-trim-worker-memory.test.js](../../host/__tests__/pi-trim-worker-memory.test.js), [pi-trim-window-retry.test.js](../../host/__tests__/pi-trim-window-retry.test.js), [pi-trim-adaptive.test.js](../../host/__tests__/pi-trim-adaptive.test.js)
 
 **Status:** Implemented
 
@@ -895,10 +938,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. A named session keeps its current display name after trimming and disk reopen. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name Named fixture) --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC5: streamed cut preserves loaded SDK state, same-path append and disk reopen) -->
-2. A rename or explicit name clear before activation is not replaced by an older name. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name Renamed fixture) --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name cleared) -->
-3. Preserved naming metadata is included in the retained-output budget. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::rawCut --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name Named fixture) -->
-4. Committed-prefix verification includes the preserved naming metadata. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name Named fixture) -->
+1. A named session keeps its current display name after trimming and disk reopen. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name ${latestName??'cleared'}) --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC5: streamed cut preserves loaded SDK state, same-path append and disk reopen) -->
+2. A rename or explicit name clear before activation is not replaced by an older name. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name ${latestName??'cleared'}) -->
+3. Preserved naming metadata is included in the retained-output budget. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::rawCut --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name ${latestName??'cleared'}) -->
+4. Committed-prefix verification includes the preserved naming metadata. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name ${latestName??'cleared'}) -->
 
 **Constraints:**
 - Read only current naming metadata from the owner's public SDK state.
@@ -909,6 +952,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-028](#req-mem-028-pi-active-transcript-size-retention), [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
 
-**Verification:** Name persistence, rename/clear, exact retained-suffix bytes, budget checks and pinned-SDK resume-list/reopen outcomes.
+**Verification:** Automated: [pi-trim-byte-cut.test.js](../../host/__tests__/pi-trim-byte-cut.test.js), [pi-transcript-trimming.test.js](../../host/__tests__/pi-transcript-trimming.test.js)
 
 **Status:** Implemented
+
+---

@@ -1,3 +1,4 @@
+import { createMockSetupNamespace } from '../helpers/mock-factories';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -7,6 +8,15 @@ import { ValidationError, AuthError, SetupError, ForbiddenError } from '../../li
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
+import { ADMIN_CONFIGURATION_KEYS } from '../../lib/kv-keys';
+import { container as SetupOwner } from '../../container/index';
+
+// Only the platform base is replaced: admission and the complete setup task run unchanged.
+vi.mock('@cloudflare/containers', () => ({
+  Container: class {
+    constructor(public ctx: DurableObjectState, public env: Env) {}
+  },
+}));
 vi.mock('../../lib/access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/access')>();
   return {
@@ -165,8 +175,15 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
     cfApiCB.reset();
   });
 
-  function createTestApp(envOverrides: Partial<Env> = {}) {
+  function createTestApp(envOverrides: Partial<Env> = {}, durableAdmission = false) {
     const app = new Hono<{ Bindings: Env }>();
+    let owner: SetupOwner | undefined;
+    const values = new Map<string, unknown>();
+    const storage = {
+      get: async (key: string) => values.get(key),
+      put: async (key: string, value: unknown) => { values.set(key, structuredClone(value)); },
+      delete: async (key: string) => values.delete(key),
+    };
 
     // Error handler
     app.onError((err, c) => {
@@ -193,6 +210,16 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         CLOUDFLARE_WORKER_NAME: TEST_WORKER_NAME,
         ...envOverrides,
       } as Env;
+      if (durableAdmission) {
+        owner ??= new SetupOwner({
+          storage: { ...storage, transaction: async <T>(fn: (txn: typeof storage) => Promise<T>) => fn(storage) },
+          blockConcurrencyWhile: (fn: () => Promise<unknown>) => fn(),
+          waitUntil: (task: Promise<unknown>) => { void task.catch(() => {}); },
+        } as unknown as DurableObjectState<Env>, c.env);
+        c.env.CONTAINER = { getByName: () => owner } as unknown as Env['CONTAINER'];
+      } else {
+        c.env.CONTAINER = createMockSetupNamespace(c.env);
+      }
       return next();
     });
 
@@ -266,6 +293,137 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
   };
 
   describe('POST /api/setup/configure', () => {
+    const configure = (app: ReturnType<typeof createTestApp>, customDomain: string) =>
+      app.request(`${TEST_WORKER_BASE_URL}/api/setup/configure`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...standardBody, customDomain }),
+      });
+
+    it('REQ-SETUP-004: fresh Environment refusal releases admission for changed input without provisioning', async () => {
+      const app = createTestApp({ R2_ACCOUNT_ID: 'acc123' }, true);
+      await mockKV.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({
+        runId: 'environment-run', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }));
+      const providerRequests: string[] = [];
+      globalThis.fetch = async (url) => {
+        providerRequests.push(String(url));
+        throw new Error('Environment refusal must not provision');
+      };
+
+      const refused = await readNdjson(await configure(app, standardBody.customDomain));
+      expect(refused).toEqual([{
+        done: true, success: false,
+        error: 'An Environment settings change is already in progress. Please wait and try again.',
+      }]);
+      expect(providerRequests).toEqual([]);
+      expect(await mockKV.get('setup:configuring')).toBeNull();
+      expect(await mockKV.get('setup:custom_domain')).toBeNull();
+      expect(await mockKV.get('setup:complete')).toBeNull();
+      expect(await mockKV.get('user:user@example.com')).toBeNull();
+
+      await mockKV.delete(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
+      mockFullSuccessFlow();
+      const changedDomain = 'corrected.example.com';
+      const corrected = getNdjsonSummary(await readNdjson(await configure(app, changedDomain)));
+      expect(corrected.success).toBe(true);
+      expect(await mockKV.get('setup:custom_domain')).toBe(changedDomain);
+      expect(await mockKV.get('setup:complete')).toBe('true');
+    });
+
+    it('REQ-SETUP-004: confirmed zone absence releases admission for corrected input', async () => {
+      const app = createTestApp({}, true);
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(), ...customDomainFlowMocks(), ...accessAppFlowMocks(),
+        '/zones?name=': (url) => url.includes('wrong.invalid')
+          ? _jsonResponse({ success: true, result: [] }) : mockResponses.zoneLookup(),
+      });
+      const failed = getNdjsonSummary(await readNdjson(await configure(app, 'wrong.invalid')));
+      expect(failed).toMatchObject({ success: false, error: 'Zone not found for domain: wrong.invalid' });
+      expect(await mockKV.get('setup:complete')).toBeNull();
+      const corrected = getNdjsonSummary(await readNdjson(await configure(app, standardBody.customDomain)));
+      expect(corrected.success).toBe(true);
+      expect(await mockKV.get('setup:custom_domain')).toBe(standardBody.customDomain);
+      expect(await mockKV.get('setup:complete')).toBe('true');
+    });
+
+    it('REQ-SETUP-004: live provider operation denies overlapping corrected input', async () => {
+      const app = createTestApp({}, true);
+      let entered!: () => void;
+      const started = new Promise<void>(resolve => { entered = resolve; });
+      let release!: () => void;
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(), ...customDomainFlowMocks(), ...accessAppFlowMocks(),
+        '/zones?name=': async () => { entered(); await pending; return _jsonResponse({ success: true, result: [] }); },
+      });
+      const first = Promise.resolve(configure(app, 'wrong.invalid')).then(readNdjson);
+      await started;
+      try {
+        const overlap = getNdjsonSummary(await readNdjson(await configure(app, standardBody.customDomain)));
+        expect(overlap).toMatchObject({ success: false });
+        expect(overlap.error).toMatch(/already in progress/);
+        expect(await mockKV.get('setup:custom_domain')).toBeNull();
+      } finally { release(); await first; }
+    });
+
+    it('REQ-SETUP-004: uncertain Access failure drains started deletions and retains changed-input fence', async () => {
+      const app = createTestApp({}, true);
+      let entered!: () => void;
+      const started = new Promise<void>(resolve => { entered = resolve; });
+      let release!: () => void;
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      const legacyApps = new Set(['legacy-one', 'legacy-two']);
+      globalThis.fetch = createUrlMockFetch({
+        ...baseFlowMocks(), ...customDomainFlowMocks(), ...accessAppFlowMocks(),
+        '~/access/apps': (_url, init) => {
+          if (!init?.method || init.method === 'GET') {
+            return _jsonResponse({ success: true, result: [
+              { id: 'legacy-one', name: TEST_WORKER_NAME, domain: standardBody.customDomain },
+              { id: 'legacy-two', name: TEST_WORKER_NAME, domain: `${standardBody.customDomain}/setup` },
+            ] });
+          }
+          return mockResponses.accessAppCreate();
+        },
+        '/access/apps/legacy-one': () => { throw new Error('delete acknowledgement lost'); },
+        '/access/apps/legacy-two': async () => {
+          entered(); await pending; legacyApps.delete('legacy-two');
+          return new Response(null, { status: 200 });
+        },
+      });
+      let finished = false;
+      const first = Promise.resolve(configure(app, standardBody.customDomain)).then(readNdjson)
+        .then(lines => { finished = true; return lines; });
+      await Promise.race([
+        started,
+        first.then(() => { throw new Error('Setup completed before the held sibling deletion started'); }),
+      ]);
+      // Let the rejected deletion propagate while its already-started sibling stays held.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      try {
+        const overlap = getNdjsonSummary(await readNdjson(await configure(app, standardBody.customDomain)));
+        expect(overlap.error).toMatch(/already in progress/);
+        expect(finished).toBe(false);
+        expect(legacyApps.has('legacy-two')).toBe(true);
+      } finally { release(); }
+      expect(getNdjsonSummary(await first)).toMatchObject({
+        success: false, error: 'Failed to configure Access applications: delete acknowledgement lost',
+      });
+      expect(legacyApps.has('legacy-two')).toBe(false);
+      expect(legacyApps.has('legacy-one')).toBe(true);
+      await mockKV.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({
+        runId: 'environment-run', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }));
+      const refusedRetry = getNdjsonSummary(await readNdjson(await configure(app, standardBody.customDomain)));
+      expect(refusedRetry).toMatchObject({
+        success: false,
+        error: 'An Environment settings change is already in progress. Please wait and try again.',
+      });
+      await mockKV.delete(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
+      const changed = getNdjsonSummary(await readNdjson(await configure(app, 'corrected.example.com')));
+      expect(changed.error).toMatch(/same configuration/);
+      expect(await mockKV.get('setup:complete')).toBeNull();
+    });
+
     it('stores R2 endpoint in KV during configure', async () => {
       const app = createTestApp();
       mockFullSuccessFlow();

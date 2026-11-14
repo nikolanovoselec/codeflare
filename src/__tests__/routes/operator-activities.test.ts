@@ -222,7 +222,8 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     (env as unknown as { CONTAINER: unknown }).CONTAINER = { idFromName: (value: string) => value,
       get: () => ({ armRenovateScan: async () => ({ ok: true, activatedAt: observed.activatedAt }) }) };
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { installation: { id: 'dispatcher-install',
-      revision: 1, enabled: true, policy: { resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) }, operator: { profile: 'dispatcher', revision: 1, invokers: { users: [claims.email], groups: [] } },
+      revision: 1, enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) }, operator: { profile: 'dispatcher', revision: 1, policy: { capabilities: ['fetch'], resourceProfileId: null },
+        invokers: { users: [claims.email], groups: [] } },
       release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
       manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) } });
     const command = { installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 };
@@ -429,6 +430,25 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(waitUntil).toHaveBeenCalledOnce();
   });
 
+  it.each(['foreign', 'absent-prepared-proof'] as const)('refuses %s start and foreign cancellation without changing execution', async boundary => {
+    const { request, activity } = fixture();
+    const execution = { status: 'prepared', starts: [] as string[], cancellations: 0 };
+    activity.start.mockImplementation(async () => {
+      execution.status = 'queued'; execution.starts.push('s'.repeat(43));
+      return { ok: true, phase: 'queued' };
+    });
+    activity.cancelDrive.mockImplementation(async () => {
+      execution.status = 'cancel-requested'; execution.cancellations++;
+      return { ok: true, state: { status: 'cancel-requested' } };
+    });
+    activity.ownsPrepared.mockResolvedValue(false);
+    const before = structuredClone(execution);
+    const id = boundary === 'foreign' ? 'foreign-activity' : 'prepared-activity';
+    expect((await request(`/${id}/start`, 'POST', { capability: 's'.repeat(43) })).status).toBe(404);
+    expect((await request(`/${id}/cancel`, 'POST', {})).status).toBe(404);
+    expect(execution).toEqual(before);
+  });
+
   it('continues only durable waiting work through an explicit owner-authenticated POST', async () => {
     const { request, activity, waitUntil } = fixture();
     activity.getBrowserDetail.mockResolvedValueOnce({ ...summary, executionStatus: 'waiting',
@@ -457,9 +477,31 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(activity.start).toHaveBeenCalledWith('s'.repeat(43));
     expect(orchestration.run).toHaveBeenCalledWith('activity-1', expect.anything(), expect.any(Function));
     expect(waitUntil).toHaveBeenCalledOnce();
+    activity.getBrowserSummary.mockResolvedValue({ ...summary, executionStatus: 'cancel-requested' });
     const cancelled = await request('/activity-1/cancel', 'POST', {});
     expect(cancelled.status).toBe(200);
     expect(activity.cancelDrive).toHaveBeenCalledOnce();
+  });
+
+  it('REQ-OPERATOR-016/104: cancellation acknowledgement satisfies the strict summary wire contract after configuration revocation', async () => {
+    const f = fixture();
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
+    f.activity.getBrowserSummary.mockResolvedValue({ ...summary, executionStatus: 'cancel-requested' });
+    const response = await f.request('/activity-1/cancel', 'POST', {});
+    expect(response.status).toBe(200);
+    // Intentional wire contract: detail-only fields must not break the strict browser summary decoder.
+    expect(await response.json()).toEqual({ ...summary, executionStatus: 'cancel-requested',
+      updatedAt: new Date(summary.updatedAt).toISOString() });
+    expect((await f.request('/activity-1/cancel', 'POST', {}, false)).status).toBe(403);
+    expect((await f.request('/foreign/cancel', 'POST', {})).status).toBe(404);
+  });
+
+  it('REQ-OPERATOR-104: unavailable cancel projection never returns incompatible success JSON', async () => {
+    const f = fixture();
+    f.activity.getBrowserSummary.mockResolvedValue(null);
+    const response = await f.request('/activity-1/cancel', 'POST', {});
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'CANCELLATION_NOT_CONFIRMED' });
   });
 
   it('is unavailable outside enterprise without reading the activity index', async () => {
@@ -524,9 +566,10 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
   function activationFixture() {
     const f = fixture();
     const selected = { installation: { id: 'dispatcher-install', revision: 2, enabled: true,
-      policy: { resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: {
+      policy: { capabilities: ['fetch'], resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: {
         repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) },
-      operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher', invokers: { users: [claims.email], groups: [] } },
+      operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
+        policy: { capabilities: ['fetch'], resourceProfileId: null }, invokers: { users: [claims.email], groups: [] } },
       release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
       manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
     f.registry.resolveManagementExecution.mockImplementation(async () => ({ ok: true, value: selected }));
@@ -534,19 +577,58 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     Object.assign(f.registry, { activateProspectiveRenovate: async (input: unknown) => {
       admitted.push(input); return { ok: true, registrationId: 'scan-configured', activatedAt: '2026-09-28T00:00:00.000Z',
         repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' }; } });
-    Object.assign(f.env, { USAGE_DB: { prepare: () => ({ bind: () => ({ first: async () => ({
-      lifecycle_state: 'running', lifecycle_generation: 3, owner_key: 'owner-bucket', session_id: 'session0001',
-      created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(), response_revision: 0,
-      observation_sequence: 0, workspace: 'default', terminal_mode: 'terminal', editor_ready: 1, editor_ready_error: 0,
-    }) }) }) }, CONTAINER: { idFromName: (name: string) => name, get: () => ({
+    const session = { lifecycle: 'running', generation: 3, available: true, readError: false };
+    Object.assign(f.env, { USAGE_DB: { prepare: () => ({ bind: (owner: string, id: string) => ({ first: async () => {
+      if (session.readError) throw Error('Temporary session lookup outage');
+      return session.available && owner === 'owner-bucket' && id === 'session0001' ? {
+        lifecycle_state: session.lifecycle, lifecycle_generation: session.generation, owner_key: owner, session_id: id,
+        created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(), response_revision: 0,
+        observation_sequence: 0, workspace: 'default', terminal_mode: 'terminal', editor_ready: 1, editor_ready_error: 0,
+      } : null;
+    } }) }) }, CONTAINER: { idFromName: (name: string) => name, get: () => ({
       armRenovateScan: async (input: unknown) => { armed.push(input); return { ok: true }; } }) } });
     f.kv._store.set('user:owner@example.test', JSON.stringify({ role: 'admin' }));
     f.setGithub(async request => { reads.push(request); return Response.json({
       id: 424242, full_name: 'acme/updates', default_branch: 'trunk' }); });
-    return { ...f, selected, admitted, armed, reads, command: {
+    return { ...f, selected, session, admitted, armed, reads, command: {
       installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 } };
   }
-  it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
+  it('REQ-OPERATOR-061 AC1/3: explicit installation revision activates with no sessions and never arms a Container', async () => {
+    const f = activationFixture(); f.session.available = false; f.session.readError = true;
+    const response = await f.request('/renovate/activation', 'POST', { installationId: 'dispatcher-install', revision: 2 });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z', repositoryId: 424242 });
+    expect(f.admitted).toMatchObject([{ scope: 'installation', installationId: 'dispatcher-install',
+      bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
+      expectedManagement: { installationRevision: 2, releaseId: 'release' } }]);
+    expect(f.armed).toEqual([]);
+  });
+  it('REQ-OPERATOR-061 AC3: stale explicit installation activation cannot observe protected metadata or register', async () => {
+    const f = activationFixture();
+    expect((await f.request('/renovate/activation', 'POST', { installationId: 'dispatcher-install', revision: 1 })).status).toBe(409);
+    expect(f.reads).toEqual([]); expect(f.admitted).toEqual([]); expect(f.armed).toEqual([]);
+  });
+  it.each(['missing', 'foreign-session', 'starting', 'stopping', 'unreachable', 'stopped', 'stale-generation', 'lookup-outage'] as const)(
+    'REQ-OPERATOR-061 AC1/3: %s session cannot activate, discover repository metadata or arm work', async fault => {
+      const f = activationFixture();
+      const command = { ...f.command };
+      if (fault === 'missing') f.session.available = false;
+      if (fault === 'foreign-session') command.sessionId = 'foreign001';
+      if (['starting', 'stopping', 'unreachable', 'stopped'].includes(fault)) f.session.lifecycle = fault;
+      if (fault === 'stale-generation') f.session.generation++;
+      if (fault === 'lookup-outage') f.session.readError = true;
+      expect((await f.request('/renovate/activation', 'POST', command)).status).not.toBe(202);
+      expect(f.reads).toEqual([]); expect(f.admitted).toEqual([]); expect(f.armed).toEqual([]);
+    });
+
+  it('REQ-OPERATOR-061 AC1/3: management without the independent invocation grant cannot activate', async () => {
+    const f = activationFixture();
+    f.selected.operator.invokers = { users: ['another@example.test'], groups: [] };
+    expect((await f.request('/renovate/activation', 'POST', f.command)).status).toBe(403);
+    expect(f.reads).toEqual([]); expect(f.admitted).toEqual([]); expect(f.armed).toEqual([]);
+  });
+
+  it.each(['revoked', 'forbidden', 'unavailable', 'malformed', 'transport-error'] as const)(
     'REQ-OPERATOR-047: automatic activation recheck rejects %s live identity despite an email grant and admits verified no-group recovery', async fault => {
       const f = activationFixture();
       accessState.realIdentity = true;
@@ -557,6 +639,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
         expect(request.headers.get('cookie')).toBe('CF_Authorization=private.access.jwt');
         if (invalid && fault === 'transport-error') throw Error('Identity transport unavailable');
         if (invalid && fault === 'revoked') return new Response(null, { status: 401 });
+        if (invalid && fault === 'forbidden') return new Response(null, { status: 403 });
         if (invalid && fault === 'unavailable') return new Response(null, { status: 503 });
         return Response.json({ user_uuid: claims.subject, email: claims.email,
           ...(invalid ? { groups: null } : {}) });
@@ -592,10 +675,13 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
       expect(f.admitted).toEqual([]);
       expect(f.armed).toEqual([]);
     });
-  it('cannot report activation success when schedule acknowledgement fails', async () => {
+  it.each(['lost', 'refused'] as const)('cannot report activation success when schedule acknowledgement is %s', async acknowledgement => {
     const f = activationFixture();
     Object.assign(f.env, { CONTAINER: { idFromName: (name: string) => name,
-      get: () => ({ armRenovateScan: async () => { throw Error('lost schedule acknowledgement'); } }) } });
+      get: () => ({ armRenovateScan: async () => {
+        if (acknowledgement === 'lost') throw Error('lost schedule acknowledgement');
+        return { ok: false };
+      } }) } });
     expect((await f.request('/renovate/activation', 'POST', f.command)).status).not.toBe(202);
   });
 });
@@ -641,3 +727,4 @@ describe('REQ-OPERATOR-081: v2 owner HTTP boundary', () => {
         await assertError(await f.request(`/activity-1${path}?${query}`), 400);
     });
 });
+

@@ -16,11 +16,23 @@ assert.ok(companionDeclaration, 'image-owned companion declaration missing');
 const companionResult = spawnSync('bash', ['-c', `${companionDeclaration}\nprintf '%s\\n' "\${IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS[@]}"`], { encoding: 'utf8' });
 assert.equal(companionResult.status, 0, companionResult.stderr);
 const imageOwnedCompanions = companionResult.stdout.trim().split('\n').filter(Boolean);
+const retiredExtensions = ['review-job-helpers.ts', 'review-jobs.ts', 'review-lane-guards.ts'];
 
 function functionSource(name) {
   const start = lines.findIndex((line) => line === `${name}() {`);
-  const end = lines.findIndex((line, index) => index > start && line === '}');
   assert.notEqual(start, -1, `${name} missing`);
+  let end = -1;
+  let heredoc;
+  for (let index = start + 1; index < lines.length; index++) {
+    const line = lines[index];
+    if (heredoc) {
+      if (line.replace(/^\t+/, '') === heredoc) heredoc = undefined;
+      continue;
+    }
+    const marker = line.match(/<<-?\s*['"]?([A-Za-z_]\w*)['"]?/);
+    if (marker) heredoc = marker[1];
+    else if (line === '}') { end = index; break; }
+  }
   assert.notEqual(end, -1, `${name} terminator missing`);
   return lines.slice(start, end + 1).join('\n');
 }
@@ -36,6 +48,7 @@ const codingAgentSelected = functionSource('coding_agent_is_selected');
 const layDown = functionSource('lay_down_agent_seed_preseed');
 const relay = functionSource('relay_managed_pi_extensions');
 const initialRestore = functionSource('run_initial_r2_restore');
+const configurePiSettings = functionSource('configure_pi_packages_and_review_inventory');
 const completeStartup = functionSource('complete_managed_curation_startup');
 const managedStartup = functionSource('run_managed_curation_startup');
 const managedStartupInvocation = productionInvocation('run_managed_curation_startup');
@@ -55,6 +68,10 @@ function fixture() {
   writeFileSync(join(bake, 'default/.pi/agent/extensions/company.ts'), 'baked pi');
   writeFileSync(join(home, '.pi/agent/extensions/codeflare.ts'), 'restored release');
   writeFileSync(join(warm, 'codeflare.ts'), 'baked image');
+  writeFileSync(join(warm, 'warm-only.ts'), 'unfiltered image only');
+  for (const name of retiredExtensions) {
+    writeFileSync(join(home, '.pi/agent/extensions', name), `restored release ${name}`);
+  }
   for (const companion of imageOwnedCompanions) {
     writeFileSync(join(warm, companion), `image-owned ${companion}`);
   }
@@ -70,6 +87,7 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     `AGENT_SEED_BAKE_DIR='${f.bake}'`,
     `PI_WARM_EXTENSIONS_DIR='${f.warm}'`,
     `EVENTS='${f.events}'`,
+    `PI_SETTINGS_FILE='${join(f.home, '.pi/agent/settings.json')}'`,
     `CODING_AGENT_SELECTOR='${selectorPath}'`,
     `CODEFLARE_CODING_AGENTS='${codingAgents}'`,
     "R2_SSE_DISABLED='true'",
@@ -86,10 +104,10 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     '  command cp "$@"',
     '}',
     'update_sync_status() { :; }',
-    'initial_sync_from_r2() { echo initial >> "$EVENTS"; }',
+    `initial_sync_from_r2() { echo initial >> "$EVENTS"; printf '%s\\n' '{"theme":"restored-user-theme","packages":["npm:pi-caveman@1.0.0"],"extensions":["./user-extension.ts","builtin:mcp"]}' > "$PI_SETTINGS_FILE"; }`,
     'prepare_managed_resource_filter() { echo prepare-filter >> "$EVENTS"; }',
     'release_agent_pty_after_fast_start_updates() { echo cleanup >> "$EVENTS"; }',
-    'establish_bisync_baseline() { echo baseline >> "$EVENTS"; }',
+    `establish_bisync_baseline() { command cp "$PI_SETTINGS_FILE" '${join(f.root, 'baseline-settings.json')}'; echo baseline >> "$EVENTS"; }`,
     'init_user_vault() { :; }',
     'start_sync_daemon() { :; }',
     'start_vault_monitor_daemon() { :; }',
@@ -104,6 +122,7 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     companionDeclaration,
     relay,
     initialRestore,
+    configurePiSettings,
     completeStartup,
     managedStartup,
     managedStartupInvocation,
@@ -126,12 +145,27 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
 }
 
 describe('managed curation entrypoint behavior', () => {
-  it('REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline', () => {
+  it('REQ-STOR-004 AC3/AC4 / REQ-STOR-031: baseline observes real post-restore Pi settings and managed content', (t) => {
     const run = runStartup(true);
+    t.after(() => rmSync(run.root, { recursive: true, force: true }));
 
     assert.equal(run.result.status, 0, run.result.stderr);
+    const snapshot = JSON.parse(readFileSync(join(run.root, 'baseline-settings.json'), 'utf8'));
+    assert.equal(snapshot.theme, 'restored-user-theme', 'baseline must retain settings restored by initial sync');
+    assert.ok(!snapshot.packages.some(spec => (typeof spec === 'string' ? spec : spec.source).startsWith('npm:pi-caveman@')),
+      'baseline must observe the real settings migration, not the restored stale package');
+    assert.deepEqual(snapshot.extensions, ['./user-extension.ts', '-builtin:mcp']);
+    assert.deepEqual(snapshot, JSON.parse(readFileSync(join(run.home, '.pi/agent/settings.json'), 'utf8')),
+      'no later settings write may invalidate the captured baseline input');
     assert.equal(existsSync(run.companyFile), false);
     assert.equal(readFileSync(run.extensionFile, 'utf8'), 'restored release');
+    assert.equal(existsSync(run.piCompanyFile), false, 'remote curation must not backfill from the mode bake');
+    assert.equal(existsSync(join(run.home, '.pi/agent/extensions/warm-only.ts')), false,
+      'undeclared image files must not be restored as companions');
+    for (const name of retiredExtensions) {
+      assert.equal(readFileSync(join(run.home, '.pi/agent/extensions', name), 'utf8'),
+        `restored release ${name}`, 'remote relay must not apply baked-only local pruning');
+    }
     for (const companion of run.companionFiles) {
       assert.equal(readFileSync(companion.destination, 'utf8'), companion.content);
     }

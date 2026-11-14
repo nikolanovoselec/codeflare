@@ -283,6 +283,10 @@
   overflow-wrap: anywhere;
 }
 
+.dashboard-status-unavailable {
+  color: var(--color-warning);
+}
+
 /* Section Dividers */
 .dashboard-section-divider {
   display: flex;

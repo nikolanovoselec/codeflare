@@ -222,9 +222,9 @@ const ConfigurationAreaDetail: Component = () => {
             <aside class="admin-editor-context">
               <h3>Before you apply</h3>
               <dl>
-                <div><dt>Current source</dt><dd>{environmentContext(resolved().section).source}</dd></div>
-                <div><dt>Operation</dt><dd>{environmentContext(resolved().section).operation}</dd></div>
-                <div><dt>Effect</dt><dd>{environmentContext(resolved().section).effect}</dd></div>
+                <div><dt>Current source</dt><dd>{environmentContext(resolved().section, configuration.mode).source}</dd></div>
+                <div><dt>Operation</dt><dd>{environmentContext(resolved().section, configuration.mode).operation}</dd></div>
+                <div><dt>Effect</dt><dd>{environmentContext(resolved().section, configuration.mode).effect}</dd></div>
               </dl>
             </aside>
           </div>

@@ -1,4 +1,4 @@
-import type { ConfigurationSection } from '../../types';
+import type { AdministrationMode, ConfigurationSection } from '../../types';
 
 const SECTION_LABELS: Record<ConfigurationSection, string> = {
   access: 'Access and identity',
@@ -10,7 +10,7 @@ const SECTION_LABELS: Record<ConfigurationSection, string> = {
   dataGovernance: 'Data governance',
   managedEnvironment: 'Managed environment',
   github: 'GitHub',
-  cloudflareConnection: 'Cloudflare connection',
+  cloudflareConnection: 'Integrations',
   usageReports: 'Monthly usage reports',
 };
 
@@ -109,7 +109,12 @@ export function formatAdminTimestamp(value: string): string {
   return `${date.getUTCDate()} ${month} ${date.getUTCFullYear()}, ${time} UTC`;
 }
 
-export function environmentContext(section: ConfigurationSection): EnvironmentContext {
+export function environmentContext(section: ConfigurationSection, mode: AdministrationMode = 'enterprise'): EnvironmentContext {
+  if (section === 'dataGovernance' && mode !== 'enterprise') return {
+    source: 'Saved persistence policy',
+    operation: 'Updates only saved-file locations',
+    effect: ENVIRONMENT_CONTEXT.dataGovernance.effect,
+  };
   return ENVIRONMENT_CONTEXT[section];
 }
 

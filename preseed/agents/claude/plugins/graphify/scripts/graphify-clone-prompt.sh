@@ -49,13 +49,15 @@ COMMAND=$(echo "$INPUT" | jq -r '
 
 [ -z "$COMMAND" ] && exit 0
 
-# Anchored token match: git clone / gh repo clone as actual command
-# tokens, not inside echo strings. Allowed positions: start of string
-# (with optional leading whitespace), or after shell separators
-# (; && || | &). Trailing whitespace OR end-of-input accepted - covers
-# commands with args and commands joined at end of a ctx_batch_execute
-# command list.
-if ! echo "$COMMAND" | grep -qE '(^\s*|[;&|]\s*)(git\s+clone|gh\s+repo\s+clone)(\s|$)' 2>/dev/null; then
+# Use the existing review-boundary shell parser: separators inside quoted data
+# cannot manufacture an executable clone command.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)" || exit 0
+CLASSIFIER="$SCRIPT_DIR/../../codeflare-hooks/scripts/lib/boundary-classifier.cjs"
+if ! node - "$CLASSIFIER" "$COMMAND" <<'NODE'
+const classifier = require(process.argv[2]);
+process.exit(classifier.boundaryDetails(process.argv[3], 'clone')?.kind === 'clone' ? 0 : 1);
+NODE
+then
   exit 0
 fi
 
@@ -105,42 +107,13 @@ fi
 # pairs (`--depth 1`) require skipping the next token, which awk does
 # by treating any leading-dash token as "skip and continue".
 if [ -z "$TARGET_DIR" ] && [ -n "$HOOK_CWD" ]; then
-  # Everything after `git clone` / `gh repo clone`. Use sed because grep
-  # -oE captures only the matched substring, not the trailing args.
-  ARGS=$(printf '%s' "$COMMAND" | sed -nE 's/.*(git[[:space:]]+clone|gh[[:space:]]+repo[[:space:]]+clone)[[:space:]]+(.*)/\2/p' | head -n 1)
-  if [ -n "$ARGS" ]; then
-    # Pick the first token that does NOT start with `-` and is not the
-    # value of a flag that takes an argument. We approximate by skipping
-    # any token preceded by a `-`-prefixed token (covers `--depth 1`,
-    # `-o key`, etc). Conservative: false positives only cost a missed
-    # detection, never a wrong one.
-    DERIVED=$(printf '%s\n' "$ARGS" | awk '{
-      skip_next = 0
-      for (i = 1; i <= NF; i++) {
-        if (skip_next) { skip_next = 0; continue }
-        if ($i ~ /^-/) {
-          # If the flag has no `=`, the next token is its value
-          if ($i !~ /=/) skip_next = 1
-          continue
-        }
-        print $i
-        exit
-      }
-    }')
-    # Strip command separators that may ride along on the chosen token
-    # when the command is chained without surrounding whitespace.
-    DERIVED=${DERIVED%%[;&|]*}
-  fi
-  if [ -n "$DERIVED" ]; then
-    case "$DERIVED" in
-      *://*|*@*:*|*.git) DERIVED=$(basename "$DERIVED" .git) ;;
-      */*)               DERIVED=$(basename "$DERIVED") ;;
-    esac
-    case "$DERIVED" in
-      /*) TARGET_DIR="$DERIVED" ;;
-      *)  TARGET_DIR="$HOOK_CWD/$DERIVED" ;;
-    esac
-  fi
+  TARGET_DIR=$(node - "$CLASSIFIER" "$COMMAND" "$HOOK_CWD" <<'NODE'
+const classifier = require(process.argv[2]);
+const target = classifier.cloneTargetPath(process.argv[3], process.argv[4]);
+if (target) process.stdout.write(target);
+NODE
+  )
+
 fi
 
 # Idempotency marker keyed on the target directory. Only write the marker

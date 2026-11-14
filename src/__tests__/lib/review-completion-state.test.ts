@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -52,11 +52,13 @@ describe('user-scoped review completion state', () => {
 
     const path = completionPath(identity(), stateRoot);
     const initial = JSON.parse(readFileSync(path, 'utf8')) as { reviewedAt: string };
+    expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readCompletion(identity(), first)).toMatchObject({ status: 'complete' });
 
     const later = options(stateRoot, new Date(NOW.getTime() + DAY));
     expect(writeCompletion(identity(), later)).toEqual({ written: false });
     expect(JSON.parse(readFileSync(path, 'utf8')).reviewedAt).toBe(initial.reviewedAt);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
   it('isolates host, repository, PR, branch, base, and head identities', () => {
@@ -146,3 +148,33 @@ describe('user-scoped review completion state', () => {
     expect(readCompletion(identity(), { root: stateRoot, now: () => NOW }).status).toBe('complete');
   });
 });
+
+for (const redirected of ['root', 'root-parent', 'repository', 'branch']) {
+  it(`REQ-STOR-027: ${redirected} symlink refuses read/publication/prune without outside effects`, () => {
+    const sandbox = root();
+    const outside = root();
+    const base = join(sandbox, 'parent', 'state');
+    const normalPath = completionPath(identity(), base);
+    const destination = redirected === 'root' ? base : redirected === 'root-parent' ? dirname(base)
+      : redirected === 'repository' ? dirname(dirname(normalPath)) : dirname(normalPath);
+    mkdirSync(dirname(destination), { recursive: true });
+    symlinkSync(outside, destination, 'dir');
+    const escaped = completionPath(identity(), base);
+    mkdirSync(dirname(escaped), { recursive: true });
+    writeFileSync(escaped, JSON.stringify({ version: 1, ...identity(), reviewedAt: NOW.toISOString() }));
+    const sentinel = join(dirname(escaped), 'unrelated.txt');
+    writeFileSync(sentinel, 'OUTSIDE_MUST_SURVIVE');
+    const protectedPath = realpathSync(escaped);
+    const protectedSentinel = realpathSync(sentinel);
+    const before = readFileSync(protectedPath, 'utf8');
+    const mode = statSync(dirname(protectedPath)).mode & 0o777;
+    expect(readCompletion(identity(), options(base)).status).toBe('missing');
+    expect(latestAncestorCompletion(identity({ head: 'b'.repeat(40) }), '/unused', { ...options(base), isAncestor: () => true })).toBeUndefined();
+    expect(() => writeCompletion(identity({ head: 'b'.repeat(40) }), options(base))).toThrow();
+    pruneCompletionState(options(base));
+    expect(readFileSync(protectedPath, 'utf8')).toBe(before);
+    expect(readFileSync(protectedSentinel, 'utf8')).toBe('OUTSIDE_MUST_SURVIVE');
+    expect(statSync(dirname(protectedPath)).mode & 0o777).toBe(mode);
+    expect(readdirSync(dirname(protectedPath)).sort()).toEqual([escaped.split('/').at(-1), 'unrelated.txt'].sort());
+  });
+}

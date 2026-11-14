@@ -1,16 +1,41 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@solidjs/testing-library';
-import type { JSX } from 'solid-js';
+import { render, screen, waitFor, cleanup, fireEvent } from '@solidjs/testing-library';
+import { createSignal, Show, type JSX } from 'solid-js';
 import { ApiError } from '../../api/fetch-helper';
+import type { DiagnosticHistory } from '../../api/operator-diagnostics-wire';
 
 const getSetupStatusMock = vi.fn();
 const getUserMock = vi.fn();
 const getOnboardingConfigMock = vi.fn();
 const getPortalsMock = vi.fn().mockResolvedValue([]);
 const recoverPortalMock = vi.fn();
+const listActivitiesMock = vi.fn().mockResolvedValue({ items: [], nextCursor: null, workingCount: 0, unreadCount: 0, latestSequence: 0 });
+const activityDetailMock = vi.fn();
+const diagnosticSummaryMock = vi.fn();
+let acknowledgedSequence = 0;
+vi.mock('../../api/operator-activities', async importOriginal => ({
+  ...await importOriginal<typeof import('../../api/operator-activities')>(),
+  listOperatorActivities: (...args: unknown[]) => listActivitiesMock(...args),
+  getOperatorActivity: (...args: unknown[]) => activityDetailMock(...args),
+  getOperatorActivityDiagnostics: (...args: unknown[]) => diagnosticSummaryMock(...args),
+  getOperatorActivityDiagnosticHistory: async (activityId: string): Promise<DiagnosticHistory> => ({
+    version: 2, activityId, capturedAt: 1791936000000, consistency: 'stable-binding',
+    binding: { generation: 3, artifactDigest: 'a'.repeat(64), inputDigest: 'b'.repeat(64) },
+    highWater: { events: 0, operations: 0 },
+    health: { status: 'available', sdkImport: 'host-persisted', gaps: [] },
+    retention: { epoch: 1, firstSequence: null, lastSequence: null,
+      routineLimit: 1536, failureLimit: 64, terminalLimit: 64,
+      evictedRoutine: 0, droppedFailure: 0, droppedTerminal: 0, oversized: 0, rejected: 0 },
+    records: [], nextCursor: null, pageStatus: 'complete', retainedStatus: 'complete',
+    sourceOrder: 'diagnostic-sequence-then-operation-storage-key',
+  }),
+  acknowledgeOperatorActivities: async (sequence: number) => { acknowledgedSequence = sequence; return { unreadCount: 0 }; },
+}));
 vi.mock('../../api/mcp-portals', () => ({
   getMcpPortalStatuses: (...args: unknown[]) => getPortalsMock(...args),
   recoverMcpPortal: (...args: unknown[]) => recoverPortalMock(...args),
+  disconnectMcpPortal: vi.fn(),
+  mcpPortalConnectUrl: (name: string) => `/auth/mcp/connect/${encodeURIComponent(name)}`,
 }));
 
 vi.mock('../../api/client', () => ({
@@ -20,7 +45,17 @@ vi.mock('../../api/client', () => ({
 }));
 
 vi.mock('../../components/Layout', () => ({
-  default: () => <div data-testid="layout">layout</div>,
+  default: (props: { userName?: string; userRole?: string; enterpriseMode?: boolean; mcpReturnOutcome?: 'connected' | 'reconnect' }) => {
+    const [settingsOpen, setSettingsOpen] = createSignal(false);
+    return <div data-testid="layout">
+      <span>{props.userName}</span><span>{props.userRole}</span>
+      <OperatorActivityButton enabled={props.enterpriseMode === true} />
+      <button onClick={() => setSettingsOpen(true)}>Open MCP Settings</button>
+      <Show when={settingsOpen()}>
+        <McpPortalsSection {...{ currentUserEmail: props.userName, isActive: true, returnOutcome: props.mcpReturnOutcome }} />
+      </Show>
+    </div>;
+  },
 }));
 
 vi.mock('../../components/setup/SetupWizard', () => ({
@@ -66,6 +101,7 @@ vi.mock('../../components/admin/SubscriptionManagement', () => ({
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
+    preferences: {},
     stopAllPolling: vi.fn(),
     setEnterpriseMode: vi.fn(),
     setSaasMode: vi.fn(),
@@ -80,6 +116,8 @@ vi.mock('../../stores/terminal', () => ({
 }));
 
 import App from '../../App';
+import OperatorActivityButton from '../../components/OperatorActivityButton';
+import McpPortalsSection from '../../components/settings/McpPortalsSection';
 
 // REQ-SETUP-003: three deployment modes — App routes to the setup wizard when the
 // deployment is not yet configured.
@@ -223,6 +261,12 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
   }
   beforeEach(() => {
     vi.clearAllMocks();
+    // Clearing call history leaves unconsumed mockImplementationOnce responses queued.
+    // Each mounted owner lifetime must start with its own authentication/resources.
+    for (const mock of [getSetupStatusMock, getUserMock, getPortalsMock, recoverPortalMock,
+      listActivitiesMock, activityDetailMock, diagnosticSummaryMock]) mock.mockReset();
+    listActivitiesMock.mockResolvedValue({ items: [], nextCursor: null, workingCount: 0, unreadCount: 0, latestSequence: 0 });
+    acknowledgedSequence = 0;
     window.history.replaceState({}, '', '/app/session/abcdef0123456789');
     sessionStorage.clear();
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
@@ -259,6 +303,66 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
     await waitFor(() => expect(grantReady).toBe(true));
     expect(window.location.pathname).toBe('/app/session/abcdef0123456789');
     expect(screen.queryByText('Authentication Error')).not.toBeInTheDocument();
+  });
+
+  it.each(['reconnect', 'connected'] as const)(
+    'REQ-AGENT-226 AC3/6 / REQ-AGENT-228 AC4: %s survives pre-mount URL cleanup into owner Settings without an authorization loop', async returned => {
+      const portalKey = 'alpha\nhttps://alpha.example/mcp';
+      sessionStorage.setItem('codeflare-mcp-recovery', JSON.stringify({
+        owner: owner.email, attempted: [portalKey], pending: portalKey,
+        returnPath: '/app/session/abcdef0123456789',
+      }));
+      window.history.replaceState({}, '', `/app/?mcp=${returned}`);
+      // Keep the failed grant unavailable, but allow the server's genuine ready
+      // outcome to clear its guard only in the successful branch.
+      recoverPortalMock.mockImplementation(async (_name: string, authorize: boolean) => returned === 'connected'
+        ? { state: 'ready' }
+        : authorize ? { state: 'authorization', url: providerUrl } : { state: 'unavailable' });
+      getPortalsMock.mockResolvedValue([{ name: 'alpha', url: 'https://alpha.example/mcp', connected: false }]);
+      const mounted = render(() => <App />);
+      await screen.findByTestId('layout');
+      expect(window.location.pathname).toBe('/app/session/abcdef0123456789');
+      expect(window.location.search).toBe('');
+      await fireEvent.click(screen.getByRole('button', { name: 'Open MCP Settings' }));
+      if (returned === 'reconnect') {
+        expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
+      } else {
+        expect(await screen.findByText('Authorization response received.')).toBeVisible();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      }
+      expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal alpha' })).toBeEnabled();
+      expect(screen.queryByText('Connected', { exact: true })).not.toBeInTheDocument();
+      expect(providerNavigation).toEqual([]);
+      mounted.unmount();
+      render(() => <App />);
+      await screen.findByTestId('layout');
+      const resumed = new Event('pageshow');
+      Object.defineProperty(resumed, 'persisted', { value: true });
+      window.dispatchEvent(resumed);
+      await Promise.resolve(); await Promise.resolve();
+      expect(providerNavigation).toEqual([]);
+      expect(window.location.pathname).toBe('/app/session/abcdef0123456789');
+      await fireEvent.click(screen.getByRole('button', { name: 'Open MCP Settings' }));
+      if (returned === 'reconnect') expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
+      else expect(await screen.findByText('Authorization response received.')).toBeVisible();
+    });
+
+  it('REQ-AGENT-226 AC6 / REQ-AGENT-228 AC4: another owner cannot inherit the previous owner callback outcome or return path', async () => {
+    sessionStorage.setItem('codeflare-mcp-recovery', JSON.stringify({
+      owner: owner.email, attempted: ['alpha\nhttps://alpha.example/mcp'],
+      returnPath: '/app/session/abcdef0123456789', outcome: 'reconnect',
+    }));
+    window.history.replaceState({}, '', '/app/');
+    getUserMock.mockResolvedValue({ ...owner, email: 'bob@example.com' });
+    getPortalsMock.mockResolvedValue([{ name: 'bob-portal', url: 'https://bob.example/mcp', connected: false }]);
+    recoverPortalMock.mockResolvedValue({ state: 'ineligible' });
+    render(() => <App />);
+    await screen.findByTestId('layout');
+    await fireEvent.click(screen.getByRole('button', { name: 'Open MCP Settings' }));
+    expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal bob-portal' })).toBeEnabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/');
+    expect(providerNavigation).toEqual([]);
   });
 
   it('does not renew portal grants when browser owner authentication fails', async () => {
@@ -301,10 +405,125 @@ describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
         await screen.findByTestId('auth-redirecting');
       } else {
         authentication.resolve({ ...owner, email: 'other-owner@example.com' });
-        await waitFor(() => expect(currentOwnerRecovered).toBe(true));
+        await waitFor(() => expect(providerNavigation).toEqual(['/app/']));
+        expect(currentOwnerRecovered).toBe(false);
       }
-      expect(providerNavigation).toEqual([]);
+      expect(providerNavigation).toEqual(outcome === 'changed-owner' ? ['/app/'] : []);
     });
+
+  // REQ-OPERATOR-033 AC5/7: exercise the real mounted App authentication resume,
+  // real activity resources and diagnostic lifetime, not a test-only owner prop.
+  const activity = (name: string) => ({ activityId: `${name}-run`, operatorId: 'dispatcher', operatorName: `${name} private run`,
+    context: `${name}/private`, executionStatus: 'completed', cleanupStatus: 'released', collectionStatus: 'consumed',
+    attention: false, sessionId: null, source: null, updatedAt: new Date().toISOString() });
+  const page = (name: string, unreadCount = 0) => ({ items: [activity(name)], nextCursor: null,
+    workingCount: 0, unreadCount, latestSequence: 73 });
+  const snapshot = () => ({ capturedAt: 1791936000000, capture: 'enabled', fence: null,
+    binding: { generation: 3, artifactDigest: 'a'.repeat(64), inputDigest: 'b'.repeat(64) },
+    health: { status: 'available', sdkImport: 'host-persisted', gaps: [] },
+    retention: { epoch: 1, evictedRoutine: 0, droppedFailure: 0, droppedTerminal: 0, oversized: 0, rejected: 0 },
+    provenance: { hostRevision: 'A-private-revision' }, capabilities: [], sdkBinding: { status: 'unavailable' },
+    diagnosis: { state: 'observed-failure', code: 'tool-failed', nextCheck: 'inspect-failure', lastConfirmedId: null, failedId: null } });
+  const resumeFromBack = () => {
+    const event = new Event('pageshow'); Object.defineProperty(event, 'persisted', { value: true }); window.dispatchEvent(event);
+  };
+  async function openActivity() {
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    await screen.findByRole('button', { name: 'View A-run' });
+  }
+  async function mountOwnerActivity() {
+    getUserMock.mockResolvedValue({ ...owner, enterpriseMode: true });
+    listActivitiesMock.mockResolvedValue(page('A'));
+    activityDetailMock.mockResolvedValue({ ...activity('A'), result: null });
+    diagnosticSummaryMock.mockResolvedValue(snapshot());
+    render(() => <App />);
+    await screen.findByTestId('layout');
+    await openActivity();
+  }
+  async function switchToB() {
+    listActivitiesMock.mockResolvedValue(page('B'));
+    getUserMock.mockResolvedValue({ ...owner, email: 'B@example.com', role: 'admin', enterpriseMode: true });
+    resumeFromBack();
+    await waitFor(() => expect(providerNavigation).toEqual(['/app/']));
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+    expect(screen.queryByText('B@example.com')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('A private run')).not.toBeInTheDocument();
+  }
+
+  it('REQ-OPERATOR-033 AC5/7: visibility resume retires A diagnostics before full owner reinitialization', async () => {
+    await mountOwnerActivity();
+    await fireEvent.click(screen.getByRole('button', { name: 'View A-run' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View diagnostics' }));
+    await screen.findByText('Evidence summary');
+    const authentication = deferred<typeof owner & { enterpriseMode: boolean }>();
+    changeVisibility('hidden');
+    getUserMock.mockImplementationOnce(() => authentication.promise);
+    changeVisibility('visible');
+    listActivitiesMock.mockResolvedValue(page('B'));
+    authentication.resolve({ ...owner, email: 'B@example.com', enterpriseMode: true });
+    await waitFor(() => expect(providerNavigation).toEqual(['/app/']));
+    expect(screen.queryByText('Evidence summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('A-private-revision')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+    expect(screen.queryByText('B@example.com')).not.toBeInTheDocument();
+  });
+
+  it.each(['detail', 'diagnostics'] as const)('REQ-OPERATOR-033 AC5: persisted pageshow discards a late A %s response', async view => {
+    await mountOwnerActivity();
+    const lateDetail = deferred<ReturnType<typeof activity> & { result: null }>();
+    const lateSnapshot = deferred<ReturnType<typeof snapshot>>();
+    if (view === 'detail') activityDetailMock.mockImplementationOnce(() => lateDetail.promise);
+    else diagnosticSummaryMock.mockImplementationOnce(() => lateSnapshot.promise);
+    await fireEvent.click(screen.getByRole('button', { name: 'View A-run' }));
+    if (view === 'diagnostics') {
+      await fireEvent.click(await screen.findByRole('button', { name: 'View diagnostics' }));
+      await screen.findByText('Loading diagnostics…');
+    } else await screen.findByText('Loading activity detail…');
+    await switchToB();
+    lateDetail.resolve({ ...activity('A'), result: null }); lateSnapshot.resolve(snapshot());
+    await Promise.all([lateDetail.promise, lateSnapshot.promise]);
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+    expect(screen.queryByText('Evidence summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('A private run')).not.toBeInTheDocument();
+    expect(screen.queryByText('A-private-revision')).not.toBeInTheDocument();
+  });
+
+  it('REQ-OPERATOR-033 AC5: late A opening list cannot repopulate B or acknowledge A sequence as B', async () => {
+    await mountOwnerActivity();
+    await fireEvent.click(screen.getByRole('button', { name: 'Close operators' }));
+    const lateList = deferred<ReturnType<typeof page>>();
+    listActivitiesMock.mockImplementationOnce(() => lateList.promise);
+    acknowledgedSequence = 0;
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    await switchToB();
+    lateList.resolve(page('A', 1)); await lateList.promise;
+    await Promise.resolve(); await Promise.resolve();
+    expect(screen.queryByTestId('layout')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View A-run' })).not.toBeInTheDocument();
+    expect(acknowledgedSequence).toBe(0); // No cross-owner read-marker mutation.
+  });
+
+  it('REQ-OPERATOR-033 AC7: same-owner resume retains the opened diagnostic snapshot without background refresh', async () => {
+    await mountOwnerActivity();
+    await fireEvent.click(screen.getByRole('button', { name: 'View A-run' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View diagnostics' }));
+    await screen.findByText('Evidence summary');
+    const layout = screen.getByTestId('layout');
+    listActivitiesMock.mockResolvedValue(page('unexpected-refresh'));
+    diagnosticSummaryMock.mockRejectedValue(new ApiError('Forbidden', 403, 'Forbidden'));
+    const authentication = deferred<typeof owner & { enterpriseMode: boolean }>();
+    getUserMock.mockImplementationOnce(() => authentication.promise);
+    resumeFromBack(); authentication.resolve({ ...owner, enterpriseMode: true });
+    await authentication.promise; await Promise.resolve();
+    expect(screen.getByTestId('layout')).toBe(layout);
+    expect(screen.getByText('Evidence summary')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Hide diagnostics' })).toBeVisible();
+    expect(screen.queryByText(/access or permission could not be confirmed/)).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to activities' }));
+    expect(screen.getByRole('button', { name: 'View A-run' })).toBeVisible();
+  });
 
   it('resumes recovery on authenticated BFCache Back without remounting or repeating authorization', async () => {
     getPortalsMock.mockResolvedValue([

@@ -27,6 +27,7 @@ import { Timekeeper } from '../../timekeeper/index';
 import { AuthError, ForbiddenError } from '../../lib/error-types';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { signSessionJWT } from '../../lib/session-jwt';
 
 // REQ-SEC-001: Authenticated endpoints reject unauthenticated requests
 
@@ -60,6 +61,26 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
     bucketOwners = new Map();
     vi.clearAllMocks();
     resetAuthConfigCache();
+  });
+
+  it('REQ-SEC-001 AC3: configured SaaS sessions reject missing, malformed, and wrong-signer cookies without granting bucket ownership', async () => {
+    const secret = 'synthetic-session-secret-32-chars!!';
+    const forged = await signSessionJWT(
+      { email: 'attacker@example.test', sub: 'synthetic-user', ghLogin: 'synthetic-user' },
+      'different-synthetic-secret-32-chars!!',
+    );
+    const env = makeEnv({ SAAS_MODE: 'active', OAUTH_CLIENT_ID: 'synthetic-client', OAUTH_JWT_SECRET: secret });
+    for (const cookie of [undefined, 'not-a-jwt', forged]) {
+      const request = new Request('https://example.test/api/storage', {
+        headers: {
+          'cf-access-authenticated-user-email': 'attacker@example.test',
+          ...(cookie ? { Cookie: `codeflare_session=${cookie}` } : {}),
+        },
+      });
+      await expect(authenticateRequest(request, env)).rejects.toBeInstanceOf(AuthError);
+    }
+    expect([...bucketOwners]).toEqual([]);
+    expect(await mockKV.get('user:attacker@example.test')).toBeNull();
   });
 
   describe('resolveUserFromKV', () => {

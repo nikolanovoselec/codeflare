@@ -313,6 +313,10 @@ relay_managed_pi_extensions() { :; }
     // 'PRESEED DASHBOARD' here and this fails — that revert vs the client save is
     // exactly the "changed on both ends" conflict that hangs the 2nd start.
     writeFileSync(join(vault, 'Index.md'), 'CLIENT-NORMALIZED DASHBOARD\n');
+    for (const page of ['CONFIG.md', 'README.md', 'STYLES.md']) {
+      writeFileSync(join(vault, page), `STALE ${page}\n`);
+      writeFileSync(join(preseedDir, page), `UPDATED ${page}\n`);
+    }
     res = runBash(buildInitVaultHarness({ userHome, preseedDir, runs: 1 }));
     assert.equal(res.status, 0, `run 2 must run cleanly; stderr: ${res.stderr}`);
     assert.equal(
@@ -320,6 +324,9 @@ relay_managed_pi_extensions() { :; }
       'CLIENT-NORMALIZED DASHBOARD\n',
       'init_user_vault must NOT clobber an existing Index.md that differs from preseed',
     );
+    for (const page of ['CONFIG.md', 'README.md', 'STYLES.md']) {
+      assert.equal(readFileSync(join(vault, page), 'utf8'), `UPDATED ${page}\n`);
+    }
   });
 
   it('seeds Notes.md / References.md landing pages create-if-missing and never clobbers a user edit', () => {
@@ -594,6 +601,7 @@ describe('entrypoint.sh vault global-graph seed (real init_user_vault) / REQ-MEM
     };
   }
 
+  // REQ-MEM-034 AC1: current ownership; historical test title unchanged.
   it('publishes vault-graph.json under the user_vault tag, never the empty scaffold (REQ-MEM-009)', () => {
     const { res, vault, calls } = runSeed({ withCumulativeGraph: true });
     assert.equal(res.status, 0, `init_user_vault must run cleanly; stderr: ${res.stderr}`);
@@ -614,6 +622,7 @@ describe('entrypoint.sh vault global-graph seed (real init_user_vault) / REQ-MEM
     );
   });
 
+  // REQ-MEM-034 AC2: current ownership; historical test title unchanged.
   it('publishes nothing when no cumulative vault graph exists yet (REQ-MEM-009)', () => {
     const { res, vault, calls } = runSeed({ withCumulativeGraph: false });
     assert.equal(res.status, 0, `init_user_vault must run cleanly; stderr: ${res.stderr}`);

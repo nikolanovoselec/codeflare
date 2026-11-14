@@ -24,15 +24,15 @@ RUN npm prune --omit=dev && \
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o /tmp/go.tar.gz \
-    && echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  /tmp/go.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://go.dev/dl/go1.27.4.linux-amd64.tar.gz -o /tmp/go.tar.gz \
+    && echo "7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840  /tmp/go.tar.gz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
 WORKDIR /src/rclone
-RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.75.2 -o /tmp/rclone.tar.gz \
-    && echo "68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a  /tmp/rclone.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.76.0 -o /tmp/rclone.tar.gz \
+    && echo "8cb7e5d576fe9a3aef8b1a0785e2ffc6c1953f8ed109f42000b0b86718f6628b  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
-    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.3 -require=golang.org/x/net@v0.62.0 \
+    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.4 -require=golang.org/x/net@v0.62.0 \
     && go mod tidy
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/prepare-rclone-s3-fixture.py /tmp/prepare-rclone-s3-fixture.py
@@ -40,14 +40,14 @@ COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
 # Only the CI server binary receives S3-compatible lexical pagination.
 # Restore upstream server code before building the shipped client.
 RUN mkdir -p /out \
-    && python3 /tmp/prepare-rclone-s3-fixture.py prepare /src/rclone 1.75.2 /tmp/rclone-pager.go \
+    && python3 /tmp/prepare-rclone-s3-fixture.py prepare /src/rclone 1.76.0 /tmp/rclone-pager.go \
     && go build -trimpath -o /out/rclone-unpatched . \
-    && python3 /tmp/prepare-rclone-s3-fixture.py restore /src/rclone 1.75.2 /tmp/rclone-pager.go \
-    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.75.2 \
+    && python3 /tmp/prepare-rclone-s3-fixture.py restore /src/rclone 1.76.0 /tmp/rclone-pager.go \
+    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.76.0 \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
     && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
     && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
-    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone . \
+    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.76.0-codeflare-bisync1' -o /out/rclone . \
     && for binary in /out/rclone-unpatched /out/rclone; do \
          go version -m "$binary" | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' || exit 1; \
        done
@@ -61,23 +61,23 @@ RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/63837fb778d6a39f02be0
     go mod edit -require=golang.org/x/net@v0.62.0 && go mod tidy && \
     GH_VERSION=2.103.3-codeflare-xnet1 SOURCE_DATE_EPOCH=1793037767 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
     cp bin/gh /out/gh && \
-    go version -m /out/gh | grep -E '^/out/gh: go1\.27\.3$' && \
+    go version -m /out/gh | grep -E '^/out/gh: go1\.27\.4$' && \
     go version -m /out/gh | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' && \
     /out/gh --version
 
 # ---- Unchanged lazygit release rebuilt with the pinned, fixed Go toolchain ----
 FROM rclone-builder AS lazygit-builder
 WORKDIR /src/lazygit
-RUN LAZYGIT_VERSION="0.66.2" && \
-    LAZYGIT_COMMIT="63ab89fff478854deb4a35ef8902676b3cc5ca72" && \
-    LAZYGIT_SHA256="0522f103eef4fda056562c1509a465ed19ba112192b3db9fbfde7eb9e2180c94" && \
+RUN LAZYGIT_VERSION="0.66.3" && \
+    LAZYGIT_COMMIT="e0fbfd50c36e1ef88c52297ca34750e640b4f5f4" && \
+    LAZYGIT_SHA256="5022fc94de328f1361216a7ac29454020056a6bd3666966fc27e21bd473db89a" && \
     curl -fsSL "https://codeload.github.com/jesseduffield/lazygit/tar.gz/${LAZYGIT_COMMIT}" -o /tmp/lazygit-src.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit-src.tar.gz" | sha256sum -c - && \
     tar --strip-components=1 -xzf /tmp/lazygit-src.tar.gz && rm /tmp/lazygit-src.tar.gz && \
     go build -mod=vendor -trimpath \
       -ldflags "-s -w -X main.version=${LAZYGIT_VERSION} -X main.commit=${LAZYGIT_COMMIT} -X main.buildSource=codeflare" \
       -o /out/lazygit . && \
-    go version -m /out/lazygit | grep -E '^/out/lazygit: go1\.27\.3$' && \
+    go version -m /out/lazygit | grep -E '^/out/lazygit: go1\.27\.4$' && \
     /out/lazygit --version
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
@@ -88,14 +88,14 @@ RUN curl -fsSL https://static.rust-lang.org/dist/2026-10-15/rust-1.99.1-x86_64-u
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
     && /tmp/rust-1.99.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
     && rm -rf /tmp/rust.tar.xz /tmp/rust-1.99.1-x86_64-unknown-linux-gnu
-COPY image/impeccable-engine.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
+COPY image/impeccable-engine.json image/impeccable-engine-4.8.0.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
 RUN <<'IMPECCABLE'
 set -eu
 export CARGO_TARGET_DIR=/tmp/impeccable-target
-for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine-4.5.0.json /tmp/impeccable-engine-4.6.0.json /tmp/impeccable-engine-4.7.0.json /tmp/impeccable-engine.json; do
-  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11","0.1.15","0.1.16","0.1.18"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")' "$PIN"
+for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine-4.5.0.json /tmp/impeccable-engine-4.6.0.json /tmp/impeccable-engine-4.7.0.json /tmp/impeccable-engine-4.8.0.json /tmp/impeccable-engine.json; do
+  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11","0.1.15","0.1.16","0.1.18","0.1.21"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256) || (p.version === "0.1.21" && (p.commit !== "fe45455d36ed14c85ece25c9b868344e55713352" || p.sha256 !== "36ebd8da4a2c6117202c9816634a05de6bcc3a55e6bba84d49e247bb7f06892b"))) throw new Error("Invalid Impeccable engine pin")' "$PIN"
   VERSION=$(node -p 'require(process.argv[1]).version' "$PIN")
   COMMIT=$(node -p 'require(process.argv[1]).commit' "$PIN")
   SHA256=$(node -p 'require(process.argv[1]).sha256' "$PIN")
@@ -105,6 +105,7 @@ for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json 
   echo "$SHA256  /tmp/impeccable.tar.gz" | sha256sum -c -
   tar --strip-components=1 -xzf /tmp/impeccable.tar.gz
   rm /tmp/impeccable.tar.gz
+  python3 -c 'import sys,tomllib; actual=tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"]; sys.exit(0 if actual == sys.argv[1] else "Impeccable source version differs from image pin")' "$VERSION"
   cargo build --locked --release -p impeccable
   python3 /tmp/impeccable-engine.py "$CARGO_TARGET_DIR/release/impeccable" --expect-idle-bug "--engine-version=$VERSION"
   python3 /tmp/patch-impeccable-engine.py "/src/impeccable/$VERSION"
@@ -171,7 +172,10 @@ RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.12.0
     test -z "$(find /out -iname '*.vsix' -print -quit)" && \
     DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
       /out/resources/native-binary/claude --version | grep -F "${CLAUDE_VSCODE_VERSION}" && \
-    rm -rf /tmp/anthropic.claude-code.vsix /tmp/anthropic-claude
+    rm -rf /tmp/anthropic.claude-code.vsix /tmp/anthropic-claude && \
+    find /out -type d -exec chmod 0555 {} + && \
+    find /out -type f -perm /111 -exec chmod 0555 {} + && \
+    find /out -type f ! -perm /111 -exec chmod 0444 {} +
 
 # ---- Assemble immutable agent inventories once, before the runtime image ----
 FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-agent-inventories
@@ -186,7 +190,8 @@ RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions
     test -f /out/openvscode/extensions/claude/anthropic.claude-code/extension.js && \
     test -x /out/openvscode/extensions/claude/anthropic.claude-code/resources/native-binary/claude && \
     test -z "$(find /out/openvscode/extensions/none -mindepth 1 -print -quit)" && \
-    test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)"
+    test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)" && \
+    rm -rf /out/openvscode/extensions/claude
 
 # ---- Stage 2: Runtime ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9
@@ -308,16 +313,16 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 # tar overlay replaces npm's copy only. code-server retains its upstream fixed
 # IDE tar 7.5.22, independently smoke-tested. The Node image's bundled npm also carries pacote
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.2 artifact replaces
-# that runtime copy. code-server's basic-ftp 6.2.3 is replaced with 6.2.4 for
+# that runtime copy. code-server's basic-ftp 6.2.3 is replaced with 6.2.5 for
 # GHSA-5pm8-86m8-9m6r, preserving its CommonJS API for the get-uri consumer.
 # follow-redirects 1.16.2 fixes CVE-2026-111755/111756/116689 in its upstream 1.x API.
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
-RUN CODE_SERVER_VERSION="4.145.0" && \
-    CODE_SERVER_SHA256="771bf6038658034d7caf509fcc44af50f0b8bdac5e738177b6cf9c4181dd3382" && \
-    CODE_SERVER_COMMIT="2cb3ad3e258891fbb51001ba465c2348d5021644" && \
-    CODE_SERVER_CODE_VERSION="1.145.0" && \
-    CODE_SERVER_VSCODE_COMMIT="a717861c07586a53d83b80d742cd3f59b20a6273" && \
+RUN CODE_SERVER_VERSION="4.145.2" && \
+    CODE_SERVER_SHA256="2f6db6c3e8b733dd6b3aeee83532e148b2bae2e392353ba85452d03572348962" && \
+    CODE_SERVER_COMMIT="302bc77436721f5a474e06d1fe34cf8f86195d5e" && \
+    CODE_SERVER_CODE_VERSION="1.145.2" && \
+    CODE_SERVER_VSCODE_COMMIT="c4453f8ea430795f941c1b2ff6c9321135a74a02" && \
     CODE_SERVER_JS_YAML_VERSION="5.5.0" && \
     CODE_SERVER_IDE_TAR_VERSION="7.5.22" && \
     NODE_TAR_VERSION="7.5.22" && \
@@ -330,8 +335,8 @@ RUN CODE_SERVER_VERSION="4.145.0" && \
     UNDICI_IDE_SHA512="d372ab31b8c814359047944d3eb4b0ddb775af5d89a7215097dff2c6351b26daa48e6965a82e65163661eae8deb8908aafc10e42f456f3bd8ecbf6b3fa72d8c6" && \
     PACOTE_VERSION="21.5.2" && \
     PACOTE_SHA512="ae27c15dac0332fde72ef0015abd644e94a4d148de8254d3e15b7db7c9d4f714a77dd65c093cbe14e8cee938175804bbee521f6d9951925d9e29071d634fbe8c" && \
-    BASIC_FTP_VERSION="6.2.4" && \
-    BASIC_FTP_SHA512="e8008a390c5296fe7191ae22d37ba37e770dafdaa9e7264d2b7bb4fb25054c05381df1b901eced082f7e47523d766f28abed6fb78459edc2114c1add1ea2f69b" && \
+    BASIC_FTP_VERSION="6.2.5" && \
+    BASIC_FTP_SHA512="249298c3175b24ce99e2314ef9c89a2147a31d10b2220ea827d868033b99d0432526c1c34f4ee1eaf66de0d1fc1bad432f375dac32af8e846a7dec273f30d224" && \
     FOLLOW_REDIRECTS_VERSION="1.16.2" && \
     FOLLOW_REDIRECTS_SHA512="fe454fd94f33e7de886b483016bc3221ea3be2d6b9695992794d457c050c0267043f910fef3c9d99a83748b88deb835a44a79fde5c6cabb8bf83b96d2500c6a3" && \
     SHELL_QUOTE_VERSION="1.12.0" && \
@@ -535,7 +540,11 @@ RUN cd /opt/codeflare/oxlint && \
 # npm ci already installs the locked production tree for the full agent selection.
 # For reduced selections, remove omitted agent roots without re-resolving the
 # already integrity-checked tree; npm prune fails on the Pi-only image.
-RUN cd /opt/codeflare/npm-tools && \
+# Only the pinned official Claude payload belongs in this dependency layer;
+# source-dependent sidebar assembly stays late. Sharing preserves both paths.
+RUN --mount=from=openvscode-official-claude-extension,source=/out,target=/codeflare-claude,readonly \
+    --mount=type=bind,source=scripts/ci/share-claude-native.mjs,target=/codeflare-share-claude.mjs,readonly \
+    cd /opt/codeflare/npm-tools && \
     CODEFLARE_CODING_AGENTS="$(node /opt/codeflare/scripts/coding-agent-selection.mjs resolve "$CODEFLARE_CODING_AGENTS")" && \
     npm ci --omit=dev --no-audit --no-fund && \
     node /opt/codeflare/scripts/patch-chrome-devtools-timeouts.mjs node_modules/chrome-devtools-mcp && \
@@ -573,36 +582,30 @@ RUN cd /opt/codeflare/npm-tools && \
     chrome-devtools-mcp --help >/dev/null && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
+    mkdir -p /opt/codeflare/openvscode/extensions/claude && \
+    cp -a /codeflare-claude /opt/codeflare/openvscode/extensions/claude/anthropic.claude-code && \
+    if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" claude-code; then \
+      node /codeflare-share-claude.mjs /usr/local/bin/claude \
+        /opt/codeflare/openvscode/extensions/claude/anthropic.claude-code/resources/native-binary/claude; \
+    fi && \
     rm -rf /tmp/* /root/.npm
 
-# Antigravity (Go-native binary, curl installer, not npm). Fatal on failure (no fallback).
-#
-# The installer itself is pinned by sha256; previously this was a bare
-# `curl … | bash`, so whatever that URL served at build time ran as root with no
-# integrity check at all. The PAYLOAD is already covered — the script fetches a
-# manifest carrying a sha512 and aborts on mismatch ("Security Halt") — but the
-# manifest is served by the same host, so that is self-certifying. Pinning the
-# script is what stops arbitrary substitution; tracked by the `antigravity-cli`
-# job in bump-shadow-pins.yml so it still updates, visibly.
-#
-# BREAK-GLASS: this URL is unversioned, so the moment Google edits the script
-# every image build fails here — including an emergency hotfix — until the hash
-# is updated. That is the point of a pin, but the recovery path must not be
-# discovered mid-incident: read the new script, then set this ARG to its sha256
-# (`curl -fsSL <url> | sha256sum`). Do NOT work around it by dropping the check.
-ARG ANTIGRAVITY_INSTALLER_SHA256=62966c07365423bd4dc209355060744058fb30d60f5323e2d360e39de64e5042
+# Antigravity native linux-x64 release. The vendor manifest authorizes updates
+# only in bump-shadow-pins.yml; image builds consume this committed identity,
+# never the mutable manifest or installer. Verify before reading archive members.
+ARG ANTIGRAVITY_VERSION=1.5.5
+ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.5-6740358537805824/linux-x64/cli_linux_x64.tar.gz
+ARG ANTIGRAVITY_SHA512=746a2bd73f83b65d9b44f2fc55d0f0f511ff7f89702846213eeabd76d06bc9c98576b424c2babc7b947f15e518447b946ba02dca260b778363c55c07a7f7a277
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
-      curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/agy-install.sh && \
-      echo "${ANTIGRAVITY_INSTALLER_SHA256}  /tmp/agy-install.sh" | sha256sum -c - && \
-      bash /tmp/agy-install.sh && \
-      AGY_BIN=$(command -v agy || find / -name 'agy' -type f -perm -u+x 2>/dev/null | grep -v '/proc/' | head -1) && \
-      [ -n "$AGY_BIN" ] || { echo "ERROR: agy binary not found after antigravity install" >&2; exit 1; } && \
-      if [ "$AGY_BIN" != "/usr/local/bin/agy" ]; then ln -sf "$AGY_BIN" /usr/local/bin/agy; fi && \
-      agy --version; \
+      curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 300 --max-filesize 268435456 "$ANTIGRAVITY_URL" -o /tmp/agy.tar.gz && \
+      printf '%s  %s\n' "$ANTIGRAVITY_SHA512" /tmp/agy.tar.gz | sha512sum -c - && \
+      python3 -c 'import shutil, sys, tarfile; archive = tarfile.open("/tmp/agy.tar.gz", "r:gz"); members = archive.getmembers(); (len(members) == 1 and members[0].name == "antigravity" and members[0].isfile() and 0 < members[0].size <= 268435456) or sys.exit("unexpected Antigravity archive members"); source = archive.extractfile(members[0]); target = open("/tmp/agy", "wb"); shutil.copyfileobj(source, target); target.close(); archive.close()' && \
+      install -m 0755 /tmp/agy /usr/local/bin/agy && \
+      /usr/local/bin/agy --version; \
     else \
       echo "Antigravity omitted by CODEFLARE_CODING_AGENTS"; \
     fi && \
-    rm -rf /tmp/*
+    rm -f /tmp/agy.tar.gz /tmp/agy
 
 # Preinstall Pi extension npm dependencies into an image-local seed cache.
 # ~/.pi/agent/npm/node_modules is excluded from R2 sync, so without this Pi
@@ -741,8 +744,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # ---------------------------------------------------------------------------
 # Upstream 0.9.72+ auto-refresh must not replace signed managed skills.
 ENV GRAPHIFY_NO_AUTO_REFRESH=1
-ARG UV_VERSION=0.13.6
-ARG UV_X86_64_LINUX_SHA256=f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645
+ARG UV_VERSION=0.13.7
+ARG UV_X86_64_LINUX_SHA256=c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
@@ -774,10 +777,17 @@ echo "[Dockerfile] installing graphifyy==$VER with [mcp,sql,pdf] extras"
 # directory" (and, before that, "x86_64-linux-gnu-gcc: No such file or directory").
 apt-get update
 apt-get install -y --no-install-recommends gcc g++ python3-dev
-uv tool install "graphifyy[mcp,sql,pdf]==$VER"
+# CVE-2026-126190: patched Soup Sieve requires a newer 3.11 patch than Bookworm.
+# Keep this interpreter isolated to Graphify; leave the system Python unchanged.
+uv tool install --python 3.11.18 --with "soupsieve==4.1" "graphifyy[mcp,sql,pdf]==$VER"
+# Update pip in this image-owned interpreter, not Bookworm's protected Python.
+GRAPHIFY_PYTHON=$(uv python find --managed-python 3.11.18)
+uv pip install --break-system-packages --python "$GRAPHIFY_PYTHON" "pip==26.3"
 apt-get purge -y gcc g++ python3-dev
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
+# Drop installation cache in this layer, preserving the installed tool environment.
+uv cache clean
 
 # Expose the graphify CLI on the system PATH so non-interactive bash
 # subshells (hook scripts, memory-capture sonnet, vault-extract sonnet,
@@ -793,8 +803,9 @@ ln -sf /root/.local/share/uv/tools/graphifyy/bin/graphify /usr/local/bin/graphif
 # A regression in either (e.g. missing tree-sitter wheel, broken entry-point)
 # surfaces at build time rather than at first user invocation.
 graphify --version
-uv tool run --from graphifyy python3 -c "import graphify.serve" \
-  || (echo "[Dockerfile] FATAL: graphify.serve import failed" >&2 && exit 1)
+"$GRAPHIFY_PYTHON" -c "from importlib.metadata import version; assert version('pip') == '26.3', 'Managed Python pip security pin differs'"
+uv tool run --from graphifyy python3 -c "import graphify.serve; from importlib.metadata import version; assert version('soupsieve') == '4.1', 'Graphify Soup Sieve security pin differs'" \
+  || (echo "[Dockerfile] FATAL: Graphify MCP import or security pin verification failed" >&2 && exit 1)
 
 rm -f /tmp/graphify-plugin.json
 
@@ -964,10 +975,8 @@ COPY --from=openvscode-agent-sidebar-builder /out/welcome /opt/code-server/lib/v
 RUN test -f /opt/code-server/lib/vscode/extensions/codeflare-welcome/dist/welcome-extension.cjs && \
     chmod -R a-w /opt/code-server/lib/vscode/extensions/codeflare-welcome
 
-# Fixed immutable inventories: Codeflare's native Pi participant, Anthropic's
-# exact official Claude extension, and an empty unsupported-agent inventory.
-# The assembled tree is copied once, so the 285 MiB official package is not
-# duplicated through a runtime staging layer.
+# Merge only the source-dependent sidebar, Pi/empty inventories and pin metadata.
+# The Claude payload was installed/shared earlier and is absent from this output.
 COPY --from=openvscode-agent-inventories /out/openvscode /opt/codeflare/openvscode
 
 # Official Claude sessions use an isolated config projection. Managed settings

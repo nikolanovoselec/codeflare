@@ -1,4 +1,8 @@
 import { cleanup, fireEvent, render, waitFor, within } from '@solidjs/testing-library';
+import { Route, Router } from '@solidjs/router';
+import AdministrationLayout from '../../components/admin/AdministrationLayout';
+import { EnvironmentAreaDetail } from '../../components/admin/EnvironmentIndex';
+import { ConfigurationRequestError, type ConfigurationPreview } from '../../api/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EnvironmentAreaFields, { environmentValues } from '../../components/admin/EnvironmentAreaFields';
 import { ApiError } from '../../api/fetch-helper';
@@ -9,8 +13,19 @@ import type {
   ReasoningRouteInventory, ReasoningRouteVerification,
 } from '../../types';
 
-const api = vi.hoisted(() => ({ catalog: vi.fn(), inventory: vi.fn(), discover: vi.fn(), nativeDiscover: vi.fn(), native: vi.fn() }));
-vi.mock('../../api/client', () => ({
+const RequestError = vi.hoisted(() => class ConfigurationRequestError extends Error {
+  constructor(public status: number, public body: Record<string, unknown>) {
+    super(typeof body.error === 'string' ? body.error : 'Environment request failed');
+  }
+});
+const api = vi.hoisted(() => ({ catalog: vi.fn(), inventory: vi.fn(), discover: vi.fn(), nativeDiscover: vi.fn(), native: vi.fn(), configuration: vi.fn(), preview: vi.fn(), start: vi.fn(), run: vi.fn() }));
+vi.mock('../../api/client', async original => ({
+  ...await original<typeof import('../../api/client')>(),
+  getAdminConfiguration: (...args: unknown[]) => api.configuration(...args),
+  previewConfiguration: (...args: unknown[]) => api.preview(...args),
+  startConfigurationRun: (...args: unknown[]) => api.start(...args),
+  getConfigurationRun: (...args: unknown[]) => api.run(...args),
+  ConfigurationRequestError: RequestError,
   getReasoningCatalog: (...args: unknown[]) => api.catalog(...args),
   getReasoningRouteInventory: (...args: unknown[]) => api.inventory(...args),
   discoverReasoningCompatibility: (...args: unknown[]) => api.discover(...args),
@@ -172,10 +187,39 @@ async function expectDevelopmentInactive(view: View) {
   expect(within(view.getByRole('group', { name: 'developers allowed routes' })).queryByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeNull();
 }
 
+const reviewNativeTarget = {
+  id: '11111111-1111-4111-8111-111111111111', label: 'Saved draft', provider: 'aws-bedrock',
+  model: 'eu.anthropic.claude-sonnet-5', transport: 'aig-legacy-compat', contextWindow: 200000,
+  profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false,
+};
+const nativeOnlyCurrent = (nativeTargets = [reviewNativeTarget]) => ({
+  ...current, gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/',
+  gatewayId: 'codeflare-enterprise', dynamicRoutes: [], defaultRoute: null, groupRouting: [],
+  reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} }, nativeTargets,
+});
+// Same public Router/AdministrationLayout harness as EnvironmentIndex.test.tsx.
+const mountPublicReview = (routing = nativeOnlyCurrent()) => {
+  window.history.replaceState({}, '', '/admin/environment/aiRouting');
+  api.configuration.mockResolvedValue({ mode: 'enterprise', revision: 7, applicableSections: ['aiRouting'],
+    sections: { aiRouting: routing, domain: {} }, activeRunId: null, latest: {} });
+  return render(() => <Router><Route path="/admin" component={AdministrationLayout}>
+    <Route path="/environment/:section" component={EnvironmentAreaDetail} />
+  </Route></Router>);
+};
+const nativePreview = (values: Record<string, unknown>): ConfigurationPreview => ({
+  section: 'aiRouting', baseRevision: 7, currentRevision: 7,
+  changes: [{ field: 'nativeTargets', after: values.nativeTargets }],
+  tasks: [{ id: 'configure_model_routing', dependsOn: [] }], warnings: [], exclusions: [],
+});
+
 // Register four independently schedulable measured partitions without
 // duplicating the shared component fixtures or changing the assertions.
 export function registerAiRoutingFieldsTests(partition: 1 | 2 | 3 | 4) {
 beforeEach(() => {
+  api.configuration.mockReset();
+  api.preview.mockReset();
+  api.start.mockReset();
+  api.run.mockReset();
   api.catalog.mockReset().mockResolvedValue(catalog);
   api.inventory.mockReset().mockImplementation(async (route: string) => routeInventory(route));
   api.discover.mockReset().mockResolvedValue({ classification: 'Compatible, unverified', warnings: ['custom_provider_backend_requires_revalidation'], accounting: { logicalProbes: 2, httpAttempts: 3 } });
@@ -518,6 +562,47 @@ describe('Structured AI routing', () => {
     expect(within(article).queryByLabelText('Enable Gemini native target')).toBeNull();
   });
 
+  it.each(['automated', 'administrator'] as const)('REQ-ENTERPRISE-056 AC4: context bounds control %s readiness and policy eligibility without replacing proof', async method => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const handle = `cf-native-${id}`;
+    const ref = { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') };
+    const view = mount({ ...checkedCurrent(),
+      groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      fallbackRouting: { enabled: true, routes: [handle], defaultRoute: handle, reasoning: 'off' },
+      nativeTargets: [{ id, label: 'Bounded native', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5',
+        contextWindow: 4_000_000, profileRef: ref, enabled: true,
+        verification: { method, checkedAt: '2026-09-09T12:00:00.000Z', current: true } }],
+    });
+    for (const contextWindow of [4_000_000, 4_000_001, 4_000_000]) {
+      const eligible = contextWindow <= 4_000_000;
+      await openNative(view);
+      const article = view.getByRole('article', { name: 'Bounded native native target' });
+      const toggle = within(article).getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' });
+      if (toggle.getAttribute('aria-expanded') !== 'true') await fireEvent.click(toggle);
+      await fireEvent.input(within(article).getByLabelText('Native target 1 context window'), { target: { value: String(contextWindow) } });
+      expect(within(toggle).getByText(eligible ? method === 'administrator' ? 'Administrator-confirmed' : 'Verified' : 'Not ready'))
+        .toHaveAttribute('data-state', eligible ? 'passed' : 'unclear');
+      await openGroup(view, 'developers');
+      for (const policy of ['developers', 'Fallback']) {
+        const label = `${policy} Native Route - AWS Bedrock - Bounded native route`;
+        const select = view.getByLabelText(`${policy} default route`) as HTMLSelectElement;
+        if (eligible) {
+          expect(view.getByRole('checkbox', { name: label })).toBeChecked();
+          expect(within(select).getByRole('option', { name: 'Native Route - AWS Bedrock - Bounded native' })).toHaveValue(handle);
+          expect(select).toHaveValue(handle);
+        } else {
+          expect(view.queryByRole('checkbox', { name: label })).toBeNull();
+          expect(Array.from(select.options, option => option.value)).not.toContain(handle);
+        }
+      }
+      const values = formValues(view.container);
+      expect(values.groupRouting[0].routes).toEqual(eligible ? [handle] : []);
+      expect(values.fallbackRouting.routes).toEqual(eligible ? [handle] : []);
+      expect(values.nativeTargets[0]).toMatchObject({ id, contextWindow, profileRef: ref });
+      expect(values.nativeChecks?.[id]).toBeUndefined();
+    }
+  });
+
   it('REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control', async () => {
     const readyId = '11111111-1111-4111-8111-111111111111';
     const view = mount({ ...checkedCurrent(), nativeTargets: [
@@ -701,6 +786,7 @@ describe('Structured AI routing', () => {
     ]));
   });
 
+  // Historical titles below cover only the field component's readiness callback, not public Review gating.
   it('REQ-ENTERPRISE-066: enables Save for a complete disabled native draft without access policies', async () => {
     const view = mount({ ...current, gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/', gatewayId: 'codeflare-enterprise', dynamicRoutes: [], defaultRoute: null, groupRouting: [], reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} } });
     await addNativeTarget(view);
@@ -728,6 +814,142 @@ describe('Structured AI routing', () => {
     await openNative(view);
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Unavailable profile draft' } });
     expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('REQ-ENTERPRISE-066: preserves an exact unchanged disabled missing-profile target alongside a complete edit without granting evidence', async () => {
+    const retained = { ...reviewNativeTarget, label: 'Retained missing profile',
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1',
+      profileRef: { id: 'missing-native-profile', revision: 3, hash: hash('9') } };
+    const edited = { ...reviewNativeTarget, id: '33333333-3333-4333-8333-333333333333' };
+    const view = mount({ ...nativeOnlyCurrent([retained, edited]),
+      groupRouting: [{ accessGroup: 'developers', routes: [], defaultRoute: '', reasoning: 'off' }],
+    });
+    await openNative(view);
+    await fireEvent.click(within(view.getByRole('article', { name: 'Saved draft native target' })).getByRole('button', { name: `Configure Native Route - AWS Bedrock - ${edited.model}` }));
+    await fireEvent.input(view.getByLabelText('Native target 2 label'), { target: { value: 'Complete edit' } });
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
+    expect(formValues(view.container).nativeTargets).toEqual([retained, { ...edited, label: 'Complete edit' }]);
+    expect(formValues(view.container).nativeChecks).toEqual({});
+    await openGroup(view, 'developers');
+    expect(view.queryByRole('checkbox', { name: /developers Native Route/ })).toBeNull();
+    await section(view, 'Native routes');
+    await fireEvent.click(within(view.getByRole('article', { name: 'Retained missing profile native target' })).getByRole('button', { name: `Configure Native Route - AWS Bedrock - ${retained.model}` }));
+    const article = view.getByRole('article', { name: 'Retained missing profile native target' });
+    for (const summary of article.querySelectorAll('details > summary')) {
+      if (summary.textContent?.startsWith('Advanced') && !(summary.parentElement as HTMLDetailsElement).open) await fireEvent.click(summary);
+    }
+    expect(within(article).getByText('Not ready')).toBeVisible();
+    expect(within(article).queryByRole('button', { name: 'Verify Profile' })).toBeNull();
+    expect(within(article).queryByRole('button', { name: 'Mark as verified' })).toBeNull();
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Edited missing profile' } });
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(false));
+    expect(formValues(view.container).nativeTargets[0]).toEqual({ ...retained, label: 'Edited missing profile' });
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: retained.label } });
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
+    expect(formValues(view.container).nativeTargets[0]).toEqual(retained);
+    expect(formValues(view.container).nativeChecks).toEqual({});
+  });
+
+  // These response fixtures exercise the public handler contract, not the server validator.
+  it.each([
+    ['model', 'arn:aws:bedrock:eu-central-1:123:model/claude', 'Native model identifier is invalid'],
+    ['context window', '4000001', 'Native context window is invalid'],
+    ['label', 'Edited missing profile', 'Unknown reasoning profile revision'],
+  ])('REQ-ENTERPRISE-066: rejected authoritative Review for %s leaves the draft editable without confirmation or Apply', async (field, value, reason) => {
+    const target = field === 'label' ? { ...reviewNativeTarget,
+      profileRef: { id: 'missing-native-profile', revision: 1, hash: hash('9') } } : reviewNativeTarget;
+    const requests: unknown[] = [];
+    let rejectReview!: (reason: unknown) => void;
+    api.preview.mockImplementation((section, revision, values) => {
+      requests.push({ operation: 'Review', section, revision, values });
+      return new Promise((_resolve, reject) => { rejectReview = reject; });
+    });
+    api.start.mockImplementation((...args) => { requests.push({ operation: 'Apply', args }); });
+    const view = mountPublicReview(nativeOnlyCurrent([target]));
+    await view.findByText('Connected · 3 routes readable');
+    await fireEvent.click(within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' })).getByRole('button', { name: 'Native routes' }));
+    await fireEvent.click(view.getByRole('button', { name: `Configure Native Route - AWS Bedrock - ${target.model}` }));
+    await fireEvent.input(view.getByLabelText(`Native target 1 ${field}`), { target: { value } });
+    const expectedTarget = { ...target, [field === 'context window' ? 'contextWindow' : field]: field === 'context window' ? Number(value) : value };
+    const values = formValues(view.container);
+    expect(values.nativeTargets).toEqual([expectedTarget]);
+    const action = view.getByRole('button', { name: 'Review changes' });
+    expect(action).toBeEnabled();
+    expect(view.queryByRole('button', { name: 'Confirm Save' })).toBeNull();
+    await fireEvent.click(action);
+    expect(view.getByRole('button', { name: 'Reviewing…' })).toBeDisabled();
+    expect(view.queryByRole('button', { name: 'Confirm Save' })).toBeNull();
+    expect(requests).toEqual([{ operation: 'Review', section: 'aiRouting', revision: 7, values }]);
+    rejectReview(new ConfigurationRequestError(400, { error: 'Environment values are invalid',
+      fields: { reasoningConfiguration: [reason, '', reason], ignored: ['   ', 42] } }));
+    expect(await view.findByRole('alert')).toHaveTextContent(reason);
+    expect(view.getByRole('alert').textContent).toBe(reason);
+    expect(view.queryByRole('heading', { name: 'Confirm Save' })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Confirm Save' })).toBeNull();
+    expect(view.getByRole('button', { name: 'Review changes' })).toBeEnabled();
+    expect(view.getByLabelText(`Native target 1 ${field}`)).toHaveValue(value);
+    expect(formValues(view.container)).toEqual(values);
+    expect(requests).toEqual([{ operation: 'Review', section: 'aiRouting', revision: 7, values }]);
+  });
+
+  it('REQ-ENTERPRISE-066: successful Review precedes explicit Confirm Save and applies the exact retained disabled draft', async () => {
+    const retained = { ...reviewNativeTarget, transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1',
+      profileRef: { id: 'missing-native-profile', revision: 3, hash: hash('9') } };
+    const requests: unknown[] = [];
+    let completeReview!: (value: ConfigurationPreview) => void;
+    api.preview.mockImplementation((section, revision, values) => {
+      requests.push({ operation: 'Review', section, revision, values });
+      return new Promise((resolve) => { completeReview = resolve; });
+    });
+    api.start.mockImplementation(async (section, revision, values, warnings) => {
+      requests.push({ operation: 'Apply', section, revision, values, warnings });
+      return new Response(`${JSON.stringify({ type: 'snapshot', run: {
+        runId: 'saved-native-draft', section: 'aiRouting', state: 'succeeded', tasks: [], resultingRevision: 8,
+      } })}\n`);
+    });
+    const view = mountPublicReview(nativeOnlyCurrent([retained]));
+    await view.findByText('Connected · 3 routes readable');
+    await fireEvent.click(within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' })).getByRole('button', { name: 'Connection' }));
+    await fireEvent.input(view.getByLabelText('Replacement API token'), { target: { value: 'replacement-token' } });
+    const values = formValues(view.container);
+    expect(values.nativeTargets).toEqual([retained]);
+    expect(values).not.toHaveProperty('nativeChecks');
+    expect(view.queryByRole('button', { name: 'Confirm Save' })).toBeNull();
+    await fireEvent.click(view.getByRole('button', { name: 'Review changes' }));
+    expect(view.getByRole('button', { name: 'Reviewing…' })).toBeDisabled();
+    expect(view.queryByRole('button', { name: 'Confirm Save' })).toBeNull();
+    const reviewRequest = { operation: 'Review', section: 'aiRouting', revision: 7, values };
+    expect(requests).toEqual([reviewRequest]);
+    completeReview(nativePreview(values));
+    expect(await view.findByRole('heading', { name: 'Confirm Save' })).toBeVisible();
+    expect(view.getByRole('button', { name: 'Confirm Save' })).toBeEnabled();
+    expect(requests).toEqual([reviewRequest]);
+    await fireEvent.click(view.getByRole('button', { name: 'Confirm Save' }));
+    expect(await view.findByRole('heading', { name: 'Execution succeeded' })).toBeVisible();
+    expect(requests).toEqual([reviewRequest, { operation: 'Apply', section: 'aiRouting', revision: 7, values, warnings: [] }]);
+  });
+
+  it.each([
+    [new ConfigurationRequestError(503, { error: 'Review service unavailable', fields: { settings: ['', '   ', 42] } }), 'Review service unavailable'],
+    [new Error('Review transport failed'), 'Review transport failed'],
+    [null, 'Environment values are invalid.'],
+  ])('REQ-ENTERPRISE-066: public Review failure displays the qualified fallback outcome %#', async (failure, message) => {
+    api.preview.mockRejectedValueOnce(failure);
+    const view = mountPublicReview();
+    await view.findByText('Connected · 3 routes readable');
+    await fireEvent.click(within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' })).getByRole('button', { name: 'Connection' }));
+    await fireEvent.input(view.getByLabelText('Replacement API token'), { target: { value: 'replacement-token' } });
+    const values = formValues(view.container);
+    await fireEvent.click(view.getByRole('button', { name: 'Review changes' }));
+    const feedback = within(view.getByRole('main'));
+    // Connection readiness also has an alert; Review feedback need not be unique.
+    await waitFor(() => expect(feedback.getAllByRole('alert').map(alert => alert.textContent)).toContain(message));
+    expect(view.queryByRole('heading', { name: 'Confirm Save' })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Confirm Save' })).toBeNull();
+    expect(view.getByRole('button', { name: 'Review changes' })).toBeEnabled();
+    expect(view.getByLabelText('Replacement API token')).toHaveValue('replacement-token');
+    expect(formValues(view.container)).toEqual(values);
+    expect(api.start).not.toHaveBeenCalled();
   });
 
   it('REQ-ENTERPRISE-069: enables Review for a verified Dynamic Route profile without an access policy', async () => {

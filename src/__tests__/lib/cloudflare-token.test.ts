@@ -13,6 +13,7 @@ import {
   setCloudflareAccount,
   disconnectCloudflare,
 } from '../../lib/cloudflare-token';
+import { encryptAndStore, getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../../lib/constants';
 
@@ -265,7 +266,7 @@ describe('applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, rea
   });
 });
 
-// ─── Provider selection (Setup→KV, non-enterprise only) ──────────────────────
+// ─── Provider selection (Setup→KV, all modes) ──────────────────────
 
 describe('getCloudflareProvider', () => {
   it('returns null when unconfigured', async () => {
@@ -285,8 +286,19 @@ describe('getCloudflareProvider', () => {
     expect(await getCloudflareProvider(env())).toBeNull();
   });
 
-  it('returns null in enterprise mode even when the KV client is configured', async () => {
+  it.each([
+    {}, { ONBOARDING_LANDING_PAGE: 'active' }, { SAAS_MODE: 'active' }, { ENTERPRISE_MODE: 'active' },
+  ])('resolves the configured OAuth client in every deployment mode: %j', async overrides => {
     configureClient();
+    const provider = await getCloudflareProvider(env(overrides));
+    expect(provider?.source).toBe('oauth');
+    const url = new URL(provider!.authorizeUrl({ state: 'owner-state', redirectUri: 'https://app/cb', scope: 'offline_access' }));
+    expect(url.searchParams.get('client_id')).toBe('cf-cid');
+    expect(url.searchParams.get('state')).toBe('owner-state');
+  });
+
+  it('does not treat an Enterprise admin Browser Run token as an OAuth client', async () => {
+    mockKV._set(SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: 'admin-browser-token' });
     expect(await getCloudflareProvider(env({ ENTERPRISE_MODE: 'active' }))).toBeNull();
   });
 });
@@ -472,5 +484,74 @@ describe('disconnectCloudflare', () => {
     const body = form((mockFetch.mock.calls[0][1] as RequestInit).body);
     expect(body.get('token')).toBe('cfr_a'); // the refresh token, not the access token
     expect(await mockKV.get(KEY)).toBeNull();
+  });
+});
+
+// REQ-AGENT-064/235: the existing encrypted owner store remains the grant boundary.
+describe('Enterprise encrypted Cloudflare owner grants', () => {
+  it('connects, refreshes, selects and revokes only the owner grant without touching Browser Run or legacy credentials', async () => {
+    const enterprise = env({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: Buffer.alloc(32, 9).toString('base64') });
+    const key = await getOrImportKey(enterprise);
+    await mockKV.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'cf-cid');
+    await encryptAndStore(enterprise.KV, SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, { secret: 'enterprise-client-secret' }, key);
+    await encryptAndStore(enterprise.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: 'admin-browser-token' }, key);
+    await encryptAndStore(enterprise.KV, KEY, { githubToken: 'retained-github' }, key);
+    await encryptAndStore(enterprise.KV, 'deploy-keys:foreign', { cloudflareApiToken: 'foreign-pat', cloudflareTokenSource: 'pat' }, key);
+    const foreign = await mockKV.get('deploy-keys:foreign');
+    const browser = await mockKV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN);
+    mockFetch
+      .mockResolvedValueOnce(ok({ access_token: 'owner-access', refresh_token: 'owner-refresh', expires_in: 60 }))
+      .mockResolvedValueOnce(ok({ success: true, result: [{ id: 'owner-account', name: 'Owner' }] }));
+    expect(await connectCloudflare(enterprise, BUCKET, 'owner-code', 'https://app/cb')).toEqual({
+      accountId: 'owner-account', accounts: [{ id: 'owner-account', name: 'Owner' }],
+    });
+    const exchange = form((mockFetch.mock.calls[0][1] as RequestInit).body);
+    expect(exchange.get('client_secret')).toBe('enterprise-client-secret');
+    expect(exchange.get('grant_type')).toBe('authorization_code');
+    expect(exchange.get('code')).toBe('owner-code');
+    const ciphertext = await mockKV.get(KEY) as string;
+    expect(ciphertext.startsWith('v1:')).toBe(true);
+    expect(ciphertext).not.toContain('owner-access');
+    expect(ciphertext).not.toContain('owner-refresh');
+    expect(await getCloudflareConnectionStatus(enterprise, BUCKET)).toEqual({ connected: true, source: 'oauth', accountId: 'owner-account' });
+    mockFetch.mockResolvedValueOnce(ok({ access_token: 'rotated-access', refresh_token: 'rotated-refresh', expires_in: 3600 }));
+    expect(await getValidCloudflareToken(enterprise, BUCKET)).toBe('rotated-access');
+    const refresh = form((mockFetch.mock.calls[2][1] as RequestInit).body);
+    expect(refresh.get('grant_type')).toBe('refresh_token');
+    expect(refresh.get('refresh_token')).toBe('owner-refresh');
+    expect(refresh.get('client_secret')).toBe('enterprise-client-secret');
+    mockFetch.mockResolvedValue(ok({ success: true, result: [{ id: 'owner-account', name: 'Owner' }] }));
+    expect(await setCloudflareAccount(enterprise, BUCKET, 'foreign-account')).toBe(false);
+    expect(await setCloudflareAccount(enterprise, BUCKET, 'owner-account')).toBe(true);
+    expect(await getAndDecrypt<DeployKeys>(enterprise.KV, KEY, key)).toMatchObject({
+      cloudflareApiToken: 'rotated-access', cloudflareRefreshToken: 'rotated-refresh',
+      cloudflareAccountId: 'owner-account', githubToken: 'retained-github',
+    });
+    mockFetch.mockResolvedValueOnce(ok({}));
+    await disconnectCloudflare(enterprise, BUCKET);
+    const revoke = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/oauth2/revoke'))!;
+    expect(form((revoke[1] as RequestInit).body).get('token')).toBe('rotated-refresh');
+    expect(await getAndDecrypt<DeployKeys>(enterprise.KV, KEY, key)).toEqual({ githubToken: 'retained-github' });
+    expect(await getCloudflareConnectionStatus(enterprise, BUCKET)).toEqual({ connected: false });
+    expect(await mockKV.get('deploy-keys:foreign')).toBe(foreign);
+    expect(await mockKV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN)).toBe(browser);
+    expect(await getValidCloudflareToken(enterprise, 'foreign')).toBe('foreign-pat');
+  });
+
+  it('fails closed on refresh failure and retains the owner grant when revocation fails', async () => {
+    configureClient();
+    const enterprise = env({ ENTERPRISE_MODE: 'active' });
+    mockKV._set(KEY, { cloudflareApiToken: 'expired-owner', cloudflareTokenSource: 'oauth',
+      cloudflareRefreshToken: 'owner-refresh', cloudflareTokenExpiresAt: Date.now() - 1000 });
+    const before = await mockKV.get(KEY);
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: 'invalid_grant' }) });
+    expect(await getValidCloudflareToken(enterprise, BUCKET)).toBeNull();
+    expect(await mockKV.get(KEY)).toBe(before);
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(disconnectCloudflare(enterprise, BUCKET)).rejects.toThrow();
+    expect(await mockKV.get(KEY)).toBe(before);
+    const [url, options] = mockFetch.mock.calls.at(-1)!;
+    expect(String(url)).toBe('https://dash.cloudflare.com/oauth2/revoke');
+    expect(form((options as RequestInit).body).get('token')).toBe('owner-refresh');
   });
 });

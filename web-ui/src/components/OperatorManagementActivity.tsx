@@ -3,6 +3,7 @@ import * as api from '../api/operator-management';
 import { getSessions } from '../api/client';
 import type { Session } from '../types';
 import { SESSION_ID_RE } from '../lib/constants';
+import { formatOperatorTimestamp } from '../lib/operator-time';
 import { piAuthFailureTitle, piLoginRecoveryCopy, type OperatorActivitySummary, type OperatorActivityDetail } from '../api/operator-activities';
 import { ApiError } from '../api/fetch-helper';
 import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
@@ -109,7 +110,9 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     setSelected(id); setDetail(undefined); setDetailLoading(true); setError('');
     try { const value = await api.getOwnedActivity(id); if (active && sequence === detailSequence) {
       setDetail(value);
-      if (unresolvedStartId() === id) { setUnresolvedStartId(''); setUncertain(false); }
+      if (unresolvedStartId() === id && value.activityId === id && value.executionStatus !== 'unknown') {
+        setUnresolvedStartId(''); setUncertain(false);
+      }
     } }
     catch (cause) { if (active && sequence === detailSequence) setError(message(cause)); }
     finally { if (active && sequence === detailSequence) setDetailLoading(false); }
@@ -195,7 +198,7 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
       <Show when={!loading() && !error()}><Show when={items().length} fallback={<p>No owned activity.</p>}>
         <ul class="operator-list"><For each={items()}>{item => <li><strong>{item.operatorId}</strong><p>{item.activityId}</p>
           <p>Execution: {item.executionStatus} · Cleanup: {item.cleanupStatus} · Collection: {item.collectionStatus}</p>
-          <p>Updated {new Date(item.updatedAt).toLocaleString()}{Date.now() - new Date(item.updatedAt).getTime() > 120000 ? ' · Stale observation — refresh before acting' : ''}</p>
+          <p>Updated {formatOperatorTimestamp(item.updatedAt)}{Date.now() - new Date(item.updatedAt).getTime() > 120000 ? ' · Stale observation — refresh before acting' : ''}</p>
           <Show when={item.authFailure}>{failure => <p>{piAuthFailureTitle(failure())}</p>}</Show>
           <Show when={item.attention && !item.authFailure}><p>Needs attention</p></Show>
           <div class="operator-actions"><button class="admin-secondary-button" disabled={busy()} onClick={() => void read(item.activityId)}>View {item.activityId}</button>

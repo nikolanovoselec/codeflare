@@ -33,25 +33,25 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. "Connect GitHub" starts the selected provider's authorize web flow (link mode) and, on callback, exchanges the code for a token persisted to the **existing** deploy-keys entry with a token-source marker; no new KV key is introduced. <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (github-token storage & status) -->
+1. "Connect GitHub" starts the selected provider's authorize web flow (link mode) and, on callback, exchanges the code for a token persisted to the **existing** deploy-keys entry with a token-source marker; no new KV key is introduced. <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @test: src/__tests__/routes/github.test.ts (redirects to the provider authorize URL with a signed state + connect callback) --> <!-- @test: src/__tests__/routes/github-auth.test.ts (connects when the state is bound to the session bucket) --> <!-- @test: src/__tests__/lib/github-token.test.ts (App exchange stores token + refresh + expiry + login) --> <!-- @test: src/__tests__/lib/github-token.test.ts (OAuth exchange stores a long-lived token with no refresh/expiry) -->
 2. Token storage uses configured at-rest encryption or the accepted [AD32](../../documentation/decisions/README.md#ad32-encryption_key-is-optional) plaintext JSON fallback. <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/lib/github-token.test.ts (encrypts the token at rest when ENCRYPTION_KEY is set, and round-trips on read) -->
 3. The stored token is never returned to the browser. <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @test: src/__tests__/lib/github-token.test.ts (github-token storage & status) -->
 4. GitHub App tokens carry an expiry and refresh token; resolving a token returns a currently-valid one, refreshing within the skew window and **failing closed** (returning none) when an expired App token cannot be refreshed — never a stale token. <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/lib/github-token.test.ts (getValidGithubToken) -->
-5. Every mode resolves provider config from encrypted Setup KV before deploy env; GitHub App outranks OAuth App. Missing providers or undecryptable secrets fail closed as unavailable. <!-- @impl: src/lib/github-token.ts::getGithubProvider --> <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/lib/github-token.test.ts (getGithubProvider) -->
+5. Every mode checks Setup KV first, honoring its selected App or OAuth provider. Unavailable/incomplete Setup permits deploy-env fallback, where GitHub App outranks OAuth App. Without a usable provider from either source, the integration is unavailable. <!-- @impl: src/lib/github-token.ts::getGithubProvider --> <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/lib/github-token.test.ts (getGithubProvider) -->
 6. A manually-pasted fine-grained PAT (existing deploy-keys flow) coexists, marked source `'pat'`, and is never sent to the App/OAuth refresh or revoke endpoints. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/lib/github-token.test.ts (getValidGithubToken) -->
 
 **Constraints:**
 
 - Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
 - Enterprise GitHub Apps must be **internal** to the customer's enterprise — EMU managed users cannot authorize third-party apps.
-- Every per-user surface uses OAuth without manual token paste ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)); enterprise hides the per-user accordion and uses the panel plus admin-global Cloudflare token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
+- GitHub connection controls use OAuth without manual token paste on the dashboard ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)); Settings → Integrations manages owner Cloudflare connections independently of administrator Browser Run credentials ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 - The deploy-keys PAT backend remains unchanged.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)
 
-**Verification:** Automated test ([Unit test](../../src/__tests__/lib/github-token.test.ts))
+**Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [github.test.ts](../../src/__tests__/routes/github.test.ts), [github-auth.test.ts](../../src/__tests__/routes/github-auth.test.ts)
 
 **Status:** Implemented
 
@@ -65,10 +65,10 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. `GET /api/github/status` reports connection state (connected, login, source) without exposing the token. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) -->
-2. `GET /api/github/repos` returns the repos the user can access (personal + org via `read:org`), searchable and paginated, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
+1. Connection-status inspection reports connection state, connected account login and credential source without exposing the token. <!-- @impl: src/routes/github.ts::app --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: reports connected with login + source when a token exists) -->
+2. Repository listing returns searchable, paginated repositories the user can access, including personal and permitted organization repositories, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token) -->
 3. The panel renders beside the storage panel; its backend feature gate is on in every mode, and the dashboard renders the panel face whenever GitHub is enabled — with no session-tier entitlement ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (renders nothing when status.enabled is false) -->
-4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. The controls reuse one tested icon-button primitive. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. Controls must follow the [shared primitive contract](../../documentation/lanes/terminal-and-ide.md#github-and-storage-workspace). <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
 5. On narrow/mobile layouts, the panel shows one flippable GitHub or storage face at a time. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-002 AC5: flips one GitHub/storage face at a time on mobile) -->
 6. The owner/login label and each repo name link to GitHub in a new tab; repo-name clicks do not trigger clone. <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (repo name links to the repo on GitHub in a new tab) --> <!-- @manual -->
 
@@ -81,7 +81,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** Automated component test for mobile one-face flipping.
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx); Manual: [GitHub links acceptance](../../documentation/lanes/terminal-and-ide.md#github-links-acceptance)
 
 **Status:** Implemented
 
@@ -98,8 +98,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. `github.com`, `api.github.com`, and Copilot's remote GitHub MCP host `api.githubcopilot.com` are registered for outbound HTTPS interception and handled by a GitHub interceptor; AI hosts continue to route to the LLM interceptor. <!-- @impl: src/container/container-interception.ts::github --> <!-- @impl: src/github-interceptor.ts::interceptedGithubHosts --> <!-- @test: src/__tests__/container/enterprise-llm.test.ts (REQ-GITHUB-003: wires the GitHubInterceptor for the github hosts with the per-session user + bucket props) -->
 2. Each mediated git/REST/MCP request decrypts the bound user's token, strips supplied auth, then stamps git Basic, REST bearer plus API version, or Copilot MCP bearer without API version so remote MCP authenticates. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: Copilot remote GitHub MCP credential injection) -->
 3. When no valid mediated GitHub token exists, git/REST/MCP fails closed with a clear error and performs no upstream request. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-GITHUB-003: fail closed) -->
-4. The container holds only a non-secret placeholder `GH_TOKEN` identical for all users; user-scoping comes solely from the per-session interceptor binding, never from the request — a session can only ever inject its own user's token. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)) -->
-5. In non-enterprise modes the token reaches the container via the existing deploy-keys→`GH_TOKEN` path, unchanged (see [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
+4. The container holds only a non-secret GitHub placeholder identical for all users; user-scoping comes solely from the per-session interceptor binding, never the request; a session can inject only its own user's token. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)) -->
+5. In ordinary non-enterprise human sessions the token reaches the container through the unchanged deploy-credential environment transport; restricted operators retain placeholder transport in every mode (see [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
 
 **Constraints:**
 
@@ -112,7 +112,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container), [CON-GH-003](constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding)
 
-**Verification:** Automated test ([Interceptor test](../../src/__tests__/github-interceptor.test.ts) (injection format per host incl. Copilot `api.githubcopilot.com/mcp` Bearer, fail-closed, no cross-user spoofing) + [wiring](../../src/__tests__/container/enterprise-llm.test.ts) (all three GitHub hosts) + [placeholder env](../../src/__tests__/container/container-env.test.ts))
+**Verification:** Automated: [github-interceptor.test.ts](../../src/__tests__/github-interceptor.test.ts), [enterprise-llm.test.ts](../../src/__tests__/container/enterprise-llm.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 
@@ -126,21 +126,22 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. Clone offers running sessions first and a separated new-session option; all rows share the option layout and left edge, while running rows use their session agent icon and subtitle. <!-- @impl: web-ui/src/components/github/ClonePickerOptionRow.tsx::ClonePickerOptionRow --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders the running group before the new-session group through shared option rows) -->
+1. Clone offers running sessions first and a separated new-session option; all rows share the option layout and left edge, while running rows use their session agent icon and subtitle. <!-- @impl: web-ui/src/components/github/ClonePickerOptionRow.tsx::ClonePickerOptionRow --> <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @impl: web-ui/src/components/github/ClonePickerSessionRow.tsx::ClonePickerSessionRow --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (renders the running group before the new-session group through shared option rows) -->
 2. New session → the repo is cloned before the agent process starts (from the `clone` field on session create); running session → cloned via an authenticated internal RPC into the live container. <!-- @test: src/__tests__/routes/github.test.ts (forwards to the container /internal/git-clone and relays a 200) --> <!-- @manual -->
-3. The validated repository basename is preserved verbatim in `$USER_WORKSPACE/<repo-name-verbatim>`; the resolved target must remain a direct child of the normalized workspace, and the clone is refused with a clear message if that folder already exists. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004: resolveGitClone validation + dir computation) -->
-4. The clone targets the chosen branch (default branch preselected); authentication uses the per-mode credential path (egress injection in enterprise, `GH_TOKEN` otherwise). <!-- @impl: host/src/git-clone.ts::buildCloneArgs --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+3. The validated repository basename is preserved verbatim as a direct child of the normalized user workspace; cloning refuses an existing target with a clear message. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-004: resolveGitClone validation + dir computation) -->
+4. The panel displays the repository's default branch; both live-session and new-session actions omit a ref and clone that default, without a visible branch picker. Authentication retains egress injection in enterprise and ordinary GitHub token environment transport for non-enterprise human sessions, with restricted-operator placeholder isolation unchanged. <!-- @impl: web-ui/src/components/github/ClonePicker.tsx::ClonePicker --> <!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (selecting a running session clones with {repo, sessionId} and NO ref) --> <!-- @impl: host/src/git-clone.ts::buildCloneArgs --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled. <!-- @impl: host/src/git-clone.ts::resolveGitClone --> <!-- @manual -->
 
 **Constraints:**
 
 - The running-session clone is authenticated by the existing `CONTAINER_AUTH_TOKEN` Worker→DO mechanism.
+- Backend clone transport accepts a supplied ref separately; that capability is not a branch-selection control in the panel.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated test
+**Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [ClonePicker.test.tsx](../../web-ui/src/__tests__/components/ClonePicker.test.tsx); Manual: [GitHub clone acceptance](../../documentation/lanes/architecture.md#github-clone-acceptance)
 
 **Status:** Implemented
 
@@ -168,7 +169,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated container configuration and entrypoint tests
+**Verification:** Automated: [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [git-clone.test.js](../../host/__tests__/git-clone.test.js)
 
 **Status:** Implemented
 
@@ -187,8 +188,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 3. Tracking rejects malformed repository or branch identities. <!-- @impl: src/lib/clone-targets.ts::normalizeTrackedClones --> <!-- @test: src/__tests__/lib/clone-targets.test.ts (REQ-GITHUB-015 AC2: normalizeTrackedClones) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-GITHUB-015 AC2: refuses malformed reported repositories and leaves tracking untouched) -->
 4. Tracking retains at most 20 repositories. <!-- @impl: src/lib/clone-targets.ts::normalizeTrackedClones --> <!-- @test: src/__tests__/lib/clone-targets.test.ts (REQ-GITHUB-015 AC4: retains at most 20 repositories) -->
 5. The tracked inventory has a stable order independent of report order. <!-- @impl: src/lib/clone-targets.ts::normalizeTrackedClones --> <!-- @test: src/__tests__/lib/clone-targets.test.ts (REQ-GITHUB-015 AC2: orders entries stably regardless of report order) -->
-6. A successful repository-panel clone is persisted on the session before success is returned. <!-- @impl: src/routes/github.ts::app.post('/clone', cloneRateLimiter, ...) --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds) -->
-7. A repository-panel clone persisted immediately before a stop is included in the next resume directive. <!-- @impl: src/routes/github.ts::app.post('/clone', cloneRateLimiter, ...) --> <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds) -->
+6. A successful repository-panel clone is persisted on the session before success is returned. <!-- @impl: src/routes/github.ts::app.post('/clone', --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds) -->
+7. A repository-panel clone persisted immediately before a stop is included in the next resume directive. <!-- @impl: src/routes/github.ts::app.post('/clone', --> <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-015 AC3: tracks the repository on the session as soon as the clone succeeds) -->
 
 **Constraints:**
 
@@ -199,7 +200,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/lib/clone-targets.test.ts))
+**Verification:** Automated: [workspace-repos.test.js](../../host/__tests__/workspace-repos.test.js), [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [clone-targets.test.ts](../../src/__tests__/lib/clone-targets.test.ts), [github.test.ts](../../src/__tests__/routes/github.test.ts)
 
 **Status:** Implemented
 
@@ -215,8 +216,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 1. Resume attempts each tracked repository whose workspace folder is absent. <!-- @impl: src/lib/clone-targets.ts::buildCloneTargets --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-GITHUB-015 AC4: restores every tracked repository when a stopped session resumes) --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-GITHUB-015 AC4: forwards every tracked repository with the session repository first) -->
 2. Resume leaves an existing workspace folder untouched. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC4: restores every tracked repository in order and leaves an existing folder alone) -->
-3. No restore attempt starts after the overall budget of 180 seconds is spent. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: stops attempting repositories once the overall budget is spent) -->
-4. Each started restore attempt is capped at 120 seconds. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: abandons a repository that exceeds its own time limit and still tries the next) -->
+3. No restore attempt starts after the overall budget (180 seconds by default, configurable with `GIT_CLONE_TOTAL_BUDGET_SECONDS`) is spent; the budget is checked before attempts, not a hard deadline on an already-running attempt. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: stops attempting repositories once the overall budget is spent) -->
+4. Each started restore attempt uses a default per-repository timeout of 120 seconds, overridden by `GIT_CLONE_PER_REPO_TIMEOUT_SECONDS`; `0` disables this timeout and larger values are not clamped. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC5: abandons a repository that exceeds its own time limit and still tries the next) -->
 5. Restore never waits for interactive credentials. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
 6. Every abandoned or failed restore attempt is logged. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
 7. Restore failure does not prevent the session from reaching a usable state. <!-- @impl: entrypoint.sh::run_post_restore_startup --> <!-- @test: host/__tests__/git-clone.test.js (REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart) -->
@@ -231,7 +232,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-004](#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](#req-github-014-clone-created-session-resume), [REQ-GITHUB-015](#req-github-015-workspace-repository-tracking), [REQ-SESSION-006](session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test ([Integration test](../../host/__tests__/git-clone.test.js))
+**Verification:** Automated: [git-clone.test.js](../../host/__tests__/git-clone.test.js), [container-router.test.ts](../../src/__tests__/container/container-router.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts)
 
 **Status:** Implemented
 
@@ -239,7 +240,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ### REQ-GITHUB-005: Disconnect and offboarding revocation
 
-**Intent:** Disconnecting or offboarding removes the local GitHub credential after a best-effort provider revocation.
+**Intent:** Ordinary disconnect removes local GitHub credentials after best-effort provider revocation; explicit user offboarding requires confirmed revocation for App/OAuth credentials before destructive storage cleanup.
 
 **Applies To:** User
 
@@ -249,7 +250,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 2. Disconnect clears local GitHub fields even when provider configuration, network access, or revocation fails. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (REQ-GITHUB-005 AC2: provider failure clears GitHub fields while preserving unrelated deploy keys) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation returns non-success) --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider revocation rejects) -->
 3. Disconnect removes an otherwise empty deploy-keys entry. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (fails open and clears an OAuth token when provider configuration is unavailable) -->
 4. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @test: src/__tests__/lib/github-token.test.ts (does NOT call GitHub revoke for a manually-pasted PAT but still clears it) -->
-5. User offboarding attempts GitHub revocation without blocking local cleanup on failure. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-GITHUB-005: a failed GitHub revocation does not block local offboarding) -->
+5. User offboarding uses strict GitHub App/OAuth revocation: failure retains outstanding provider credentials, storage and scoped access for authorized retry. Ordinary disconnect and manual PAT behavior remain unchanged. <!-- @impl: src/lib/github-token.ts::disconnectGithub --> <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3 / REQ-SEC-003 AC6: provider %s preserves storage authority until revocation and retry converges) -->
 
 **Constraints:**
 
@@ -259,7 +260,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** Automated test ([Unit test](../../src/__tests__/lib/github-token.test.ts) (disconnectGithub) + [offboarding revoke](../../src/__tests__/lib/user-cleanup.test.ts))
+**Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts)
 
 **Status:** Implemented
 
@@ -267,24 +268,24 @@ None.
 
 ### REQ-GITHUB-006: Other-mode container transport
 
-**Intent:** In SaaS / non-enterprise modes the GitHub token reaches the container through the existing deploy-keys→`GH_TOKEN` env path, with no transport change.
+**Intent:** Ordinary SaaS / non-enterprise human sessions retain the existing GitHub deploy-credential environment transport; restricted operator containers retain placeholder isolation regardless of deployment mode.
 
 **Applies To:** System
 
 **Acceptance Criteria:**
 
-1. With a connected token in a non-enterprise session, `GH_TOKEN` is present in the container env exactly as for a manually-pasted PAT today. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)) -->
-2. In enterprise mode the container receives a non-secret placeholder `GH_TOKEN` (no real token); the real token is injected at egress per [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)) -->
+1. A connected token in an ordinary non-enterprise human session is present in the container environment exactly as a manually pasted PAT; restricted operator containers instead receive only the non-secret placeholder in every mode. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode) -->
+2. In enterprise mode the container receives a non-secret GitHub credential placeholder, never the real token; the real token is injected at egress per [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)) -->
 
 **Constraints:**
 
-- For non-enterprise modes this is documented as leakage-hygiene, not agent-containment: the agent can read its own user's token (which the user already has).
+- For ordinary non-enterprise human sessions this is leakage-hygiene, not agent-containment: the agent can read its own user's token (which the user already has). Restricted operators never receive the real token, regardless of Enterprise mode; outbound substitution remains bound to the user, and disconnected sessions receive no `GH_TOKEN`.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials)
 
-**Verification:** Automated test ([Container env test](../../src/__tests__/container/container-env.test.ts) (non-enterprise real `GH_TOKEN` vs enterprise placeholder))
+**Verification:** Automated: [container-env.test.ts](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 
@@ -297,29 +298,51 @@ None.
      session-tier (advanced) entitlement. Originally enterprise-only, then advanced-in-any-mode
      (REQ-GITHUB-007 v1), now enabled-in-any-mode. -->
 
-**Intent:** Make the GitHub repository panel + Storage browser available in every mode whenever GitHub is enabled — GitHub leads as the default right-column face for every session, with **no session-tier gate** — while keeping the OAuth connect/disconnect capability decoupled so a user can also connect GitHub from Guided Setup and the Settings accordion. Connect stays the additive OAuth flow ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)) — never a login-scope escalation, never a manually-pasted PAT. Enterprise is unchanged.
+**Intent:** Make the GitHub repository panel + Storage browser available in every mode whenever GitHub is enabled — GitHub leads as the default right-column face for every session, with **no session-tier gate**. Enterprise is unchanged.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The panel backend is available in every mode; the frontend dashboard renders the GitHub panel face whenever GitHub is enabled with **no session-tier entitlement** — GitHub is the default right-column face on every session, connected or not. <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
-2. Onboarding, default, SaaS, and enterprise dashboards share panel labels and flip behavior; enabled GitHub leads regardless of session mode, while disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
-3. Connect, callback, and disconnect require authentication but not enabled GitHub, allowing Guided Setup and Settings access without the dashboard panel; only status, repos, and clone require enablement. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (is reachable for a non-advanced authed user in non-enterprise (connect is not panel-gated)) -->
-4. Dashboard, Guided Setup, and Settings use the same OAuth connect/disconnect interaction contract while retaining surface-specific visual chrome; the reusable card accepts surface styling without changing navigation or disconnect behavior. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
-5. GitHub uses additive OAuth and existing per-user token transport; enterprise retains egress injection ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
-6. The connect URL carries a scope `tier` (minimal/recommended/advanced); the server maps the tier to the OAuth-App `scope` parameter from a backend scope catalog (the GitHub App path's fixed permissions ignore it). <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (feeds the scope tier into the OAuth-App authorize scope param) -->
+1. The panel backend is available in every mode. <!-- @impl: src/routes/github.ts::githubFeatureEnabled -->
+2. The frontend dashboard renders the GitHub panel face whenever GitHub is enabled with **no session-tier entitlement** — GitHub is the default right-column face on every session, connected or not. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+3. Onboarding, default, SaaS, and enterprise dashboards share panel labels and flip behavior; enabled GitHub leads regardless of session mode, while disabled GitHub leaves Storage alone. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport), [REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow), [REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)
+
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-317: Additive GitHub connection and scope contract
+
+**Intent:** Keep the OAuth connect/disconnect capability decoupled from the dashboard panel so a user can also connect GitHub from Guided Setup and the Settings accordion. Connect stays the additive OAuth flow ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)) — never a login-scope escalation, never a manually-pasted PAT. Enterprise is unchanged.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Connect, callback, and disconnect require authentication but not enabled GitHub, allowing Guided Setup and Settings access without the dashboard panel; only status, repos, and clone require enablement. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/github.test.ts (is reachable for a non-advanced authed user in non-enterprise (connect is not panel-gated)) -->
+2. Dashboard, Guided Setup, and Settings use the same OAuth connect/disconnect interaction contract while retaining surface-specific visual chrome; the reusable card accepts surface styling without changing navigation or disconnect behavior. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthConnectCard --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+3. GitHub uses additive OAuth and existing per-user token transport; enterprise retains egress injection ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). <!-- @impl: src/lib/github-token.ts::connectGithub --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+4. The connect URL carries a scope `tier` (minimal/recommended/advanced); the server maps the tier to the OAuth-App `scope` parameter from a backend scope catalog (the GitHub App path's fixed permissions ignore it). <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @test: src/__tests__/routes/github.test.ts (feeds the scope tier into the OAuth-App authorize scope param) -->
 
 **Constraints:**
 
-- Non-enterprise modes carry the real token in the container env (leakage-hygiene only, not agent-containment), unchanged from [REQ-GITHUB-006](#req-github-006-other-mode-container-transport).
+- Ordinary non-enterprise human sessions carry the real token in the container env (leakage-hygiene only, not agent-containment); restricted operators retain the non-secret placeholder regardless of Enterprise mode, as in [REQ-GITHUB-006](#req-github-006-other-mode-container-transport).
 - The scope catalog lives server-side; the client sends only the tier name (untrusted, normalized to a known tier, default `recommended`).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport), [REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow), [REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)
 
-**Verification:** Automated test ([Route test](../../src/__tests__/routes/github.test.ts) + [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope test](../../src/__tests__/lib/oauth-scopes.test.ts))
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [OAuthConnectCard.test.tsx](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx), [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
 
 **Status:** Implemented
 
@@ -338,21 +361,45 @@ None.
 
 1. The Setup wizard offers a GitHub App or OAuth App chooser, and selecting a provider reveals its Client ID and Client Secret inputs. <!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx::GitHubProviderChooser --> <!-- @test: web-ui/src/__tests__/components/GitHubProviderChooser.test.tsx (GitHubProviderChooser) -->
 2. Each provider's credentials use distinct KV keys, so switching providers preserves the inactive provider's values. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @manual: Configure both provider types, switch between them, and confirm each provider's saved values remain available. -->
-3. On save (admin, any mode) the provider type + client ids are stored plain and each client secret is encrypted at rest via the existing KV crypto; the active provider is resolved from these KV values, decrypting the secret, before any env-var fallback. <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)) -->
-4. A blank secret on save keeps the stored secret (no clobber); a secret submitted while no `ENCRYPTION_KEY` is configured is rejected with a validation error, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
-5. `GET /api/setup/prefill` echoes the provider type, both client ids, and a `…ClientSecretSet` boolean per provider, but never returns a client secret. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill returns provider type + client ids + secret-set flags, never the secrets) -->
-6. Provider config is **admin-gated in every mode** (the existing Setup admin gate), no longer behind the `ENTERPRISE_MODE` gate; the active provider resolves from KV first ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC4), and the prefill echoes the provider type + client ids + `…ClientSecretSet` in non-enterprise too. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)) -->
+3. On save (admin, any mode) the provider type + client ids are stored plain and each client secret is encrypted at rest via the existing KV crypto. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)) -->
+4. Blank secrets preserve stored values. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
+5. In every mode, including non-enterprise, provider prefill returns the provider type, both client IDs and a `…ClientSecretSet` stored-secret-presence Boolean per provider, never a client secret. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill returns provider type + client ids + secret-set flags, never the secrets) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)) -->
+6. Provider config is **admin-gated in every mode** (the existing Setup admin gate), no longer behind the Enterprise-mode gate. <!-- @impl: src/routes/setup/handlers.ts::handlers -->
+7. Saving a secret without a server encryption key is rejected. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @manual -->
 
 **Constraints:**
 
 - Removing a stored secret from the UI is not a v1 affordance (mirrors the browser-rendering token); re-registering with a new secret replaces it.
-- The OAuth-App `scope` is tier-derived per connect ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6); this REQ covers only the provider client credentials, not the per-connect scope.
+- The OAuth-App `scope` is tier-derived per connect ([REQ-GITHUB-317](#req-github-317-additive-github-connection-and-scope-contract) AC4); this REQ covers only the provider client credentials, not the per-connect scope.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser)
 
-**Verification:** Automated test
+**Verification:** Automated: [setup/handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup-enterprise-groups.test.ts](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts); Manual: [GitHub provider credential acceptance](../../documentation/lanes/configuration.md#github-provider-credential-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-GITHUB-318: Runtime selection of the Setup GitHub provider
+
+**Intent:** Resolve the active provider from admin-saved credentials before environment fallback in every deployment mode.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The active provider is resolved from the Setup KV values, decrypting the secret, before any env-var fallback; KV-first precedence follows [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC5. <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/lib/github-token.test.ts (enterprise KV config wins over deploy env vars) -->
+2. An unreadable secret makes its Setup provider unconfigured; environment fallback follows [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC5. <!-- @manual -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-008](#req-github-008-enterprise-github-provider-configuration-via-setup)
+
+**Verification:** Automated: [github-token.test.ts](../../src/__tests__/lib/github-token.test.ts); Manual: [GitHub provider credential acceptance](../../documentation/lanes/configuration.md#github-provider-credential-acceptance)
 
 **Status:** Implemented
 
@@ -369,17 +416,17 @@ None.
 1. A connected account with zero repositories shows the repository-panel empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: shows the no-repositories empty state only when the account has no repos) -->
 2. Search with no matching repositories shows the search-empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: keeps search-empty results distinct from the no-repositories empty state) -->
 3. The repo list renders every fetched repository inside a scroll container. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-009: renders every repo inside the scroll container (the row cap is a CSS viewport, not truncation)) -->
-4. The repo list flexes to the height its panel is allotted by the adaptive GitHub/Storage split and scrolls the overflow, rather than capping at a fixed per-breakpoint row count. <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+4. The repo list flexes to the height its panel is allotted by the adaptive GitHub/Storage split and scrolls the overflow, rather than capping at a fixed per-breakpoint row count. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe rendered allocation and scrolling. --> <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
 
 **Constraints:**
 
-- The list never truncates fetched repos; its height is an adaptive viewport set by the split allocation, not a data limit; The pixel allocation is flex/CSS, not unit-asserted in jsdom.
+- The list never truncates fetched repos; its height is an adaptive viewport set by the split allocation, not a data limit; The pixel allocation is flex/CSS, not unit-asserted in jsdom; rendered layout is checked manually.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing)
 
-**Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx))
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx); Manual: [GitHub workspace acceptance](../../documentation/lanes/terminal-and-ide.md#github-workspace-manual-acceptance)
 
 **Status:** Implemented
 
@@ -394,7 +441,7 @@ None.
 **Acceptance Criteria:**
 
 1. On mobile, GitHub is the default right-column face and the header flip control swaps to the R2 storage browser (and back) in place whenever GitHub is enabled. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used) -->
-2. The single-panel flip control is hidden while the column is in split mode and appears only when the column collapses to one panel. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
+2. The single-panel flip control is hidden while the column is in split mode and appears only when the column collapses to one panel. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe control visibility across split and single-face layouts. --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (GitHubPanel Component) -->
 3. If GitHub is disabled, R2 storage is the sole right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2) -->
 4. When GitHub is enabled, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
 
@@ -406,7 +453,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Automated test ([Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx))
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx); Manual: [GitHub workspace acceptance](../../documentation/lanes/terminal-and-ide.md#github-workspace-manual-acceptance)
 
 **Status:** Implemented
 
@@ -421,7 +468,7 @@ None.
 **Acceptance Criteria:**
 
 1. On desktop and tablet both panels stack as an anchoring split: GitHub anchored to the top, Storage to the bottom. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureNatural --> <!-- @manual: On the protected integration deployment, use browser-e2e at tablet and desktop viewports; confirm GitHub is top-anchored and Storage bottom-anchored in the simultaneously visible stacked right column. -->
-2. The column collapses to a single panel with a flip control when the viewport is narrower than the mobile breakpoint or the column is too short to show both panels usably. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
+2. The column collapses to a single panel with a flip control when measured viewport width is positive and below 600px, or when both viewport width and column height are positive and column height is below 600px. Zero or partial measurements retain split mode unless a positive narrow width already requires flip; exact 600px boundaries retain split unless the other dimension requires flip. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
 3. In single-panel mobile/flip mode, the active face uses its own content height up to the current viewport cap, so short content stays compact. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
 4. Flipping between unequal GitHub and Storage faces recomputes the used height from the newly active face. <!-- @impl: web-ui/src/components/Dashboard.tsx::activeFlipHeight --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
 5. Resizing the viewport recomputes the active face's cap without requiring a face or content change. <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-012: sizes each mobile flip face to its own capped content height) -->
@@ -434,7 +481,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-010](#req-github-010-mobile-github-and-storage-face-switching), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Mixed: automated Dashboard and panel-allocation tests cover single-panel allocation and reactive face sizing; the protected integration procedures in AC1, AC6, and AC7 manually verify desktop anchors, mobile centering, and scroll containment.
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [panel-allocation.test.ts](../../web-ui/src/__tests__/lib/panel-allocation.test.ts); Manual: [GitHub panel geometry acceptance](../../documentation/lanes/terminal-and-ide.md#github-panel-geometry-acceptance)
 
 **Status:** Implemented
 
@@ -445,7 +492,7 @@ None.
 <!-- Title retains "Mobile ..." for anchor stability; the disclosure now applies on
      EVERY breakpoint (desktop included), not only touch. -->
 
-**Intent:** The GitHub panel's repository search is disclosed on demand on every breakpoint — hidden behind a magnify toggle so the repository list keeps its full whole-row viewport, revealed (and focused) on tap/click and hidden again on a second tap. The only touch-specific behaviour is scrolling the field above the on-screen keyboard once it opens.
+**Intent:** The GitHub panel's repository search is disclosed on demand on every breakpoint — hidden behind a magnify toggle so the repository list keeps its available-height viewport, revealed (and focused) on tap/click and hidden again on a second tap. The only touch-specific behaviour is scrolling the field above the on-screen keyboard once it opens.
 
 **Applies To:** User
 
@@ -455,11 +502,11 @@ None.
 2. Tapping the magnify toggle reveals the search input and moves focus to it (opening the on-screen keyboard); the toggle reflects the open state. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/github/RepoSearch.tsx::RepoSearch --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-011 AC2: tapping the toggle reveals the search input, focuses it, and reflects the open state) -->
 3. Tapping the toggle again hides the search input and clears the active search filter, so a hidden search box never silently narrows the list. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-011 AC3: tapping the toggle again hides the search and clears the active filter) -->
 4. Desktop discloses the search the same way as touch — the magnify toggle renders and the search input stays hidden until the toggle is clicked (there is no always-on desktop search bar). <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-011 AC4: on desktop the search is ALSO disclosed behind the magnify toggle (consistent with touch)) -->
-5. On a touch device, revealing the search scrolls the input above the on-screen keyboard once it opens, so the field stays visible while typing. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/lib/mobile.ts::scrollFieldAboveKeyboard --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (scrollFieldAboveKeyboard / REQ-GITHUB-011 (reveal the touch search field above the on-screen keyboard)) -->
+5. On a touch device, revealing the search scrolls the input above the on-screen keyboard once it opens, so the field stays visible while typing. <!-- @manual: GitHub workspace manual acceptance in documentation/lanes/terminal-and-ide.md; observe actual OS keyboard and field visibility on a touch device. --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/lib/mobile.ts::scrollFieldAboveKeyboard --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (scrollFieldAboveKeyboard / REQ-GITHUB-011 (reveal the touch search field above the on-screen keyboard)) -->
 
 **Constraints:**
 
-- The repository list's whole-row viewport cap ([REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states) AC4) is unaffected: showing the search row shifts the list down but the `max-height` row cap still shows only complete rows.
+- The repository list uses adaptive available-height scrolling ([REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states) AC4), not a fixed complete-row cap. Revealing search leaves its input visible and reachable while every fetched repository remains accessible through the scroll container.
 - The on-screen keyboard opens.
 - Touch detection uses `isTouchDevice()` (touch hardware + coarse pointer), the same gate as the rest of the mobile UI; capability is read once and never changes mid-session.
 - Reuses the shared `IconButton` primitive (magnify face, `active` state); no new control primitive.
@@ -468,7 +515,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states)
 
-**Verification:** Automated test ([Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [Mobile test](../../web-ui/src/__tests__/lib/mobile.test.ts))
+**Verification:** Automated: [GitHubPanel.test.tsx](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [mobile.test.ts](../../web-ui/src/__tests__/lib/mobile.test.ts); Manual: [GitHub workspace acceptance](../../documentation/lanes/terminal-and-ide.md#github-workspace-manual-acceptance)
 
 **Status:** Implemented
 
@@ -494,7 +541,7 @@ None.
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
 
-**Verification:** Automated test ([Connect route test](../../src/__tests__/routes/github.test.ts))
+**Verification:** Automated: [github.test.ts](../../src/__tests__/routes/github.test.ts)
 
 **Status:** Implemented
 

@@ -30,31 +30,50 @@ afterEach(() => {
 });
 
 describe('Environment report fields', () => {
-  it.each([undefined, 'include', 'exclude'])('Data governance copy contract: accessible persistence choice %s explains consequences and submits both directions', syncPolicyMode => {
-    const { getByRole, getByText, container } = render(() => (
-      <EnvironmentAreaFields section="dataGovernance" mode="enterprise" current={{
-        governedMode: true, viewOnlyStorage: false, syncPolicyMode,
-      }} />
-    ));
-    const toggle = getByRole('checkbox', { name: 'Save only approved locations' }) as HTMLInputElement;
-    expect(toggle.checked).toBe(syncPolicyMode === 'include');
-    expect(getByText('Exclude (default): save unless excluded')).toBeTruthy();
-    expect(getByText('Include: save only approved locations')).toBeTruthy();
-    expect(getByText(/Sync copies selected files to R2, the persistent storage bucket/)).toBeTruthy();
-    expect(getByText(/including agent folders, Uploads and Temporary/)).toBeTruthy();
-    expect(getByText(/Temporary downloads or caches may accidentally end up in the storage bucket/)).toBeTruthy();
-    expect(getByText(/Files elsewhere are not backed up and are not restored/)).toBeTruthy();
-    expect(getByText(/New nested files in approved agent folders still persist/)).toBeTruthy();
-    expect(getByText(/Workspace sync stays off when disabled; Vault persistence still requires advanced mode/)).toBeTruthy();
-    expect(getByText(/Applies to all users' new or restarted sessions; sessions already running are unchanged/)).toBeTruthy();
-    const form = document.createElement('form');
-    form.append(container.firstElementChild!);
-    for (const enabled of [true, false]) {
-      toggle.checked = enabled;
-      expect(environmentValues('dataGovernance', 'enterprise', new FormData(form))).toEqual({
-        governedMode: true, viewOnlyStorage: false, syncPolicyMode: enabled ? 'include' : 'exclude',
-      });
-    }
+  describe.each(['default', 'onboarding', 'saas', 'enterprise'] as const)('REQ-SETUP-028: %s persistence form', mode => {
+    it.each([undefined, 'include', 'exclude'])('Data governance copy contract: accessible persistence choice %s explains consequences and submits both directions', syncPolicyMode => {
+      const { getByRole, queryByRole, getByText, container } = render(() => (
+        <EnvironmentAreaFields section="dataGovernance" mode={mode} current={{
+          ...(mode === 'enterprise' && { governedMode: true, viewOnlyStorage: false }), syncPolicyMode,
+        }} />
+      ));
+      const toggle = getByRole('checkbox', { name: 'Save only approved locations' }) as HTMLInputElement;
+      expect(toggle.checked).toBe(syncPolicyMode === 'include');
+      if (mode === 'enterprise') {
+        expect(getByRole('checkbox', { name: 'Enable governed storage encryption' })).toBeChecked();
+        expect(getByRole('checkbox', { name: 'Disable storage downloads' })).not.toBeChecked();
+      } else {
+        expect(queryByRole('checkbox', { name: 'Enable governed storage encryption' })).toBeNull();
+        expect(queryByRole('checkbox', { name: 'Disable storage downloads' })).toBeNull();
+      }
+      expect(getByText('Exclude (default): save unless excluded')).toBeTruthy();
+      expect(getByText('Include: save only approved locations')).toBeTruthy();
+      expect(getByText(/Sync copies selected files to R2, the persistent storage bucket/)).toBeTruthy();
+      expect(getByText(/including agent folders, Uploads and Temporary/)).toBeTruthy();
+      expect(getByText(/Temporary downloads or caches may accidentally end up in the storage bucket/)).toBeTruthy();
+      expect(getByText(/Files elsewhere are not backed up and are not restored/)).toBeTruthy();
+      expect(getByText(/New nested files in approved agent folders still persist/)).toBeTruthy();
+      expect(getByText(/Workspace sync stays off when disabled; Vault persistence still requires advanced mode/)).toBeTruthy();
+      expect(getByText(/Applies to all users' new or restarted sessions; sessions already running are unchanged/)).toBeTruthy();
+      expect(getByText(/Managed-resource protections are unchanged/)).toBeVisible();
+      expect(getByText(/This change does not delete existing stored data/)).toBeVisible();
+      expect(getByText(/it does not automatically restart sessions/)).toBeVisible();
+      const form = document.createElement('form');
+      form.append(container.firstElementChild!);
+      for (const enabled of [true, false]) {
+        toggle.checked = enabled;
+        const data = new FormData(form);
+        // Even unexpected DOM fields cannot widen the mode-applicable request contract.
+        if (mode !== 'enterprise') {
+          data.set('governedMode', 'on');
+          data.set('viewOnlyStorage', 'on');
+        }
+        expect(environmentValues('dataGovernance', mode, data)).toEqual({
+          ...(mode === 'enterprise' && { governedMode: true, viewOnlyStorage: false }),
+          syncPolicyMode: enabled ? 'include' : 'exclude',
+        });
+      }
+    });
   });
 
   it('REQ-OPERATOR-026: shows managed Webhook Endpoint Access bypass status only for enterprise Access', () => {

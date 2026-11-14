@@ -1,7 +1,7 @@
 ---
 name: spec-enforce-truth
 description: SDD spec content-quality / source-of-truth checks — the canonical cross-agent contract. Runs CQ-1 (REQ-test truth-check), CQ-2 (vendor / external-interface drift), CQ-3 (content-preservation on shrink), CQ-TEST (test-anchor coverage — REQ-level coverage AND per-AC @test anchor verification at parity with @impl, gated by enforce_tdd), and CQ-SOURCE (source-anchor @impl truth-check, ALWAYS runs). Per-AC manual verification uses inline <!-- @manual --> markers. Invoked conditionally by spec-enforce when Implemented or Partial REQs are touched OR scope=all.
-version: 4.0.0
+version: 4.1.0
 ---
 
 # Spec Enforcement — content quality and source-of-truth
@@ -22,6 +22,8 @@ This skill checks that the spec says what it claims by cross-referencing tests a
 
 ## Output
 
+**Clean/unleashed repair rule:** the root repairs unambiguous source/test locators, traceability and stale metadata after verifying actual bodies and the applicable contract. This is the exception to the no-auto-fix/escalation defaults below, not permission to infer behavior from names or rewrite a contract to fit code. Resolve judgment from an applicable accepted decision; otherwise preserve it and block for that exact decision. A recorded truth finding is not a completed cleanup repair. Report-only review remains unchanged.
+
 Returns findings array + auto-fix actions. Every finding names REQ, AC, anchor, searched evidence, severity, and smallest correction. Give each anchor one direct verification pass; truth mismatches are escalated, never guessed away. Writes evidence-count rows back to the spine's manifest:
 - `CQ-TEST — Test-anchor coverage`: `ran (N REQs, M findings)` or `inert (enforce_tdd: false)`
 - `CQ-SOURCE — Source-anchor truth-check`: `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` — ALWAYS runs, never inert
@@ -33,38 +35,40 @@ Returns findings array + auto-fix actions. Every finding names REQ, AC, anchor, 
 
 ## Per-AC manual-verification markers (`@manual`)
 
-An AC whose behaviour genuinely cannot be verified by an automated test carries an inline marker at the end of the bullet, in the same comment-grammar family as the anchors:
+An AC legitimately verified manually carries an inline marker at the end of the bullet, in the same comment-grammar family as the anchors:
 
 ```
 <!--\s*@manual(?::\s*(.+?))?\s*-->
 ```
 
-Capture group: optional `<procedure>` — dedicated manual-verification guidance for that AC. A bare `<!-- @manual -->` marks the AC as manually verified with no bespoke procedure; do not pad it with filler prose. The complete set of manual REQ+AC combinations in a project is exactly `grep -rn '@manual' sdd/`.
+Capture group: optional `<procedure>` — dedicated manual-verification guidance for that AC. A bare `<!-- @manual -->` declares the manual method, not completed execution; its Verification field names the concrete procedure. Do not pad the marker with filler prose. The complete set of manual REQ+AC combinations in a project is exactly `grep -rn '@manual' sdd/`.
+
+Legitimate manual verification is sufficient for implemented behaviour; all-manual and mixed REQs may be `Implemented`. Do not demote a REQ merely for manual coverage or missing automation on manual ACs. Missing/broken guidance is a verification finding, not proof of missing implementation; never invent passing evidence.
 
 Marker semantics (per-AC — there is NO REQ-level exemption):
 
 - An AC carrying `@manual` is exempt from the `@impl` and `@test` anchor **requirements** (`ac-missing-source-anchor`, `ac-missing-test-anchor` do not fire on it).
 - Anchors PRESENT on a `@manual` AC are still validated as supplemental evidence — a broken anchor is still `spec-anchor-orphaned`/`spec-test-anchor-orphaned`. `@manual` lifts the requirement, never the truth of what is written.
-- **Verification-field coherence** (categorical, not literal): the REQ's `Verification:` field must be `Manual check` when EVERY AC carries `@manual`, and an automated-verification value otherwise (`Automated test`, or any linked/labelled test-file value — those all count as the automated category). Category disagreement = MEDIUM `verification-field-marker-drift`. Auto-fix in `auto`/`unleashed`: rewrite the field from the markers (the markers are the source of truth).
-- Retrofitting an anchor onto a `@manual` AC (and deleting the marker) is the standard coverage-improvement path for `/sdd clean`; the reverse (adding `@manual` to dodge a failing anchor check) is a truth violation — `finding-downgraded-to-skip` HIGH.
+- **Verification-field coherence:** enforce `spec-enforce` § REQ rendering template's strict linked-method grammar, not arbitrary prose or merely a category word. Non-manual ACs require Automated (or the linked Code-only method when `enforce_tdd: false`); manual ACs require Manual; mixed REQs list their non-manual method first, then Manual. All-manual REQs use Manual even when supplemental test anchors exist. Resolve every automated target to real eligible covering tests and every manual target to a named procedure with concrete actions/pass-fail outcomes. Method/marker disagreement is MEDIUM `verification-field-marker-drift`; malformed fields are MEDIUM `verification-field-format`; missing/non-covering targets are HIGH `verification-target-invalid`. Auto-fix only from independently established methods/targets, preserving every genuine acceptance obligation in its owner; never fabricate links, turn gaps into manual exemptions or promote Status from field formatting. Dependencies use only exact prerequisite REQ/CON links or `None.` under the same canonical field contract.
+- Replace a manual method only when equivalent automated behavioural coverage is independently established; automation is not required to retain `Implemented`. Adding `@manual` merely to dodge a failing anchor check is a truth violation — `finding-downgraded-to-skip` HIGH.
 
 ## CQ-1 — REQ-test truth-check
 
 Walks every `Implemented` REQ that has at least one AC without `@manual`. REQs where every AC carries `@manual` are exempt (there is no automated behaviour to cross-check). CQ-1 is satisfied by EITHER:
 
-- **(a) ID-in-block-name**: a test file (per `test_globs`) contains the REQ ID literally, the ID appears in the name of a `describe`/`test`/`it` block (not just a code comment, not just a fixture filename), AND at least one assertion references content that the REQ's ACs describe — by symbol, user-observable string, or named behaviour; OR
+- **(a) verified REQ reference**: an eligible test file contains the literal REQ ID in a block name or an immediately preceding traceability comment, AND the identified block actually exercises the relevant production behavior and asserts its observable outcome. The ID, filename, vocabulary or assertion count alone proves nothing; OR
 - **(b) anchor parity**: every non-`@manual` AC carries AT LEAST ONE resolving `@test` anchor, and every declared anchor resolves (per CQ-TEST's per-anchor validation). Anchor-level proof is finer-grained than the ID grep and satisfies the same truth claim.
 
 When neither holds, the finding splits:
 
-**Subclass A — name-only-match (MEDIUM `req-test-name-only-match-fixable`).** Test file contains the REQ ID literally and has real assertions on AC content but no block name carries the REQ ID. Auto-fix in `auto`/`unleashed`: rename the most-relevant existing describe by appending ` / REQ-X-NNN (one-line concern)` to its title. Pick the describe whose nested `it()` blocks have strongest AC-content overlap; first-in-document-order wins on ties. No test logic changes.
+**Subclass A — traceability repair (MEDIUM `req-test-name-only-match-fixable`).** Existing actual behavior coverage is established but its REQ association is absent or ambiguous. In clean mode, add a precise REQ-ID comment and/or correct spec-side anchors to the existing blocks. Preserve test filenames, titles and logic; never rename a block just to satisfy discovery.
 
-**Subclass B — no-coverage (MEDIUM `req-test-name-only-match`).** No test file mentions the REQ ID at all, OR mentions are only in comments / fixture paths, OR every named block asserts unrelated behaviour — and anchor parity (b) does not hold either. Real coverage absence. No auto-fix; escalate to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested, `sdd/.review-needed.md` flat-legacy).
+**Subclass B — unestablished coverage (MEDIUM `req-test-name-only-match`).** No independently verified covering block or complete anchor parity exists. Record the searched owner/tests and missing outcome; escalate without inventing tests, a manual exemption or a coverage claim. Missing traceability alone is not evidence of missing behavior.
 
 Classification mechanics:
-1. For each eligible Implemented REQ: if every non-`@manual` AC has at least one resolving `@test` anchor and every declared anchor resolves, CQ-1 passes (parity path).
-2. Else grep `test_globs` for the REQ ID. Zero matches: Subclass B.
-3. Matches exist; walk matched files: any block name contains the REQ ID? Yes: CQ-1 passes. No: block has assertions on AC-content tokens? Yes: Subclass A. No: Subclass B.
+1. Validate every declared anchor's eligibility, resolution and behavioral quality. Complete non-manual parity satisfies CQ-1 only after those checks, not merely title matching.
+2. Otherwise inspect blocks identified by REQ references and the existing source-to-test bridge; real outcomes decide coverage, never ID/token presence alone.
+3. Repair traceability only for independently established coverage; otherwise report the exact unresolved scope. In review mode return proposals only.
 
 ## CQ-2 — Vendor / external-interface drift
 
@@ -77,22 +81,24 @@ This catches "AC mentions Stripe Checkout but the codebase removed Stripe six mo
 The shrink-in-place rule and run-on AC split rule both delete content. Before committing either edit, tokenise removed clauses; for each, check whether its specific subject appears in candidate kept locations (kept REQ body, surrounding ACs, REQ Intent, target doc file).
 
 Three outcomes:
-- All removed clauses match elsewhere: commit.
-- Context-loss with relocation target: promote with `Trimmed from REQ-X-NNN on YYYY-MM-DD:` marker, then commit.
-- Context-loss with no target: REVERT, emit MEDIUM `shrink-would-lose-load-bearing-content`. Cap violation persists; content preserved.
+- Every clause retains its full predicate elsewhere: permit the edit.
+- Relocation is necessary: place the complete clause naturally in its normative owner or appropriate documentation; record old-to-new mapping in the commit body, not a dated trim marker.
+- No safe destination or equivalence is established: withdraw only the proposed shrink and emit MEDIUM `shrink-would-lose-load-bearing-content`. Preserve content and the cap finding.
+
+Token/subject matches locate evidence; they cannot establish preservation. Compare actor, scope, conditions, quantifiers, exclusions, permissions, identity, ordering, bounds/defaults, retention, failure and recovery behavior. Never trade a guarantee or user choice for shorter text or implementation agreement. A contract change requires applicable explicit authority, not cleanup mode.
 
 ## CQ-TEST — Test-anchor coverage (gated by `enforce_tdd`)
 
-Every `Implemented` REQ must have at least one test file referencing its REQ ID. **This pass is gated by `enforce_tdd: true`** (default). When `enforce_tdd: false`, the pass writes informational entries to `sdd/spec/.review-queue.md` (nested) or `sdd/.review-needed.md` (flat-legacy) under a `## Coverage gaps` section but never mutates Status.
+An `Implemented` REQ with non-manual ACs must have the required automated coverage; all-manual REQs use legitimate manual verification without a test-file requirement. **This pass is gated by `enforce_tdd: true`** (default). When `enforce_tdd: false`, the pass writes informational entries to `sdd/spec/.review-queue.md` (nested) or `sdd/.review-needed.md` (flat-legacy) under a `## Coverage gaps` section but never mutates Status.
 
 **Test discovery** uses `test_globs` from `sdd/spec/config.yml` (or `sdd/config.yml` flat). Defaults cover vitest/jest, pytest, go test, rspec, cypress, playwright.
 
-**Detection is binary**: REQ ID literally in test file, or not. Plain substring; no parsing.
+REQ-ID lookup is binary discovery, not a coverage verdict. CQ-1's actual block/outcome checks and the per-AC quality gate establish coverage; comments may provide traceability but never substitute for behavior.
 
 When `enforce_tdd: true`:
 
 1. **Auto-demote**: `Implemented` REQ with no test reference: `Partial` with Notes. Changelog entry. Exemptions: REQs where every AC carries `@manual` (nothing automated to verify), and REQs satisfying CQ-1's anchor-parity path (resolving per-AC `@test` anchors are stronger evidence than the ID grep).
-2. **Source-vs-test coverage**: `Planned`/`Partial` REQ with source but no test: HIGH; auto-promote `Planned` to `Partial` with explanatory Notes.
+2. **Source-vs-test coverage**: `Planned`/`Partial` REQ with source but no required automated coverage for its non-manual ACs: HIGH; auto-promote `Planned` to `Partial` with explanatory Notes.
 3. **Test quality heuristics**: AC count vs test count, tautology / empty-body / skip patterns. Quality findings produce no changelog entry.
 
 When `enforce_tdd: false`:
@@ -117,7 +123,7 @@ Capture groups: `<path>`, `<block-title>`. Apply the pattern globally. The comme
 
 1. **Resolve the file.** `<path>` must match a `test_globs` entry AND exist on disk. Not found → HIGH `spec-test-anchor-orphaned` listing REQ-ID, AC-N, the searched `<path>`. No auto-fix; escalate to the triage file.
 2. **Resolve the block.** Grep `<path>` for `<block-title>` as a substring of a `describe`/`test`/`it`/`context` block-name line (not a code comment, not a fixture path). Not found → HIGH `spec-test-anchor-orphaned` listing REQ-ID, AC-N, `<path> (<block-title>)`. No auto-fix; escalate. (Mirrors CQ-1's "REQ-ID must be in a block name, not a comment" rule.)
-3. **Quality gate.** The block must exercise the AC behaviour and would fail if the implementation were removed; a skipped, tautological, copy/prose-matching, call-count-only, empty, or mock-only block does not count (route to the test-quality heuristics above).
+3. **Quality gate.** Read the actual relevant assertions and production boundary once, reusing that evidence for other references. The block must exercise the AC behavior and fail if it breaks; skipped, tautological, copy/prose-matching, call-count-only, empty or mock-only blocks do not count. Controlled collaborators are valid when the real owning path produces asserted observable outcomes; their presence alone is not a reason to demand hosted infrastructure. Report partial scope honestly.
 
 **Unanchored AC detection.** For every AC bullet describing observable behaviour without a `@test` anchor:
 
@@ -215,4 +221,4 @@ LOW: none emitted by this skill.
 Mode-dependent action:
 - `interactive`: confirm before applying any fix
 - `auto`: auto-fix CRITICAL + HIGH + MEDIUM where mechanical (CQ-SOURCE/CQ-TEST HIGH is NOT auto-fixable — an orphaned anchor or value drift requires JUDGMENT; escalate)
-- `unleashed`: auto-fix everything including LOW; Truth HIGHs still escalate to triage (Truth findings never silently rewrite)
+- `unleashed`: apply the verified clean-repair rule above, including LOW; unresolved truth judgments block cleanup, never silently rewrite. Review remains report-only.

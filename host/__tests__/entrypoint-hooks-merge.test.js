@@ -348,21 +348,6 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     assert.equal(raw, malformed, 'a failed merge must leave the existing file untouched, not truncate it');
     assert.match(stdout, /WARNING/, 'a failed merge must be reported, not swallowed');
   });
-
-  it('settings merge runs before bisync baseline', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-
-    const settingsIdx = main.indexOf('settings.json');
-    const bisyncBaselineIdx = main.indexOf('establish_bisync_baseline');
-
-    assert.ok(settingsIdx > -1, 'settings config should exist in main execution');
-    assert.ok(bisyncBaselineIdx > -1, 'establish_bisync_baseline should exist');
-    assert.ok(
-      settingsIdx < bisyncBaselineIdx,
-      'settings merge must run before bisync baseline'
-    );
-  });
 });
 
 // ============================================================================

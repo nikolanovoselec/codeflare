@@ -76,6 +76,8 @@ describe('LoginPage / REQ-AUTH-013 (branded SaaS login page)', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Continue with GitHub')).toBeInTheDocument();
+        expect(screen.getByRole('img', { name: 'Codeflare' })).toBeVisible();
+        expect(screen.getByRole('heading', { name: 'Codeflare' })).toBeVisible();
       });
     });
 

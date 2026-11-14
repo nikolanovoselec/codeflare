@@ -82,6 +82,8 @@ describe('owned operator session service', () => {
       .toBe('unknown');
     expect(f.state()).toMatchObject({ activityId: profile.activityId, ownerBucket: profile.ownerBucket,
       sessionId: profile.sessionId, status: 'unknown' });
+    expect(f.saves.at(-1)).toMatchObject({ activityId: profile.activityId, ownerBucket: profile.ownerBucket,
+      sessionId: profile.sessionId, status: 'unknown' });
     expect((await f.service.ensure(input)).status).toBe('unknown');
     expect((await f.service.stop({ activityId: profile.activityId, ownerBucket: profile.ownerBucket, drain: false })).status)
       .toBe('stopped');

@@ -113,7 +113,7 @@ The `workers.dev` URL is a setup surface, not normal production entry. [Configur
 <a id="enterprise-llm-routing"></a>
 ### LlmInterceptor (Enterprise Mode)
 
-**Responsibility:** Routes configured enterprise LLM traffic through customer AI Gateway without exposing its token to the container. No durable state, provider keys, Access policy or model-selection UI is owned here.
+**Responsibility:** Routes configured enterprise LLM traffic through customer AI Gateway without exposing its token to the container. It owns bounded encrypted native replay state in Worker KV (`native-ai-replay:*`, 30-day TTL), scoped to user/session/target/tool and replay binding. Replay bounds, confidentiality and isolation belong to [REQ-ENTERPRISE-073 AC1–3](../../sdd/spec/models-and-routing.md#req-enterprise-073-provider-native-bedrock-replay-integrity). It does not own provider credential storage, Access policy, session lifecycle authority or model-selection UI. <!-- @impl: src/llm-interceptor.ts::nativeReplayStateKey -->
 
 **Inputs:** Authorized route/native handles, capability profiles, matched configured groups and Worker-held connection configuration.
 
@@ -160,7 +160,7 @@ Authorized native Bedrock dispatch has a 120-second first-byte allowance; Dynami
 
 ### GitHub Integration
 
-**Responsibility:** Connects verified users to repository discovery, cloning and mode-appropriate authenticated GitHub traffic. Encrypted `DeployKeys.githubToken` remains the credential store. Repository permissions, account policy and workspace durability are separate owners.
+**Responsibility:** Connects verified users to repository discovery, cloning and mode-appropriate authenticated GitHub traffic. `DeployKeys.githubToken` remains the credential store: at-rest encryption applies when `ENCRYPTION_KEY` is configured; without it the accepted AD32 fallback stores plaintext JSON. Masked GET projection is independent of that storage posture ([REQ-AGENT-010 AC2/4](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)). The deployment key is immutable; changing it requires wiping and redeploying, with no rotation or migration path. Repository permissions, account policy and workspace durability are separate owners.
 
 **Inputs:** OAuth state/tokens, repository selection, clone requests, session identity and intercepted GitHub traffic.
 
@@ -317,7 +317,7 @@ Visible panes own terminal sockets/resize; hidden running sessions mount neither
 | State | Scope | Authority / durability | Writers/readers | Recovery owner |
 |---|---|---|---|---|
 | User/setup/configuration | Deployment/user | KV, persistent/eventually consistent | Authenticated Worker routes and policy/UI | Authentication/Configuration |
-| Complete session/lifecycle/readiness/metrics | Session | D1 `runtime_sessions`, generation/revision/sequence fenced; [REQ-SESSION-031](../../sdd/spec/session-lifecycle.md#req-session-031-d1-session-schema-stores-complete-ordered-authority) retains Planned status | Lifecycle routes/DO observations; dashboard/API | Container |
+| Complete session/lifecycle/readiness/metrics | Session | D1 `runtime_sessions`, generation/revision/sequence fenced; [REQ-SESSION-031](../../sdd/spec/session-lifecycle.md#req-session-031-d1-session-schema-stores-complete-ordered-authority) declares Implemented status (not deployed migration or acceptance evidence) | Lifecycle routes/DO observations; dashboard/API | Container |
 | Workload ownership during `starting/running/unreachable/stopping` | Session | D1 even without container wake | Session admission and managed mutation gates <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> | Container |
 | Runtime coordination/recovery/shutdown fence | Session | DO storage across reconstruction | Container DO <!-- @impl: src/container/index.ts::container --> | Container |
 | Live processes/ports | Session | Containers platform and successful host observations, ephemeral | Runtime/DO | Container |
@@ -331,7 +331,7 @@ Visible panes own terminal sockets/resize; hidden running sessions mount neither
 | Per-isolate caches | Isolate | TTL/reset, ephemeral | Owning module | Configuration/Billing/Security |
 | Vault/cumulative graph content | User | R2-backed Vault/published graph after exact success | Root-owned extraction; consumers | Vault |
 
-Bucket creation is lazy/idempotent. Start and storage browse ensure it exists; specialist owners handle seeding and mode reconciliation. The legacy status metadata helper is preserved only as a historical traceability pointer: <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> The original status reader pointer remains <!-- @impl: src/routes/session/lifecycle.ts::app -->; its current source reads D1.
+Bucket creation is lazy/idempotent. Start and storage browse ensure it exists; specialist owners handle seeding and mode reconciliation. The retired legacy status metadata helper is preserved only as an [immutable historical traceability pointer](https://github.com/nikolanovoselec/codeflare/blob/690bb312effaa5561515fc766ba003f70e7d97d2/src/lib/kv-keys.ts#L103-L110). The original status reader pointer remains <!-- @impl: src/routes/session/lifecycle.ts::app -->; its current source reads D1.
 
 ## Data Flow
 
@@ -417,6 +417,8 @@ Authenticated onboarding users without active tier become pending access request
 <a id="github-clone-data-flow-req-github-004"></a>
 ### GitHub Clone Data Flow
 
+The clone root resolves from `USER_WORKSPACE`, otherwise `<HOME>/workspace`, otherwise `/home/user/workspace`. The validated repository basename is appended verbatim as one direct child of the normalized root; an existing target is refused without overwrite ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) AC3).
+
 Creation clone directives persist with the session and reapply before every start; configuration failure blocks startup, while clone itself preserves existing targets and is best effort for missing ephemeral workspaces. A running-session clone uses the authenticated private host and records successful panel clones immediately. Metrics reports bounded top-level repository inventory only after post-restore clone work completes; resume restores absent tracked repositories within per-repository/overall budgets and continues past failures. Enterprise stamps GitHub credentials Worker-side; other modes retain existing container transport.
 
 **Contracts:** [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume), [REQ-GITHUB-015](../../sdd/spec/github.md#req-github-015-workspace-repository-tracking), [REQ-GITHUB-016](../../sdd/spec/github.md#req-github-016-tracked-repository-restoration). [API Reference](api-reference.md#github-integration) owns validation/outcomes.
@@ -453,7 +455,7 @@ Independent CI monitoring follows required reviewer launch and reports one exact
 
 Protected private-repository publication produces an immutable signed release. Worker-held encrypted PAT resolves repository identity and verifies metadata/digests/signature/sequence/ABI/runtime/paths/bounds/extensions, caching content-addressed deployment R2 bytes. A repository-stable conditional pointer owns trust selection; losing replacement repairs bounded KV projection or fails explicitly. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
 
-Dashboard compares the verified active descriptor with the applied stamp. Idle-user reconcile validates bounded streams, uses cached applied history for delta planning or marker-resumable full planning, writes at most six concurrent bucket operations, and stamps completion last. Recreate retains full overwrite. Container receives active boolean/applied digest, never PAT, signing material, bundles/signature or VSIX bytes. Private curation is runtime content master; baked preseed remains independent fallback; existing five-minute discovery is not a container downloader/webhook/new poll loop. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
+Dashboard compares the verified active descriptor with the applied stamp. Idle-user reconcile validates bounded streams, uses cached applied history for delta planning or marker-resumable full planning, writes at most six concurrent bucket operations, and stamps completion last. Recreate retains full overwrite. Container configuration receives active boolean/applied digest, never the repository PAT, signing material or release bundles/signature. Browser IDE separately downloads approved VSIX bytes to temporary local files, verifies exact signed size/SHA-256, installs with synchronization disabled and removes the temporary files on success or failure; package bytes never enter user R2 or persisted extension intent ([REQ-IDE-046](../../sdd/spec/browser-ide.md#req-ide-046-session-local-company-vsix-installation)). <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::installCompanyExtension --> Private curation is runtime content master; baked preseed remains independent fallback; existing five-minute discovery is not a container downloader/webhook/new poll loop. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
 
 **Contracts:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-AGENT-147](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-148](../../sdd/spec/agents.md#req-agent-148-protected-managed-release-publication), [REQ-AGENT-149](../../sdd/spec/agents.md#req-agent-149-shared-compiler-cli-compatibility), [REQ-AGENT-150](../../sdd/spec/agents.md#req-agent-150-independent-managed-release-activation-validation), [REQ-AGENT-154](../../sdd/spec/agents.md#req-agent-154-build-compatible-managed-release-discovery), [REQ-AGENT-151](../../sdd/spec/agents.md#req-agent-151-bounded-managed-release-streaming), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-environment-reconciliation), [REQ-STOR-021](../../sdd/spec/storage.md#req-stor-021-managed-content-ownership), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission), [REQ-STOR-023](../../sdd/spec/storage.md#req-stor-023-managed-release-status-projection), [REQ-STOR-024](../../sdd/spec/storage.md#req-stor-024-managed-release-application), [REQ-IDE-042](../../sdd/spec/browser-ide.md#req-ide-042-additive-company-extension-reconciliation), [REQ-IDE-044](../../sdd/spec/browser-ide.md#req-ide-044-exact-company-vsix-verification), [REQ-IDE-045](../../sdd/spec/browser-ide.md#req-ide-045-company-extension-reconciliation-orchestration), [REQ-IDE-046](../../sdd/spec/browser-ide.md#req-ide-046-session-local-company-vsix-installation), [AD136](../decisions/README.md#ad136-managed-environments-reconcile-signed-releases-before-session-start). [Preseed](preseed.md#managed-curation-ownership), [Storage & Sync](storage-and-sync.md).
 
@@ -492,17 +494,19 @@ Worker caches are per-isolate optimizations with bounded staleness; exact invent
 
 | Assumption | Bound / consequence | Owner |
 |---|---|---|
-| Visible dashboard polling | Transitions five seconds; stable 60 seconds; hidden cancellation; frequent D1 projection separate from ancillary state | Container/Terminal & IDE |
-| Metrics | Normally 60 seconds; bounded 10-second host polls | Container |
-| Coordinator reconstruction | At most two resets; preserve possible workload, never infer exit from transport | Container/Troubleshooting |
-| Bisync | 15 minutes plus manual triggers; local files may lead R2 | Storage & Sync |
-| Final persistence | 120-second sync budget, shared 135-second teardown cap | Storage & Sync/Container |
-| Initial restore/baseline/prewarm | Mode-specific readiness; baseline can run concurrently/deprioritized on single vCPU | Container |
-| Create/start rate limit | 10 creates, five starts per user/minute | API Reference |
+| Visible dashboard polling | Transitions five seconds; stable 60 seconds; hidden cancellation; frequent D1 projection separate from ancillary state | Container/Terminal & IDE; [REQ-SESSION-244](../../sdd/spec/session-lifecycle.md#req-session-244-lifecycle-polling-and-ancillary-scheduling) <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_TRANSITION_MS --> <!-- @impl: web-ui/src/lib/constants.ts::SESSION_POLL_STABLE_MS --> <!-- @impl: web-ui/src/stores/session-polling.ts::scheduleNextPoll --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionAncillaryStatus --> |
+| Metrics | Normally 60 seconds; bounded 10-second host polls | Container <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::CONTAINER_POLL_BUDGET_MS --> |
+| Coordinator reconstruction | At most two resets; preserve possible workload, never infer exit from transport | Container/Troubleshooting <!-- @impl: src/container/container-metrics.ts::TRANSPORT_RECOVERY_MAX_ATTEMPTS --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> |
+| Bisync | 15 minutes plus manual triggers; local files may lead R2 | Storage & Sync; [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) <!-- @impl: entrypoint.sh::start_sync_daemon --> |
+| Final persistence | 120-second sync budget, shared 135-second teardown cap | Storage & Sync/Container; [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::FINAL_SYNC_BUDGET_MS --> |
+| Initial restore/baseline/prewarm | Mode-specific readiness; baseline can run concurrently with best-effort lower CPU/disk priority at any deployment resource profile | Container; [REQ-STOR-256](../../sdd/spec/storage.md#req-stor-256-image-seed-relay-cache-reuse-and-prewarm-priority) <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @impl: entrypoint.sh::run_managed_curation_startup --> <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> |
+| Create/start rate limit | 10 creates, five starts per user/minute | API Reference <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter --> <!-- @impl: src/routes/container/lifecycle.ts::containerStartRateLimiter --> |
 | Concurrent workload cap | SaaS effective tier; non-SaaS including current Enterprise role-based; best effort | Billing/Configuration; [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) |
-| Resource profile | Low 0.25 vCPU/1 GiB/4 GB; default/`saas` 1 vCPU/3 GiB/6 GB; high 2 vCPU/6 GiB/12 GB | Configuration |
-| Deployment capacity | Default ten instances; positive-integer `MAX_INSTANCES` override | Configuration |
-| Timekeeper user cache | 60 seconds, 100 entries | Billing |
+| Resource profile | Deployment-selected CPU(vCPU)/memory(GiB)/disk(GB): low 0.25/1/4; default/`saas` 1/3/6; high 2/6/12 | Configuration; [REQ-OPS-007 AC1](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment) <!-- @impl: .github/workflows/deploy.yml::jobs.deploy --> |
+| Deployment capacity | Default ten instances; positive-integer `MAX_INSTANCES` override | Configuration; [REQ-OPS-007 AC2/3](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment) <!-- @impl: .github/workflows/deploy.yml::jobs.deploy = MAX_INSTANCES=10 --> |
+| Timekeeper user cache | 60 seconds, 100 entries | Billing <!-- @impl: src/timekeeper/index.ts::getCachedUserRecord --> |
+
+Admission query budget for [REQ-SESSION-007 AC1](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier): **one owner-indexed D1 query** counts other workload-owning sessions before Start. This is the capacity-count query budget, not a claim that the entire Start request performs only one query; current-session lookup is separate. Session KV LIST/get operations remain prohibited. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/lib/session-repository.ts::listSessions -->
 
 R2 is durability, not FUSE; work runs on local disk and performance depends on bounded reconciliation.
 
@@ -542,6 +546,14 @@ Cache inventory continues in [Configuration](configuration.md#module-level-cache
 
 <a id="setup-wizard-resilience"></a>
 Setup retry and domain-recovery implementation belongs to [Configuration](configuration.md#setup-wizard-resilience); exact endpoint outcomes belong to [API Reference](api-reference.md).
+
+## GitHub clone verification
+
+### GitHub clone acceptance
+
+For REQ-GITHUB-004 AC2/AC5, obtain separate approval for disposable session creation/start, workspace writes, GitHub reads and any R2 sync. Use an existing accessible repository and the Clone picker for a new session and an existing running session. Observe startup ordering and the authenticated Worker-to-container path: new-session clone must precede agent start; running clone must require owner-scoped access and internal authentication. Do not start inference merely to prove ordering.
+
+Verify the default workspace is ephemeral. In an already sync-enabled approved workspace, verify cloning participates in existing sync and persisted files survive the authorized lifecycle. Pass only with ordering, authentication and lifecycle observations; file presence alone proves neither ordering nor durability. Keep credentials out of evidence. Missing safe observation or lifecycle targets remain unverified; this procedure grants no new infrastructure or mutation authority.
 
 <a id="specification-coverage"></a>
 <a id="manual-verification-checklist"></a>

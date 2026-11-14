@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootstrapOperatorSession } from '../../operators/session-bootstrap';
 import type { Env } from '../../types';
+import { createMockKV } from '../helpers/mock-kv';
+import { createMockSessionD1 } from '../helpers/mock-session-d1';
 
 const mocks = vi.hoisted(() => ({
   current: false,
@@ -68,6 +70,20 @@ describe('REQ-OPERATOR-005: programmatic operator session bootstrap', () => {
       accessKeyId: 'scoped-key', secretAccessKey: 'scoped-secret', tokenId: 'token',
     }; });
   });
+
+  it.each(['starting', 'running', 'unreachable', 'stopping'] as const)(
+    'REQ-SESSION-026 AC4: bootstrap remains pending while D1 records a %s workload owner', async status => {
+      const kv = createMockKV();
+      kv._set('session:owner-bucket:session01', { id: 'session01', userId: 'owner-bucket', name: 'Owned workload', status,
+        lifecycleGeneration: 1, createdAt: '2027-01-01T00:00:00.000Z', lastAccessedAt: '2027-01-01T00:00:00.000Z' });
+      const bindings = { ...env(), USAGE_DB: createMockSessionD1(kv) };
+      mocks.plan.mockImplementation(async (_env: Env, _bucket: string, hasOwner: () => Promise<boolean>) => ({
+        state: {}, migrating: false, pending: await hasOwner(),
+      }));
+      await expect(bootstrapOperatorSession({ env: bindings, authority, ownerBucket: 'owner-bucket' })).rejects.toThrow('Operator bootstrap bucket update pending');
+      expect(await kv.get('session:owner-bucket:session01', 'json')).toMatchObject({ status, lifecycleGeneration: 1 });
+    },
+  );
 
   it('reconciles stale bucket state before minting scoped credentials and returns complete restricted configuration', async () => {
     const result = await bootstrapOperatorSession({ env: env(), authority, ownerBucket: 'owner-bucket' });

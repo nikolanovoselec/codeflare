@@ -37,8 +37,8 @@ Tiers, billing, usage tracking, and quotas.
 
 1. Exactly 8 tier IDs exist: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-001 AC1: exactly 8 tier IDs exist with the canonical names) -->
 2. Each tier defines a full property set: monthly compute allotment, maximum concurrent sessions, allowed session modes, login permission, monthly price, trial compute cap, storage cap, display name, description, sort order, and a default-tier flag. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
-3. The platform ships a hardcoded fallback containing the complete 8-tier set so configuration absence never produces an empty tier list. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-001 AC3: getDefaultTiers returns the complete 8-tier hardcoded fallback) -->
-4. Tier IDs are stable identifiers; display names may differ (for example, the `standard` tier can display as "Starter"). <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-001 AC1: exactly 8 tier IDs exist with the canonical names) -->
+3. The platform ships a hardcoded fallback containing the complete 8-tier set so configuration absence never produces an empty tier list. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-009 AC3: falls back to getDefaultTiers when KV is empty) --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-001 AC3: getDefaultTiers returns the complete 8-tier hardcoded fallback) -->
+4. Tier IDs are stable identifiers; display names may differ (for example, the `standard` tier can display as "Starter"). <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-001 AC1: exactly 8 tier IDs exist with the canonical names) --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-001 AC4: renamed display labels preserve canonical selection identifiers) -->
 
 **Constraints:**
 
@@ -50,7 +50,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([subscription-req-sub-gaps](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts))
+**Verification:** Automated: [subscription-req-sub-gaps.test.ts](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts), [subscription.test.ts](../../src/__tests__/lib/subscription.test.ts)
 
 **Status:** Implemented
 
@@ -65,7 +65,7 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. An unset monthly compute allotment means unlimited compute. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 AC1: unlimited monthlySeconds=null (unlimited)) -->
-2. An unset storage cap means unlimited storage. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 AC2: unlimited maxStorageBytes=null (unlimited)) -->
+2. An unset storage cap means unlimited storage. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 AC2: unlimited maxStorageBytes=null (unlimited)) --> <!-- @test: src/__tests__/routes/session-public-d1.test.ts (REQ-SUB-002 AC2: unlimited storage admits creation despite high cached usage) -->
 3. The allowed session-modes field is a list of mode identifiers drawn from the supported set. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 AC3: standard/advanced/max/unlimited sessionModes=[default,advanced]) -->
 
 **Notes:** Concrete per-tier values (hours/month, max sessions, modes, storage, canLogin) are documented in [Subscription Tiers](../../documentation/lanes/billing.md#subscription-tiers).
@@ -79,7 +79,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test ([subscription-req-sub-gaps](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts))
+**Verification:** Automated: [subscription-req-sub-gaps.test.ts](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts), [session-public-d1.test.ts](../../src/__tests__/routes/session-public-d1.test.ts)
 
 **Status:** Implemented
 
@@ -95,7 +95,7 @@ Tiers, billing, usage tracking, and quotas.
 
 1. The subscribe endpoint activates the free tier directly without any payment-provider interaction. <!-- @manual -->
 2. The free tier has a zero monthly price. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
-3. Even when the payment provider is configured, the free tier still bypasses external checkout. <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) --> <!-- @manual -->
+3. Even when the payment provider is configured, the free tier still bypasses external checkout. <!-- @impl: src/routes/auth.ts::app --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (allows free tier even when STRIPE_SECRET_KEY is set) --> <!-- @manual -->
 4. Free-tier activation removes all provider-owned billing-state fields while preserving unrelated user fields; persisted records contain no `undefined` patch values. <!-- @impl: src/routes/auth.ts::default --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-18-001/004: payment-less activation removes stale billing state without undefined values) -->
 
 **Constraints:**
@@ -107,7 +107,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test ([subscription](../../src/__tests__/lib/subscription.test.ts))
+**Verification:** Automated: [subscription.test.ts](../../src/__tests__/lib/subscription.test.ts), [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -127,19 +127,19 @@ Tiers, billing, usage tracking, and quotas.
 4. The frontend polls the auth-status endpoint after the checkout redirect on a fixed interval with no bounded total wait (the poll has no deadline and continues until activation is observed) so subscription activation feels immediate to the user. <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-004 AC4: post-checkout activation polling) --> <!-- @manual -->
 5. The webhook handler covers the three relevant lifecycle events: checkout completion, subscription update, and subscription deletion. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) --> <!-- @manual -->
 6. The webhook endpoint is publicly reachable but enforces signed-payload verification with a short timestamp tolerance. <!-- @impl: src/lib/stripe.ts::verifyWebhookSignature --> <!-- @test: src/__tests__/lib/stripe.test.ts (rejects missing timestamp) -->
-7. Webhook events are de-duplicated by event identifier with a multi-day retention window so replayed events do not double-apply. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) --> <!-- @manual -->
+7. Successful webhook handling writes a 72-hour event-ID KV marker; a visible marker suppresses replay, while concurrent deliveries and propagation lag can still reprocess an event. Durable per-checkout receipts separately suppress checkout metadata and notice replay without a 72-hour expiry. Checkout metadata applies with the provider snapshot, preserving same-subscription date/trial history; the original provider creation date is preferred, with first processing time as the fallback when absent. Stale different-subscription updates/deletions and timestamp-older replacement checkouts cannot overwrite the current subscription. Notices are claimed before best-effort sending, so interruption or provider failure can omit them. An unavailable initial subscription snapshot remains retryable without partial checkout activation. Transient stale-token checkout rejection returns retryable failure without a processed marker; confirmed completed or permanently superseded checkouts remain successful no-ops. This is not a billing-wide exactly-once guarantee or an atomic KV/DO/provider transaction. <!-- @test: src/__tests__/routes/billing.test.ts (deduplicates visible successful events for 72 hours and leaves failed handling retryable) --> <!-- @manual --> <!-- @impl: src/routes/stripe-webhook.ts::handleCheckoutCompleted --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: checkout replay after visible marker expiry preserves date and sends no repeated notices) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: a replayed old checkout or deletion cannot reset a replacement subscription) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (returns 500 without checkout fields when fetchSubscription returns null) --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (REQ-SUB-004 AC7: stale duplicate plus newer provider failure leaves checkout retryable until an apply succeeds) --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-004 AC7: checkout receipts suppress reapplication and retain subscription date/trial history) -->
 
 **Constraints:**
 
 - Tier and mode metadata must be present on the payment-provider price objects before deploy; the system reads metadata, not separate configuration.
-- Tiers without a configured external price are hidden from the subscribe page.
+- With a configured payment provider, tiers without a configured external price are hidden from the subscribe page; without a provider, payment-free direct choices follow [REQ-SUB-011](#req-sub-011-graceful-degradation-without-stripe).
 - The customer-to-email mapping is recorded on checkout completion so subsequent webhooks can resolve the user.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-003](#req-sub-003-free-tier-requires-no-payment)
 
-**Verification:** Automated test
+**Verification:** Automated: [index.test.ts](../../src/__tests__/timekeeper/index.test.ts), [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx), [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts); Manual: [Checkout and provider lifecycle acceptance](../../documentation/lanes/billing.md#checkout-and-provider-lifecycle-acceptance)
 
 **Status:** Implemented
 
@@ -155,8 +155,8 @@ Tiers, billing, usage tracking, and quotas.
 
 1. Each paid tier has an admin-configurable trial compute cap. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
 2. Subscriptions are created with a maximum billing window so the trial cannot exceed a hard calendar limit even if the user never uses any compute. <!-- @impl: src/lib/stripe.ts::createCheckoutSession --> <!-- @test: src/__tests__/lib/stripe.test.ts (includes trial_period_days when trialDays is set) -->
-3. Timekeeper enforces the trial compute cap as the active quota while the subscription is in trial state. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-4. When the trial compute cap is consumed, Timekeeper ends the trial early at the payment provider, triggering the first real charge. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+3. Timekeeper enforces the trial compute cap as the active quota while the subscription is in trial state. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (ends the provider trial at its distinct trial cap before the monthly cap) -->
+4. When the trial compute cap is consumed, Timekeeper ends the trial early at the payment provider, triggering the first real charge. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (ends the provider trial at its distinct trial cap before the monthly cap) -->
 5. If the first charge succeeds, the full monthly compute quota unlocks. If payment produces `past_due`, paid access remains through a valid future `billingPeriodEnd`; an absent, invalid, or expired period end downgrades to free. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription.test.ts (past_due + future billingPeriodEnd keeps paid tier (grace period)) --> <!-- @test: src/__tests__/lib/subscription.test.ts (past_due + expired billingPeriodEnd downgrades to free) -->
 6. A trial-used marker is recorded when the subscription transitions out of trial state so users cannot loop subscribe-cancel-resubscribe to obtain unlimited free trials. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState) -->
 
@@ -169,7 +169,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/admin-tiers.test.ts))
+**Verification:** Automated: [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts), [subscription.test.ts](../../src/__tests__/lib/subscription.test.ts), [admin-tiers.test.ts](../../src/__tests__/routes/admin-tiers.test.ts), [stripe-webhook-sync.test.ts](../../src/__tests__/routes/stripe-webhook-sync.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 
@@ -200,7 +200,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** None.
 
-**Verification:** Automated test ([index](../../src/__tests__/timekeeper/index.test.ts))
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 
@@ -217,7 +217,7 @@ Tiers, billing, usage tracking, and quotas.
 1. Session-start handlers read the user's current monthly usage and compare it to the tier's monthly compute allotment before provisioning a container. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 2. The comparison is skipped for tiers with no compute cap (unlimited). <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 3. When usage exceeds the allotment, the handler returns a 402 response with a machine-readable quota-exceeded code. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-4. The frontend recognizes the quota-exceeded code and surfaces an upgrade call-to-action instead of a generic error. <!-- @impl: web-ui/src/stores/session-usage.ts::isAtUsageQuota --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
+4. In SaaS mode, when the frontend's usage state has a positive monthly quota and usage reaches or exceeds it, Layout displays a non-dismissible quota-exceeded banner with an upgrade link to `/app/subscribe`; this banner is absent outside SaaS mode. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/session-usage.ts::getUsageWarningLevel --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (offers the subscription upgrade from the SaaS quota-exceeded banner) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (AC3: surfaces no usage banner outside SaaS mode even at 100% usage) -->
 5. Quota enforcement is skipped in non-billed deployment modes and in stress-test mode. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-SUB-007 AC5 + REQ-SUB-022 AC1: accumulates the durable monthly total without enforcing quota outside SaaS) -->
 6. Enforcement fails open on durable-storage errors so a transient backing-store outage does not lock all users out. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
 
@@ -230,7 +230,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test ([index](../../src/__tests__/timekeeper/index.test.ts))
+**Verification:** Automated: [index.test.ts](../../src/__tests__/timekeeper/index.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -257,7 +257,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-007](#req-sub-007-quota-enforcement-at-session-start-402)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Automated: [container-metrics.test.ts](../../src/__tests__/container-metrics.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 
@@ -273,10 +273,10 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. The admin tier-update endpoint accepts a full tier-configuration array and persists it to durable storage. <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC1: writes accepted tier array to tiers:config KV key) --> <!-- @manual -->
-2. Subscription Management edits only persisted operational limits, descriptions, allowed modes, and external price IDs; identity, policy, ordering, defaults, and provider prices remain read-only. <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement --> <!-- @test: web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx (SubscriptionManagement (Admin)) -->
+2. Subscription Management edits only persisted operational limits, descriptions, allowed modes, and external price IDs; identity, policy, ordering, defaults, and provider prices remain read-only. <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx::SubscriptionManagement --> <!-- @test: web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx (SubscriptionManagement (Admin)) --> <!-- @test: web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx (REQ-SUB-009 AC2: saves changed operational fields and reads them back without changing protected tier fields) -->
 3. Tier-configuration reads return the persisted admin configuration when present and fall back to the hardcoded defaults when absent. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-009: getTierConfig KV-first with default fallback) -->
 4. Admin-saved values always take priority over defaults; absent fields fall back to defaults, present fields override. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-009: getTierConfig KV-first with default fallback) -->
-5. The admin tier-update endpoint validates its input against a schema that covers every persisted tier property, so a save never silently drops a field. <!-- @impl: src/routes/admin/tiers.ts::PutTiersBodySchema --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (PUT /admin/tiers — REQ-SUB-009) -->
+5. The admin tier-update endpoint validates its input against a schema that covers every persisted tier property, so a save never silently drops a field. <!-- @impl: src/routes/admin/tiers.ts::PutTiersBodySchema --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (PUT /admin/tiers — REQ-SUB-009) --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC5: saves and reads back every configurable tier field without dropping values) -->
 6. All tier-management endpoints are admin-gated. <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC6: returns 403 when user is not admin) --> <!-- @manual -->
 
 **Constraints:**
@@ -288,7 +288,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test
+**Verification:** Automated: [admin-tiers.test.ts](../../src/__tests__/routes/admin-tiers.test.ts), [SubscriptionManagement.test.tsx](../../web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx), [subscription-req-sub-gaps.test.ts](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -296,7 +296,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-010: Tier Config Cached with 60-Second TTL
 
-**Intent:** Tier configuration reads must be fast (avoid KV round-trip on every request) while still reflecting admin changes within a bounded delay.
+**Intent:** Tier configuration reads must be fast (avoid KV round-trip on every request) while refreshing each isolate's cached configuration after its TTL, independently of KV propagation.
 
 **Applies To:** User
 
@@ -305,8 +305,10 @@ Tiers, billing, usage tracking, and quotas.
 1. Tier-configuration reads are served from an in-process cache with a short TTL. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)) -->
 2. Within the TTL window, calls return the cached value without a durable-storage read. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 AC1/AC2: second call within TTL window returns cached config without KV read) -->
 3. After the TTL expires, the next call refreshes the cache from durable storage. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)) -->
-4. A test-only cache-invalidation hook is available so unit tests can exercise post-update behavior deterministically. <!-- @impl: src/lib/subscription.ts::resetTierConfigCache --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 AC4: resetTierConfigCache forces next call to read from KV) -->
-5. Admin changes take effect within one TTL window across all Worker isolates. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)) -->
+4. After the local tier-configuration cache is reset, the next lookup refreshes from durable storage instead of returning the previously cached configuration. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 AC4: next lookup returns updated tier values after local cache reset) -->
+5. Each Worker isolate refreshes its tier configuration on the first lookup after its own 60-second cache TTL expires. Visibility of admin changes also depends on KV propagation; the local TTL is not a global cross-isolate propagation deadline. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)) -->
+
+**Notes:** `resetTierConfigCache()` clears the local cache for deterministic tests or known configuration changes; it is a supporting mechanism, not a user-facing feature. Local cache tests do not certify hosted KV propagation or change independent authentication and revocation guarantees.
 
 **Constraints:**
 
@@ -317,7 +319,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-009](#req-sub-009-admin-configurable-tiers-via-management-panel)
 
-**Verification:** Automated test ([subscription-req-sub-gaps](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts))
+**Verification:** Automated: [subscription-req-sub-gaps.test.ts](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts), [subscription.test.ts](../../src/__tests__/lib/subscription.test.ts)
 
 **Status:** Implemented
 
@@ -331,21 +333,21 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. When the payment provider is not configured, all tiers can be activated via the direct-subscribe endpoint without an external payment step. <!-- @test: src/__tests__/lib/stripe.test.ts (isStripeConfigured / REQ-SUB-011 (graceful degradation without Stripe: when STRIPE_SECRET_KEY unset, free tier remains usable, paid tiers are hidden)) --> <!-- @manual -->
+1. When the payment provider is not configured, all selectable subscription tiers can be activated via the direct-subscribe endpoint without an external payment step. <!-- @impl: src/routes/auth.ts::app --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=free) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=standard) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=max) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=unlimited) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (accepts tier=advanced (now a subscribable tier)) --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (sets subscriptionTier on user KV record) --> <!-- @manual -->
 2. Payment-less activation removes all provider-owned billing-state fields while preserving unrelated user fields; persisted records contain no `undefined` patch values. <!-- @impl: src/routes/auth.ts::default --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (DEEP-18-001/004: payment-less activation removes stale billing state without undefined values) -->
 3. The effective-tier resolver does not downgrade paid tiers when billing fields are absent and the payment provider is not configured. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-011 AC3: getEffectiveTier does not downgrade paid tier when billingStatus is null) -->
-4. The subscribe page renders normally, showing tier comparisons without payment buttons. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: src/__tests__/lib/stripe.test.ts (isStripeConfigured / REQ-SUB-011 (graceful degradation without Stripe: when STRIPE_SECRET_KEY unset, free tier remains usable, paid tiers are hidden)) -->
+4. Without a configured provider, the subscribe page presents selectable non-contact tiers as payment-free direct choices, even with saved positive prices or provider price identifiers. The API projects zero displayed mode prices without mutating stored administration prices or identifiers; Custom/contact retains its contact CTA. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @impl: src/routes/auth.ts::app --> <!-- @test: src/__tests__/routes/auth.test.ts (REQ-SUB-011 AC1/4: stored positive prices without provider produce payment-free selectable comparisons, without changing configuration) --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-011 AC4: payment-free tier projection activates directly despite retained Stripe price identifiers) -->
 
 **Constraints:**
 
-- Non-billed deployments treat users without an explicit tier as the highest-access tier for backward compatibility.
+- For raw effective-tier resolver inputs with neither `subscriptionTier` nor legacy `accessTier`, the fallback is `pending`, including without billing fields (except the explicit enterprise-mode override). This does not imply every existing identity with absent persisted tier fields becomes pending: identity resolution can normalize legacy records before middleware supplies resolver inputs.
 - A legacy access-tier field is preserved alongside the subscription tier; resolution prefers the new field and falls back to the legacy one.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** Automated: [auth.test.ts](../../src/__tests__/routes/auth.test.ts), [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx), [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts), [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [subscription-req-sub-gaps.test.ts](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -359,7 +361,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. A single resolver combines the user's subscription tier, the legacy access-tier field, and the current billing state into the canonical effective tier. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
+1. A single resolver combines the user's subscription tier, the legacy access-tier field, and the current billing state into the canonical effective tier. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription.test.ts (returns paid tier when billing is active) --> <!-- @test: src/__tests__/lib/subscription.test.ts (falls back to accessTier when subscriptionTier undefined) --> <!-- @test: src/__tests__/lib/subscription.test.ts (falls back to pending when both tiers undefined) -->
 2. A canceled billing state results in an immediate downgrade to the free tier with no grace period. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription.test.ts (getEffectiveTier / REQ-SUB-012 (billing status enforcement: subscriptionTier clamped by billingStatus, canceled/past_due demotes paid to free)) -->
 3. A past-due billing state with a future billing-period end retains the paid tier for the duration of the grace window. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription.test.ts (getEffectiveTier / REQ-SUB-012 (billing status enforcement: subscriptionTier clamped by billingStatus, canceled/past_due demotes paid to free)) -->
 4. A past-due billing state with an expired or absent billing-period end downgrades to the free tier. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription.test.ts (getEffectiveTier / REQ-SUB-012 (billing status enforcement: subscriptionTier clamped by billingStatus, canceled/past_due demotes paid to free)) -->
@@ -377,7 +379,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout)
 
-**Verification:** Automated test ([subscription](../../src/__tests__/lib/subscription.test.ts))
+**Verification:** Automated: [subscription.test.ts](../../src/__tests__/lib/subscription.test.ts)
 
 **Status:** Implemented
 
@@ -392,9 +394,9 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. The tier-configuration lookup exposes the maximum-concurrent-sessions value for any tier. <!-- @impl: src/lib/subscription.ts::getUserTier --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN with env overrides) / REQ-SEC-019 AC2 (per-user concurrent session caps)) -->
-2. A start request is rejected when its observed count of running plus initializing sessions, excluding the session currently being started, has reached the configured maximum. Both compressed list metadata and legacy full records are counted. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (DEEP-18-005: running and initializing sessions consume capacity) -->
+2. A start request is rejected when its observed count of other D1-owned sessions in `starting`, `running`, `unreachable` or `stopping` reaches the configured maximum, excluding the session being started. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/lib/session-authority-outcomes.test.ts (REQ-SESSION-007: actual D1-backed capacity outcomes) --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (DEEP-18-005: running and initializing sessions consume capacity) -->
 3. At the session limit, the frontend shows the limit popup instead of opening the create dialog ([REQ-SUB-019](#req-sub-019-session-limit-popup-in-frontend)). <!-- @impl: web-ui/src/stores/session.ts::isAtSessionLimit --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SUB-013 AC3 / REQ-SUB-019: shows limit feedback without opening the create dialog) -->
-4. The session-status batch endpoint returns the tier maximum so the frontend can apply the same best-effort limit client-side without a separate fetch. <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) --> <!-- @manual -->
+4. Ancillary session status returns the tier maximum so the frontend can apply the same best-effort limit client-side without a separate entitlement fetch. <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) --> <!-- @manual -->
 5. The check is not an atomic reservation: simultaneous starts may both observe available capacity and exceed the nominal limit. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-SESSION-007 AC6 / REQ-SUB-013 AC5: simultaneous starts can exceed the best-effort limit) -->
 
 **Constraints:**
@@ -407,7 +409,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test ([container-lifecycle](../../src/__tests__/routes/container-lifecycle.test.ts))
+**Verification:** Automated: [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts), [session-authority-outcomes.test.ts](../../src/__tests__/lib/session-authority-outcomes.test.ts), [subscription-req-sub-gaps.test.ts](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -422,20 +424,22 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. The tier-configuration lookup exposes the list of session modes allowed for any tier. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
-2. Free and trial tiers only allow Standard mode. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
-3. Standard, advanced, max, and unlimited tiers allow both Standard and Pro modes. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
-4. Explicit preference mode changes that the tier does not allow are rejected. Container startup clamps an unsupported stored mode to the tier's allowed default so stale preferences cannot retain advanced entitlement. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @manual -->
+2. By default, free and trial tiers only allow Standard mode. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
+3. By default, standard, advanced, max, and unlimited tiers allow both Standard and Pro modes. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
+4. Explicit preference mode changes that the tier does not allow are rejected. <!-- @manual -->
+5. Container startup clamps an unsupported stored mode to the tier's allowed default so stale preferences cannot retain advanced entitlement. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @manual -->
+6. Non-admin SaaS Settings uses the canonical allowed-mode list for Pro availability rather than subscription metadata; missing or failed availability stays unavailable. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::canUseAdvanced --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SUB-014: Pro availability follows allowedModes, not $metadata metadata ($enabled)) --> <!-- @test: web-ui/src/__tests__/components/preferences-hydration.test.tsx (REQ-SUB-014: real user parsing enables entitled default metadata, then denies revoked stale Advanced on reopen) -->
 
 **Constraints:**
 
-- The user record's subscribed-mode field is the source of truth for Pro access; it is set by the payment-provider webhook or by admin override.
+- In SaaS mode, the effective session mode is the saved preference (Standard when absent), clamped to the effective tier's allowed modes. The user record's `subscribedMode` is distinct provider/admin subscription metadata, not sole authority for Pro access; non-SaaS and enterprise mode resolution remain unchanged.
 - Just-in-time provisioned users default to Standard mode.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
+**Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-009](#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Manual verification
+**Verification:** Automated: [SettingsPanel.test.tsx](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx), [preferences-hydration.test.tsx](../../web-ui/src/__tests__/components/preferences-hydration.test.tsx); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -467,7 +471,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/stripe-webhook.test.ts))
+**Verification:** Automated: [stripe-webhook-sync.test.ts](../../src/__tests__/routes/stripe-webhook-sync.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 
@@ -482,7 +486,7 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. The billing-portal endpoint creates a hosted billing-portal session and returns the portal URL. <!-- @impl: src/lib/stripe.ts::createPortalSession --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/portal / REQ-SUB-016 (Stripe customer portal for cancel/payment-method)) -->
-2. The plan-switch endpoint creates a portal session deep-linked into the subscription-update-confirmation flow with the new price pre-selected. <!-- @test: src/__tests__/lib/stripe.test.ts (CF-022: Stripe response validation) --> <!-- @manual -->
+2. The plan-switch endpoint creates a portal session deep-linked into the subscription-update-confirmation flow with the new price pre-selected. <!-- @test: src/__tests__/lib/stripe.test.ts (CF-022: Stripe response validation) --> <!-- @manual --> <!-- @test: src/__tests__/lib/stripe.test.ts (REQ-SUB-016: sends the selected subscription item and price to the confirmation flow) -->
 3. Plan switching requires the active subscription-item identifier, which the switch endpoint resolves from the payment provider before opening the portal session. <!-- @impl: src/routes/billing.ts::SwitchSchema --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/switch) -->
 4. If the subscription no longer exists at the payment provider, all provider-owned identifiers and billing fields are removed locally without storing `undefined`, identity fields are preserved, and the response asks the frontend to restart at checkout. <!-- @impl: src/routes/billing.ts::default --> <!-- @test: src/__tests__/routes/billing.test.ts (returns nulls and cleans KV when subscription is gone from Stripe) -->
 5. Plan changes trigger the subscription-updated webhook which the state-sync routine picks up to update the persisted record. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
@@ -497,7 +501,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test
+**Verification:** Automated: [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts); Manual: [Checkout and provider lifecycle acceptance](../../documentation/lanes/billing.md#checkout-and-provider-lifecycle-acceptance)
 
 **Status:** Implemented
 
@@ -526,7 +530,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** Automated: [contact-team.test.ts](../../src/__tests__/routes/contact-team.test.ts), [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx)
 
 **Status:** Implemented
 
@@ -541,10 +545,10 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. When the usage response carries a monthly quota, the page renders the quota stat and progress bar. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota rendering)) -->
-2. The page polls the usage endpoint for real-time Timekeeper data and accepts the endpoint's durable-store fallback. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: src/__tests__/routes/usage.test.ts (GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fallback)) -->
+2. The page polls the usage endpoint for real-time Timekeeper data and accepts the endpoint's durable-store fallback. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: src/__tests__/routes/usage.test.ts (GET /api/usage / REQ-SUB-018 AC2 (real-time Timekeeper DO with KV fallback)) --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (REQ-SUB-018 AC2: polling refreshes the displayed usage at the next interval) -->
 3. Layout-level warning banners surface at the 80%, 95%, and 100% utilization thresholds. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
 4. The 80% and 95% banners include a dismiss control that hides the banner until the next monthly quota rollover; dismissal is persisted per calendar month so a page reload does not resurface the warning, and the warning returns automatically when the quota resets. <!-- @impl: web-ui/src/stores/session-usage.ts::setDismissedQuotaLevel --> <!-- @test: web-ui/src/__tests__/stores/session-usage.test.ts (session-usage dismissed quota level / REQ-SUB-018 (usage banner dismiss persistence per UTC month)) -->
-5. Dismissing the 95% banner also hides the 80% banner because reaching 95% implies the 80% threshold. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
+5. Dismissing the 95% banner also hides the 80% banner because reaching 95% implies the 80% threshold. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-SUB-018 AC5: a dismissed 95% warning also hides the lower 80% warning) -->
 6. The 100% (quota-exceeded) banner is not dismissible because it explains why new sessions cannot start. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
 7. The page shows a centered tier-and-mode label only for metered SaaS plans; non-SaaS and custom unmetered plans show usage time without a plan label. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage --> <!-- @test: web-ui/src/__tests__/components/UsagePage.test.tsx (UsagePage / REQ-SUB-018 AC1 / REQ-SUB-022 AC4 (usage stat and quota rendering)) -->
 
@@ -554,7 +558,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/routes/usage.test.ts))
+**Verification:** Automated: [usage.test.ts](../../src/__tests__/routes/usage.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [UsagePage.test.tsx](../../web-ui/src/__tests__/components/UsagePage.test.tsx), [session-usage.test.ts](../../web-ui/src/__tests__/stores/session-usage.test.ts)
 
 **Status:** Implemented
 
@@ -569,8 +573,8 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. When the count of running plus initializing sessions reaches the tier maximum, the "New Session" control stays enabled but diverts to the session-limit popup instead of starting a session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
-2. The popup explains the tier limit, showing the running-session count and a progress bar, with a dismiss control; it does not list individual sessions with per-session stop controls. <!-- @impl: web-ui/src/components/SessionLimitPopup.tsx::SessionLimitPopup --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
-3. The tier maximum is sourced from the session-status batch endpoint so the frontend and backend agree without an additional request. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) --> <!-- @manual -->
+2. The popup explains the tier limit, showing the running-session count and a progress bar, with a dismiss control; it does not list individual sessions with per-session stop controls. <!-- @impl: web-ui/src/components/SessionLimitPopup.tsx::SessionLimitPopup --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SUB-019 AC2: the real limit popup shows counts and progress and dismisses without per-session actions) -->
+3. The authoritative session-status flow supplies the tier maximum so the frontend and backend agree without a separate entitlement-only request. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) --> <!-- @manual -->
 
 **Constraints:** None.
 
@@ -578,7 +582,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-013](#req-sub-013-concurrent-session-limits)
 
-**Verification:** Automated test ([Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx))
+**Verification:** Automated: [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx); Manual: [Direct activation and tier acceptance](../../documentation/lanes/billing.md#direct-activation-and-tier-acceptance)
 
 **Status:** Implemented
 
@@ -607,7 +611,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout)
 
-**Verification:** Automated test ([stripe](../../src/__tests__/lib/stripe.test.ts))
+**Verification:** Automated: [currency.test.ts](../../src/__tests__/lib/currency.test.ts), [stripe.test.ts](../../src/__tests__/lib/stripe.test.ts), [auth.test.ts](../../src/__tests__/routes/auth.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts)
 
 **Status:** Implemented
 
@@ -635,7 +639,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Automated test
+**Verification:** Automated: [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts); Manual: [Checkout and provider lifecycle acceptance](../../documentation/lanes/billing.md#checkout-and-provider-lifecycle-acceptance)
 
 **Status:** Implemented
 
@@ -660,7 +664,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Automated tests ([Timekeeper](../../src/__tests__/timekeeper/index.test.ts), [usage API](../../src/__tests__/routes/usage.test.ts), and [Usage page](../../web-ui/src/__tests__/components/UsagePage.test.tsx))
+**Verification:** Automated: [index.test.ts](../../src/__tests__/timekeeper/index.test.ts), [usage.test.ts](../../src/__tests__/routes/usage.test.ts), [UsagePage.test.tsx](../../web-ui/src/__tests__/components/UsagePage.test.tsx)
 
 **Status:** Implemented
 
@@ -688,7 +692,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data)
 
-**Verification:** Automated tests ([Header](../../web-ui/src/__tests__/components/Header.test.tsx) and [Dashboard](../../web-ui/src/__tests__/components/Dashboard.test.tsx))
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 
 **Status:** Implemented
 
@@ -711,7 +715,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-018](#req-sub-018-usage-dashboard-page)
 
-**Verification:** Automated distinct-positioning component test
+**Verification:** Automated: [SubscribePage.test.tsx](../../web-ui/src/__tests__/components/SubscribePage.test.tsx)
 
 **Status:** Implemented
 
@@ -725,21 +729,25 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Each positive Timekeeper delta updates durable UTC day, ISO week, UTC month, and UTC year accumulators and counts each distinct positive-runtime session once per period. <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) -->
-2. One versioned sub-4-KB accounting state replaces legacy accounting keys atomically and performs one state write with zero KV reads on the normal ping path. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (Timekeeper AccountingStateV2 integration (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
+1. Each positive Timekeeper delta updates durable UTC day, ISO week, UTC month, and UTC year accumulators and counts each distinct positive-runtime session once per period. <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC1/2: failed commit leaves retry totals and distinct-session counts unchanged) -->
+2. One versioned sub-4-KB accounting state replaces legacy accounting keys atomically. Accounting state and marker-cache memory publish only after successful persistence; failed transactions leave retry accounting unchanged. Incremental historical accounting performs one accounting-state write with zero additional KV reads on the normal ping path; retained SaaS live-quota and entitlement KV reads are separate and remain required. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (Timekeeper AccountingStateV2 integration (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC1/2: failed commit leaves retry totals and distinct-session counts unchanged) -->
 3. The existing alarm performs five-minute KV work and one hash-phased 15-minute D1 duty; no second alarm exists. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::historyPhase --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
 4. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
-5. Session markers store only domain-separated hashes, use bounded cache and cleanup, and survive restart and period rollover. <!-- @impl: src/timekeeper/accounting.ts::hashSessionId --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) -->
-6. History begins at the first successful D1 write with no backfill; personal usage and quota behavior remain compatible. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO) -->
+5. Session markers store only domain-separated hashes, use a FIFO in-memory cache bounded to 128 keys and separate durable cleanup, and survive restart and period rollover. Evicted markers are reloaded from durable storage without recounting a session. <!-- @impl: src/timekeeper/accounting.ts::hashSessionId --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (REQ-SUB-025 AC5: evicted markers are read durably, including after restart, without recounting a session) -->
+6. The first successful D1 commit establishes history from its earliest included live-captured snapshot, without backfilling legacy quota counters. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/accounting.ts::createAccountingState --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-025 AC6: first successful history commit records the earliest included live snapshot without legacy backfill) -->
 7. Retention keeps 400 days, 60 ISO weeks, 60 months, and five years using exact calendar cutoffs. <!-- @impl: src/lib/usage-report-scheduler.ts::retentionCutoffs --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
 
-**Constraints:** Timekeeper remains live quota owner. D1 failure never blocks quota persistence or enforcement.
+**Constraints:**
+
+- Timekeeper remains live quota owner.
+- D1 failure never blocks quota persistence or enforcement.
+- Personal usage and quota behavior remain compatible. <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO) -->
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data), [REQ-OPS-056](operations.md#req-ops-056-non-destructive-d1-deployment-boundary)
 
-**Verification:** Automated migration, attribution, retry, rollover, retention, and operation-count tests
+**Verification:** Automated: [accounting.test.ts](../../src/__tests__/timekeeper/accounting.test.ts), [accounting-integration.test.ts](../../src/__tests__/timekeeper/accounting-integration.test.ts), [accounting-load.test.ts](../../src/__tests__/timekeeper/accounting-load.test.ts), [alarm-history.test.ts](../../src/__tests__/timekeeper/alarm-history.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 
@@ -753,21 +761,23 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Admin-only organization and user-detail routes work in every deployment mode and accept closed period, start, sort, cursor, limit, and JSON or downloadable CSV parameters in UTC. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) --> <!-- @manual -->
-2. Opaque versioned cursors bind the complete filter and use deterministic `user_key` tie-breaking; malformed or mismatched cursors are rejected. <!-- @impl: src/routes/admin/usage.ts::decodeCursor --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
+1. Admin-only organization and user-detail routes work in every deployment mode and accept the shared closed-period UTC query parameters: period, start, sort, direction, cursor, limit, and format. Only the organization route returns JSON or downloadable CSV. The user-detail route returns the requested user's detail as JSON, including when the shared parser accepts `format=csv`. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) --> <!-- @manual -->
+2. Opaque versioned cursors bind the complete filter and use the stable opaque user identifier for deterministic tie-breaking; malformed or mismatched cursors are rejected. <!-- @impl: src/routes/admin/usage.ts::decodeCursor --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (filters the requested period and paginates equal totals without losing tied owners) -->
 3. JSON and CSV share one query and row mapper, with identical filtering and ordering; CSV ignores pagination only. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageRows --> <!-- @impl: src/routes/admin/usage.ts::usageCsv --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
-4. `user_key` is stable lowercase hex SHA-256 over a versioned, domain-separated normalized-email input and exposes neither email nor bucket identity. <!-- @impl: src/lib/admin-usage.ts::userKeyForEmail --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage helpers (REQ-SUB-025)) -->
+4. The opaque user identifier is stable lowercase hex SHA-256 over a versioned, domain-separated normalized-email input and exposes neither email nor bucket identity. <!-- @impl: src/lib/admin-usage.ts::userKeyForEmail --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage helpers (REQ-SUB-025)) -->
 5. User deletion writes a D1 tombstone before live cleanup; failure returns typed `503` and leaves live data unchanged. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/admin-usage.ts::tombstoneUsageUser --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (cleanupUserData) -->
 6. Deleted users retain named aggregate history for 60 months; explicit same-email provisioning reactivates ownership without erasing prior history. <!-- @impl: src/lib/admin-usage.ts::reactivateUsageUser --> <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
 7. Responses disclose `dataSince` and result-owned `historyUpdatedAt` without claiming global outbox freshness. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
+
+**Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
 
 **Constraints:** No cache, second aggregate table, session-state catalog, or timezone parameter is added.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management)
 
-**Verification:** Automated authorization, deletion-race, reactivation, retention, cursor, aggregate, and JSON/CSV-equivalence tests; UI manual validation on Integration
+**Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts), [AnalyticsPage.test.tsx](../../web-ui/src/__tests__/components/AnalyticsPage.test.tsx), [admin-usage.test.ts](../../src/__tests__/lib/admin-usage.test.ts), [user-cleanup.test.ts](../../src/__tests__/lib/user-cleanup.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts); Manual: [Integration analytics and report presentation acceptance](../../documentation/lanes/billing.md#integration-analytics-and-report-presentation-acceptance)
 
 **Status:** Implemented
 
@@ -782,19 +792,24 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Revisioned settings accept disabled-by-default state, at most 25 normalized recipients, day 1 through 31, whole local hour, and canonical IANA timezone. <!-- @impl: src/lib/usage-reports.ts::normalizeReportSettings --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
-2. One immutable summary and exact CSV are generated per dispatch, then sent as separate messages with an 8 MiB attachment limit. <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/lib/email.ts::sendUsageReportEmail --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
-3. Scheduled and test dispatches use distinct identities, one row per recipient, conditional claims, random claim tokens, bounded leases, and at most three attempts. <!-- @impl: src/lib/usage-report-scheduler.ts::createReportDispatch --> <!-- @impl: src/lib/usage-report-scheduler.ts::claimReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
+2. Informational summaries and exact CSVs for the selected report month are regenerated from current persisted usage during delivery recovery and sent as separate recipient messages with an 8 MiB attachment limit. Recovery does not change the authoritative usage ledger or payment accounting; report bytes are not immutable per dispatch. <!-- @impl: src/lib/usage-report-scheduler.ts::recoverReportDeliveries --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-027 AC2: recovery regenerates current persisted usage but keeps identity and records provider rejection as failure) --> <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/lib/email.ts::sendUsageReportEmail --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
+3. Scheduled and test dispatches use distinct identities, one row per recipient, conditional claims, random claim tokens, bounded leases, and at most three attempts. <!-- @impl: src/lib/usage-report-scheduler.ts::createReportDispatch --> <!-- @impl: src/lib/usage-report-scheduler.ts::claimReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (persists one recipient row per dispatch and keeps test dispatch identities independent) -->
 4. Stale claim tokens cannot complete reclaimed rows; deterministic Resend idempotency suppresses the remaining ambiguous duplicate window. <!-- @impl: src/lib/usage-report-scheduler.ts::completeReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
-5. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; `waitUntil()` is only the test-send fast path. <!-- @impl: src/index.ts::scheduled --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
+5. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; request-attached background work is only the test-send fast path. <!-- @impl: src/index.ts::scheduled --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (scheduled recovery sends failed, expired and test rows independently of request work while respecting leases and attempts) --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
 6. Delivery history reports pending, sending, accepted, or failed provider-acceptance state without inventing provider delivery state or IDs. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) --> <!-- @manual -->
 
-**Constraints:** Resend credentials and sender identity remain deployment-managed. Reports do not background-poll and never promise exactly-once delivery.
+**Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
+
+**Constraints:**
+
+- Resend credentials and sender identity remain deployment-managed.
+- Reports do not background-poll and never promise exactly-once delivery.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SETUP-018](setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+**Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SETUP-018](setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution)
 
-**Verification:** Automated timezone, claim, retry, email, CSV, and delivery-history tests; UI manual validation on Integration
+**Verification:** Automated: [usage-reports.test.ts](../../src/__tests__/lib/usage-reports.test.ts), [usage-report-delivery.test.ts](../../src/__tests__/lib/usage-report-delivery.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts), [admin-usage-reports.test.ts](../../src/__tests__/routes/admin-usage-reports.test.ts); Manual: [Integration analytics and report presentation acceptance](../../documentation/lanes/billing.md#integration-analytics-and-report-presentation-acceptance)
 
 **Status:** Implemented
 
@@ -811,13 +826,15 @@ Tiers, billing, usage tracking, and quotas.
 1. Retention runs at most once per UTC day, and only the winning execution prunes eligible history. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-028 AC1: daily retention claim) -->
 2. If any prune fails, the daily claim and all pruning roll back so a later execution can retry. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-028 AC2: retention rollback) -->
 
+**Notes:** Historical usage and report architecture is documented in [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records).
+
 **Constraints:** Retention uses the existing deployment-scoped usage database and scheduler; no second timer or coordinator is added.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
 
-**Verification:** Automated claim exclusion and transaction rollback tests
+**Verification:** Automated: [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts)
 
 **Status:** Implemented
 
@@ -831,7 +848,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Organization usage returns a chronological series of existing aggregates bounded to 14 days, 12 weeks, 12 months, or five years. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (returns chronological existing history aggregates and deterministic user rows) --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (bounds every history series to its configured period limit) -->
+1. Organization usage returns a chronological series of existing aggregates bounded to 14 days, 12 weeks, 12 months, or five years. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (returns chronological existing history aggregates and deterministic user rows) --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (bounds every history series to its configured period limit) --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (returns only the configured latest aggregates in chronological order for every period) -->
 2. Analytics renders returned history when the selected period has no aggregate row and shows the empty state only when no historical series exists. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::UsageChart --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (charts earlier history when the selected period has no aggregate row) -->
 
 3. Selecting a period immediately requests that period’s totals rather than retaining the previous selection’s data. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (requests the selected period immediately rather than leaving day totals under a week selection) -->
@@ -846,7 +863,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history)
 
-**Verification:** Automated route-bound and Analytics presentation tests; UI manual validation on Integration
+**Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts), [AdministrationOverview.test.tsx](../../web-ui/src/__tests__/components/AdministrationOverview.test.tsx), [AnalyticsPage.test.tsx](../../web-ui/src/__tests__/components/AnalyticsPage.test.tsx), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts)
 
 **Status:** Implemented
 
@@ -860,8 +877,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Scheduled report dispatches use the latest closed UTC month. <!-- @impl: src/lib/usage-reports.ts::latestClosedMonth --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
-2. Test report dispatches use the current UTC month. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
+1. Scheduled report dispatches use the latest closed UTC month. <!-- @impl: src/lib/usage-reports.ts::latestClosedMonth --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (persists the previous UTC month when a dispatch is due at %s) -->
+2. Test report dispatches use the current UTC month; the test-send UI describes that period. <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
 3. Delivery schedules apply last-valid-day and DST rules. <!-- @impl: src/lib/usage-reports.ts::nextReportDelivery --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
 4. A settings revision cannot consume the next due instant owned by another revision. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report scheduling recovery (REQ-SUB-027)) -->
 
@@ -871,7 +888,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
 
-**Verification:** Automated timezone, revision-isolation, scheduled-period, and test-period tests
+**Verification:** Automated: [usage-reports.test.ts](../../src/__tests__/lib/usage-reports.test.ts), [admin-usage-reports.test.ts](../../src/__tests__/routes/admin-usage-reports.test.ts), [usage-report-scheduler.test.ts](../../src/__tests__/lib/usage-report-scheduler.test.ts), [usage-report-claims.test.ts](../../src/__tests__/lib/usage-report-claims.test.ts)
 
 **Status:** Implemented
 
@@ -894,7 +911,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history)
 
-**Verification:** Automated accepted-period and invalid-calendar route tests
+**Verification:** Automated: [admin-usage.test.ts](../../src/__tests__/routes/admin-usage.test.ts)
 
 **Status:** Implemented
 
@@ -903,18 +920,18 @@ Tiers, billing, usage tracking, and quotas.
 <a id="req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode"></a>
 ### REQ-ENTERPRISE-001: ENTERPRISE_MODE Forces Unlimited Tier and Pro Mode
 
-**Intent:** A deploy-time `ENTERPRISE_MODE` flag must turn a deployment into a single-tenant enterprise instance where every user gets full access without subscription friction.
+**Intent:** A deploy-time Enterprise-mode flag must turn a deployment into a single-tenant enterprise instance where every user gets full access without subscription friction.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, every user's effective tier resolves to `unlimited` regardless of stored tier, billing status, or trial state. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (REQ-ENTERPRISE-001 AC1: getEffectiveTier enterprise override) -->
-2. When `ENTERPRISE_MODE` is set, session-mode resolution returns Pro (`advanced`) for every user regardless of the stored preference. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @impl: src/lib/session-mode.ts::withEffectiveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-ENTERPRISE-001 AC2 (enterprise forces Pro regardless of the stored preference)) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-001): GET returns sessionMode=advanced under enterprise with no stored preference) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-ENTERPRISE-001 AC2: enterprise start resolves sessionMode=advanced with no stored preference (JIT user)) -->
-3. When `ENTERPRISE_MODE` is set, monthly Timekeeper quota enforcement is disabled. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-001 AC3: enterprise users are never blocked by the monthly compute quota) -->
+1. When the Enterprise-mode binding is set, every user's effective tier resolves to `unlimited` regardless of stored tier, billing status, or trial state. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (REQ-ENTERPRISE-001 AC1: getEffectiveTier enterprise override) -->
+2. When the Enterprise-mode binding is set, session-mode resolution returns Pro (`advanced`) for every user regardless of the stored preference. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @impl: src/lib/session-mode.ts::withEffectiveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-ENTERPRISE-001 AC2 (enterprise forces Pro regardless of the stored preference)) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-001): GET returns sessionMode=advanced under enterprise with no stored preference) --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (REQ-ENTERPRISE-001 AC2: enterprise start resolves sessionMode=advanced with no stored preference (JIT user)) -->
+3. When the Enterprise-mode binding is set, monthly Timekeeper quota enforcement is disabled. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-001 AC3: enterprise users are never blocked by the monthly compute quota) --> <!-- @test: src/__tests__/timekeeper/index.test.ts (REQ-ENTERPRISE-001 AC3: enterprise pings retain accounting beyond SaaS quota without enforcement) -->
 4. The flag is read from a single resolver; all callers consult the resolver rather than reading the raw binding. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @manual: Search production source for raw ENTERPRISE_MODE reads and confirm only the resolver owns binding interpretation. -->
-5. When `ENTERPRISE_MODE` is unset, tier resolution, session-mode resolution, and subscription enforcement are byte-identical to current behavior across the Default, Onboarding, and SaaS deployment modes. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-ENTERPRISE-003) -->
-6. An enterprise user remains upgrade-pending until the bucket's agent configuration is successfully reconciled to Pro, including the initial reconciliation for a newly created bucket, after which the stored mode is marked Pro. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/session/lifecycle.ts::preseedNeedsUpgrade --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 AC6: enterprise upgrade reconcile for pre-existing users) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (DEEP-18-007/008: a failed new-bucket reconcile leaves Pro unstamped for retry) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (enterprise: returns preseedNeedsUpgrade true when stored sessionMode is not advanced despite matching hash) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (enterprise: reconciles as advanced and stamps sessionMode alongside lastPreseedHash) -->
+5. When the Enterprise-mode binding is unset, tier resolution, session-mode resolution, and subscription enforcement are byte-identical to current behavior across the Default, Onboarding, and SaaS deployment modes. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (Preferences Routes under ENTERPRISE_MODE / REQ-ENTERPRISE-001 + REQ-ENTERPRISE-003) -->
+6. An enterprise user remains upgrade-pending until the bucket's agent configuration is successfully reconciled to Pro, including the initial reconciliation for a newly created bucket, after which the stored mode is marked Pro. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/session/lifecycle.ts::preseedNeedsUpgrade --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 AC6: enterprise upgrade reconcile for pre-existing users) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (DEEP-18-007/008: a failed new-bucket reconcile leaves Pro unstamped for retry) --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-ENTERPRISE-001 AC6: ancillary polling requires enterprise Pro reconciliation for stored mode %s with current baked inputs) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (enterprise: reconciles as advanced and stamps sessionMode alongside lastPreseedHash) -->
 7. If either initial or upgrade reconciliation fails, the preference is not stamped and the upgrade retries on the next trigger. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (DEEP-18-007/008: a failed new-bucket reconcile leaves Pro unstamped for retry) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (enterprise: a failed upgrade reconcile does NOT stamp the preference (retries next start) and the start still succeeds) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (enterprise: a failed reconcile returns 500 and does NOT stamp sessionMode or lastPreseedHash) -->
 
 **Constraints:**
@@ -928,7 +945,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-014](#req-sub-014-session-mode-gating-by-tier), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Automated test ([enterprise-mode](../../src/__tests__/lib/enterprise-mode.test.ts))
+**Verification:** Automated: [enterprise-mode.test.ts](../../src/__tests__/lib/enterprise-mode.test.ts), [session-mode.test.ts](../../src/__tests__/lib/session-mode.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [container-lifecycle.test.ts](../../src/__tests__/routes/container-lifecycle.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [container-r2-start.test.ts](../../src/__tests__/routes/container-r2-start.test.ts), [session-ancillary-status.test.ts](../../src/__tests__/routes/session-ancillary-status.test.ts), [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts), [index.test.ts](../../src/__tests__/timekeeper/index.test.ts); Manual: [Enterprise binding ownership review](../../documentation/lanes/billing.md#enterprise-binding-ownership-review)
 
 **Status:** Implemented
 
@@ -942,10 +959,10 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the subscription/billing settings surfaces (tier display, plan switching, usage-quota controls) are hidden in the frontend. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
-2. When `ENTERPRISE_MODE` is set, the `/app/subscribe` route is guarded so it does not render the tier-selection or checkout flow. <!-- @impl: web-ui/src/App.tsx::SubscribeGuard --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (REQ-ENTERPRISE-002 AC2: subscribe route guard) -->
+1. When the Enterprise-mode binding is set, the subscription/billing settings surfaces (tier display, plan switching, usage-quota controls) are hidden in the frontend. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)) -->
+2. When the Enterprise-mode binding is set, subscription navigation is guarded so it renders neither tier selection nor checkout. <!-- @impl: web-ui/src/App.tsx::SubscribeGuard --> <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (REQ-ENTERPRISE-002 AC2: subscribe route guard) -->
 3. The frontend determines whether to hide billing surfaces from a deploy-time mode signal, not from the user's tier. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002) -->
-4. When `ENTERPRISE_MODE` is unset, the subscription UI and `/app/subscribe` behave byte-identically to current behavior. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002) -->
+4. When the Enterprise-mode binding is unset, subscription navigation and UI remain byte-identical to existing behavior. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002) -->
 
 **Constraints:**
 
@@ -956,7 +973,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-SUB-016](#req-sub-016-customer-portal-and-plan-switching), [REQ-SUB-017](#req-sub-017-enterprise-tier-contact-flow)
 
-**Verification:** Automated test ([Header subscription-hide](../../web-ui/src/__tests__/components/Header.test.tsx) (AC1 billing surfaces hidden in enterprise, AC4 shown in SaaS), [subscribe route guard](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC2 `/app/subscribe` redirects to `/app/` in a non-SaaS/enterprise deployment), [API enterpriseMode flag](../../src/__tests__/routes/user-profile-enterprise.test.ts) (AC3 deploy-time signal, AC4 flag-off parity).)
+**Verification:** Automated: [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx), [user-profile-enterprise.test.ts](../../src/__tests__/routes/user-profile-enterprise.test.ts)
 
 **Status:** Implemented
 

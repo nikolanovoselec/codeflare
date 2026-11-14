@@ -20,6 +20,15 @@ export interface OperatorLoggingContext {
 /** Narrow authenticated DO RPC to an already-existing container port. */
 interface ContainerStubWithState extends DurableObjectStub {
   forwardExisting(request: Request, loggingContext?: OperatorLoggingContext): Promise<Response>;
+  getPersonalPiSession(reference: { bucket: string; sessionId: string; email: string }, ordinaryOnly?: boolean): Promise<{
+    generation: number; groups: string[];
+  }>;
+}
+
+/** Existing parent-only RPC; SDK generic stubs do not declare application methods. */
+export function getPersonalPiSession(container: DurableObjectStub,
+  reference: { bucket: string; sessionId: string; email: string }, ordinaryOnly = false) {
+  return (container as ContainerStubWithState).getPersonalPiSession(reference, ordinaryOnly);
 }
 
 export function forwardExisting(container: DurableObjectStub, request: Request, loggingContext?: OperatorLoggingContext): Promise<Response> {

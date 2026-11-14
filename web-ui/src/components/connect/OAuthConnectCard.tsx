@@ -1,4 +1,5 @@
 import { Component, Show, For } from 'solid-js';
+import { mdiCheck } from '@mdi/js';
 import Icon from '../Icon';
 import Select from '../ui/Select';
 import { type ScopeTier, type TierConfig } from '../../lib/token-scopes';
@@ -23,6 +24,8 @@ export interface OAuthAccountOption {
 interface OAuthConnectCardProps {
   /** Optional surface-specific chrome; connect/disconnect behavior stays shared. */
   class?: string;
+  /** Settings keeps account details before compact connection actions. */
+  compact?: boolean;
   /** 'github' | 'cloudflare' — scopes every data-testid so a page with both is unambiguous. */
   provider: string;
   /** mdi icon path. */
@@ -59,22 +62,29 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
     return `${props.connectUrl}${sep}tier=${encodeURIComponent(props.tierOptions.selected)}`;
   };
 
+  const DisconnectButton: Component = () => (
+    <button
+      type="button"
+      class="oauth-connect-disconnect"
+      aria-label={props.description ? `Disconnect ${props.name} ${props.description}` : undefined}
+      data-testid={`${props.provider}-disconnect-btn`}
+      onClick={() => props.onDisconnect()}
+    >
+      Disconnect
+    </button>
+  );
+
   return (
-    <div class={`oauth-connect-card${props.class ? ` ${props.class}` : ''}`} data-testid={`${props.provider}-connect-card`} data-status={props.status}>
+    <div class={`oauth-connect-card${props.compact ? ' settings-connection-card' : ''}${props.class ? ` ${props.class}` : ''}`} data-testid={`${props.provider}-connect-card`} data-status={props.status}>
       <div class="oauth-connect-head">
         <Icon path={props.icon} size={28} class="oauth-connect-icon" />
         <span class="oauth-connect-name">{props.name}</span>
         <Show when={props.status === 'connected'}>
-          <span class="oauth-connect-badge" data-testid={`${props.provider}-connected-badge`}>Connected</span>
-          <button
-            type="button"
-            class="oauth-connect-disconnect"
-            aria-label={props.description ? `Disconnect ${props.name} ${props.description}` : undefined}
-            data-testid={`${props.provider}-disconnect-btn`}
-            onClick={() => props.onDisconnect()}
-          >
-            Disconnect
-          </button>
+          <span class={props.compact ? 'settings-connection-status' : 'oauth-connect-badge'}
+            role={props.compact ? 'status' : undefined} data-testid={`${props.provider}-connected-badge`}>
+            <Show when={props.compact}><Icon path={mdiCheck} size={14} aria-hidden="true" /></Show>Connected
+          </span>
+          <Show when={!props.compact}><DisconnectButton /></Show>
         </Show>
       </div>
 
@@ -94,6 +104,10 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
             </Show>
           </div>
         </Show>
+      </Show>
+
+      <Show when={props.status === 'connected' && props.compact}>
+        <div class="settings-connection-actions"><DisconnectButton /></div>
       </Show>
 
       <Show when={props.status === 'connecting'}>

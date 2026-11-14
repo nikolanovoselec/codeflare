@@ -45,6 +45,16 @@ describe('REQ-OPERATOR-003: protected verified execution context', () => {
     ]) await expect(createOperatorExecutionContext(input(override), env)).rejects.toThrow();
   });
 
+  it.each(['principal', 'bucket', 'policy'])('refuses child-supplied %s rather than minting execution authority', async field => {
+    const original = await createOperatorExecutionContext(input(), env);
+    await expect(createOperatorExecutionContext(input({ [field]: 'child-selected-authority' }), env))
+      .rejects.toThrow('Invalid operator execution authority');
+    expect(await openOperatorExecutionAccess(original, env)).toMatchObject({
+      human: { subject: 'human-subject', email: 'human@example.test' }, accessJwt: 'signed.jwt.assertion' });
+    expect(projectOperatorExecution(original)).toMatchObject({ principal: 'operator', owner: { email: 'human@example.test' },
+      policyDigest: 'b'.repeat(64) });
+  });
+
   it('allows only the same human and issuer to replace authority without changing pinned identities', async () => {
     const context = await createOperatorExecutionContext(input(), env);
     const renewed = human({ issuedAt: human().issuedAt + 30, expiresAt: human().expiresAt + 300 });

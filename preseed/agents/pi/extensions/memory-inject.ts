@@ -50,9 +50,11 @@ export interface MemoryInjectDependencies {
  * non-numeric or non-positive override falls back to the default, so the guard
  * fails closed rather than disappearing.
  */
-function configuredCeiling(): number {
-  const override = Number(process.env.MEMORY_INJECT_MAX_GRAPH_BYTES);
-  return Number.isInteger(override) && override > 0 ? override : MEMORY_INJECT_MAX_GRAPH_BYTES;
+export function configuredCeiling(value = process.env.MEMORY_INJECT_MAX_GRAPH_BYTES): number {
+  // Same positive decimal range as Claude: at most 1 GiB of input JSON.
+  if (!value || !/^[1-9][0-9]{0,9}$/.test(value)) return MEMORY_INJECT_MAX_GRAPH_BYTES;
+  const override = Number(value);
+  return override <= 1073741824 ? override : MEMORY_INJECT_MAX_GRAPH_BYTES;
 }
 
 const defaultDependencies: MemoryInjectDependencies = {

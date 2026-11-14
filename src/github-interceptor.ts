@@ -29,6 +29,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { forwardPersonalPi, type PersonalPiProps } from './lib/personal-pi-forwarding';
 import type { Env } from './types';
+import { isEnterpriseMode } from './lib/subscription';
 import { getValidGithubToken } from './lib/github-token';
 import { decideOperatorGithub } from './operators/interception-policy';
 import type { OperatorPolicy } from './operators/policy';
@@ -263,7 +264,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
     const prRead = /^\/repos\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pulls\/([1-9][0-9]*)$/.exec(url.pathname);
     const submitted = request.headers.get('x-codeflare-operator-boundary-input');
     const resultActivity = request.headers.get('x-codeflare-operator-boundary-result');
-    const watching = this.env.ENTERPRISE_MODE === 'active' && !props?.operatorPolicy && props?.sessionId
+    const watching = isEnterpriseMode(this.env) && !props?.operatorPolicy && props?.sessionId
       && ((request.method === 'POST' && url.hostname === gitWebHost(this.env) && pushPath)
         || (request.method === 'POST' && url.hostname === apiHost && url.pathname === '/graphql')
         || (request.method === 'GET' && url.hostname === apiHost && prRead && (submitted || resultActivity)));
@@ -529,7 +530,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       }
     }
     if (body && !selectionRequested && submitted && submitted.length <= 16_000 && boundaryGeneration && !props?.operatorPolicy && props?.sessionId
-      && this.env.ENTERPRISE_MODE === 'active' && url.hostname === apiHost && request.method === 'GET'
+      && isEnterpriseMode(this.env) && url.hostname === apiHost && request.method === 'GET'
       && prRead && upstream.status === 200) {
       try {
         const bytes = Uint8Array.from(atob(submitted), char => char.charCodeAt(0));

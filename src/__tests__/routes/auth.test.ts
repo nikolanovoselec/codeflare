@@ -231,6 +231,20 @@ describe('Auth routes / REQ-SEC-015 (auth-bypass prevention on public endpoints)
 
   // REQ-SUB-020: Multi-currency pricing
   describe('GET /tiers currency detection', () => {
+    it('REQ-SUB-011 AC1/4: stored positive prices without provider produce payment-free selectable comparisons, without changing configuration', async () => {
+      const { getDefaultTiers, resetTierConfigCache } = await import('../../lib/subscription');
+      resetTierConfigCache();
+      const tiers = getDefaultTiers().map(t => t.id === 'standard' ? { ...t, priceMonthly: 2900, advancedPriceMonthly: 3400, stripePriceId: 'price_stored' } : t);
+      mockKV._set('tiers:config', tiers);
+      const res = await createApp().request('/auth/tiers');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { tiers: Array<Record<string, unknown>> };
+      expect(body.tiers.find(t => t.id === 'standard')).toMatchObject({ priceMonthly: 0, advancedPriceMonthly: 0 });
+      expect(body.tiers.map(t => t.id)).toEqual(expect.arrayContaining(['free', 'standard', 'advanced', 'max', 'unlimited']));
+      expect(await mockKV.get('tiers:config', 'json')).toEqual(tiers);
+      expect(mockGetStripePrices).not.toHaveBeenCalled();
+    });
+
     it('passes detected EUR currency to getStripePrices for German visitor', async () => {
       // Seed tier config with Stripe price IDs
       const { getDefaultTiers, resetTierConfigCache } = await import('../../lib/subscription');

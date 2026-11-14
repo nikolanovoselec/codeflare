@@ -515,14 +515,14 @@ function resolveDocReferences(repo, files) {
       // the slash the user types.
       const bare = candidate.startsWith('/') ? candidate.slice(1) : candidate;
       if (names.has(candidate) || names.has(candidate.replace(/\/$/, ''))
-        || (bare !== candidate && (names.has(bare) || declared.has(bare) || literals.has(bare)))) {
+        || (bare !== candidate && names.has(bare))) {
         rows.push({ ref: candidate, resolved: true, as: 'path' });
         continue;
       }
       // A source declaration is stronger evidence than a manifest dependency.
       // Check it first so a name held in both places is never demoted to the
       // weaker package classification.
-      if (declared.has(candidate)) {
+      if (declared.has(bare)) {
         rows.push({ ref: candidate, resolved: true, as: 'symbol' });
         continue;
       }
@@ -534,7 +534,7 @@ function resolveDocReferences(repo, files) {
       // declaration: it can also be an unrelated key that happens to match. It
       // is labelled so the lane can weigh it rather than being told the two are
       // the same kind of answer.
-      if (literals.has(candidate)) {
+      if (literals.has(bare)) {
         rows.push({ ref: candidate, resolved: true, as: 'literal' });
         continue;
       }

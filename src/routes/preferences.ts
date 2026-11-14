@@ -310,6 +310,25 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
           managedEnvironmentReconciliation: { targets: expectedReconciliationTargets },
         }));
       }
+      const validateManagedTarget = async (): Promise<void> => {
+        const currentActive = await getActiveManagedRelease(c.env);
+        const current = await c.env.KV.get<UserPreferences>(key, 'json') ?? {};
+        if (
+          currentActive?.digest !== activeManagedRelease?.digest
+          || currentActive?.pointer.sequence !== activeManagedRelease?.release.sequence
+          || (currentActive?.resourcePolicy ?? 'mutable') !== resourcePolicy
+          || codingAgentProjectionIdentity(c.env.CODING_AGENTS) !== projectionIdentity
+          || current.sessionMode !== updated.sessionMode
+          || await isR2SseDisabledForBucket(c.env, bucketName) !== r2SseDisabled
+          || JSON.stringify(current.managedEnvironmentApplied) !== JSON.stringify(updated.managedEnvironmentApplied)
+          || JSON.stringify(current.managedEnvironmentReconciliation?.targets ?? []) !== JSON.stringify(expectedReconciliationTargets)
+        ) {
+          preserveConcurrentPreferences = true;
+          throw new Error('Managed reconciliation target changed before finalization');
+        }
+        if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+        if (await hasOwningSessionContainer(c.env, bucketName)) throw new ManagedEnvironmentUpdatePendingError();
+      };
       const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, body.sessionMode, {
         overwrite: true,
         cleanup: true,
@@ -318,6 +337,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
         codingAgents: c.env.CODING_AGENTS,
         projectionIdentity: projectionIdentity!,
         ...managedOptions,
+        ...(managedInvolved ? { beforeCleanup: validateManagedTarget } : {}),
       });
       if ((activeManagedRelease || priorManagedRelease) && result.warnings.length > 0) {
         throw new Error(`Managed reconciliation did not complete: ${result.warnings[0]}`);
@@ -326,6 +346,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
         await reseedContextModePlugin(c.env, bucketName, endpoint, contextModeEnabled, r2SseDisabled, c.env.CODING_AGENTS);
       }
 
+      if (managedInvolved) await validateManagedTarget();
       const nextManagedEnvironmentApplied = activeManagedRelease
         ? {
             digest: activeManagedRelease.digest,

@@ -247,7 +247,7 @@ describe('entrypoint production helpers', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
       toolVisibility: 'after-first-goal',
-      continuationLimits: { automaticTurns: 10, minIntervalMs: 300_000 },
+      continuationLimits: { automaticTurns: null, noProgressTurns: 5, minIntervalMs: 300_000 },
     });
     assert.equal(existsSync(conflictingPath), false);
   });
@@ -274,7 +274,7 @@ describe('entrypoint production helpers', () => {
       toolVisibility: 'always',
       continuationLimits: {
         automaticTurns: null,
-        noProgressTurns: 8,
+        noProgressTurns: 5,
         customLimit: 'keep',
         minIntervalMs: 300_000,
       },
@@ -291,10 +291,35 @@ describe('entrypoint production helpers', () => {
     assert.equal(missing.status, 0, missing.stderr);
     assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), {
       toolVisibility: 'after-first-goal',
-      continuationLimits: { minIntervalMs: 300_000, automaticTurns: 10 },
+      continuationLimits: { minIntervalMs: 300_000, automaticTurns: null, noProgressTurns: 5 },
       rpc: { enabled: false },
       unknownRoot: 'keep',
     });
+  });
+
+  it('REQ-AGENT-129: repairs disabled or legacy stall safety even when cadence is already correct', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-goal-stall-migration-'));
+    const configPath = join(fixture, '.pi/agent/pi-goal.json');
+    mkdirSync(dirname(configPath), { recursive: true });
+    try {
+      for (const noProgressTurns of [undefined, null, 3, 8]) {
+        for (const automaticTurns of [null, 2]) {
+          const original = {
+            toolVisibility: 'always', rpc: { enabled: true }, custom: { preserve: 'owned' },
+            continuationLimits: { automaticTurns, ...(noProgressTurns === undefined ? {} : { noProgressTurns }),
+              minIntervalMs: 300_000, custom: 'keep' },
+          };
+          writeFileSync(configPath, JSON.stringify(original));
+          const first = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
+          assert.equal(first.status, 0, first.stderr);
+          const expected = { ...original, continuationLimits: { ...original.continuationLimits, noProgressTurns: 5 } };
+          assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), expected);
+          const repeated = runStartupInvocation('configure_pi_goal_defaults', { USER_HOME: fixture });
+          assert.equal(repeated.status, 0, repeated.stderr);
+          assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')), expected);
+        }
+      }
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
   });
 
   it('REQ-AGENT-129 AC4: preserves malformed Goal config byte-for-byte', () => {
@@ -306,6 +331,9 @@ describe('entrypoint production helpers', () => {
     for (const malformed of [
       '{"toolVisibility":"always",\n',
       '{"toolVisibility":"always","continuationLimits":null}\n',
+      '{"continuationLimits":{"noProgressTurns":"5"}}\n',
+      '{"continuationLimits":{"noProgressTurns":0}}\n',
+      '{"continuationLimits":{"automaticTurns":0}}\n',
     ]) {
       writeFileSync(configPath, malformed);
       const result = runStartupInvocation('configure_pi_goal_defaults', env);
@@ -549,14 +577,16 @@ describe('entrypoint production helpers', () => {
     };
     try {
       mkdirSync(join(source, 'dist/utils'), { recursive: true }); mkdirSync(tools);
-      writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: '1.5.0', type: 'module' }));
       // Host CI installs the pinned preseed with scripts disabled. Copy only the
       // authentic display assets: the production patch retains its full hash guards.
       const qualifiedSdk = resolve(__dirname, '../../preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent');
-      assert.equal(JSON.parse(readFileSync(join(qualifiedSdk, 'package.json'))).version, '1.5.0', 'qualified display admission contract');
+      const version = JSON.parse(readFileSync(join(qualifiedSdk, 'package.json'))).version;
+      const displayChunks = { '1.5.0': 'chunk-44DLKSKE.js', '1.5.2': 'chunk-VEJDBY3O.js' };
+      assert.ok(Object.hasOwn(displayChunks, version), 'qualified display admission contract');
+      writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version, type: 'module' }));
       const displayPaths = ['dist/modes/interactive/components/model-selector.js',
         'dist/modes/interactive/components/settings-selector.js', 'dist/modes/interactive/interactive-mode.js',
-        'dist/bundle/chunks/chunk-44DLKSKE.js'];
+        `dist/bundle/chunks/${displayChunks[version]}`];
       for (const path of displayPaths) {
         mkdirSync(dirname(join(source, path)), { recursive: true });
         cpSync(join(qualifiedSdk, path), join(source, path));
@@ -621,7 +651,7 @@ describe('entrypoint production helpers', () => {
         .replaceAll('/opt/codeflare/scripts/prune-npm-platform-artifacts.mjs', join(scripts, 'ci/prune-npm-platform-artifacts.mjs'))
         .replaceAll('/opt/codeflare/scripts', scripts);
       // Suppress latest-version network updates; execute the production repair commands with real npm.
-      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [ "$1" = view ]; then echo 1.5.0; elif [[ " $* " == *" --save-exact "* ]]; then return 0; else command npm "$@" --offline; fi; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
+      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [ "$1" = view ]; then echo ${version}; elif [[ " $* " == *" --save-exact "* ]]; then return 0; else command npm "$@" --offline; fi; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
       rmSync(processor);
       assert.notEqual(verify().status, 0);
       const repaired = run(); assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);

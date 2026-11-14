@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { inferenceDiagnostic } from '../../lib/inference-diagnostics';
+import { inferenceDiagnostic, inferenceDiagnosticLocal, inferenceDiagnosticWire } from '../../lib/inference-diagnostics';
+import { inferenceArchiveCapability } from '../../lib/inference-archive-capability';
 import { setLogLevel } from '../../lib/logger';
 
 // Approved additive runtime-log contract. The bounded metadata channel is unchanged.
@@ -23,6 +24,74 @@ function valueOf(records: RawRecord[]) {
   return records[0].data.value;
 }
 afterEach(() => { vi.restoreAllMocks(); setLogLevel('silent'); });
+
+it.each([false, true])('REQ-OPERATOR-090/091: private capture stays unredacted when console failure=%s', consoleFailure => {
+  const retained: Array<{ stage: string; value: unknown }> = [];
+  const records = capture();
+  const source = { password: 'SYNTHETIC_RAW_PASSWORD', token: 'SYNTHETIC_RAW_TOKEN',
+    thinking: 'FULL_REASONING_EVIDENCE', thoughtSignature: 'FULL_REPLAY_SIGNATURE',
+    body: '漢🦊'.repeat(70_000), error: new Error('FULL_EXCEPTION_EVIDENCE', { cause: new Error('FULL_NESTED_CAUSE') }) };
+  if (consoleFailure) vi.spyOn(console, 'log').mockImplementation(() => { throw new Error('CONSOLE_UNAVAILABLE'); });
+  inferenceDiagnostic({ ...admitted, privateArchive: (stage, value) => { retained.push({ stage, value }); } },
+    metadata, () => source);
+  expect(retained).toEqual([{ stage: metadata.stage, value: expect.objectContaining({ password: source.password,
+    token: source.token, thinking: source.thinking, thoughtSignature: source.thoughtSignature, body: source.body,
+    error: expect.objectContaining({ message: 'FULL_EXCEPTION_EVIDENCE', cause: expect.objectContaining({ message: 'FULL_NESTED_CAUSE' }) }) }) }]);
+  if (!consoleFailure) expect(JSON.stringify(records())).not.toMatch(/SYNTHETIC_RAW_PASSWORD|SYNTHETIC_RAW_TOKEN|FULL_REASONING_EVIDENCE/);
+});
+
+it('REQ-OPERATOR-090: private interceptor observations reach their original owner through the scoped RPC capability', async () => {
+  const records = capture();
+  const retained: Array<{ stage: string; value: unknown }> = [];
+  const pending: Promise<unknown>[] = [];
+  const local = { ...admitted,
+    privateArchive: (stage: string, value: unknown) => { retained.push({ stage, value }); },
+  };
+  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire(local, inferenceArchiveCapability(local,
+    { ownerKey: 'a'.repeat(64), receiptDigest: 'b'.repeat(64) }, () => ({ record: local.privateArchive }))),
+    work => { pending.push(work); });
+  const source = { password: 'SYNTHETIC_INTERCEPTOR_SECRET', body: '漢🦊'.repeat(70_000),
+    error: new Error('SYNTHETIC_INTERCEPTOR_FAILURE', { cause: new Error('SYNTHETIC_ORIGINAL_CAUSE') }) };
+  const original = { unchanged: true };
+  const execute = () => { inferenceDiagnostic(context, metadata, () => source); return original; };
+  expect(execute()).toBe(original);
+  await Promise.all(pending);
+  expect(retained).toEqual([{ stage: metadata.stage, value: expect.objectContaining({ password: source.password,
+    body: source.body, error: expect.objectContaining({ message: source.error.message,
+      cause: expect.objectContaining({ message: 'SYNTHETIC_ORIGINAL_CAUSE' }) }) }) }]);
+  expect(JSON.stringify(records())).not.toContain(source.password);
+});
+
+it('REQ-OPERATOR-090: original OFF never delivers an interceptor private observation', async () => {
+  const retained: unknown[] = [];
+  const pending: Promise<unknown>[] = [];
+  const local = { ...admitted, loggingEnabled: false,
+    privateArchive: (_stage: string, value: unknown) => { retained.push(value); },
+  };
+  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire(local, inferenceArchiveCapability(local,
+    { ownerKey: 'a'.repeat(64), receiptDigest: 'b'.repeat(64) }, () => ({ record: local.privateArchive }))),
+    work => { pending.push(work); });
+  inferenceDiagnostic(context, metadata, () => { throw new Error('OFF evaluated optional supplier'); });
+  await Promise.all(pending);
+  expect(retained).toEqual([]);
+});
+
+it('REQ-OPERATOR-090: missing native archive authority cannot silently drop enabled private evidence', () => {
+  expect(() => inferenceDiagnosticWire({ ...admitted, privateArchive: () => {} }))
+    .toThrow('Raw observation capability unavailable');
+});
+
+it('REQ-OPERATOR-082: private RPC rejection is scheduled without replacing the functional outcome', async () => {
+  const pending: Promise<unknown>[] = [];
+  const local = inferenceDiagnosticLocal({ ...admitted, privateArchiveSink: {
+    record: async () => { throw Error('SYNTHETIC_ARCHIVE_UNAVAILABLE'); },
+  } }, work => { pending.push(work); });
+  const original = new Response('UNCHANGED_NATIVE_RESPONSE', { status: 207 });
+  const execute = () => { inferenceDiagnostic(local, metadata, () => ({ body: 'private evidence' })); return original; };
+  expect(execute()).toBe(original);
+  await expect(Promise.all(pending)).resolves.toEqual([undefined]);
+  expect(await original.text()).toBe('UNCHANGED_NATIVE_RESPONSE');
+});
 
 describe('protected raw execution logging through the existing diagnostic entrypoint', () => {
   it.each(['info', 'error', 'silent'] as const)('REQ-OPERATOR-090: AC1/4/5 admitted raw capture survives global level %s with complete large Unicode and noncredential data', level => {
@@ -76,6 +145,28 @@ describe('protected raw execution logging through the existing diagnostic entryp
       ] });
     expect(error.errors[0]).toBe(nested);
     expect(nested.cause).toMatchObject({ cause: origin });
+  });
+
+  it('REQ-OPERATOR-090: AC4 retains native DOMException name, message and code instead of losing timeout evidence behind accessors', () => {
+    const records = capture();
+    const cause = new DOMException('SYNTHETIC_NATIVE_TIMEOUT_EVIDENCE', 'TimeoutError');
+    emit(new Error('Outer discovery failure', { cause }));
+    expect(valueOf(records())).toMatchObject({ message: 'Outer discovery failure', cause: {
+      name: 'TimeoutError', message: 'SYNTHETIC_NATIVE_TIMEOUT_EVIDENCE', code: cause.code,
+    } });
+  });
+
+  it('REQ-OPERATOR-082: native DOMException recognition never executes application name or message accessors', () => {
+    const records = capture();
+    const error = new DOMException('Original native message', 'AbortError');
+    let state = 'untouched';
+    for (const key of ['name', 'message']) Object.defineProperty(error, key, { configurable: true,
+      get() { state = 'application getter executed'; throw new Error('Must not inspect application accessors'); } });
+    emit({ error, neighbor: 'RETAIN_DOM_NEIGHBOR' });
+    expect(state).toBe('untouched');
+    expect(valueOf(records())).toMatchObject({ neighbor: 'RETAIN_DOM_NEIGHBOR', error: {
+      name: '[capture unavailable: accessor]', message: '[capture unavailable: accessor]',
+    } });
   });
 
   it.each([null, undefined, 'plain thrown value', 73, false, { reason: 'nonError', nested: { original: true } }])(
@@ -180,11 +271,11 @@ describe('protected raw execution logging through the existing diagnostic entryp
     const records = capture();
     const secrets = ['credential-password-value', 'credential-access-token', 'credential-api-key', 'credential-cookie-value',
       'credential-url-user', 'credential-url-password', 'credential-signature', 'credential-json-secret',
-      'credential-cf-access-jwt-value', 'credential-access-key-id-value'];
+      'credential-cf-access-jwt-value', 'credential-access-key-id-value', 'PRIVATE_TRANSCRIPT_SIGNATURE'];
     const raw = { text: 'NORMAL_RAW_TEXT', nested: { password: secrets[0], access_token: secrets[1], apiKey: secrets[2], keep: 'KEEP_NESTED' },
       headers: { Authorization: `Bearer ${secrets[1]}`, Cookie: `session=${secrets[3]}`, 'Set-Cookie': `session=${secrets[3]}; HttpOnly`,
         'cf-access-jwt-assertion': secrets[8], 'content-type': 'application/json', 'x-request-id': 'KEEP_REQUEST_ID' },
-      accessKeyId: secrets[9], thinkingSignature: 'KEEP_TRANSCRIPT_SIGNATURE',
+      accessKeyId: secrets[9], thinkingSignature: secrets[10],
       url: `https://${secrets[4]}:${secrets[5]}@service.example.test/path?X-Amz-Signature=${secrets[6]}&label=KEEP_QUERY`,
       body: JSON.stringify({ client_secret: secrets[7], description: 'KEEP_JSON_NEIGHBOR', deep: { toolOutput: 'KEEP_TOOL_OUTPUT' } }) };
     emit(raw);
@@ -192,7 +283,8 @@ describe('protected raw execution logging through the existing diagnostic entryp
     const wire = JSON.stringify(observed);
     for (const secret of secrets) expect(wire).not.toContain(secret);
     for (const retained of ['NORMAL_RAW_TEXT', 'KEEP_NESTED', 'application/json', 'KEEP_REQUEST_ID',
-      'service.example.test/path', 'label=KEEP_QUERY', 'KEEP_JSON_NEIGHBOR', 'KEEP_TOOL_OUTPUT', 'KEEP_TRANSCRIPT_SIGNATURE']) expect(wire).toContain(retained);
+      'service.example.test/path', 'label=KEEP_QUERY', 'KEEP_JSON_NEIGHBOR', 'KEEP_TOOL_OUTPUT']) expect(wire).toContain(retained);
+    expect(raw.thinkingSignature).toBe(secrets[10]); // REQ-ENTERPRISE-079: observation only.
     expect(raw.nested.password).toBe(secrets[0]); // Redaction cannot mutate the functional input.
   });
 
@@ -234,7 +326,13 @@ describe('protected raw execution logging through the existing diagnostic entryp
       const reconstructed = observed.filter(item => item.stage === 'sdk-event' && item.value.contentIndex === contentIndex)
         .map(item => item.value.delta ?? '').join('');
       expect(reconstructed).not.toContain(secrets[contentIndex]);
-      expect(reconstructed).toContain(`KEEP_SDK_NEIGHBOR_${contentIndex}`);
+      if (contentIndex === 0) {
+        // REQ-ENTERPRISE-079: the whole private reasoning channel is hidden,
+        // even when its contents look like otherwise-public JSON/tool data.
+        expect(reconstructed).not.toContain('KEEP_SDK_NEIGHBOR_0');
+        expect(observed.filter(item => item.stage === 'sdk-event' && item.value.contentIndex === 0)
+          .every(item => item.value.delta === '[REDACTED]')).toBe(true);
+      } else expect(reconstructed).toContain(`KEEP_SDK_NEIGHBOR_${contentIndex}`);
     }
     expect(JSON.stringify(observed)).not.toContain(secrets[0]);
     expect(JSON.stringify(observed)).not.toContain(secrets[1]);
@@ -243,6 +341,42 @@ describe('protected raw execution logging through the existing diagnostic entryp
     expect(message.content[1].text).toBe(bodies[1]);
     expect(message.content[2].arguments.apiKey).toBe(secrets[2]);
     expect(events.map(event => event.value.delta)).toEqual(deltas.map(event => event.delta));
+  });
+
+  it('REQ-ENTERPRISE-079 / REQ-OPERATOR-090: private prefixes and completed reasoning do not erase public SDK neighbors or literal characters', () => {
+    const records = capture();
+    const thought = 'PRIVATE_COMPLETED_THOUGHT';
+    const message = (thinking: string) => ({ role: 'assistant', provider: 'custom', model: 'saved', timestamp: 39,
+      content: [{ type: 'thinking', thinking, thinkingSignature: 'PRIVATE_SIGNED_REPLAY' },
+        { type: 'text', text: 'KEEP_PUBLIC_THOUGHT_NEIGHBOR' },
+        { type: 'toolCall', arguments: { path: 'private/release.json', note: 'KEEP_PUBLIC_TOOL_NEIGHBOR' } }] });
+    const publicText = 'PRIVATE letters, spaces, braces {} and KEEP_PUBLIC_SDK_NEIGHBOR';
+    const publicEvents = [...publicText].map(delta => ({ stage: 'sdk-event', value: {
+      type: 'text_delta', contentIndex: 1, delta, partial: message(thought),
+    } }));
+    const payload = [
+      ...[...thought].map((_, index) => ({ stage: 'sdk-event', value: { type: 'thinking_delta', contentIndex: 0,
+        delta: thought[index], partial: message(thought.slice(0, index + 1)) } })),
+      { stage: 'sdk-event', value: { type: 'thinking_end', contentIndex: 0, content: thought, partial: message(thought) } },
+      ...publicEvents,
+      { stage: 'sdk-result', value: message(thought) },
+      { stage: 'provider-request', value: { body: JSON.stringify(message(thought)), echo: thought } },
+    ];
+    const original = JSON.stringify(payload);
+    emit(payload);
+    const observed = valueOf(records()) as Array<{ value: {
+      type?: string; delta?: string; content?: unknown; partial?: ReturnType<typeof message>;
+    } }>;
+    const textEvents = observed.filter(item => item.value.type === 'text_delta');
+    expect(textEvents.map(item => item.value.delta).join('')).toBe(publicText);
+    expect(textEvents.map(item => item.value.partial?.content[2])).toEqual(publicEvents.map(item => item.value.partial.content[2]));
+    expect(JSON.stringify(observed)).not.toContain(thought);
+    expect(JSON.stringify(observed)).not.toContain('PRIVATE_SIGNED_REPLAY');
+    expect(JSON.stringify(observed)).toContain('KEEP_PUBLIC_THOUGHT_NEIGHBOR');
+    expect(JSON.stringify(observed)).toContain('KEEP_PUBLIC_TOOL_NEIGHBOR');
+    expect(observed.filter(item => item.value.type === 'thinking_delta').every(item => item.value.delta === '[REDACTED]')).toBe(true);
+    expect(observed.find(item => item.value.type === 'thinking_end')?.value.content).toBe('[REDACTED]');
+    expect(JSON.stringify(payload)).toBe(original);
   });
 
   it('REQ-OPERATOR-090: native text and tool-argument fragments cannot reconstruct credentials while neighboring data survives', () => {

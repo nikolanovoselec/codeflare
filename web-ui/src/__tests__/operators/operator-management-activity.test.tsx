@@ -4,6 +4,7 @@ import OperatorManagement from '../../components/OperatorManagement';
 import OperatorActivityDiagnostics from '../../components/OperatorActivityDiagnostics';
 import OperatorManagementActivity from '../../components/OperatorManagementActivity';
 import type { Session } from '../../types';
+import { sessionStore } from '../../stores/session';
 const summary = { activityId: 'activity-1', operatorId: 'operator-1', executionStatus: 'running', cleanupStatus: 'pending', collectionStatus: 'unavailable',
   attention: false, sessionId: null, source: null, updatedAt: Date.now() };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
@@ -33,6 +34,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+// REQ-OPERATOR-105: Dispatcher inference context.
 describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
   it.each(['openai', 'anthropic', 'xai', 'kimi-coding'])('REQ-OPERATOR-057 AC5: management explains missing %s credentials without generic attention', async provider => {
     const missing = { ...summary, executionStatus: 'unknown', attention: true,
@@ -199,6 +201,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
   it('REQ-OPERATOR-058: AC4 does not allow another start after an uncertain response until the prepared activity is reconciled', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
     let indexed = false;
+    let executionStatus = 'unknown';
     const writes: Array<{ path: string; body: unknown }> = [];
     serve = (url, init) => {
       if (init?.method === 'POST') writes.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
@@ -207,7 +210,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       }
       if (url.pathname.endsWith('/activity-2/start')) return json({ error: 'Unavailable' }, 503);
       if (url.pathname.endsWith('/activity-2')) return indexed
-        ? json({ ...summary, activityId: 'activity-2', checkpoint: null, result: null })
+        ? json({ ...summary, activityId: 'activity-2', executionStatus, checkpoint: null, result: null })
         : json({ error: 'Not found' }, 404);
       return json({ items: [summary] });
     };
@@ -234,7 +237,16 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     indexed = true;
     fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
     expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled();
+    expect(screen.getByText('Execution: unknown · Cleanup: pending')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh activities' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh activities' })).not.toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
+    submitAssessment();
+    expect(writes.map(value => value.path)).toEqual(['/api/operator-activities', '/api/operator-activities/activity-2/start']);
+    executionStatus = 'running';
+    fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled());
   });
 
   it('REQ-OPERATOR-058: AC5 does not reconcile failed preparation against an earlier accepted activity', async () => {
@@ -504,6 +516,69 @@ async function openDiagnostics(expandTimeline = true) {
   }
   return panel;
 }
+describe('REQ-OPERATOR-084: regional diagnostic timestamps', () => {
+  it.each([
+    ['de-CH', 'Europe/Zurich', '2026-11-10T23:05:06.000Z'],
+    ['en-US', 'America/New_York', '2026-11-10T13:05:06.000Z'],
+  ])('uses preferred %s timestamps in %s while preserving evidence instants (%s)', async (locale, timeZone, instant) => {
+    const { state } = ownedDiagnosticFixture();
+    const previousPreferences = { ...sessionStore.preferences };
+    const originalFetch = globalThis.fetch;
+    let preferences: typeof previousPreferences = { userTimezone: timeZone };
+    const language = vi.spyOn(navigator, 'languages', 'get').mockReturnValue([locale]);
+    const timestamp = Date.parse(instant);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(timestamp);
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof Request ? input.url : input.href, window.location.origin);
+      return url.pathname === '/api/preferences' ? json(preferences) : originalFetch(input, init);
+    });
+    try {
+      await sessionStore.loadPreferences();
+      state.activities[0].updatedAt = timestamp;
+      state.summary.capturedAt = timestamp;
+      state.summary.fence = { generation: 3, timestamp, boundary: 'canonical-commit', code: 'canonical-append-failed', uncertain: false };
+      state.history.capturedAt = timestamp;
+      state.history.records = [
+        { ...diagnosticEvent(1, 'inference-response', 'completed'), timestamp: timestamp - 1 },
+        { ...diagnosticEvent(2, 'canonical-commit', 'failed', 'canonical-append-failed'), timestamp },
+        diagnosticOperation(),
+      ];
+      state.detail.capturedAt = timestamp;
+      state.detail.record.timestamp = timestamp;
+      render(() => <OperatorManagement />);
+      // Region, zone and ISO values are intentional presentation/evidence contracts.
+      const expected = new Date(timestamp).toLocaleString(locale, { timeZone });
+      expect(await screen.findByText(`Updated ${expected}`)).toBeVisible();
+      await selectDiagnosticActivity();
+      const panel = await openDiagnostics();
+      fireEvent.click(panel.getByText('Summary technical details', { selector: 'summary' }));
+      expect(panel.getByText(/Snapshot captured/)).toHaveTextContent(expected);
+      expect(panel.getByText(/Snapshot captured/)).toBeVisible();
+      expect(panel.getByText(/^Essential fence:/)).toHaveTextContent(expected);
+      fireEvent.click(panel.getByText('Timeline technical details', { selector: 'summary' }));
+      expect(panel.getByText(/History metadata read/)).toHaveTextContent(expected);
+      expect(panel.getByText(/History metadata read/)).toBeVisible();
+      const event = within(panel.getByRole('list', { name: 'Diagnostic timeline' })).getAllByRole('listitem')[1];
+      fireEvent.click(within(event).getByRole('button', { name: 'View record e-2' }));
+      const region = await within(event).findByRole('region', { name: /record.*e-2|e-2.*record/i });
+      const record = within(region);
+      expect(record.getByText(/Owner:/)).toHaveTextContent(expected);
+      fireEvent.click(record.getByText('Record technical details', { selector: 'summary' }));
+      fireEvent.click(record.getByText('Record snapshot technical details', { selector: 'summary' }));
+      expect(record.getByText(/Record metadata read/)).toHaveTextContent(expected);
+      expect(record.getByText(/Record metadata read/)).toBeVisible();
+      expect(record.getByText(/Owner:/).querySelector('time')).toHaveAttribute('datetime', instant);
+      expect(record.getByText(/Record metadata read/).querySelector('time')).toHaveAttribute('datetime', instant);
+      expect(state.mutations).toEqual([]);
+    } finally {
+      preferences = previousPreferences;
+      await sessionStore.loadPreferences();
+      language.mockRestore();
+      clock.mockRestore();
+    }
+  });
+});
+
 function deferredDiagnosticResponse() {
   let resolve!: (response: Response) => void;
   const promise = new Promise<Response>(done => { resolve = done; });
@@ -672,6 +747,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
+  // REQ-OPERATOR-108 AC1: historical test title below uses pre-split REQ-OPERATOR-084 AC3.
   it('REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     const operation = diagnosticOperation();
@@ -855,6 +931,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(panel.queryByText(/run stopped|attempt recovered|OAuth|A tool failed\./)).not.toBeInTheDocument();
   });
 
+  // REQ-OPERATOR-084 AC1/AC2/AC6: historical AC1/2/7; REQ-OPERATOR-057 AC3 unchanged.
   it('REQ-OPERATOR-057 AC3 / 084 AC1/2/7: presents the supplied later failure without promoting an older citation failure to the current cause', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     state.summary.diagnosis = { state: 'observed-failure', code: 'settlement-failed', executionStatus: 'failed',
@@ -886,6 +963,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
+  // REQ-OPERATOR-084 AC1/AC5: historical AC1/6; REQ-OPERATOR-057 AC3 unchanged.
   it('REQ-OPERATOR-057 AC3 / 084 AC1/6: an old running snapshot is not a child failure or an OOM diagnosis', async () => {
     const { state } = ownedDiagnosticFixture();
     state.summary.capturedAt = 1;
@@ -903,6 +981,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
+  // REQ-OPERATOR-084 AC3; REQ-OPERATOR-108 AC1/AC2: historical REQ-OPERATOR-084 AC3/5.
   it('REQ-OPERATOR-084 AC3/5: routine records use available boundary and outcome labels while bulk metadata stays collapsed', async () => {
     const { state } = ownedDiagnosticFixture();
     state.history.records = [diagnosticEvent(1, 'scheduling', 'accepted'), diagnosticEvent(2, 'delivery', 'completed')];

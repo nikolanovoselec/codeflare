@@ -39,7 +39,7 @@ Security records below state the protected asset, threat/failure, control, failu
 | Provider/deployment credentials | Prompt injection or compromised container reads/exfiltrates token | Withhold master credentials, scope what enters, boundary-inject where interception exists | Legitimately scoped operation may still be destructive |
 | Durable user data | Cross-bucket selection, stale encryption regime, partial shutdown, overwrite race | Server-derived claim, encryption where configured, mixed-regime reconciliation, audited final drain | Eventual consistency, key rotation, concurrent same-path writes |
 | Public/authenticated APIs | Flooding, oversized/malformed input, CSRF, privileged bypass | Validation, body bounds, origin/request marker, route-specific auth/limits | General resource limiters may degrade open |
-| Network egress | Credential use on wrong host/account, bypass of inspection | Exact host/path/account interception; optional strict Gateway routing | DNS rebinding/allowed-provider and startup availability trade-offs |
+| Network egress | Credential use on wrong host/account, bypass of inspection | Exact host/path/account interception; optional strict Gateway routing | DNS rebinding/allowed-provider abuse; uncertain strict policy retains strict transport |
 | Build/release inputs | Mutable artifact, malicious dependency, vulnerable image | Governed pins, source/image scans, exact-tree checks, provenance/SBOM/signing | Scanner/advisory incompleteness and reviewed exceptions |
 
 ## Identity and Authorization Controls
@@ -73,6 +73,8 @@ The Worker's deployment/account-management token never enters a session containe
 
 Non-Enterprise Cloudflare OAuth uses a non-secret placeholder and refreshes/injects the real access token at validated `api.cloudflare.com` and AI Gateway boundaries only for absent Cloudflare credentials or the exact OAuth placeholder. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor -->
 
+Enterprise Cloudflare integrations resolve API credentials from the owning session’s Worker-held grant. Administrator Browser Run retains its separate account-scoped namespace; missing owner grants cannot borrow that token. Strict owner API requests require Gateway egress, while Enterprise AI Gateway routing stays LLM-owned. Configuring an OAuth client does not authorize an account, and an existing owner grant is not a deployment credential. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor -->
+
 Explicit API Bearer/key-email and Gateway credentials remain caller-owned across modes, without managed lookup, refresh or fallback after upstream `401`/`403`. Gateway provider `Authorization` is independent. Caller credentials bypass neither native/Operator authorization nor strict inspection, and never borrow administrator Browser scope or backend exemptions. <!-- @impl: src/lib/cloudflare-credentials.ts::classifyCloudflareCredentials --> <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi -->
 
 Enterprise interception withholds Worker-managed/platform credentials and injects them only at the configured Cloudflare account boundary ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)), the session-bound GitHub host and identity boundary ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)), or the model-routing boundary ([REQ-ENTERPRISE-004](../../sdd/spec/models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
@@ -91,14 +93,14 @@ For mediated platform routes, boundary interceptors resolve credentials from the
 <a id="github-token-handling"></a>
 ### GitHub credentials
 
-Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic uses the configured organization/repository boundary and does not expose the real token in the container. GitHub App/OAuth disconnect and offboarding attempt provider revocation, log failures, and clear the local GitHub credential even when revocation is unconfirmed so local cleanup can continue ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). Cloudflare OAuth retains its provider-owned failure and retry-state contract. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare -->
+Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic uses the configured organization/repository boundary and does not expose the real token in the container. Ordinary GitHub App/OAuth disconnect attempts provider revocation and clears the local credential even on failure. Explicit offboarding instead requires confirmed container cleanup and provider revocation while user bytes and scoped access remain, then scoped-token/storage/local cleanup with the user record last; provider failure retains outstanding encrypted KV retry credentials ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). Cloudflare OAuth retains its provider-owned failure and retry-state contract. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare -->
 
 <a id="container-auth-token-req-sec-012-req-sec-022"></a>
 ### Worker-to-container bearer
 
 Each lifecycle instance generates an unpredictable bearer credential for private host HTTP and WebSocket forwarding. The credential is lifecycle-scoped and not a public user token. <!-- @impl: src/container/container-config.ts::updateEnvVars -->
 
-The host rejects missing/invalid credentials before route dispatch except for the private SDK `/health` and `/activity` paths. An unconfigured host token returns 503; a missing or incorrect request bearer returns 401. <!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
+Only anonymous GET `/health` is exempt, returning fixed `{ "status": "healthy" }` without metrics, inventory, readiness or session reads so entrypoint startup probing still works before token wiring. Rich authenticated health and `/activity` require the lifecycle bearer before reads or heartbeat mutation. A supplied wrong bearer returns 401; missing configured credentials refuse protected access with 503. The router narrows the legacy pure auth helper's exemption set. <!-- @impl: host/src/request-router.ts::createRequestHandler -->
 
 <a id="dual-r2-credential-architecture"></a>
 ### R2 authority separation
@@ -116,9 +118,9 @@ Vault derives a bucket-specific browser key through HKDF using the stable verifi
 
 Transparent reads migrate supported legacy plaintext KV entries after successful decryption/write conditions. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
 
-AD32 permits plaintext fallback for covered legacy values when the optional key is absent; current source emits a critical warning. Vault bootstrap requires the key and fails without it. Provider client-secret save paths that require encryption reject plaintext storage rather than silently widening exposure. Rotation changes derived Vault keys and can require explicit browser/store recovery.
+AD32 permits plaintext fallback for covered legacy values when the optional key is absent; current source emits a critical warning. Vault bootstrap requires the key and fails without it. Provider client-secret save paths that require encryption reject plaintext storage rather than silently widening exposure. `ENCRYPTION_KEY` is immutable for a deployment. Changing it requires wiping and redeploying Codeflare; no encryption-key rotation or migration path is supported.
 
-Generate a candidate 32-byte key with `openssl rand -base64 32`; the decoded value must be exactly 32 bytes. Public behavior remains in [Configuration](configuration.md); secret placement and rotation execution belong to private [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
+Generate a candidate 32-byte key with `openssl rand -base64 32`; the decoded value must be exactly 32 bytes. Public behavior remains in [Configuration](configuration.md); secret placement and deployment procedures belong to private [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
 
 ## Network and Egress Controls
 
@@ -130,7 +132,11 @@ Supported Enterprise model/provider traffic is intercepted at exact Worker-owned
 <a id="strict-gateway-egress-enterprise-mode"></a>
 ### Strict Gateway Egress
 
-When enabled, supported direct-internet HTTP/HTTPS and Browser API REST/CDP traffic uses the customer's Cloudflare Gateway path; raw internet TCP/UDP is denied. Both own-account `/browser-rendering/` and `/browser-run/` namespaces require `EGRESS` even in the catch-all fallback, without widening administrator injection beyond the configured `/browser-rendering/*` path. Missing binding returns `503 EGRESS_UNAVAILABLE`; refusals and transport failures never trigger direct or alternate-identity retry. Strict OFF and non-Enterprise behavior, own R2, unrelated own-account APIs and the separate direct LLM interceptor retain their existing boundaries. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/lib/controller-egress.ts::isAccountScopedDestination -->
+When enabled, supported direct-internet HTTP/HTTPS and Browser API REST/CDP traffic uses the customer's Cloudflare Gateway path; raw internet TCP/UDP is denied. Both own-account `/client/v4/accounts/<own>/browser-rendering/` and `/client/v4/accounts/<own>/browser-run/` namespaces require `EGRESS` even in the catch-all fallback, without widening administrator injection beyond the configured `/browser-rendering/*` path. Missing binding returns `503 EGRESS_UNAVAILABLE`; refusals and transport failures never trigger direct or alternate-identity retry. Strict OFF and non-Enterprise behavior, own R2, unrelated own-account APIs and the separate direct LLM interceptor retain their existing boundaries. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/lib/controller-egress.ts::isAccountScopedDestination -->
+
+Cloudflare's [Containers outbound-traffic contract](https://developers.cloudflare.com/containers/configuration/outbound-traffic/#non-http-traffic) restricts disabled-internet containers to allowed/handled HTTP/HTTPS on ports 80/443. DNS is platform-controlled: lookups do not reach public resolvers, and configured placeholder answers route requests to the Worker. This is not an independent public DNS/UDP exception.
+
+Application tests observe the strict startup flag and routing configuration, not native packet enforcement. The mandatory port/DNS, raw-socket denial and container non-manipulability boundary needs separately authorized disposable-runtime observations; record exact runtime/configuration identity. Do not treat a mocked base Container or binding presence as that evidence, and do not build a network harness or run protected traffic implicitly.
 
 Gateway routing enables applicable policy/AV/DLP inspection of eligible REST requests and returned artifacts only when the customer's TLS inspection, scanner and blocking policies apply. Wrapped `{success,result}` Markdown/JSON is not guaranteed malware detection or sanitization, and this does not prevent prompt injection, attach remote Chrome's website/subresource networking to Gateway or establish WebSocket-frame DLP. Existing CDP clients retain the fresh-socket bridge, but real Gateway compatibility and applicable inspection outcomes require separate authorized live evidence; CI fixtures and binding presence alone establish neither.
 
@@ -140,9 +146,10 @@ Validated credential rotation replaces the strict catch-all before later traffic
 
 Gateway policy remains customer-owned. Codeflare does not create or weaken external allow/deny/DLP rules. Hostname policy cannot eliminate every DNS-rebinding or allowed-provider abuse scenario; account/path interception and provider policy remain defense in depth.
 
-### Startup availability exception
+<a id="startup-availability-exception"></a>
+### Startup strict-policy resolution
 
-Some strict-egress runtime configuration is read from eventually consistent KV during startup. The accepted availability trade-off is to avoid falsely bricking an already configured deployment on transient state uncertainty where the contract says so; this must not be generalized into credential or account-boundary fail-open behavior. Exact activation and rollback belong to the private [Strict Gateway Egress runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/strict-gateway-egress.md).
+Non-Enterprise startup stays OFF without a KV read. Enterprise startup disables strict transport only for a successfully read absent key or explicit `inactive`. Rejected reads, missing KV binding and malformed values retain strict transport; uncertainty never selects direct fallback. A missing `EGRESS` binding then fails the routed request closed. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> Exact activation and rollback belong to the private [Strict Gateway Egress runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/strict-gateway-egress.md).
 
 <a id="view-only-storage-enterprise-anti-exfil"></a>
 ### View-only storage
@@ -153,15 +160,28 @@ Enterprise anti-exfil policy can disable downloads while preserving approved vie
 
 ### Bucket and path authority
 
-User bucket authority is resolved server-side. Storage keys reject traversal, null bytes, malformed encoding, and disallowed prefixes at the route boundary. `PROTECTED_PATHS` is intentionally empty because a user already has unrestricted access to the same bucket-scoped files inside their own container; this is an explicit negative control, not a missing implementation.
+User bucket authority is resolved server-side. Storage key validation strips literal NUL characters before decoding and validating the cleaned key. It rejects traversal (`..` after one decode), malformed URI encoding, excessive length and a leading slash; protected-prefix checks apply only when `PROTECTED_PATHS` is nonempty. <!-- @impl: src/routes/storage/validation.ts::validateKey --> `PROTECTED_PATHS` is intentionally empty because a user already has unrestricted access to the same bucket-scoped files inside their own container; this is an explicit negative control, not a missing implementation.
 
 ### Input and response hardening
 
 <a id="session-id-validation"></a>
-Session IDs are strict bounded lowercase alphanumeric values before routing. Request bodies use route schemas and a global API body bound; upload/streaming routes declare their explicit exception. Downloads use safe content disposition and inline-content policy so stored bytes do not become an unintended active browser origin.
+Session IDs match `^[a-z0-9]{8,24}$` before routing; this validates format, not authentication. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> Request bodies use route schemas and a global 64-KiB API body bound, except **all** `/api/storage/` paths. <!-- @impl: src/index.ts::app = 64 * 1024 --> Downloads sanitize attachment filenames; inline responses use an extension-derived safe content-type allowlist and `nosniff`, not the stored type. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @impl: src/routes/storage/download.ts::safeInlineContentType -->
 
 <a id="body-limit"></a>
-Oversized bounded API bodies fail before handler parsing. File upload boundaries have their own size/streaming contract in the API/Storage owners rather than inheriting an unsafe unlimited exemption.
+Oversized bounded API bodies fail before handler parsing. Storage declares 100-MiB bounds on `/upload/*` and 10-MiB on `/upload`; these upload-specific bounds do not cover every storage endpoint exempted by the global middleware. <!-- @impl: src/routes/storage/index.ts::app = 100 * 1024 * 1024 --> <!-- @impl: src/routes/storage/index.ts::app = 10 * 1024 * 1024 --> [REQ-SEC-009](../../sdd/spec/security.md#req-sec-009-input-validation-at-system-boundaries) and [Storage upload acceptance](storage-and-sync.md#req-stor-007-upload-and-preview-acceptance) retain their separate validation obligations; the global exception is not proof of a route-specific bound.
+
+### Boundary and storage-policy acceptance
+
+For [SEC-009/018/022](../../sdd/spec/security.md), inspect existing operator-authorized Integration records under private deployment-testing prerequisites. Record revision, route, authentication class, nonsecret case identity, result and observed effect. Missing controls/records are unavailable. These definitions authorize no requests, storage access, credential handling or mutations. Auth/CSRF rejection is not input-validation evidence.
+
+| Contract | Required existing observation |
+|---|---|
+| SEC-009 validation | Starting from valid authorized Setup/upload cases, compare one invalid domain, email or origin at a time and malformed base64. Require structured validation errors before configuration/object writes, with matching UI rejection where applicable. Unrelated policy/auth guards cannot count as decoding rejection. |
+| SEC-009 body limit | Compare authenticated schema-valid preferences bodies padded to 65,536 and 65,537 UTF-8 bytes: the larger returns 413, not parsing success or masked 500. An existing successful upload over 64 KiB with exact downloaded bytes establishes its separate upload limit. |
+| SEC-018 representation | Inspect existing nonsecret preference/user/setup/stats records and retained legacy-session records against configured-key policy. Expected JSON/text lacks the encrypted envelope; a synthetic protected-secret record has one. Do not decrypt/export secrets, remove keys or create KV sessions after D1 migration. |
+| SEC-022 raw ports | On one existing live lifecycle, correlate raw drain-port headerless and wrong-Bearer requests with 401 before server parsing, then normal DO-authenticated success with route processing. Public user-auth endpoints, another lifecycle or a mocked bearer are not substitutes. |
+
+Raw-port credential use remains private-operator-owned; never copy it into browser requests or reports. A 401 alone does not establish parsing order. Missing reachability, safe access or parser observation leaves SEC-022 unqualified. Preserve its existing Partial status and limitations; bounded host/DO tests do not establish deployed acceptance. Export-list assertions and absent records likewise do not prove SEC-018 storage representation.
 
 ### Push notification capabilities
 
@@ -169,9 +189,26 @@ Authenticated notification routes isolate enrollment to the current user, accept
 
 The DO enriches fixed host events from its trusted Session record, bounds event and subscription fan-out, and sends through a cancellable provider budget. Only processed terminal outcomes are acknowledged; transient and timed-out outcomes remain eligible without exposing provider errors. Browser display accepts fixed payload fields and canonical same-origin session paths only ([REQ-SEC-024](../../sdd/spec/security.md#req-sec-024-agent-notification-delivery-trust-boundaries)). <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 
+### Notification device and deployment acceptance
+
+For REQ-TERM-023/028/025/027/026 and REQ-SEC-023/024, combine the automated boundary suites with the native/browser observations below. These are procedures, not execution receipts. Use separately authorized disposable Integration identities, two same-owner sessions and a foreign-owner control. Repeat device cases on desktop, Android-class browsers and an installed iOS PWA; record browser/OS versions and outcome booleans only.
+
+Reuse [Standard deployment](deployment.md#standard-deployment) for deployment acceptance and private [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md) for sender identity management. This procedure authorizes no deployment, credential rotation, enrollment, user deletion, billing action or native agent execution. Missing approved controls leave that observation unexecuted. Never retain subscription endpoints, encryption keys, raw terminal output or credentials. Keep diagnostic logging OFF; automated synthetic log-capture assertions remain the privacy check.
+
+| Contract | Action on separately authorized test state | Observable pass / fail |
+|---|---|---|
+| TERM-026 native producer | In terminal one, observe Claude's normal permission request in Standard/Pro and Classic/Herdr, then ordinary non-permission activity. Compare reviewed frame classification and focus-in/out across attach/detach using existing private observation controls, without retaining terminal bytes. | Permission produces only the reviewed `input-required` event; other Claude kinds produce none. Classic has no competing producer; Herdr uses fixed ingress. Focus bytes remain unchanged and detach synthesizes no focus-out. Any extra producer, unsupported event or focus mutation fails. |
+| TERM-025 enrollment; SEC-023 device isolation | In Settings, enable one approved device, repeat with an existing matching subscription and an owner-prepared stale-key state. Observe permission, worker readiness and registration completion. Disable separately; compare another device and the foreign-owner control. | Only the explicit switch requests permission. On appears only after authenticated registration; stale state is replaced. Disable removes server registration before local unsubscribe. Other devices/owners stay unchanged. Denied reads denied; granted without subscription reads off. Early on, reordered deletion or cross-owner effects fail. |
+| TERM-025 unavailable; SEC-023 sender config | Compare owner-provided sender-absent and configured deployments using the authenticated config response and Settings. Inspect existing deployment metadata without revealing secret values. | Absent sender returns unavailable and omits the switch. Configured response contains only the public key; private key stays deployment-only. Secret/capability exposure or a permission prompt without the switch fails. All-or-none validation and value-free logs remain covered by OPS-013 automation and deployment acceptance. |
+| TERM-023 global suppression and local grant | With two views of one session, keep one active and trigger approved attention. Repeat with both away, then return the granted view to active before display completes. Use existing event/display observations, not notification text inference. | An active view suppresses every device. All-away produces one local grant and only its grantee displays/confirms. Late suppression cancels local display and undelivered fallback. Duplicate grants, another-session effects or fallback after suppression fail. |
+| TERM-023 fallback; SEC-024 trusted display | With all originating views detached, trigger approved attention; separately use an existing unconfirmed local-display case. Observe Push on enrolled owner devices and the foreign control. Compare title/body/path with the trusted session and fixed reason. | Retained eligible events reach owner devices via authenticated drain. Only trusted session identity and fixed reason appear; no terminal prose, paths, tool data or arbitrary links appear. Foreign delivery or display-shaped drain enrichment fails. Parser, drain validation and recipient bounds retain automated coverage. |
+| TERM-028 reconnect and input | Reconnect an unresolved event first in a hidden view, then an active view. Separately send benign classified user input while events are pending, eligible and drained-unacknowledged, using existing controlled states. | Hidden attachment reconciles without clearing fallback eligibility. Active event-specific suppression cancels globally. Classified input cancels every unresolved state. Attachment alone consuming an event or cancellation affecting another session fails. Already copied/provider-accepted delivery remains bounded pickup residue, not retractable delivery. |
+| TERM-027 display/navigation; SEC-024 canonical paths | Observe an approved retained duplicate delivery, then click notifications with two loaded same-owner sessions. Repeat with an existing app window and no app window. Compare the destination with the originating session, not merely the active tab. | Duplicate delivery visibly presents again. Click focuses/navigates only the loaded user-owned originating session at its exact same-origin canonical path. Wrong-session or cross-origin navigation fails. Invalid payload/version/absolute-target rejection remains automated; do not send unsafe live payloads to manufacture this observation. |
+| TERM-023/028 lifetime and pickup residue; SEC-024 delivery | Compare existing session activity/deadline and generation observations before/after notification handling without user input. Observe retained expiry and an already-approved stopped-session case. Correlate accepted/cancelled event identity without retaining payloads. | Notifications never wake stopped containers, change generation, extend idle time or create history. Host eligibility expires after 15 minutes; provider pickup TTL is one hour. Only already copied/accepted delivery may survive cancellation as bounded residue. Unbounded retention or notification-driven activity fails. |
+
 ### Outbound email boundary
 
-Interpolated email values are HTML-escaped. Provider calls have a ten-second timeout and remain non-fatal to the successful primary operation. Failure logs may identify the recipient and provider error, but never include the email body.
+Interpolated email values are HTML-escaped. Provider calls have a ten-second timeout. The generic helper returns boolean failure; only callers that tolerate it keep their primary operation successful (for example, welcome delivery does not fail login). Public contact/waitlist routes await their provider send and surface non-2xx responses as 502 errors before success; authenticated contact-team returns retryable 503 on false delivery or exceptions. Failure logs may identify the recipient and provider error, but never include the email body.
 
 ### Governed-mode encryption regime
 
@@ -259,7 +296,9 @@ The image pins gh 2.103.3, rebuilds the required rclone source with Go 1.27.3 an
 
 The latest stable upstream lazygit 0.66.2 binary embeds affected Go 1.26.9. This image instead rebuilds the same release from commit/checksum-pinned source with Go 1.27.3 and vendored dependencies; exact-head image build, scan and deployment verification remain required. <!-- @impl: Dockerfile::LAZYGIT_VERSION --> No new suppression is added. The owner's existing CVE-2026-111943 exception, renewed on October 29, 2026, expires automatically on November 5, 2026. Its CVE-wide scope accepts residual CLI-process risk, not proof of unreachability; retire it after the fixed artifact is qualified. See [image pins](../../Dockerfile).
 
-The owner's October 26 image-wide exceptions for CVE-2026-111181 (body-parser), CVE-2026-109869 (undici) and CVE-2023-54404 (zod) expire on November 2, 2026, accepting reachable process-crash and resource-exhaustion risks rather than claiming remediation. See [image pins](../../Dockerfile) and [expiry and scope](../../.trivyignore). Fresh scanning and deployment are still required.
+The image-wide CVE-2026-111181 (body-parser) exception, renewed November 2, expires November 9, 2026. The CVE-2026-109869 (undici) and CVE-2023-54404 (zod) exceptions expire independently on November 2, 2026. These accept reachable process-crash and resource-exhaustion risks rather than claiming remediation; expired entries are not current waivers. See [image pins](../../Dockerfile) and [expiry and scope](../../.trivyignore). Fresh scanning and deployment are still required.
+
+The required runtime security floors are `libpcre2-8-0` at `10.42-1+deb12u2`, `libde265-0` at `1.0.11-1+deb12u3`, `libevent-core-2.1-7` at `2.1.12-stable-8+deb12u1`, and `libgit2-1.5` at `1.5.1+ds-1+deb12u2`. A runtime below any floor fails before image push under [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy).
 
 The executable validator then accepts only its separately listed exact vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Dated scan occurrences belong to CI evidence rather than current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
 
@@ -267,13 +306,14 @@ The [image pins](../../Dockerfile) and owning manifests enforce Debian security 
 
 CVE-2026-78667 and CVE-2026-97031 are owner-authorized CVE-level exceptions for Go server-path findings in session CLIs, reviewed by October 16. Verified latest gh/lazygit artifacts still embed affected Go versions; bumping those releases alone does not fix them. Residual CLI-process risk is accepted, not disproved. The entries affect every scanner target; reassess any new Go server and retire when pinned CLI builds use fixed Go. See [scope and removal conditions](../../.trivyignore).
 
-Historical provenance: retirement of the `gh` CVE-2026-56852 occurrence was verified by workflow run `30612952117` at head `82244a1d117194227c0082b9555f3654f903fbd2`. This receipt is immutable evidence for that occurrence, not a current scanner result.
+Historical CVE-retirement receipts remain in Git and Actions; they are not current scanner results.
 
-### Dependabot audit — 2026-10-18
+<a id="dependabot-audit--2026-10-18"></a>
+### Dependency audit interpretation
 
-The paginated GitHub alert inventory returned 15 open alerts (3 critical, 12 high), 223 historical fixed alerts and no dismissed alerts. All 15 open entries have patched declarations/locks on `develop` at `00fc7dc81f9652036c29c8a08803c23e2daedf92`: #231–232 MCP client 2.3.1, #233–237 MCP SDK 1.32.1 (including removal of the affected nested Pi copy), #238–240 proxy-addr 2.0.8 and #241–245 source-map-js 1.2.2. [PR #1232](https://github.com/nikolanovoselec/codeflare/pull/1232) remains unmerged into default `main`; these alerts remain open there. This is point-in-time manifest/lock evidence, not fresh image validation or default-branch closure. [Dependabot #1303](https://github.com/nikolanovoselec/codeflare/pull/1303) is superseded by develop's newer repairs; its older Pi lock would leave #231/#233 affected.
+Patched declarations and locks do not establish fresh image validation or default-branch alert closure. Compare the active artifact and default branch with the patched dependency before claiming either outcome. Earlier alert inventories remain in [Git history](https://github.com/nikolanovoselec/codeflare/blob/911196bc525c5ad9ab7ecf86480f3113b408a48c/documentation/lanes/security.md#dependabot-audit--2026-10-18), not a current security certification.
 
-Separately, [basic-ftp CVE-2026-102990](https://github.com/advisories/GHSA-c475-qrg2-pj4r) affects versions through 6.2.0, fixed in 6.2.1. The image now pins an integrity-verified 6.2.3 overlay for code-server's bundled copy; packaged smoke checks the version and FTP parsing through its installed get-uri consumer. <!-- @impl: Dockerfile::BASIC_FTP_VERSION --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> The former 5.3.1 exception is removed, not renewed or globally ignored: a clean report passes and recurrence fails. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> Source changes do not repair already-running images; exact-head CI, a fresh image scan and separately authorized deployment remain required. Historical Dependabot closure covers different advisories and does not establish this repair.
+Separately, [basic-ftp CVE-2026-102990](https://github.com/advisories/GHSA-c475-qrg2-pj4r) affects versions through 6.2.0, fixed in 6.2.1. The image now pins an integrity-verified 6.2.4 overlay for code-server's bundled copy; packaged smoke checks the version and FTP parsing through its installed get-uri consumer. <!-- @impl: Dockerfile::BASIC_FTP_VERSION --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> The former 5.3.1 exception is removed, not renewed or globally ignored: a clean report passes and recurrence fails. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> Source changes do not repair already-running images; exact-head CI, a fresh image scan and separately authorized deployment remain required. Historical Dependabot closure covers different advisories and does not establish this repair.
 
 <a id="keyless-source-release-identity"></a>
 ### Release identity alias
@@ -288,7 +328,7 @@ Eligibility, deterministic archives, checksums, Sigstore bundles, and provenance
 | AD68 service-auth environment/host restrictions absent | Accepted but unimplemented; privileged secret grants automation admin | Security/Auth; issue #130 |
 | Trusted session agents are unsandboxed | Required for engineering work; boundary is the session/container/provider scope | Product/security review on capability expansion |
 | Optional encryption key permits covered plaintext fallback | AD32 compatibility; critical warning, Vault unavailable | Operator/configuration; production readiness |
-| Strict-egress startup state can favor availability in bounded cases | Accepted availability trade-off, not credential fallback | Enterprise operations |
+| Strict-egress policy read is uncertain | Retain strict transport; only confirmed absent/`inactive` permits OFF in Enterprise | Enterprise operations |
 | `PROTECTED_PATHS` empty | Bucket authority is the isolation boundary | Storage/security review if in-container trust changes |
 | General rate-limit KV failure may degrade open | Resource/cost exposure, not authentication bypass | Owning route/Billing |
 | Concurrent session cap is best effort | Nominal limit can overrun | Billing/Operations; issue #880 tracks Enterprise simplification |
@@ -342,8 +382,8 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::prepareSidebarConfig -->
 <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
 <!-- @impl: preseed/agents/pi/extensions/sidebar-approval.ts::sidebarApproval -->
-<!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@earendil-works/pi-coding-agent/node_modules/undici -->
-<!-- @impl: preseed/npm-tools/package-lock.json::node_modules/@earendil-works/pi-coding-agent/node_modules/undici -->
+<!-- @impl: preseed/agents/pi/package-lock.json::"node_modules/undici" -->
+<!-- @impl: preseed/npm-tools/package-lock.json::"node_modules/undici" -->
 <!-- @impl: scripts/browser-ide-ui-state.py::capture -->
 <!-- @impl: scripts/ci/sign-release.sh::validate_release_source -->
 <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main -->

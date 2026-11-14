@@ -40,19 +40,47 @@ function* values(value) {
   yield value;
   if (value && typeof value === 'object') for (const child of Object.values(value)) yield* values(child);
 }
-function captured(out) {
-  assert.ok(out.records.length > 0, 'Enabled protected logging must capture actual raw values');
+function captured(out, { archiveFailed = false } = {}) {
+  const raw = [];
+  const incomplete = [];
   for (const record of out.records) {
     assert.equal(typeof record.message, 'string');
     assert.notEqual(record.message, '', 'The existing logger message identifies the stage');
     assert.equal(record.data.activityId, out.binding.activityId);
     assert.equal(record.data.generation, out.binding.generation);
-    assert.ok(Object.hasOwn(record.data, 'value'), 'Raw value is separate from bounded diagnostic metadata');
+    if (record.message === 'raw-capture-incomplete') {
+      // This bounded archive outcome is not a raw value or proof of retention.
+      assert.equal(typeof record.data.stage, 'string');
+      assert.notEqual(record.data.stage, '');
+      assert.deepEqual(record.data, { activityId: out.binding.activityId, generation: out.binding.generation,
+        stage: record.data.stage, status: 'incomplete' });
+      incomplete.push(record.data.stage);
+    } else {
+      assert.ok(Object.hasOwn(record.data, 'value'), 'Raw value is separate from bounded diagnostic metadata');
+      raw.push(record);
+    }
   }
-  return out.records.map(record => record.data.value);
+  assert.ok(raw.length > 0, 'Enabled protected logging must capture actual raw values');
+  const pending = raw.map(record => record.message);
+  for (const stage of incomplete) {
+    const index = pending.indexOf(stage);
+    assert.notEqual(index, -1, 'Each incomplete notice identifies an actual captured stage, without duplicates');
+    pending.splice(index, 1);
+  }
+  if (archiveFailed) assert.deepEqual(pending, [], 'Every failed private archive send must report an incomplete outcome');
+  return raw.map(record => record.data.value);
 }
 function hasExact(raw, expected, why) {
   assert.ok([...values(raw)].some(value => isDeepStrictEqual(value, expected)), why);
+}
+// REQ-ENTERPRISE-079 supersedes signature/thinking visibility, not public
+// transcript completeness. Compare every other field and byte exactly.
+function withoutPrivateReplay(value) {
+  if (Array.isArray(value)) return value.map(withoutPrivateReplay);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key,
+    ['thinking', 'thinkingSignature', 'thoughtSignature', 'textSignature', 'signature'].includes(key)
+      || key === 'data' && value.type === 'redacted_thinking' ? '[REDACTED]' : withoutPrivateReplay(child)]));
 }
 function safeRefusal(response, status) {
   assert.equal(response.status, status, response.raw ?? JSON.stringify(response.body));
@@ -85,7 +113,7 @@ for (const auth of ['missing', 'invalid']) {
 test('REQ-OPERATOR-090: authenticated ON transport captures the first owner lookup original error causes stacks and unbounded detail before the same 403', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'first-lookup-on');
   for (const response of out.responses) safeRefusal(response, 403);
-  const raw = captured(out);
+  const raw = captured(out, { archiveFailed: true });
   for (const expected of [out.expected.outerMessage, out.expected.outerStack, out.expected.childMessage,
     out.expected.childStack, out.expected.aggregateMessage, 'root non-Error cause',
     'literal non-Error cause', out.expected.huge, `${out.expected.safe}-150`]) {
@@ -112,7 +140,7 @@ for (const kind of ['object', 'string']) {
   test(`REQ-OPERATOR-090: first lookup retains a thrown non-Error ${kind} without changing its 403 refusal`, { timeout: 30000 }, async t => {
     const out = await scenario(t, `non-error-${kind}`);
     for (const response of out.responses) safeRefusal(response, 403);
-    const raw = captured(out);
+    const raw = captured(out, { archiveFailed: true });
     if (kind === 'object') {
       hasExact(raw, 'non-Error thrown lookup value', 'Non-Error object failure is not replaced by a fingerprint');
       hasExact(raw, out.expected.huge, 'Non-Error causes have no logging string cap');
@@ -123,7 +151,7 @@ for (const kind of ['object', 'string']) {
 test('REQ-OPERATOR-090: redacts only credentials in headers nested fields signed URLs stringified JSON and literal echoes while preserving private neighbors', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'credentials');
   for (const response of out.responses) safeRefusal(response, 403);
-  const raw = captured(out);
+  const raw = captured(out, { archiveFailed: true });
   const text = JSON.stringify(raw);
   for (const secret of out.expected.secrets) assert.equal(text.includes(secret), false, `Credential must not reach platform logs: ${secret}`);
   hasExact(raw, out.expected.huge, 'Noncredential private payloads must not be removed');
@@ -149,7 +177,7 @@ test('REQ-OPERATOR-090: redacts only credentials in headers nested fields signed
 test('REQ-OPERATOR-082: sanitizer reflection failure leaves the original first lookup refusal intact and marks unavailable evidence', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'sanitizer-failure');
   for (const response of out.responses) safeRefusal(response, 403);
-  const raw = captured(out);
+  const raw = captured(out, { archiveFailed: true });
   hasExact(raw, out.expected.outerMessage, 'Inspectable original error evidence survives one uninspectable member');
   assert.match(JSON.stringify(raw), /unavailable|uninspectable|unsupported|serialization/i,
     'Uninspectable evidence must not be silently advertised as complete');
@@ -248,15 +276,23 @@ for (const source of ['custom', 'native', 'managed']) {
       } else if (source === 'custom') assert.equal(out.sends[0].body.options.reasoning, 'low');
       if (!enabled) { assert.deepEqual(out.records, []); return; }
       const raw = captured(out);
-      hasExact(raw, out.input.context, 'Complete observed transcript includes large private tool input and output, not a digest or allowlisted shape');
-      hasExact(raw, result, 'Complete functional result is captured without rewriting response bytes');
-      hasExact(raw, out.response.body.events.at(-1), 'Public SDK done event remains complete');
+      hasExact(raw, withoutPrivateReplay(out.input.context), 'Every non-replay transcript field includes full large tool input and output');
+      hasExact(raw, withoutPrivateReplay(result), 'Every non-replay result field is captured without rewriting response bytes');
+      hasExact(raw, withoutPrivateReplay(out.response.body.events.at(-1)), 'Public SDK done event retains all non-replay fields');
+      for (const privateValue of ['prior thought', 'prior-signature', 'provider-owned reasoning', 'fixture-thinking-signature'])
+        assert.equal(JSON.stringify(raw).includes(privateValue), false, 'Private thinking and signatures cannot reach enabled logs');
+      if (source !== 'native') {
+        assert.deepEqual(out.input.context.messages[2].content[0],
+          { type: 'thinking', thinking: 'prior thought', thinkingSignature: 'prior-signature' });
+        assert.deepEqual(result.content.find(part => part.type === 'thinking'),
+          { type: 'thinking', thinking: 'provider-owned reasoning', thinkingSignature: 'fixture-thinking-signature' });
+      }
       assert.equal(JSON.stringify(raw).includes(out.expected.credential), false);
       assert.equal(JSON.stringify(raw).includes(out.expected.responseCookie), false);
       assert.ok([...values(raw)].some(value => value?.headers?.['x-noncredential-debug'] === out.expected.headerSafe),
         'Public response-header observation preserves private noncredential neighbors while redacting cookies');
       if (source !== 'native') {
-        hasExact(raw, out.sends[0].body, 'Public onPayload observes the actual outgoing provider request, including configured model metadata');
+        hasExact(raw, withoutPrivateReplay(out.sends[0].body), 'Public onPayload retains the complete outgoing non-replay request and model metadata');
         hasExact(raw, { type: 'fixture-response', text: out.expected.answer }, 'Public provider-stream response payload remains complete');
         assert.ok([...values(raw)].some(value => value?.type === 'toolcall_end' && value.toolCall?.arguments?.path === 'release.json'));
         hasExact(raw, `${out.expected.safe}-150`, 'Array entries beyond 100 are not truncated');
@@ -272,7 +308,7 @@ test('REQ-OPERATOR-090: raw public SDK events beyond 100 remain complete without
   assert.equal(events.length, 161, 'Every provider fragment is delivered through the normal functional iterator');
   assert.equal(events.map(event => event.delta).join(''), out.expected.answer);
   const raw = captured(out);
-  for (const event of events) hasExact(raw, event, `Observed event ${event.delta} must not disappear behind a logging count cap`);
+  for (const event of events) hasExact(raw, withoutPrivateReplay(event), `Observed event ${event.delta} must retain every public field without a logging count cap`);
 });
 
 test('REQ-OPERATOR-090: fragmented credential text is redacted using assembled functional values without changing original SDK bytes', { timeout: 60000 }, async t => {

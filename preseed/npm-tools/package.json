@@ -1,7 +1,7 @@
 {
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.314",
-    "@earendil-works/pi-coding-agent": "1.5.0",
+    "@anthropic-ai/claude-code": "2.1.318",
+    "@earendil-works/pi-coding-agent": "1.5.2",
     "@github/copilot": "1.0.105",
     "@openai/codex": "0.166.0",
     "bun": "1.4.4",
@@ -12,22 +12,22 @@
     "opencode-ai": "1.19.5"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "1.5.0",
-    "@earendil-works/pi-ai": "1.5.0",
-    "@earendil-works/pi-tui": "1.5.0"
+    "@earendil-works/pi-agent-core": "1.5.2",
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-tui": "1.5.2"
   },
   "name": "codeflare-image-npm-tools",
   "overrides": {
-    "@hono/node-server": "2.1.5",
-    "brace-expansion": "5.0.12",
-    "protobufjs": "7.6.6",
-    "undici": "8.12.3",
-    "ip-address": "10.7.5",
-    "ws": "8.22.0",
+    "@hono/node-server": "2.1.6",
     "@modelcontextprotocol/sdk": "1.32.2",
     "body-parser": "2.4.0",
+    "brace-expansion": "5.0.12",
     "fast-uri": "3.1.9",
-    "hono": "^4.13.16"
+    "hono": "^4.13.16",
+    "ip-address": "10.7.6",
+    "protobufjs": "7.6.6",
+    "undici": "8.12.3",
+    "ws": "8.22.1"
   },
   "private": true
 }

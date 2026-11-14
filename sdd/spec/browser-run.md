@@ -55,7 +55,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-browser-run-mcp](../../host/__tests__/entrypoint-browser-run-mcp.test.js); Manual: [Claude Browser Run observation](../../documentation/lanes/preseed.md#claude-browser-run-observation)
 
 **Status:** Implemented
 
@@ -82,7 +82,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-AGENT-010](agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-079](agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog)
 
-**Verification:** Automated test
+**Verification:** Automated: [oauth-scopes.test.ts](../../src/__tests__/lib/oauth-scopes.test.ts)
 
 **Status:** Implemented
 
@@ -96,12 +96,12 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. A Pi extension registers native `browser_markdown`, `browser_content`, and `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions (`/markdown`, `/content`, `/scrape`). <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
-2. The extension registers nothing unless `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are present, and is seeded only in Pro (advanced) session mode — so Standard mode and token-less deploys are byte-identical to today. <!-- @impl: preseed/agents/pi/extensions/browser-run.ts::default --> <!-- @manual -->
-3. Before fetch, tools reject malformed, credential-bearing, non-HTTP(S), localhost, private, loopback, link-local, and unspecified literal targets. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::initialTargetError --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+1. A Pi extension registers native `browser_markdown`, `browser_content` and `browser_scrape` tools backed by the corresponding Cloudflare Browser Run REST Quick Actions. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
+2. The extension registers nothing unless the Cloudflare token and account identifier are present, and is seeded only in Pro (advanced) session mode; Standard mode and token-less deployments remain byte-identical to existing behavior. <!-- @impl: preseed/agents/pi/extensions/browser-run.ts::default --> <!-- @manual -->
+3. Before fetch, tools reject malformed, credential-bearing, non-HTTP(S), localhost, private, loopback, link-local, and unspecified literal targets. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::initialTargetError --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (rejects %s before any Browser Run fetch) -->
 4. Accepted output is capped. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::truncate --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-003 AC4: caps an over-cap string at the limit and reports the dropped count) -->
 5. Browser Run failures surface as tool errors rather than thrown exceptions. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-003 AC5: an error surfaces as isError, not a throw) -->
-6. A `browser-run` skill is seeded (advanced mode) positioning these tools in an explicit web-fetch decision tree as the cheap read step for JS-rendered or bot-blocked pages the agent only needs to READ. <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
+6. A `browser-run` skill is seeded (advanced mode) positioning these tools in an explicit web-fetch decision tree as the cheap read step for JS-rendered or bot-blocked pages the agent only needs to READ. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 
 **Constraints:**
 
@@ -113,7 +113,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline), [REQ-BROWSER-010](#req-browser-010-rest-request-lifecycle)
 
-**Verification:** Automated test
+**Verification:** Automated: [browser-run core](../../src/__tests__/lib/browser-run-core.test.ts); Manual: [Browser read registration observation](../../documentation/lanes/preseed.md#browser-read-registration-observation)
 
 **Status:** Implemented
 
@@ -130,7 +130,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 1. Advanced Claude seeds `browser-e2e`, which uses interactive `chrome-devtools` to verify the user's deployed app and returns an evidence-backed pass/fail verdict for each acceptance criterion. <!-- @manual -->
 2. Advanced Pi seeds `browser-e2e` for full-flow navigate, click, screenshot, and mobile-resize verification through the MCP proxy; native markdown and scrape tools remain the cheap read-only path, matching Claude capability. <!-- @manual -->
 3. Both skills scope targets to public / deployed URLs (Browser Run is remote and cannot reach localhost or private hosts) and to the user's own app under test, and both state that deterministic invariants remain in the CI suite. <!-- @manual -->
-4. Both skills are manifest-seeded and expose the interactive and cheap-read Browser Run surfaces defined by [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity), and [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter). <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
+4. Both skills are manifest-seeded and expose the interactive and cheap-read Browser Run surfaces defined by [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity), and [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter). <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 
 **Constraints:**
 
@@ -141,7 +141,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity), [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)
 
-**Verification:** Manual verification
+**Verification:** Manual: [Browser semantic observation](../../documentation/lanes/preseed.md#browser-semantic-observation)
 
 **Status:** Implemented
 
@@ -149,15 +149,15 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ### REQ-BROWSER-005: Claude browser-run MCP server (read-surface parity)
 
-**Intent:** Claude lacked a clean page→Markdown tool — `chrome-devtools` gives an accessibility snapshot and raw DOM, not the Readability-clean HTML→Markdown that Browser Run's REST `/markdown` produces. Give Claude the same cheap one-shot read surface Pi has natively, so the two agents are symmetric and Claude can do the landing's "open web, distilled to Markdown" trick itself.
+**Intent:** Claude has the same cheap one-shot, Readability-clean HTML-to-Markdown Browser Run read surface as native Pi, rather than being limited to accessibility snapshots and raw DOM.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`) exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same endpoints, ~120k output cap, empty-render hint, `wait_until`). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
-2. Built into the image and registered in `~/.claude.json` only in Pro (advanced) mode AND when `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` are present; Standard / token-less sessions are byte-identical to today, and the token + account are passed in the server's scoped env. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @manual -->
-3. Initial fetch rejects malformed, credential-bearing, non-HTTP(S), localhost, and private-address targets before network activity. <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::initialTargetError --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
+1. A Claude-side MCP server exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same REST actions, ~120k output cap, empty-render hint and rendered wait strategies). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
+2. Built into the image and registered in Claude's managed MCP configuration only in Pro (advanced) mode with Cloudflare token and account identifier present; Standard/token-less sessions remain byte-identical, and both values are passed in the server's scoped environment. <!-- @impl: entrypoint.sh::BROWSER_RUN_MCP_CLAUDE --> <!-- @manual -->
+3. Initial fetch rejects malformed, credential-bearing, non-HTTP(S), localhost, and private-address targets before network activity. <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::initialTargetError --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (rejects %s before any Browser Run fetch) -->
 4. The Claude `browser-run` skill positions this read surface (cheap, one-shot) ahead of the interactive `chrome-devtools` surface in its decision order. <!-- @manual -->
 
 **Constraints:**
@@ -169,7 +169,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-010](#req-browser-010-rest-request-lifecycle)
 
-**Verification:** Automated test
+**Verification:** Automated: [browser-run core](../../src/__tests__/lib/browser-run-core.test.ts); Manual: [Browser read registration observation](../../documentation/lanes/preseed.md#browser-read-registration-observation)
 
 **Status:** Implemented
 
@@ -194,6 +194,8 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 6. Pi's interactive tools control the same authenticated Browser Run browser surface as Claude. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
 7. Pi starts interactive browser resources only on explicit connection, not status or capability discovery. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
 
+**Notes:** MCP process startup is not browser acquisition. [Cold-discovery verification](../../documentation/lanes/preseed.md#cold-discovery-acquisition-observation) uses an isolated empty metadata cache and direct provider session observations, not cached tool listings alone.
+
 **Constraints:**
 
 - Same gate as the rest of Browser Run (advanced + a token carrying the `Browser Rendering - Edit` scope); the `chrome-devtools` server is the same Dockerfile-baked `chrome-devtools-mcp` binary Claude uses.
@@ -210,7 +212,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-BROWSER-009](#req-browser-009-mcp-and-chrome-sdk-timeout-profile)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-browser-run-mcp.test.js](../../host/__tests__/entrypoint-browser-run-mcp.test.js); Manual: [Pi interactive browser acceptance](../../documentation/lanes/preseed.md#pi-interactive-browser-acceptance)
 
 **Status:** Implemented
 
@@ -218,16 +220,16 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ### REQ-BROWSER-007: Enterprise admin-configured Browser Rendering token
 
-**Intent:** In enterprise mode individual users do not manage deploy credentials, so the Cloudflare Browser Rendering token that browser-run needs is configured once by an admin in the Setup wizard and applied to every session — rather than each user pasting their own token into the per-user "Push & Deploy" settings accordion (which is hidden in enterprise). When no token is configured, the entire browser-run surface is withheld from the agents.
+**Intent:** An Enterprise administrator configures Browser Run credentials once for all sessions, independently of each user’s optional Cloudflare integration. Without a configured pair, Browser Run remains unavailable.
 
 **Applies To:** System
 
 **Acceptance Criteria:**
 
 1. Enterprise setup accepts an admin-global Browser Rendering token and account ID. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Browser Rendering token (enterprise admin-global)) -->
-2. Configured at-rest encryption protects token storage; otherwise the accepted [AD32](../../documentation/decisions/README.md#ad32-encryption_key-is-optional) plaintext fallback applies. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/lib/kv-crypto.test.ts (encryptAndStore / REQ-SEC-006 AC7 (real updates always encrypt directly)) --> <!-- @manual -->
-3. Prefill reveals only token presence, and a blank save preserves the existing value. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-BROWSER-007: admin Browser Rendering token prefill (masked)) --> <!-- @manual -->
-4. In enterprise mode the per-user "Push & Deploy" deploy-keys settings accordion is not rendered: GitHub is connected via the GitHub panel ([REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage)) and the Cloudflare token is the admin-global Setup value, so no per-user deploy-credential entry is shown. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::ACCORDION_SUBTITLES --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-BROWSER-007: Push & Deploy accordion gating) -->
+2. Configured at-rest encryption protects token storage; otherwise the accepted [AD32](../../documentation/decisions/README.md#ad32-encryption_key-is-optional) plaintext fallback applies. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/lib/kv-crypto.test.ts (encryptAndStore / REQ-SEC-006 AC7 (real updates always encrypt directly)) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-BROWSER-007 AC1–3: saves and logically reads back a token after blank Save ($storage)) -->
+3. Prefill reveals only token presence, and a blank save preserves the existing value. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-BROWSER-007: admin Browser Rendering token prefill (masked)) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-BROWSER-007 AC1–3: saves and logically reads back a token after blank Save ($storage)) -->
+4. Enterprise Settings exposes configured owner Cloudflare integrations independently of administrator Browser Run configuration. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-AGENT-018/064: Integrations is not Enterprise-suppressed) -->
 5. Enterprise containers receive only non-secret Browser Rendering identity placeholders; the real token remains outside the container ([REQ-BROWSER-008](#req-browser-008-browser-rendering-token-interception-never-in-the-container)). <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/browser-render-token.test.ts (REQ-BROWSER-008: enterprise + configured sets the PLACEHOLDER (never the real token) + admin account, preserves githubToken) -->
 6. When no Browser Rendering token is configured, none of the browser-run surface is seeded to the agents: the `chrome-devtools` + `browser-run` MCP servers are not registered and the Pi native extension registers no tools (already gated). <!-- @impl: entrypoint.sh::PLUGIN_DIR --> <!-- @manual -->
 
@@ -241,7 +243,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage), [REQ-SETUP-006](setup.md#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated: [setup/handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [admin-configuration-runs.test.ts](../../src/__tests__/routes/admin-configuration-runs.test.ts), [kv-crypto.test.ts](../../src/__tests__/lib/kv-crypto.test.ts), [enterprise-surface-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx); Manual: [Browser read registration observation](../../documentation/lanes/preseed.md#browser-read-registration-observation)
 
 **Status:** Implemented
 
@@ -255,20 +257,20 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. The container's `CLOUDFLARE_API_TOKEN` is the non-secret placeholder `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER` (`'codeflare-enterprise'`), emitted only when an admin token is configured (else absent → browser-run unregistered per [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token) AC6). The real token is read worker-side and never written to container env. <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/lib/browser-render-token.ts::getEnterpriseBrowserCreds --> <!-- @test: src/__tests__/lib/browser-render-token.test.ts (REQ-BROWSER-008: enterprise + configured sets the PLACEHOLDER (never the real token) + admin account, preserves githubToken) -->
+1. The container receives the non-secret Cloudflare placeholder `'codeflare-enterprise'` only when an admin token is configured (otherwise absent and Browser Run unregistered per [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token) AC6). The real token is read Worker-side and never written to container environment. <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/lib/browser-render-token.ts::getEnterpriseBrowserCreds --> <!-- @test: src/__tests__/lib/browser-render-token.test.ts (REQ-BROWSER-008: enterprise + configured sets the PLACEHOLDER (never the real token) + admin account, preserves githubToken) -->
 2. Enterprise registers Cloudflare API transport ahead of the strict-egress catch-all, independently of Browser configuration and strict mode. <!-- @impl: src/container/container-interception.ts::browserRendering --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008 AC2: registered Browser dispatch precedes strict catch-all with strict=%s) -->
-3. Managed REST/CDP for the configured account's `/browser-rendering/*` uses Worker-held administrator credentials only for absent/exact-placeholder authentication, forwarding through `EGRESS` when strict is ON and directly when OFF; missing strict binding returns `503 EGRESS_UNAVAILABLE` without fallback. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (managed REST preserves the request and wrapped Markdown response with strict=%s) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (managed strict REST/CDP upgrade=$upgrade fails closed on $failure without identity fallback) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket) --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008 AC3: registered Markdown tool preserves Gateway result/refusal blocked=%s) -->
-4. Managed non-Browser API requests use strict inspection when enabled, otherwise return `403`, except for permitted current-human Workers AI delegation under [REQ-ENTERPRISE-090](models-and-routing.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-BROWSER-008: CloudflareBrowserInterceptor REST path) -->
+3. Managed REST/CDP for the configured account's Browser Rendering namespace uses Worker-held administrator credentials only for absent/exact-placeholder authentication, through the strict Gateway binding when ON and directly when OFF; missing binding returns 503 EGRESS_UNAVAILABLE without fallback. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (managed REST preserves the request and wrapped Markdown response with strict=%s) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (managed strict REST/CDP upgrade=$upgrade fails closed on $failure without identity fallback) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket) --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008 AC3: registered Markdown tool preserves Gateway result/refusal blocked=%s) -->
+4. Managed Enterprise non-Browser APIs require a usable parent-bound owner grant, never administrator Browser credentials; strict mode additionally requires Gateway egress. Current-human Workers AI delegation remains separate ([REQ-ENTERPRISE-090](models-and-routing.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission)). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-BROWSER-008: CloudflareBrowserInterceptor REST path) --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-AGENT-078/REQ-BROWSER-008: Enterprise $reason cannot fall back to admin credentials) -->
 5. Managed Browser requests without configured administrator credentials fail closed with `401 BROWSER_NO_TOKEN` before any upstream call. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008 AC5: missing %s leaves Browser traffic without admin credentials) -->
 6. Authorized caller-authenticated Cloudflare API traffic uses strict inspection when enabled, otherwise direct egress, independently of Browser configuration. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008/REQ-AGENT-078: caller identity through registered $mode transport) -->
 7. Intercepted requests with malformed, incomplete, conflicting or wrong-mode Cloudflare credentials fail closed with `400 CF_CREDENTIALS_INVALID`. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/lib/cloudflare-credentials.ts::classifyCloudflareCredentials --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (refuses malformed, incomplete, conflicting or wrong-mode caller auth: %j) -->
 
 **Constraints:**
 
-- Container placeholders become real credentials only at the Worker boundary; session configuration, never requests, binds the trusted account.
+- Container placeholders become credentials only Worker-side; trusted accounts bind to session configuration, never requests.
 - Tool registration and administrator-placeholder prerequisites remain unchanged; caller credentials never widen administrator scope.
 - Native permissions and Operator restrictions govern every credential lane.
-- Enterprise administrator `/browser-rendering/*` and guarded non-enterprise OAuth modes never coexist ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)).
+- Enterprise owner integration and administrator Browser Run retain distinct request ownership; missing owner grants never borrow administrator credentials ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)).
 - Existing CDP clients retain fresh-socket bridging through the selected transport and the validated owned provider ID; no new Browser binding, proxy, heartbeat, profile store or client migration ([REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)).
 - Gateway/API refusals remain unchanged and transport exceptions return bounded `502 BROWSER_FETCH_FAILED`, without direct or alternate-identity retry.
 - Gateway enables eligible Browser API REST policy/AV/DLP, not remote Chrome network inspection, Markdown sanitization, prompt-injection prevention or WebSocket-frame DLP; authorized live compatibility/inspection evidence remains separate.
@@ -279,9 +281,11 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Dependencies:** [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token), [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)
 
-**Verification:** Existing interceptor, registered transport, placeholder and credential-resolver suites cover the established boundary. New [browser continuity regressions](../../src/__tests__/container/browser-continuity.test.ts) cover lazy acquisition, exact-ID reuse, reconstruction, scope drift, acquisition uncertainty and strict failure. The current continuity diff awaits executed checks, exact-head CI and legitimate-owner live reconnect/authentication readback; source alone is not deployed acceptance.
+**Verification:** Automated: [browser-render-token.test.ts](../../src/__tests__/lib/browser-render-token.test.ts), [browser-interception.test.ts](../../src/__tests__/container/browser-interception.test.ts), [cloudflare-browser-interceptor.test.ts](../../src/__tests__/cloudflare-browser-interceptor.test.ts), [browser-continuity.test.ts](../../src/__tests__/container/browser-continuity.test.ts)
 
 **Status:** Implemented
+
+---
 
 Task #114 implementation candidate follows [RED CI40255590866](https://github.com/nikolanovoselec/codeflare/actions/runs/40255590866), which observed all 21 intended routing failures across the owning suites. Source now selects strict-aware REST/CDP transport; final exact-head GREEN, deployment, live compatibility and applicable AV/DLP evidence remain pending.
 
@@ -295,26 +299,25 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Acceptance Criteria:**
 
-1. Pi's default MCP RPC request budget is six minutes after startup or managed load/reload. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts = 360000 --> <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1: fresh Pi load configures six-minute RPC requests without fabricating servers) -->
-2. Existing Chrome-specific MCP RPC overrides are six minutes after startup or managed load/reload. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts = 360000 --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-009 AC1/AC2/AC4: startup aligns Chrome RPC timeout while preserving native lifecycle and auth) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals) -->
-3. The shared image's Chrome SDK uses six-minute base operation/navigation defaults and a six-minute CDP protocol budget for the configured remote WebSocket connection. Native browser-launch safeguards are unchanged. <!-- @impl: scripts/patch-chrome-devtools-timeouts.mjs::prepareChromeTimeouts = 360_000 --> <!-- @impl: Dockerfile::patch-chrome-devtools-timeouts.mjs --> <!-- @test: scripts/ci/chrome-devtools-timeouts.test.mjs (REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page and remote protocol defaults) -->
-4. Timeout preparation preserves custom credentials, supported native lifecycle choices and unrelated configuration. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals) -->
-5. Timeout preparation archives transformed custom originals byte-for-byte before replacement. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals) -->
-6. Managed Pi load/reload prepares the bounded twenty-minute provider inactivity window for recognized Cloudflare Browser Run interactive acquisitions, independently of request and navigation budgets. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::registerMcpAdapterMigration --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts = 1200000 --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC6: timeout policy leaves unrelated endpoint routing unchanged) -->
+1. Pi's default MCP RPC request budget is six minutes after startup or managed load/reload. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::settings.requestTimeoutMs = 360000 --> <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1: fresh Pi load configures six-minute RPC requests without fabricating servers) -->
+2. Existing Chrome-specific MCP RPC overrides are six minutes after startup or managed load/reload. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::settings.requestTimeoutMs = 360000 --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-009 AC1/AC2/AC4: startup aligns Chrome RPC timeout while preserving native lifecycle and auth) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals (regenerate=${regenerate})) -->
+3. The shared image's Chrome SDK uses six-minute base operation/navigation defaults and a six-minute CDP protocol budget for the configured remote WebSocket connection. Native browser-launch safeguards are unchanged. <!-- @impl: scripts/patch-chrome-devtools-timeouts.mjs::DEFAULT_TIMEOUT = 360_000 --> <!-- @impl: Dockerfile::patch-chrome-devtools-timeouts.mjs --> <!-- @test: scripts/ci/chrome-devtools-timeouts.test.mjs (REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page and remote protocol defaults) -->
+4. Timeout preparation preserves custom credentials, supported native lifecycle choices and unrelated configuration. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals (regenerate=${regenerate})) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-009 AC1/AC2/AC4: startup aligns Chrome RPC timeout while preserving native lifecycle and auth) -->
+5. Timeout preparation archives transformed custom originals byte-for-byte before replacement. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals (regenerate=${regenerate})) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC5: archive failure leaves ${mode} timeout configuration unchanged) -->
+6. Managed Pi load/reload prepares the bounded twenty-minute provider inactivity window for recognized Cloudflare Browser Run interactive acquisitions, independently of request and navigation budgets. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::registerMcpAdapterMigration --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::url.searchParams.set = "1200000" --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals (regenerate=${regenerate})) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC6: timeout policy leaves unrelated endpoint routing unchanged (${endpoint})) -->
 
 7. Claude's generated `chrome-devtools` and `browser-run` MCP entries each carry a six-minute tool-call timeout; unrelated server timeout settings remain unchanged. <!-- @impl: entrypoint.sh::BROWSER_MCP_CLAUDE --> <!-- @impl: entrypoint.sh::BROWSER_RUN_MCP_CLAUDE --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-009 AC7: Claude browser MCP calls receive six minutes without changing unrelated servers) -->
 
 **Constraints:**
 
-- RPC budgets apply per call, not per workflow.
-- The native adapter resets its six-minute request timeout on progress; supported elicitation pauses it. It is not a fixed total workflow deadline. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: native request timeout resets on progress and cancellation reaches the real server) --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: configured six-minute call budget permits a response beyond thirty seconds) -->
+- RPC budgets are per-call; native progress resets six-minute requests, supported elicitation pauses them, and no fixed total workflow deadline applies. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: native request timeout resets on progress and cancellation reaches the real server) --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: configured six-minute call budget permits a response beyond thirty seconds) -->
 - Claude overrides remain browser-scoped, preserving unrelated servers and native startup/teardown safeguards.
 - Fresh Pi load creates timeout settings, never servers or credentials.
 - [REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration) owns filename migration/regeneration before timeout preparation.
 - Customized shapes, external routing and credentials remain unchanged.
 - Chrome emulation may multiply page waits, not the MCP budget.
 - Short stabilization/teardown timers remain unchanged.
-- Managed lazy connections use a ten-minute adapter idle timer without health pings. Active calls remain protected; remote `keep_alive=1200000` and website authentication are independent.
+- Managed lazy connections idle-disconnect after ten minutes without health pings; active calls remain protected, independently of remote `keep_alive=1200000` and website authentication.
 - Schema-supported 120000ms navigation guidance separates navigation, RPC, remote inactivity and owner authentication.
 - Reconnection permits neither uncertain-mutation replay nor inferred owner authentication.
 - Equal budgets cannot guarantee structured timeout reporting before transport expiry.
@@ -324,7 +327,7 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Dependencies:** [REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration)
 
-**Verification:** Focused migration and real locked-extension synthetic-server tests are authored; no local execution was performed for this handoff. Exact-head CI and deployed browser acceptance remain required.
+**Verification:** Automated: [entrypoint-browser-run-mcp.test.js](../../host/__tests__/entrypoint-browser-run-mcp.test.js), [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js), [chrome-devtools-timeouts.test.mjs](../../scripts/ci/chrome-devtools-timeouts.test.mjs), [consult-proxy.test.mjs](../../preseed/agents/pi/test/consult-proxy.test.mjs)
 
 **Status:** Implemented
 
@@ -356,7 +359,7 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Dependencies:** [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)
 
-**Verification:** Automated test
+**Verification:** Automated: [browser-run-core.test.ts](../../src/__tests__/lib/browser-run-core.test.ts)
 
 **Status:** Implemented
 
@@ -388,7 +391,7 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Dependencies:** [REQ-BROWSER-008](#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-BROWSER-009](#req-browser-009-mcp-and-chrome-sdk-timeout-profile)
 
-**Verification:** Behavioral regressions cover reference reuse, authority changes, uncertainty and failure recovery. Exact-head CI and legitimate-owner hosted reconnect acceptance remain required.
+**Verification:** Automated: [browser-continuity.test.ts](../../src/__tests__/container/browser-continuity.test.ts)
 
 **Status:** Implemented
 
@@ -415,7 +418,7 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Dependencies:** [REQ-BROWSER-011](#req-browser-011-owner-bound-interactive-browser-continuity), [REQ-BROWSER-008](#req-browser-008-browser-rendering-token-interception-never-in-the-container)
 
-**Verification:** Delayed-attachment races and credential-lane regressions; exact-head CI and hosted acceptance remain separate.
+**Verification:** Automated: [browser-continuity.test.ts](../../src/__tests__/container/browser-continuity.test.ts)
 
 **Status:** Implemented
 

@@ -276,6 +276,10 @@ if [ "${1:-}" = "stop" ]; then
         # Recover the directory lock used by older immutable images. Current
         # launchers use kernel-released flock ownership on a regular file.
         [ ! -d "$HERDR_RUNTIME_ROOT/bootstrap.lock" ] || rm -rf "$HERDR_RUNTIME_ROOT/bootstrap.lock"
+    else
+        status=$?
+        printf 'Herdr named runtime stop failed (status %s)\n' "$status" >&2
+        exit "$status"
     fi
     exit 0
 fi

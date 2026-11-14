@@ -122,6 +122,35 @@ class StdinFailingPiSpawner implements PiProcessSpawner {
   }
 }
 
+test('REQ-IDE-008 AC1: cancellation retires a backend blocked on its prompt pipe', async () => {
+  class BackpressuredChild extends FakePiChild {
+    #rejectWrite: ((error: Error) => void) | undefined;
+    override write(line: string): Promise<void> {
+      super.write(line);
+      return new Promise((_resolve, reject) => { this.#rejectWrite = reject; });
+    }
+    override signal(): void {
+      this.exited = true;
+      this.#rejectWrite?.(new Error('Pi prompt pipe closed on process exit'));
+    }
+  }
+  const child = new BackpressuredChild();
+  const backend = new PiRpcBackend({ spawn: () => child }, new ApprovalBridge(new UnexpectedApprovalHost()));
+  const turn = backend.runPrompt('blocked prompt', {
+    markdown: () => undefined, progress: () => undefined,
+  }).catch(() => undefined);
+  await waitForImmediate();
+  try {
+    const retired = await Promise.race([
+      Promise.all([backend.abort(), turn]).then(() => true),
+      waitForTimeout(1_000, false),
+    ]);
+    assert.equal(retired, true, 'cancellation waited for the blocked prompt instead of retiring its process');
+    assert.equal(child.exited, true);
+    assert.equal(backend.isReusable(), false);
+  } finally { await backend.stop(); }
+});
+
 test('REQ-IDE-008 AC1: cancellation during Pi startup cannot send a prompt after spawn completes', async () => {
   const spawner = new DelayedSpawnPiSpawner();
   const backend = new PiRpcBackend(spawner, new ApprovalBridge(new UnexpectedApprovalHost()));

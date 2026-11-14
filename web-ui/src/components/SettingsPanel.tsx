@@ -1,4 +1,4 @@
-import { Component, createSignal, createEffect, createRenderEffect, on, Show, onMount, JSX } from 'solid-js';
+import { Component, createSignal, createEffect, createRenderEffect, on, Show, onMount, onCleanup, JSX } from 'solid-js';
 import {
   mdiClose,
   mdiCogOutline,
@@ -11,7 +11,7 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
 import { getUser } from '../api/client';
-import type { AccessTier, SessionWorkspace, SubscriptionTier } from '../types';
+import type { AccessTier, SessionMode, SessionWorkspace, SubscriptionTier } from '../types';
 import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
@@ -32,6 +32,7 @@ interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   currentUserEmail?: string;
+  mcpReturnOutcome?: import('../lib/mcp-portal-recovery').McpReturnOutcome;
   currentUserRole?: 'admin' | 'user';
   currentUserAccessTier?: import('../types').AccessTier;
   enterpriseMode?: boolean;
@@ -109,7 +110,7 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
 const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   appearance: 'Colors, tips & display preferences',
   session: 'Startup behavior & workspace sync',
-  deploy: 'Connect GitHub & Cloudflare for one-click deploy',
+  deploy: 'Connect Cloudflare for resource management & deploys',
   mcp: 'Connect portals & manage tool access',
   llm: 'Connect GPT & Gemini for second opinions (optional)',
   admin: 'Environment, analytics & initialization',
@@ -134,20 +135,29 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   // upgrades take effect without a full page reload.
   const [liveAccessTier, setLiveAccessTier] = createSignal<AccessTier | SubscriptionTier | undefined>(props.currentUserAccessTier);
 
-  // Reset accordion to Appearance when panel is closed then reopened (false → true)
+  const [liveAllowedModes, setLiveAllowedModes] = createSignal<SessionMode[] | undefined>();
+
+  // Refresh on opening or owner/deployment changes. A closed/replaced read may
+  // not restore stale availability after a newer read or owner has taken over.
   createEffect(on(
-    () => props.isOpen,
-    (isOpen, prevIsOpen) => {
-      if (isOpen && !prevIsOpen) {
-        setOpenGroup('appearance');
-        // Re-fetch tier on panel open
-        getUser().then((user) => {
-          const tier = user.subscriptionTier ?? user.accessTier;
-          if (tier) setLiveAccessTier(tier);
-          setUserHasSubscribed(user.hasSubscribed === true);
-          setLiveSubscribedMode(user.subscribedMode ?? 'default');
-        }).catch(() => {});
-      }
+    () => [props.isOpen, props.currentUserEmail, sessionStore.saasMode] as const,
+    ([isOpen, owner, saasMode], previous) => {
+      let current = true;
+      onCleanup(() => { current = false; });
+      setLiveAllowedModes(undefined);
+      if (!isOpen) return;
+      if (!previous?.[0]) setOpenGroup('appearance');
+      getUser().then((user) => {
+        if (!current || !props.isOpen || props.currentUserEmail !== owner
+          || sessionStore.saasMode !== saasMode || (owner && user.email !== owner)) return;
+        const tier = user.subscriptionTier ?? user.accessTier;
+        if (tier) setLiveAccessTier(tier);
+        setUserHasSubscribed(user.hasSubscribed === true);
+        setLiveSubscribedMode(user.subscribedMode ?? 'default');
+        setLiveAllowedModes(user.allowedModes);
+      }).catch(() => {
+        // Missing/failed SaaS availability remains disabled until a fresh read.
+      });
     }
   ));
 
@@ -156,16 +166,16 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
 
   const isAdmin = () => props.currentUserRole === 'admin';
-  // Initialize from local preference until async getUser() returns the server-side subscribedMode
+  // Preserve legacy metadata/preference behavior outside SaaS.
   const [liveSubscribedMode, setLiveSubscribedMode] = createSignal<'default' | 'advanced'>(
     (sessionStore.preferences.sessionMode as 'default' | 'advanced') ?? 'default'
   );
   const canUseAdvanced = () => {
     // Admin always has access
     if (isAdmin()) return true;
-    // User must have subscribed to Pro via subscribe page (stored in user record).
-    // subscribedMode is the source of truth from Stripe — if they paid for Pro,
-    // they can use it regardless of which tier (standard, advanced, max, unlimited).
+    // REQ-SUB-014: SaaS presentation follows canonical server availability,
+    // never stale subscribedMode or a saved Advanced preference while loading.
+    if (sessionStore.saasMode) return liveAllowedModes()?.includes('advanced') === true;
     return liveSubscribedMode() === 'advanced';
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
@@ -422,20 +432,16 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             />
           </AccordionSection>
 
-          {/* ── Push & Deploy (hidden in enterprise: GitHub is managed via Connect
-               GitHub and the Cloudflare Browser Rendering token is admin-configured
-               in Setup, so users never manage deploy credentials — REQ-BROWSER-007) ── */}
-          <Show when={!props.enterpriseMode}>
-            <AccordionSection
-              group="deploy"
-              title="Push & Deploy"
-              subtitle={ACCORDION_SUBTITLES.deploy}
-              isOpen={openGroup() === 'deploy'}
-              onToggle={() => handleAccordionClick('deploy')}
-            >
-              <DeployKeysSection />
-            </AccordionSection>
-          </Show>
+          {/* User-owned integrations are separate from administrator Browser Run credentials. */}
+          <AccordionSection
+            group="deploy"
+            title="Integrations"
+            subtitle={ACCORDION_SUBTITLES.deploy}
+            isOpen={openGroup() === 'deploy'}
+            onToggle={() => handleAccordionClick('deploy')}
+          >
+            <DeployKeysSection />
+          </AccordionSection>
 
           <AccordionSection
             group="mcp"
@@ -444,7 +450,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             isOpen={openGroup() === 'mcp'}
             onToggle={() => handleAccordionClick('mcp')}
           >
-            <McpPortalsSection />
+            <McpPortalsSection currentUserEmail={props.currentUserEmail}
+              isActive={props.isOpen && openGroup() === 'mcp'} returnOutcome={props.mcpReturnOutcome} />
           </AccordionSection>
 
           {/* ── LLM API Keys (advanced session mode only; never in enterprise mode) ── */}

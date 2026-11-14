@@ -188,6 +188,7 @@ export function registerNativeDispatcherCases(
   if (composedAttemptLimits.length) describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
     beforeEach(() => harness.reset(), 60_000);
     type Composed = { instance: string; fiberEvents: FiberObservation[] | null;
+      rawFailures?: Array<{ name: string; classification: string }>;
       nativeSettlement?: NativeFaultSettlement | null; nativeImport?: NativeFaultImport | null; nativeOmission?: NativeImportOmission | null;
       diagnostics?: Array<{ module: string; stage?: string; outcome?: string; status?: number;
         failureClass?: string; preparationStep?: string; wireRules?: string;
@@ -221,7 +222,7 @@ export function registerNativeDispatcherCases(
       const closed = JSON.stringify({ executionStatus: value.detail.executionStatus,
         collectionStatus: value.detail.collectionStatus, firstAppend: value.external.firstAppend ?? null,
         sdkSubmissions: value.external.sdkSubmissions ?? [], fiberEvents: value.fiberEvents,
-        inferenceCount: value.external.inference.length,
+        inferenceCount: value.external.inference.length, rawFailures: value.rawFailures ?? [],
         commentCount: value.external.comments.length,
         operationDenials: (value.diagnostics ?? []).filter(entry => entry.outcome === 'denied' || entry.stage === 'preparation')
           .map(entry => ({ module: entry.module, stage: entry.stage, outcome: entry.outcome, status: entry.status,

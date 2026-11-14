@@ -75,23 +75,23 @@ app.post('/checkout', requireIdentity, async (c, next) => {
 
   const { tier, mode, turnstileToken } = await parseJsonBody(c, CheckoutSchema);
 
-  if (!isAlreadySubscribed) {
-    const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
-      || await c.env.KV.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
-    if (turnstileSecret) {
-      if (!turnstileToken) throw new ForbiddenError('CAPTCHA token required');
-      const verification = await verifyTurnstileToken(
-        turnstileToken,
-        turnstileSecret,
-        c.req.header('CF-Connecting-IP') || null,
-      );
-      if (!verification.success) throw new ForbiddenError('CAPTCHA verification failed');
-    }
-  }
-
   // Free tier doesn't go through Stripe
   if (tier === 'free') {
     throw new ValidationError('Free tier does not require payment.');
+  }
+
+  if (!isAlreadySubscribed) {
+    const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
+      || await c.env.KV.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
+    const siteKey = await c.env.KV.get(SETUP_KEYS.TURNSTILE_SITE_KEY);
+    if (!turnstileSecret || !siteKey) throw new ForbiddenError('CAPTCHA is not configured');
+    if (!turnstileToken) throw new ForbiddenError('CAPTCHA token required');
+    const verification = await verifyTurnstileToken(
+      turnstileToken,
+      turnstileSecret,
+      c.req.header('CF-Connecting-IP') || null,
+    );
+    if (!verification.success) throw new ForbiddenError('CAPTCHA verification failed');
   }
 
   // CF-007: Fetch tiers BEFORE priceId lookup so KV-configured price IDs are used

@@ -50,6 +50,29 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
     mockKV = createMockKV();
   });
 
+  it.each(['PUT', 'DELETE'])('CON-SEC-004 / REQ-SEC-007 AC1/3/4: unwrapped %s shares the authenticated mutation bound', async method => {
+    const app = createTestApp();
+    const request = (verb: string) => app.request('/api/deploy-keys', {
+      method: verb,
+      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': verb === 'PUT' ? '192.0.2.1' : '192.0.2.2' },
+      ...(verb === 'PUT' ? { body: JSON.stringify({ githubToken: null }) } : {}),
+    });
+    for (let i = 0; i < 20; i++) {
+      expect((await request(i % 2 ? 'DELETE' : 'PUT')).status).toBe(200);
+    }
+    // A denied clear must leave stored credentials intact and must not probe providers.
+    mockKV._set('deploy-keys:test-bucket', { githubToken: 'synthetic-preserved-token' });
+    const res = await request(method);
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ code: 'RATE_LIMIT_ERROR' });
+    expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0);
+    expect(res.headers.get('X-RateLimit-Limit')).toBe('20');
+    expect(res.headers.get('X-RateLimit-Remaining')).toBe('0');
+    expect(JSON.parse(mockKV._store.get('deploy-keys:test-bucket')!)).toMatchObject({ githubToken: 'synthetic-preserved-token' });
+    expect((await app.request('/api/deploy-keys')).status).toBe(200);
+    expect(mockGlobalFetch).not.toHaveBeenCalled();
+  });
+
   // ─── GET ───────────────────────────────────────────────────────────────
 
   describe('GET /api/deploy-keys', () => {

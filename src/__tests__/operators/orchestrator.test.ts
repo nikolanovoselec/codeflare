@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import { prepareOperatorActivity, runOperatorActivity } from '../../operators/orchestrator';
-import { createOperatorIntentDigest } from '../../operators/activity';
-import { createOperatorExecutionContext } from '../../operators/execution-context';
+import { createOperatorIntentDigest, type BoundaryActivityBinding, type OperatorActivityPreparation } from '../../operators/activity';
+import { createOperatorExecutionContext, type OperatorExecutionContext } from '../../operators/execution-context';
 import { sealOperatorSecret } from '../../operators/protected-secrets';
 
 const claims = {
@@ -141,8 +141,14 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     expect(activity.fenceRuntimeFailure).not.toHaveBeenCalled();
   });
 
-  it('aborts and fences a stalled child drive within the request-attached deadline', async () => {
+  it.each(['child-stall', 'artifact-delay', 'short-human'] as const)(
+    'aborts and fences a stalled drive within the original shared deadline after %s', async boundary => {
     vi.useFakeTimers();
+    const requestedAt = Date.now();
+    const expiresAt = Math.floor((requestedAt + (boundary === 'short-human' ? 10_000 : 300_000)) / 1000);
+    const deadline = Math.min(requestedAt + 60_000, expiresAt * 1000);
+    const expectedDeadline = Math.min(requestedAt + 25_000, deadline);
+    const outcome = { status: 'running', result: null as unknown };
     const bundle = { schemaVersion: 1, interfaceVersion: 1, compatibilityDate: '2026-02-05',
       compatibilityFlags: ['nodejs_compat'], mainModule: 'index.js', modules: { 'index.js': { js: 'export default {}' } } };
     const bytes = new TextEncoder().encode(JSON.stringify(bundle));
@@ -152,19 +158,24 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
       description: '', coreVersion: '1', intentVersion: '1', inputSchema: {}, requiredCapabilities: [],
       artifact: { path: '/bundle.json', sha256: artifactDigest, url: 'https://publisher.example.test/bundle.json' } });
     const context = await createOperatorExecutionContext({ activityId: 'activity-1', operatorId: 'reviewer',
-      artifactDigest, policyDigest: 'b'.repeat(64), human: claims, accessJwt: 'private.jwt' }, encryption);
+      artifactDigest, policyDigest: 'b'.repeat(64), human: { ...claims, expiresAt }, accessJwt: 'private.jwt' }, encryption);
     const ciphertext = await sealOperatorSecret('connection-secret', encryption,
       { purpose: 'connection', recordId: 'reviewer' });
-    const commitDrive = vi.fn();
-    const interruptDrive = vi.fn(async () => ({ ok: true,
-      state: { generation: 2, status: 'unknown', checkpoint: null, result: null } }));
+    const commitDrive = vi.fn(async (_generation: number, update: { status: string; result: unknown }) => {
+      outcome.status = update.status; outcome.result = update.result;
+      return { ok: true, state: update };
+    });
+    const interruptDrive = vi.fn(async () => {
+      outcome.status = 'unknown';
+      return { ok: true, state: { generation: 2, status: 'unknown', checkpoint: null, result: null } };
+    });
     const fenceRuntimeFailure = vi.fn();
     let aborted = false;
     const activity = {
-      getRuntimePlan: vi.fn(async () => ({ activityId: 'activity-1', deadline: Date.now() + 60_000,
+      getRuntimePlan: vi.fn(async () => ({ activityId: 'activity-1', deadline,
         invocationJson: 'null', executionContext: context,
         receipt: { activityId: 'activity-1', operatorId: 'reviewer', intentDigest: 'c'.repeat(64), expectedRevision: 7,
-          deadline: Date.now() + 60_000, artifactDigest, admittedAt: Date.now(), manifestJson, policyJson: '{}' } })),
+          deadline, artifactDigest, admittedAt: requestedAt, manifestJson, policyJson: '{}' } })),
       beginDrive: vi.fn(async () => ({ ok: true,
         state: { generation: 1, status: 'running', checkpoint: null, result: null } })),
       commitDrive,
@@ -177,18 +188,27 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
         reject(new Error('aborted'));
       }, { once: true })) }) })) };
     const registry = { getPinnedDistribution: vi.fn(async () => ({ endpoint, connectionSecretCiphertext: ciphertext })) };
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(bytes, { status: 200,
-      headers: { 'content-type': 'application/json', 'content-length': String(bytes.byteLength) } })));
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (boundary === 'artifact-delay') await new Promise(resolve => setTimeout(resolve, 10_000));
+      return new Response(bytes, { status: 200,
+        headers: { 'content-type': 'application/json', 'content-length': String(bytes.byteLength) } });
+    }));
     const env = { ...encryption, LOADER: loader,
       OPERATOR_ACTIVITY: { getByName: () => activity }, OPERATOR_REGISTRY: { getByName: () => registry },
     } as unknown as Env;
 
+    let boundDeadline: number | null = null;
     const attempt = runOperatorActivity('activity-1', env,
-      () => ({ fetch: vi.fn() }) as unknown as Fetcher);
-    await vi.advanceTimersByTimeAsync(25_001);
+      (_id, _generation, driveDeadline) => {
+        boundDeadline = driveDeadline;
+        return { fetch: vi.fn() } as unknown as Fetcher;
+      });
+    await vi.advanceTimersByTimeAsync(expectedDeadline - requestedAt + 1);
     await attempt;
 
+    expect(boundDeadline).toBe(expectedDeadline);
     expect(aborted).toBe(true);
+    expect(outcome).toEqual({ status: 'unknown', result: null });
     expect(interruptDrive).toHaveBeenCalledOnce();
     expect(commitDrive).not.toHaveBeenCalled();
     expect(fenceRuntimeFailure).not.toHaveBeenCalled();
@@ -227,6 +247,74 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     } as unknown as Env;
     return { prepared, host, selection };
   }
+  it('REQ-OPERATOR-016 AC2 /061 AC3/7: shared preparation carries the exact prospective reservation and current management pins', async () => {
+    const f = configured();
+    f.selection.controlsRevision = 13;
+    f.selection.installation.revision = 7;
+    f.selection.operator.revision = 11;
+    const reserved = 'reserved-prospective-activity';
+    const accepted: Array<{ intent: OperatorActivityPreparation; executionContext: OperatorExecutionContext;
+      invocationJson: string; boundary: BoundaryActivityBinding | undefined; prospectiveAdmissionId: string | undefined }> = [];
+    f.host.OPERATOR_ACTIVITY = { getByName: (id: string) => ({ prepareAuthorized: async (
+      intent: OperatorActivityPreparation, executionContext: OperatorExecutionContext, invocationJson: string,
+      boundary?: BoundaryActivityBinding, prospectiveAdmissionId?: string) => {
+      if (id !== reserved || intent.activityId !== reserved || prospectiveAdmissionId !== reserved) {
+        return { ok: false, reason: 'admission-denied' };
+      }
+      accepted.push({ intent, executionContext, invocationJson, boundary, prospectiveAdmissionId });
+      return { ok: true, phase: 'prepared' };
+    } }) } as never;
+    const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation: {} },
+      { human: claims, accessJwt: 'private.jwt' }, f.host, { activityId: reserved,
+        prospectiveAdmissionId: reserved, expectedManagement: { controlsRevision: 13, installationRevision: 7,
+          operatorRevision: 11, releaseId: 'release', bundleDigest: 'a'.repeat(64) } });
+    expect(result.activityId).toBe(reserved);
+    expect(accepted).toEqual([{ intent: expect.objectContaining({ activityId: reserved,
+      installationId: 'configured-install', operatorId: 'renovate-dispatcher', expectedControlsRevision: 13,
+      expectedInstallationRevision: 7, expectedRevision: 11, deadline: claims.expiresAt * 1000,
+      intentDigest: await createOperatorIntentDigest('renovate-dispatcher', reserved, '{"repository":"acme/updates"}') }),
+    executionContext: expect.objectContaining({ activityId: reserved, operatorId: 'renovate-dispatcher',
+      artifactDigest: 'a'.repeat(64), expiresAt: claims.expiresAt }), invocationJson: '{"repository":"acme/updates"}',
+    boundary: undefined, prospectiveAdmissionId: reserved }]);
+    expect(result.startExpiresAt).toBeLessThanOrEqual(claims.expiresAt * 1000);
+  });
+
+  it.each(['manual', 'boundary'] as const)(
+    'REQ-OPERATOR-016 AC2 /061 AC3: shared %s preparation does not require prospective authority', async mode => {
+      const f = configured();
+      const boundary = { repositoryId: 424242, pullRequest: 1300, contextDigest: 'f'.repeat(64),
+        session: { bucket: 'owner-bucket', sessionId: 'asession01', generation: 3 } };
+      const accepted: Array<{ activityId: string; invocationJson: string; boundary: BoundaryActivityBinding | undefined;
+        prospectiveAdmissionId: string | undefined }> = [];
+      f.host.OPERATOR_ACTIVITY = { getByName: () => ({ prepareAuthorized: async (
+        intent: OperatorActivityPreparation, _context: OperatorExecutionContext, invocationJson: string,
+        boundary?: BoundaryActivityBinding, prospectiveAdmissionId?: string) => {
+        if (prospectiveAdmissionId !== undefined) return { ok: false, reason: 'admission-denied' };
+        accepted.push({ activityId: intent.activityId, invocationJson, boundary, prospectiveAdmissionId });
+        return { ok: true, phase: 'prepared' };
+      } }) } as never;
+      const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation: {} },
+        { human: claims, accessJwt: 'private.jwt' }, f.host,
+        mode === 'boundary' ? { activityId: 'manual-boundary-activity', boundary } : undefined);
+      expect(accepted).toEqual([{ activityId: result.activityId, invocationJson: '{"repository":"acme/updates"}',
+        boundary: mode === 'boundary' ? boundary : undefined, prospectiveAdmissionId: undefined }]);
+      if (mode === 'boundary') expect(result.activityId).toBe('manual-boundary-activity');
+      else expect(result.activityId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(result.startCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    });
+
+  it.each(['activityId', 'prospectiveAdmissionId', 'parentReservation', 'prospectiveAdmission', 'proof'] as const)(
+    'REQ-OPERATOR-061 AC3: the strict browser preparation body rejects injected %s authority', async field => {
+      for (const identity of [{ installationId: 'configured-install' }, { operatorId: 'renovate-dispatcher' }]) {
+        const f = configured();
+        await expect(prepareOperatorActivity({ ...identity, invocation: {},
+          [field]: field === 'activityId' || field === 'prospectiveAdmissionId' ? 'caller-chosen'
+            : { activityId: 'caller-chosen', prospectiveAdmissionId: 'caller-chosen' } },
+        { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toMatchObject({ statusCode: 400 });
+        expect(f.prepared).toEqual([]);
+      }
+    });
+
   it.each([{}, { repository: 'acme/updates' }])('materializes only the configured repository before immutable admission for %j', async invocation => {
     const f = configured();
     const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation },

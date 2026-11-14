@@ -395,7 +395,7 @@ SYNC_MODE="${SYNC_MODE:-none}"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # Vault syncs, but Vault/graphify-out/ is mostly derived. Persist ONLY the
     # cumulative graph (vault-graph.json - REQ-MEM-009 source of truth; the
-    # global graph is rebuilt from it at boot), the vault-extract content-hash
+    # global graph is rebuilt from it at boot under REQ-MEM-034), the vault-extract content-hash
     # manifest, and its durable first-initialization record (REQ-VAULT-026: both
     # MUST survive restart so a missing restore cannot be mistaken for a fresh
     # vault and rebaseline unextracted edits). The per-run graph.json, chunks, labels,
@@ -910,7 +910,7 @@ initial_sync_from_r2() {
 # the bit stripped for up to a whole daemon cycle, so this also runs after each
 # successful bisync. Idempotent; non-fatal when the directory is absent.
 repair_hook_exec_bits() {
-    find "$USER_CLAUDE_DIR/hooks" -maxdepth 2 \
+    find -P "$USER_CLAUDE_DIR/hooks" \
         \( -name '*.mjs' -o -name '*.sh' \) -type f -exec chmod 0755 {} + 2>/dev/null || true
     # R2 also drops the executable bit on the extensionless native skill launcher.
     find "$USER_CLAUDE_DIR/skills/impeccable/scripts/impeccable" \
@@ -1106,6 +1106,8 @@ establish_bisync_baseline() {
         BASELINE_OUTPUT=$(mktemp)
         # --use-server-modtime + --checkers 64: avoid the per-file mtime HEAD storm; see
         # the steady-state bisync below + AD88.
+        # Bisync max-delete is a percentage: 100 preserves v1.75.2's clamp of 5000,
+        # not an absolute file cap; v1.76 rejects values above 100.
         local BISYNC_DEADLINE=$((SECONDS + BISYNC_TIMEOUT))
         if timeout $BISYNC_TIMEOUT rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
             --config "$RCLONE_CONFIG" \
@@ -1121,7 +1123,7 @@ establish_bisync_baseline() {
             --recover \
             --check-sync=false \
             --ignore-checksum \
-            --max-delete 5000 \
+            --max-delete 100 \
             --retries 3 --retries-sleep 10s \
             --transfers 32 --checkers 64 \
             --stats 30s --stats-one-line > "$BASELINE_OUTPUT" 2>&1; then
@@ -1266,7 +1268,7 @@ bisync_with_r2() {
         --recover \
         --check-sync=false \
         --ignore-checksum \
-        --max-delete 5000 \
+        --max-delete 100 \
         --retries 3 --retries-sleep 10s \
         --transfers 32 --checkers 64 \
         --stats 30s --stats-one-line "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
@@ -2042,7 +2044,7 @@ _openvscode_supervise_loop() {
         current_pgid=""
     }
     trap '_openvscode_cleanup_current_generation' EXIT
-    trap '_openvscode_cleanup_current_generation; exit 0' TERM INT
+    trap '_openvscode_cleanup_current_generation || exit 1; exit 0' TERM INT
 
     while true; do
         if ! _openvscode_should_launch; then
@@ -2065,7 +2067,7 @@ _openvscode_supervise_loop() {
         (umask 077; printf '%s\n%s\n%s\n%s\n' "$current_pid" "$current_start" "$current_generation" "$current_pgid" > "${generation_pidfile}.tmp")
         mv -f "${generation_pidfile}.tmp" "$generation_pidfile"
         if wait "$current_pid"; then exit_code=0; else exit_code=$?; fi
-        _openvscode_cleanup_current_generation
+        _openvscode_cleanup_current_generation || return 1
         echo "[openvscode] $(date '+%Y-%m-%d %H:%M:%S') exited (code $exit_code), restarting in 5s..." >> $CODEFLARE_RUNTIME_ROOT/openvscode/openvscode.log
         sleep 5
     done
@@ -2179,17 +2181,20 @@ shutdown_handler() {
     # however long we waited, keeping the total at 120s and preserving AD57's
     # 15s clean-exit buffer against the DO's 135s hard kill.
     QUIESCE_DECIS=0
-    while [ "$QUIESCE_DECIS" -lt 50 ]; do
-        pgrep -f "rclone bisync" >/dev/null 2>&1 || break
+    while pgrep -f "rclone bisync" >/dev/null 2>&1; do
+        # Reserve the same 12s abort grace and 15s platform clean-exit buffer.
+        # Expiry is failure, never permission to start a competing sync.
+        if [ "$QUIESCE_DECIS" -ge 1080 ]; then
+            echo "[entrypoint] ERROR: daemon bisync did not settle; refusing competing final sync"
+            if [ -n "$TERMINAL_PID" ]; then
+                kill "$TERMINAL_PID" 2>/dev/null || true
+            fi
+            exit 1
+        fi
         sleep 0.1
         QUIESCE_DECIS=$((QUIESCE_DECIS + 1))
     done
     QUIESCE_SECS=$(( (QUIESCE_DECIS + 9) / 10 ))
-    if [ "$QUIESCE_DECIS" -ge 50 ]; then
-        # Falling through silently would land in exactly the stale-lock
-        # fast-fail this loop exists to avoid, with nothing to diagnose it from.
-        echo "[entrypoint] WARNING: rclone bisync still running after 5s; final bisync may hit a stale lock"
-    fi
 
     # Perform final bisync to R2 (only if baseline was established).
     # Wrap in a 120s watchdog so the DO's destroy() SIGKILL budget (135s,
@@ -2782,7 +2787,8 @@ init_user_vault() {
     # (e.g. graphify plugin disabled), continue.
     #
     # Source is vault-graph.json, the cumulative graph the capture and
-    # vault-extract pipelines read back and merge into (REQ-MEM-009). The
+    # vault-extract pipelines read back and merge into (REQ-MEM-009); boot publication
+    # follows REQ-MEM-034. The
     # sibling graph.json is a copy those merges refresh for the local
     # visualization, and the scaffold created below leaves it empty until the
     # first extraction runs. Seeding from it therefore republished user_vault
@@ -3036,11 +3042,13 @@ function configure() {
   const missingVisibility = !hasOwn(settings, 'toolVisibility');
   const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
   const needsMinInterval = limits.minIntervalMs !== 300_000;
-  if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval) return;
+  const needsStallLimit = limits.noProgressTurns !== 5;
+  if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval && !needsStallLimit) return;
 
   const nextLimits = {
     ...limits,
-    ...(missingAutomaticTurns ? { automaticTurns: 10 } : {}),
+    ...(missingAutomaticTurns ? { automaticTurns: null } : {}),
+    noProgressTurns: 5,
     minIntervalMs: 300_000,
   };
   const nextSettings = {
@@ -3122,13 +3130,13 @@ const required = [
   'npm:@juicesharp/rpiv-ask-user-question@2.15.0',
   'npm:@juicesharp/rpiv-todo@2.15.0',
   'npm:pi-web-access@0.46.0',
-  'npm:pi-mcp-adapter@5.3.1',
+  'npm:pi-mcp-adapter@7.0.1',
   'npm:pi-evaluate@0.1.5',
   'npm:pi-smart-compact@10.7.3',
-  'npm:@narumitw/pi-goal@0.54.13',
-  'npm:@narumitw/pi-plan-mode@0.59.4',
+  'npm:@narumitw/pi-goal@0.54.15',
+  'npm:@narumitw/pi-plan-mode@0.59.6',
   // The managed terminal adapter initializes the native UI once.
-  { source: 'npm:pi-open-tui@0.3.13', extensions: [] },
+  { source: 'npm:pi-open-tui@0.4.2', extensions: [] },
 ];
 // Each container boot defaults context-mode off; `/ctx on` enables it until next boot.
 // Suppress package discovery; the managed foreground owner remains the only bridge owner.
@@ -4879,7 +4887,7 @@ complete_managed_curation_startup() {
     if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
         (
             # REQ-STOR-017: deprioritize ALL background init (bisync --resync baseline, vault
-            # seed, sync/vault daemons) so it yields the single vCPU and the disk to the pi PTY
+            # seed, sync/vault daemons) so it yields CPU and disk priority to the pi PTY
             # pre-warm running concurrently. Pre-warm latency was dominated by contention, not
             # work; with idle I/O class + lowest niceness, pi preempts this subshell whenever it
             # wants CPU/disk, so the baseline effectively runs in pre-warm's slack (and after it

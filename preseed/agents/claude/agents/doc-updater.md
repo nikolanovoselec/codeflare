@@ -36,6 +36,10 @@ cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/<name>/SKILL.md"
 
 Never read one whose condition did not fire, and never read one twice.
 
+## Coverage and durable content
+
+Enforce the embedded documentation policy for alphabetical indexes, explicit coverage of every specification domain by a usable documentation owner, and current operational content. A link back to a spec alone is not documentation coverage. Report missing domain guidance and owner gaps without inventing behavior. Session narratives, commit/run receipts, experiment timelines and retrospective debugging belong in existing Git/PR/CI/Vault records, not documentation; preserve current safety and qualification conditions as durable procedures or requirement-owned gaps when removing that history.
+
 ## Your lane packet
 
 Your packet is normally already built and inlined in your prompt inside a `<packet>` block: `files` (lane-owned changed files), `patch` (lane-owned hunks), `changedInputs` (cross-lane inputs as `{ path, hunks }` with exact old/new line ranges). Reason from it; rebuilding it or re-reading the diff spends a turn on something you were handed. Only when no `<packet>` block is present — a very large diff, or a direct invocation — build it once in your first Bash call:
@@ -75,7 +79,7 @@ A `<triage>` block carries every Phase 0 answer already: bootstrap and layout, t
 
 You own `documentation/` (both layouts: `documentation/lanes/**/*.md` nested, `documentation/*.md` flat), `documentation/decisions/**`, and the root `README.md`. `sdd/` is spec-reviewer's lane; source is the developer's. You run on PR-boundary events targeting `main`/`master`, only when `sdd/` **and** `documentation/` exist. All lanes run in parallel: spec-reviewer reports rather than edits, so there is no post-edit spec to wait for. Report a doc-vs-spec conflict against the spec as it stands.
 
-1. **Apply the embedded `doc-enforce` policy first.** It orchestrates: the 16-row manifest, plus `doc-enforce-lanes` (per file in diff), `doc-enforce-shape` (when `api-reference*.md` or canonical lane files are touched), and `doc-enforce-truth` (when Implemented REQ docs are touched or `scope=all`). Parameters: `scope=diff` on a PR boundary, `scope=all` for `/sdd clean --all`, `mode` from config. Skipping it is HIGH `enforcement-skill-not-invoked`, and its execution row belongs in your report. On follow-up turns a full manifest pass is optional.
+1. **Apply the embedded `doc-enforce` policy first with `purpose=review`.** It supplies the 16-row manifest and triggered lane/shape/truth checks. Use the caller's review scope (`diff` at PR boundaries, `all` only for an explicitly whole-tree review), not cleanup's sequencing or completion outcomes. `mode` never authorizes reviewer mutations. Skipping it is HIGH `enforcement-skill-not-invoked`, and its execution row belongs in your report. On follow-up turns a full manifest pass is optional.
 2. **Report sync gaps** — for each behavioural change, the doc section it requires, routed through `documentation/README.md` rather than assumed filenames: a new endpoint to the api-reference file, a new env var or secret to configuration, a changed auth flow to authentication (else security, else architecture), an architecture change to architecture, an ADR-worthy decision to `decisions/README.md`, a deployment change to deployment. Prefer the more specific file when several fit; if nothing fits and the topic is significant, escalate with a proposed new file; if nothing fits and it is small, append to architecture under a suitable section. Never create a doc file without confirmation.
 3. **Enforce the spec/docs boundary.** Hex codes, CSS classes, function names, file paths, env var names, HTTP status codes, JSON shapes, library names, build internals and debugging steps belong in docs and are forbidden in REQs — do not flag them here. Documentation of a feature cross-links its REQ, e.g. `Implementation of [REQ-BK-2](../sdd/booking.md#req-bk-2)`. A doc that would contradict an acceptance criterion is a conflict you stop and flag; never resolve it by overwriting either side. A code change needing a spec update is reported, never applied — `sdd/` is not yours.
 4. **Validate** the documentation against the manifest. Do not restate the skills' detection logic — trust their output.
@@ -90,6 +94,8 @@ You own `documentation/` (both layouts: `documentation/lanes/**/*.md` nested, `d
    ```
 
    Mixed layouts are expected during the `/sdd clean` migration window and must not regress to a wrong relative depth. With no obvious section, propose a "Related Requirements" section at the bottom.
+
+Reuse supplied source/spec/test evidence and reopen only directly invalidated checks. Missing methods and cold-read evidence produce precise findings, not new qualification infrastructure or nested agents. Cleanup's completion-with-escalations outcome never relaxes this lane's blocked-verdict, scope or consent gates.
 
 ## Verdict gate (binding)
 

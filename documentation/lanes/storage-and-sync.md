@@ -18,6 +18,7 @@ R2 persistence, bidirectional home synchronization, durable managed-resource rec
 - [Conflict Resolution](#conflict-resolution)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [File Browser](#file-browser-req-stor-016)
+- [Storage manual acceptance procedures](#storage-manual-acceptance-procedures)
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Managed-Resource Sync Policy](#managed-resource-sync-policy-req-stor-031)
 - [Performance Characteristics](#performance-characteristics)
@@ -35,11 +36,11 @@ Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. 
 
 **Tier defaults:** Configurable per tier in admin Subscription Management panel (Storage Quota field, in MB). Custom tier defaults to unlimited.
 
-**Enforcement:** Session creation (`POST /api/sessions` in `crud.ts`) checks `storage-stats:{bucketName}` KV cache against the user's tier quota. If `totalSizeBytes > maxStorageBytes`, the request is rejected with a clear error message. Users must delete files from their storage browser to free space before starting new sessions.
+**Enforcement:** In SaaS/non-enterprise mode, Create/New Session (`POST /api/sessions` in `crud.ts`) compares a present `storage-stats:{bucketName}` KV usage cache with the resolved finite tier quota. Only `totalSizeBytes > maxStorageBytes` rejects creation with a clear error. Missing cached usage or an unlimited resolved quota skips this gate. Freeing storage for a later creation requires authorized deletion; this is not an existing-session Start/restart check.
 
 **Stats endpoint:** `GET /api/storage/stats` returns `maxStorageBytes` alongside usage stats. The quota is cached in KV alongside the stats (`storage-stats:{bucketName}`) so cache hits don't need tier config resolution - tier config is only read on cache miss (every 60s). Frontend displays "X / Y" in the storage card. Subscribe page plan cards show storage quota in the specs line. Admin Subscription Management has an editable "Storage Quota (MB)" field per tier.
 
-**What is NOT enforced:** Individual file uploads, rclone sync writes, and preseed writes are not blocked by quota. The quota is checked only at session start. Users can temporarily exceed their quota during an active session via rclone sync or file uploads. The overage is caught on the next session start attempt.
+**What is NOT enforced:** Individual file uploads, rclone sync writes, and preseed writes are not blocked by quota. The quota is checked only at Create/New Session under the conditions above. Users can temporarily exceed their quota during an active session via rclone sync or file uploads. An overage can be caught on the next Create/New Session attempt with present cached usage and a finite quota; existing Start/restart is not gated by cached storage bytes.
 
 **Tier config merge:** `getTierConfig()` merges stored KV tiers with hardcoded defaults via `{ ...default, ...stored }`. New fields (like `maxStorageBytes`) backfill from defaults even when KV was saved before the field existed. Admin-saved values always take priority. The admin `PUT /api/admin/tiers` Zod schema includes `maxStorageBytes` so it persists on save.
 
@@ -63,7 +64,7 @@ Delivery selection comes from [Agent Environment / Preseed](preseed.md#runtime-d
 
 Cleanup sources have distinct scope. `getPreseedKeysNotInMode()` supplies generated keys not wanted by the target mode. The frozen `RETIRED_PRESEED_KEYS` backlog covers proven product-created keys predating provenance markers; current-target keys are excluded and generation rejects a retirement list containing a live key. Stale-marker sweeps stay inside seed-owned prefixes. Generated inventories reject duplicate target keys within a mode; variants still owned by the target mode are not cleanup candidates.
 
-Every seed write stamps `x-amz-meta-codeflare-preseed` with the writing build's preseed hash. Full reconciliation rewrites live keys before cleanup, so an older marker identifies dropped product ownership. An S3 PUT replaces metadata wholesale and rclone does not send custom metadata: browser or container edits drop the marker and become user-owned. Ordinary active-agent retirement requires that ownership evidence.
+Every seed write stamps `x-amz-meta-codeflare-preseed`: baked writes use the writing build's preseed hash, while managed writes use the active release digest ([REQ-STOR-021](../../sdd/spec/storage.md#req-stor-021-managed-content-ownership)). Baked full reconciliation rewrites live keys before cleanup, so an older build marker identifies dropped product ownership within that cleanup scope. An S3 PUT replaces metadata wholesale and rclone does not send custom metadata: browser or container edits drop the marker and become user-owned. Ordinary active-agent retirement requires that ownership evidence.
 
 A separate rule removes an exact path without a marker only when current or already-available verified inventory assigns it to an inactive deployment agent. The marker behavior was probed against real R2 before adoption; see [AD118](../decisions/README.md#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on).
 
@@ -85,7 +86,7 @@ The release status check compares the baked content hash and canonical agent pro
 
 An idle mismatch uses `POST /api/storage/seed/agent-configs/upgrade`. The Worker projects the universal signed bundle through deployment selection; fingerprint planning and streamed writes use the same selected keys. Matching-identity upgrades use direct deltas; fresh buckets, legacy/changed projections, policy changes, unavailable history and manual recreation verify the full target. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
 
-The response returns matching completion progress when available; the next existing status poll exposes and clears finalization, visibly ordering `Upgrading N / N`, `Finalizing`, then current even for sub-poll upgrades. POST success alone never establishes applied state. Late responses cannot revert observed current or update-pending state; Finalizing is observational. Manual `POST /api/storage/seed/agent-configs` remains full-overwrite Recreate. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch -->
+The response returns matching completion progress when available; the next existing status poll exposes and clears finalization. Displayed reconciliation progress is observational and can regress or disappear when a later planning/writing response replaces completion counts; `Upgrading N / N` → `Finalizing` is not a universal monotonic display guarantee. POST success alone never establishes applied state. Late responses cannot revert observed current or update-pending state; Finalizing is observational. Manual `POST /api/storage/seed/agent-configs` remains full-overwrite Recreate. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch -->
 
 Each `preseedUpgradeTarget` receives at most one automatic attempt per page until status reports no upgrade needed. Target-less responses share a pending episode. A new target can proceed without an intervening current observation; stale reads cannot repeat old attempts. Failure replaces New Session with **Retry upgrade**, keeping the session-menu creation gate closed. Retry uses upgrade, not Recreate, with in-flight and session-ownership restrictions ([REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)).
 
@@ -155,7 +156,7 @@ This host upload plus independent R2 readback provides implemented persistence m
 2. Managed configuration and tab autostart finish. Pi relay runs only when Pi is active, and Claude context-mode setup runs only when Claude Code is active. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
     Baked mode restores image bytes and removes retired managed files; remote curation preserves release-owned bytes while restoring the image-owned context-mode runtime they import. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
-3. `rclone bisync --resync --ignore-checksum --max-delete 5000 --check-sync=false --retries 3 --retries-sleep 10s` to establish baseline (non-blocking - runs in background), then start the 15-minute daemon (SIGUSR1-interruptible for ordinary/final requests, SIGUSR2-interruptible for explicit cloud Sync now)
+3. `rclone bisync --resync --ignore-checksum --max-delete 100 --check-sync=false --retries 3 --retries-sleep 10s` to establish baseline (non-blocking - runs in background), then start the 15-minute daemon (SIGUSR1-interruptible for ordinary/final requests, SIGUSR2-interruptible for explicit cloud Sync now)
 
 The generated writes in step 2 settle before the baseline so they do not create immediate post-baseline hash/mtime mismatches.
 
@@ -169,18 +170,18 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 
 `--min-size 1B` on all rclone commands (sync, bisync baseline, bisync daemon) excludes 0-byte files from transfer. R2 SSE-C fails on empty objects - the HeadObject call returns 400 when SSE-C headers are sent for a 0-byte object, which causes rclone to abort with "encryption parameters are not applicable". Empty files (`.lock`, `__init__.py`, etc.) carry no data and are excluded entirely.
 
-`--max-delete 5000` allows bisync to propagate compaction and bulk workspace deletions while retaining a fixed upper bound. The rclone default of 50% aborts bisync when more than half the files are deleted in one cycle - in a config-heavy sync with few files, even a single folder deletion can exceed this threshold.
+`--max-delete 100` is a **percentage**, not an absolute file cap: admitted deletions can propagate even when they remove all prior files. This preserves the effective old behavior, not a new relaxation: [rclone v1.75.2 `Options.applyContext`](https://github.com/rclone/rclone/blob/v1.75.2/cmd/bisync/cmd.go#L205-L219) clamped the former `5000` argument to 100% and reset the operations-level limit to `-1`; it never imposed a 5,000-file cap. [v1.76.0](https://github.com/rclone/rclone/blob/v1.76.0/cmd/bisync/cmd.go#L207-L223) rejects values above 100 instead. Both versions abort only when the deletion ratio exceeds the configured percentage. The explicit 100% policy allows compaction and bulk workspace deletions without `--force`; filters, scope restrictions, and recovery vetoes remain unchanged. The default 50% would abort even a single folder deletion in a small config-heavy sync.
 
 ### What's Synced vs Excluded (REQ-STOR-011)
 
 Home-policy admission and scope transitions follow [REQ-STOR-055](../../sdd/spec/storage.md#req-stor-055-home-persistence-admission-and-scope-transitions); the Administration choice follows [REQ-SETUP-028](../../sdd/spec/setup.md#req-setup-028-administration-persistence-policy-selection). Workspace scope remains governed by REQ-STOR-011.
 
-**Administration → Data governance → Save only approved locations** chooses how file locations become eligible for sync. Sync copies eligible files to R2, the persistent storage bucket used to restore them when a session container is recreated.
+**Administration → Data governance → Save only approved locations** lets authorized administrators in Default, Onboarding, SaaS, and Enterprise choose the deployment-wide policy for how file locations become eligible for sync. Outside Enterprise this area exposes only sync policy; Enterprise retains its aggregate encryption/download controls. Non-Enterprise preview and direct Apply reject those Enterprise-only fields rather than changing their stored values. Sync copies eligible files to R2, the persistent storage bucket used to restore them when a session container is recreated.
 
 - **Off: Exclude mode (default).** Files in locations covered by sync are saved unless explicitly excluded. This supports new tools without enrolling each new location, but temporary downloads and caches can accidentally end up in R2 when placed within sync scope.
 - **On: Include mode.** Only approved persistent namespaces are saved. Files elsewhere are not saved and cannot be restored after container recreation. Established agent homes are recursive, so new nested configuration and state files remain eligible; reviewed transient restrictions still apply.
 
-Both modes use the same workspace/session gates, managed-resource protection and reviewed cache/runtime exclusions. No mode can identify every future cache by intent. Policy changes apply to new or restarted sessions, not to an already running daemon, and do not automatically delete existing files from either side.
+Both policies use the same workspace/session gates, managed-resource protection and reviewed cache/runtime exclusions. Neither policy can identify every future cache by intent. Omitted policy preserves the saved selection; only absent storage defaults to Exclude, while malformed stored policy fails closed. Preview is read-only, and Apply retains revision, active-run, and Setup guards. Policy changes apply to all users' new or restarted sessions, not to an already running daemon; saving does not automatically restart sessions or delete existing files from either side.
 
 The existing **Sync Workspace Folder** switch still selects `full` or `none` on the next session restart. Full preserves ordinary workspace content, including hidden, binary, extensionless, ignored/untracked files and Git history, subject to the existing transient exclusions. Metadata remains a direct-configuration mode, not a new UI choice. Changing scope does not delete excluded local or remote data; the existing newest-side-wins baseline establishes the new scope before ordinary deletion propagation resumes.
 
@@ -241,7 +242,7 @@ Both Browser IDE manifests are atomic mode-`0600` regular files. The 1 MiB UI sn
 
 Managed/UI-continuity keys are excluded; failed gallery restores remain as intent, and only `.obsolete` proves uninstall. First-match filters admit those bounded manifests, structural Herdr `session.json` files, the managed extension manifest, and `review-state/v1/**`, then exclude every other `~/.codeflare/**` path. Changed extension intent signals the existing bisync daemon; review completion follows periodic cadence or final drain without forcing another run. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> Sync-now, coalescing, and newest-wins convergence remain unchanged. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 
-`vault-graph.json` is the [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) source of truth; the global graph is rebuilt from it at boot. The extraction manifest prevents a restored vault from being reprocessed wholesale.
+`vault-graph.json` is the [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) source of truth; the global graph is rebuilt from it at boot under [REQ-MEM-034](../../sdd/spec/memory.md#req-mem-034-cumulative-vault-graph-boot-publication). The extraction manifest prevents a restored vault from being reprocessed wholesale.
 
 The three canonical `VAULT_FILTER` exceptions precede the derived-graph exclusion and ordinary Vault admission because rclone uses first-match semantics. `- Vault/graphify-out/**` drops derived output: `graph.json`, `graph.html`, chunks, `.graphify_labels.json`, `GRAPH_REPORT.md`, cache, and Graphify's own manifest. The published visualization remains under `Vault/Raw/Graphs/`.
 
@@ -272,7 +273,7 @@ In advanced mode the `VAULT_FILTER` re-includes `Vault/graphify-out/vault-graph.
 
 Python exclusions are name-based: reserve `.venv` and `.venv-*` directories for disposable environments, and keep source and dependency manifests beside them. Regular files named `.venv` or `.venv-ytdlp` are not excluded by the directory-content rules; neither are arbitrary `venv/` or `site-packages/` source directories. Existing excluded R2 objects are not purged by this change. Their removal requires separately authorized cleanup; sessions on an older image still use their previous filters ([REQ-STOR-053](../../sdd/spec/storage.md#req-stor-053-regenerable-python-artifacts-stay-outside-home-sync)). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 
-Ordinary rclone operations consume one composed `--filter-from` policy: verified managed vetoes first, applicable recovery vetoes next, then common transient exclusions and mode-specific positive rules, followed by Include's deny or Exclude's admission fallback. Mixing `--filter` positives with a separate `--filter-from` protection file is not equivalent: rclone groups flag families rather than honoring their textual interleaving.
+Ordinary rclone operations consume one composed `--filter-from` policy: deterministic first-match precedence: verified managed vetoes first, applicable recovery vetoes next, then common transient exclusions and mode-specific positive rules, followed by Include's deny or Exclude's admission fallback. Mixing `--filter` positives with a separate `--filter-from` protection file is not equivalent: rclone groups flag families rather than honoring their textual interleaving. [REQ-STOR-011 Constraints](../../sdd/spec/storage.md#req-stor-011-sync-mode-controls-workspace-scope) retains all exclusions and live-file/nondeletion guarantees.
 
 Memory-capture counter files used to live at `~/.memory/counter/**` and required an explicit exclude. They now live at `/tmp/.memory-counter/`, which is not synced because Cloudflare Containers use ephemeral disk; see [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume).
 
@@ -292,7 +293,7 @@ The periodic cadence is supplemented by one user-driven freshness trigger and on
 
      (durability, not user-driven). Before signalling stop, the Container DO's `destroy()` runs a synchronous drain (`drainFinalSync` → `POST /internal/final-sync`, which triggers the daemon via SIGUSR1) and blocks until that bisync reaches a terminal status, while the container is still fully alive. An existing on-disk disk-space marker returns failure immediately without starting another sync. An in-memory-only block still prevents transfers, but final drain may wait for its timeout.
 
-      The DO aborts the drain at its 120-second budget (`FINAL_SYNC_BUDGET_MS`); the host endpoint's own poll cap is held strictly ABOVE that (125s) so the DO's abort — not the host loop — is the authoritative ceiling. An inverted host cap (below the budget) was the bisync-on-delete data-loss root cause and is now guarded against. The DO's teardown hard-cap is 135 seconds (120s drain + 15s clean-exit buffer).
+      The live drain receives up to 120 seconds (`FINAL_SYNC_BUDGET_MS`), limited by the remaining shared teardown deadline; the host endpoint's own poll cap is held strictly ABOVE that (125s) so the DO's abort — not the host loop — is the authoritative ceiling. An inverted host cap (below the budget) was the bisync-on-delete data-loss root cause and is now guarded against. The DO's 135-second shared teardown cap starts before the live drain. Pre-signal work consumes that same budget; SIGTERM does not grant a fresh 120 seconds. The trap is a best-effort backstop within remaining time, and failed or exhausted drain can lose last writes. Final-byte acceptance still requires independent readback.
 
      The legacy SIGTERM-trap watchdog is no longer the durability mechanism — the platform killed the container within ~3s of stop, never honoring the grace. See [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) and [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync).
 
@@ -319,19 +320,21 @@ Under [REQ-STOR-051](../../sdd/spec/storage.md#req-stor-051-pi-transcript-confli
 
 ## Conflict Resolution
 
+Multi-session Sync-now fan-out relies on newest-file-wins comparison under absolute modification time. The commutative/associative rationale applies to that per-file comparison, not to arbitrary concurrently changing workspaces, deletion history, or a universal parallel-versus-serial convergence guarantee. The fan-out retains bounded concurrency and per-session failure isolation ([REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui)).
+
 After each existing user-storage sync attempt, shared cleanup removes eligible files whose basenames contain the case-sensitive `.conflict` marker from the same local and R2 roots. Protected `Operators/**` and `.codeflare/operators/**` subtrees are excluded on both sides. Nonmatching originals, directories, symlinks and unrelated prefixes are preserved. Cleanup cannot mask transfer failures; errors and exhausted deadlines remain visible in sync diagnostics. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts -->
 
 Startup and baseline remote cleanup use the remaining transfer-attempt deadline after local cleanup; ordinary remote cleanup uses the existing 30-second network policy. No additional sync or merge/archive workflow starts. The newer canonical file survives genuine divergence, but eligible loser copies are intentionally discarded under [REQ-STOR-054](../../sdd/spec/storage.md#req-stor-054-post-sync-rclone-conflict-copy-cleanup). <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts -->
 
 Pi transcript conflict copies are always deleted locally and purged from their R2 session prefix under [REQ-STOR-051](../../sdd/spec/storage.md#req-stor-051-pi-transcript-conflict-cleanup). They are excluded from synchronization, so a failed remote purge cannot restore or nest stale copies; the purge retries with the next regular bisync. Disk-full/preallocation errors latch a block across later missing-listing failures, preventing repeated automatic resync. Free **local container disk** space, then click the storage browser's cloud **Sync now** button to authorize recovery. Another disk-full failure blocks again; success resumes periodic sync. Deleting from R2 alone does not immediately free local space, and resync merges one-sided files rather than reconstructing deletion history. The existing failure notice identifies the retry action. [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers).
 
-Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handle transient bisync failures (e.g., interrupted transfers, listing mismatches) without losing deletion tracking. The sync daemon retries two minutes after a failure (or sooner if manually triggered via the storage panel); successful cycles retain the 15-minute cadence. `--max-delete 5000` on ALL bisync commands (`establish_bisync_baseline` and `bisync_with_r2`) allows compaction and bulk workspace deletions to propagate. Final bisync at shutdown runs via the DO-side synchronous drain (`POST /internal/final-sync`, 120s budget) before stop — not the legacy SIGTERM-trap watchdog (see [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync)). All bisync commands use `--ignore-checksum` to prevent false hash-mismatch aborts - rclone post-transfer MD5 verification fails when files change during sync.
+Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handle transient bisync failures (e.g., interrupted transfers, listing mismatches) without losing deletion tracking. The sync daemon retries two minutes after a failure (or sooner if manually triggered via the storage panel); successful cycles retain the 15-minute cadence. `--max-delete 100` (percentage, not an absolute file cap) on ALL bisync commands (`establish_bisync_baseline` and `bisync_with_r2`) allows compaction and bulk workspace deletions to propagate. Final bisync at shutdown runs via the DO-side synchronous drain (`POST /internal/final-sync`, 120s budget) before stop — not the legacy SIGTERM-trap watchdog (see [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync)). All bisync commands use `--ignore-checksum` to prevent false hash-mismatch aborts - rclone post-transfer MD5 verification fails when files change during sync.
 
 `--check-sync=false` disables rclone's post-sync listing validation on both `establish_bisync_baseline` and `bisync_with_r2`. The validation compares local/remote file listings after sync - if files change on R2 during the sync (e.g., another active session writing), the listings diverge and rclone exits with code 7 (critical abort). This was the most common trigger. With `--check-sync=false`, drift is caught by the next 15-minute cycle (or sooner via Sync-now).
 
 `--retries 3 --retries-sleep 10s` on both functions adds bisync-level retries for transient R2 API failures. Each bisync invocation retries up to 3 times with 10s sleep between attempts, before the daemon-level retry logic even kicks in.
 
-**Consecutive failure recovery:** The daemon tracks consecutive bisync failures. After 3 consecutive failed cycles, after each invocation's bounded internal retries are exhausted, the daemon falls back to `establish_bisync_baseline` (which uses `--resync`) to re-establish clean bisync state. `--resync` merges both sides (files present on only one side get copied to the other), so this is a last resort. The counter resets to 0 on any success or after the resync fallback. Resync failures are logged with full command output for diagnostic visibility. The baseline establishment timeout is 600s (10 minutes) to accommodate large initial syncs.
+**Consecutive failure recovery:** The daemon tracks consecutive bisync failures. After 3 consecutive failed cycles, after each invocation's bounded internal retries are exhausted, the daemon falls back to `establish_bisync_baseline` (which uses `--resync`) to re-establish clean bisync state. `--resync` merges both sides (files present on only one side get copied to the other), so this is a last resort. The counter resets to 0 on successful sync or successful fallback only. Failed fallback sets it to 2, so one more failed cycle retries resync. Resync failures are logged with full command output. Each of up to three baseline attempts receives a renewed 600-second (10-minute) timeout; this is not one 600-second total deadline.
 
 **After consecutive failure recovery:** Transient file errors (encryption mismatch, size mismatch, hash mismatch) are handled by `--resilient` + `--recover` flags and the resync fallback in the daemon. Vanishing-file errors are handled by the per-session recovery filter (see below). A planned `nuke_corrupted_r2_files` function that would scan all R2 objects and delete unrecoverable ones was considered but not implemented; encryption-mismatch orphans from older sessions remain in R2 until manually deleted.
 
@@ -345,7 +348,7 @@ When bisync/resync fails because a transient file was listed but deleted before 
 1. Parses the rclone error output for the failing file path
 2. Adds it to a session-scoped recovery filter at `/run/codeflare/sync/recovery-filters.txt`
 3. Clears stale bisync locks
-4. Retries the same operation (up to 3 recovery attempts)
+4. Retries the baseline operation within its up-to-three-attempt loop; the periodic daemon instead makes one immediate vanished-file retry before counting a failed cycle
 
 Only non-workspace files are auto-excluded. If the vanishing file is under `workspace/` (user code), the system retries without excluding - the file likely reappeared after a save operation completed. Known ephemeral files (`.claude/mcp-*.json` - MCP auth cache that exists for milliseconds) are statically excluded to prevent the race condition entirely.
 
@@ -360,7 +363,7 @@ The recovery filter file starts empty on every container start and is never sync
 
 - **Storage panel doesn't show a file I just created in the terminal**
 
-    The periodic bisync runs every 15 minutes (see [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers)). Click the **Sync-now** button (cloud-sync icon in the storage panel toolbar) to trigger an immediate bisync across all your running sessions. Status surfaces in the button tooltip ("Synced N sessions" / "No running sessions to sync" / "Sync errors"). If a session shows as `'not-running'`, its container is hibernated; the next time you open that tab the container's wake-time baseline bisync will pull fresh state from R2.
+    The periodic bisync runs every 15 minutes (see [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers)). Click the **Sync-now** button (cloud-sync icon in the storage panel toolbar) to trigger an immediate bisync across all your running sessions. Status surfaces in the button tooltip ("Synced N sessions" / "No running sessions to sync" / "Sync errors"). A `'not-running'` result can reflect retryable unavailable/503 feedback, not confirmed native exit or necessarily hibernation. Opening a public tab or a no-start probe cannot create a replacement runtime. Use an authorized Start/recovery action when needed; a subsequently admitted startup baseline restores admitted R2 state.
 ### Bisync empty listing
 
 Initial `establish_bisync_baseline()` uses `--resync`. During steady state, exit code 7 without a prior listing triggers immediate baseline re-establishment because an ordinary retry cannot use absent state.
@@ -369,27 +372,27 @@ When listing state exists, resilient/recover handling and vanished-file repair r
 
 - **`lstat: no such file or directory` bisync failure**
 
-    A transient file was listed by rclone then deleted before the copy completed. Automatically recovered: the system parses the error, adds the file to `/run/codeflare/sync/recovery-filters.txt`, clears bisync locks, and retries (max 3 attempts). Check `/run/codeflare/sync/sync.log` for `[sync-recovery] Excluded vanished file:` entries. If the failure persists beyond 3 attempts, it escalates to the normal consecutive-failure path. See [Vanishing-file recovery](#vanishing-file-recovery) and [AD43](../decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
+    A transient file was listed by rclone then deleted before the copy completed. Automatically recovered: the system parses the error, adds the file to `/run/codeflare/sync/recovery-filters.txt`, clears bisync locks, and retries (up to three baseline attempts, but one immediate periodic-daemon retry). Check `/run/codeflare/sync/sync.log` for `[sync-recovery] Excluded vanished file:` entries. A failed periodic retry enters consecutive-failure handling; an exhausted baseline returns failure. See [Vanishing-file recovery](#vanishing-file-recovery) and [AD43](../decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
 - **Transfers 0 files**: Filter order indeterminacy from mixed `--include`/`--exclude`. Use `--filter` flags instead.
 - **Slow sync**: Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 - **Missing secrets**: Check `startup-status` response `details.syncError` for the missing variable.
 - **Session-delete spinner takes ~2 minutes**
 
-    The Container DO `destroy()` budget is 135 seconds (120s DO-side final-bisync drain budget + 15s clean-exit buffer) — the DO drains the bisync synchronously (`POST /internal/final-sync`) before signalling stop, so unsaved local changes propagate to R2 before SIGKILL. Routine on sessions with large pending writes. See [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync).
+    The Container DO `destroy()` shares a 135-second cap across teardown, including a live drain of up to 120 seconds (`POST /internal/final-sync`) before signalling stop. Admitted, nonexcluded edits reach R2 only if that sync succeeds; the spinner is not durability proof. A failed or timed-out drain leaves recent edits at risk on ephemeral disk; see [Vault finalization warning](vault.md#persistence-and-finalization-req-vault-006). Routine on sessions with large pending writes. See [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync).
 - **Search button is missing from the storage panel**
 
-    Removed 2026-05-18 (sync-v2). The toolbar slot is now the Sync-now button. The underlying search-by-name filter (`storageStore.searchFiles`) is still in the codebase and can be restored by re-adding `<SearchInput />` in the toolbar - see comments in `web-ui/src/components/storage/StorageToolbar.tsx` and `web-ui/src/components/StorageBrowser.tsx`.
+    Sync now occupies the toolbar slot; there is no search button. The underlying search-by-name filter remains in `storageStore.searchFiles`, but its presence is not an exposed toolbar feature. See `web-ui/src/components/storage/StorageToolbar.tsx` and `web-ui/src/components/StorageBrowser.tsx`.
 
 ---
 
 ## File Browser (REQ-STOR-016)
 
-A pending managed-environment update does not block uploads or deletions of ordinary user files outside managed namespaces. Requests that may touch managed resources—including parent-folder deletions and mixed selections—retain managed readiness and policy checks. Downloads remain available subject to administrator restrictions; encryption-migration locks still apply to mutations ([REQ-ENTERPRISE-030](../../sdd/spec/storage.md#req-enterprise-030-managed-resource-storage-enforcement)).
+A pending managed-environment update does not block uploads or deletions of ordinary user files outside managed namespaces. Requests that may touch managed resources—including parent-folder deletions and mixed selections—retain managed readiness and policy checks. The guarded namespaces include managed-release roots, legacy `.agents/` and coordinator `.codeflare/`; a nonempty request bypasses readiness only when every validated key and deletion prefix is outside all of them. Downloads remain available subject to administrator restrictions; encryption-migration locks still apply to mutations ([REQ-ENTERPRISE-030](../../sdd/spec/storage.md#req-enterprise-030-managed-resource-storage-enforcement)).
 
 The storage browser reads directly from R2 via the Worker API (not the container
 filesystem) and renders as a side drawer on desktop, a bottom-sheet on mobile.
 
-**Folder paths.** Because rclone bisyncs the whole `/home/user` home directory to the bucket root, every folder maps to a real in-container directory. Each folder row shows that path in `~/<prefix>` form (`web-ui/src/components/storage/FileList.tsx::folderShortPath`) so operators can see where a prefix lands in the container — at any depth (`Documentation/guides/` → `~/Documentation/guides`) and for dotfolders (`.claude/` → `~/.claude`). Special folders (Vault, Uploads, Temporary, Workspace) instead show their canonical `containerPath` mapping, whose casing can differ from the R2 prefix (`workspace/` → `~/Workspace`).
+**Folder paths.** Because rclone bisyncs the whole `/home/user` home directory to the bucket root, every folder maps to a real in-container directory. Each folder row shows that path in `~/<prefix>` form (`web-ui/src/components/storage/FileList.tsx::folderShortPath`) so operators can see where a prefix lands in the container — at any depth (`Documentation/guides/` → `~/Documentation/guides`) and for dotfolders (`.claude/` → `~/.claude`). Special folders (Vault, Uploads, Temporary, Workspace) instead show their canonical `containerPath` mapping, whose casing can differ from the R2 prefix (`workspace/` → `~/workspace`; “Workspace” is a display label, not a case-insensitive filesystem alias).
 
 Within a row the path is pinned to the right edge for every folder so all paths align identically; the special-folder container icon (a tooltip toggle) sits immediately after the folder name rather than trailing the row (`web-ui/src/components/storage/FileList.tsx`, `web-ui/src/styles/storage-browser.css`).
 
@@ -408,6 +411,106 @@ probe cannot escape the user's bucket root — a rejected prefix causes the endp
 return an error response (4xx) rather than any listing.
 
 ---
+
+## Storage manual acceptance procedures
+
+These are methods, not executed receipts or permission to run them. Obtain explicit authorization for isolated disposable identities, buckets, sessions, faults and exact cleanup; never use production or ordinary user data. Use existing authenticated interfaces and preserve admission, encryption and managed-resource guards. Operational preparation remains with the linked private runbooks.
+
+Record the exact build, requirement/AC, synthetic fixture identity, nonsecret digests, elapsed time and observed result. PASS requires the stated observable outcomes; a violation is FAIL. Missing authorization, fixture capability or independent observation is BLOCKED, never success. Do not promote Status merely because a procedure exists.
+
+### REQ-STOR-004 startup restore acceptance
+
+1. Prepare an admitted nonempty R2 fixture file absent from a fresh disposable container. Use an approved bucket-scoped transport control to delay restore after terminal-listener readiness; do not stall a shared endpoint.
+2. Start normally. Observe listener, restore and subsequent startup events. Release the response and compare restored bytes. PASS requires post-restore configuration and agent usability to wait for successful restore; listener readiness alone is insufficient.
+3. In a separate stalled-restore case, measure from restore-start to its terminal outcome. PASS requires the existing 120-second transfer bound, recorded timeout and subsequent startup progress; distinguish event-reporting overhead from transfer duration. Indefinite blocking or wrong restored bytes fails.
+
+### REQ-STOR-005 final persistence acceptance
+
+1. After successful restore/baseline and an observed ordinary-sync completion, create a nonempty admitted fixture file. Record its digest and independently confirm R2 has not received it before requesting Stop.
+2. Use normal `POST /api/sessions/:id/stop`, not Kill or direct signals. Observe successful final sync and confirmed lifecycle stop; a stop response alone is not durability evidence.
+3. Independently download the exact key after shutdown. PASS requires matching bytes and publication attributable to the final drain, not an earlier periodic sync. Missing/corrupt bytes fails; unsuccessful sync or unavailable independent readback cannot pass this success case.
+4. Correlate existing teardown timings with the shared 135-second cap and the primary live drain's allocated bound of up to 120 seconds, further limited by remaining teardown time. SIGTERM starts no fresh orchestrator budget: its trap is only a best-effort backstop using time left. Failed or exhausted drain may lose last writes; only the independent final-byte comparison qualifies persistence. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::FINAL_SYNC_BUDGET_MS -->
+
+### Session replacement storage acceptance
+
+For SESSION-009 AC5, reuse the final-persistence procedure above with an authorized nonempty fixture in an always-synced, non-managed path. Record the exact bucket, key and digest. After normal graceful destruction, create the next authorized session for the same owner, bucket and workspace; do not copy the fixture or substitute a bucket. Pass only if R2 and the restored file retain the original bytes after the old session is gone. Missing authorization/readback is blocked, not a pass.
+
+For [REQ-SEC-005 AC5](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), use that same lifecycle with an already SSE-C-enabled disposable bucket: an operator key is configured and the bucket regime does not suppress SSE-C. Do not enable encryption, migrate objects or expose key/configuration values to manufacture this case. Privately confirm the effective rclone SSE-C configuration and retain only an enabled/AES256 boolean. <!-- @impl: entrypoint.sh::create_rclone_config --> Observe initial encrypted restore without a prompt; edit the admitted fixture, wait for a successful ordinary periodic cycle and independently read back its matching digest using authorized SSE-C access. Make a second distinct edit after that cycle, confirm its digest is not yet in R2, then use normal Stop and independently verify the shutdown transfer's exact digest before replacement-session restore. Require existing authorized transfer/encryption observations for each phase, not just a configuration anchor or readable local file. PASS requires encrypted initial, periodic and shutdown transfers plus matching restored identity without a user encryption prompt; failed transfers, prompts or byte mismatches FAIL. Missing authorization, encryption-specific observations or independent readback BLOCK this case. This authored method remains unexecuted; protected lifecycle evidence requires later authorization.
+
+### REQ-STOR-006 quota admission acceptance
+
+Use an authorized isolated SaaS/non-enterprise fixture with prepared tier and cache state. Changing billing/tier configuration needs separate permission; a missing cache or enterprise bypass cannot qualify this check.
+
+1. With known-size objects and a finite resolved quota, request `GET /api/storage/stats`. Verify usage and maximum against the fixture, then confirm an otherwise eligible under-limit New Session request succeeds. Use approved traces to verify cached usage supplies admission.
+2. Refresh an over-limit fixture's stats, then request New Session. PASS requires an understandable storage-quota refusal and no new record. Another admission error or an empty cache does not establish quota enforcement.
+3. Use a prepared resolved-unlimited fixture whose usage exceeds the finite case. PASS requires an unlimited readout and no storage-quota refusal. Do not erase a stored field to simulate unlimited when default merging would restore a finite cap.
+
+Wrong totals, over-limit admission or cross-user state is FAIL. Missing trace access is BLOCKED for the cache-source predicate. Automated default-inheritance coverage remains separate; these checks cover manual AC1–4 only.
+
+### REQ-STOR-007 upload and preview acceptance
+
+1. Upload known nonempty bytes with authenticated `POST /api/storage/upload` JSON `{key, content}`, where content is base64. Independently download the encoded exact key. PASS requires matching bytes, key and reported size; rejection does not qualify storage.
+2. Prepare a small text object with an actual supported text Content-Type; simple upload stores octet-stream, so a filename suffix is insufficient. Preview through `GET /api/storage/preview?key=...`; PASS requires JSON text content and matching metadata.
+3. Preview a non-text fixture. PASS requires binary metadata without a text-content payload. Wrong bytes, absent qualifying text or leaked binary-as-text fails. The inline-download viewer is not this JSON preview endpoint.
+
+### REQ-STOR-008 multipart and shared limit acceptance
+
+1. As disposable identity A, initiate with `{key}`, upload a nonempty base64 part with `{key, uploadId, partNumber: 1, content}`, then complete with `{key, uploadId, parts: [{partNumber: 1, etag}]}` through the corresponding `/api/storage/upload/*` endpoints.
+2. PASS requires independently observed stored-part bytes or matching completed-download bytes. A returned upload ID/ETag alone is insufficient. Keep ordinary fixture keys outside managed namespaces and retain only nonsecret evidence.
+3. In a fresh A window, interleave legitimate upload phases against the shared 60-per-60-second allowance. Prepare valid phase inputs before exhaustion. PASS requires alternate phases to return 429 with retry/limit guidance after aggregate exhaustion, not separate allowances.
+4. Verify B's independent first request remains eligible and A recovers after its actual window expires. Unrelated errors or crossing a window boundary cannot qualify throttling. Abort only known disposable incomplete uploads when permitted, under explicit cleanup authorization.
+
+### REQ-STOR-009 tutorial recreation acceptance
+
+Use an authorized disposable bucket with no concurrent session writes. Authorize the exact tutorial keys and overwrite explicitly; automatic non-overwriting startup seeding is a separate method, not a selectable flag on the recreation endpoint.
+
+1. Make a known synthetic edit to one tutorial, then fetch storage stats to warm a fresh cache reflecting that edit. Keep the following operations inside that cache window.
+2. Use Recreate Docs & Examples or authenticated `POST /api/storage/seed/getting-started`. PASS requires success, reported written keys and independently readable recreated tutorial content replacing the synthetic edit; a success response alone is insufficient.
+3. Read stats before the original cache expires. PASS requires the recreated content's current totals, not the pre-recreation cached totals. Wrong content/totals is FAIL; unavailable independent readback or an expired observation window is BLOCKED.
+
+No ordinary user edits, other object keys, seed-complete marker or upload state is cleared for this check. Automatic retry, idempotency and rate-limit evidence remain the linked automated methods.
+
+### REQ-STOR-014 cached statistics acceptance
+
+Use an authorized isolated bucket with a prepared inventory exceeding one listing page and known total bytes. Keep one Worker location and record the cache window; external fixture writes and tutorial overwrites require their own authorization. No instrumentation or protected run is authorized here.
+
+1. Request `GET /api/storage/stats` from a fresh cache. PASS requires complete inventory counts/bytes across pages, not just the first page.
+2. Make an authorized external fixture-object change without using an invalidating application endpoint. Before cache expiry, the stats read retains cached totals; after expiry, it reflects the change. Wrong totals or indefinite stale results fail.
+3. Separately warm the cache before a successful upload, delete and authorized tutorial recreation. The next stats read within that cache window reflects each mutation; timeout-driven refresh alone cannot qualify invalidation.
+4. On a cache hit, compare the returned quota with the cached fixture and use existing authorized observations to confirm no tier-configuration resolution. If those observations are unavailable, record BLOCKED for that internal predicate rather than inferring it from latency.
+
+The ancillary-consumer method is the linked route test, not hot batch polling. These manual checks cover AC1/3/4; authored steps are not passing evidence.
+
+### REQ-STOR-015 per-user sync limit acceptance
+
+1. Use isolated A/B identities with working KV limiting and no stress bypass. Prefer no running sessions to avoid transfer fan-out; any necessary live fixture effects require separate authorization.
+2. Send six sequential authenticated `POST /api/sessions/sync` requests inside A's fresh 60-second window, then a seventh. PASS requires six admitted requests and a 429 `RATE_LIMIT_ERROR` with limit 6, remaining 0 and retry guidance.
+3. While A is exhausted, verify B remains eligible; retry A after window expiry. Cross-user exhaustion or failure to recover fails. Never rewrite limiter keys to manufacture a result.
+
+### REQ-STOR-027 Integration replacement-container marker acceptance
+
+1. Use an authorized disposable Integration bucket and a repository/PR fixture whose exact head genuinely completed its applicable review. Acknowledge through the existing completion action; record marker identity, mode, `reviewedAt` and digest without forging completion.
+2. Observe prompt local acknowledgement without a review-specific sync. Let ordinary cadence or final Stop publish the marker, then independently confirm exact R2 bytes. Direct R2 copying or forced review sync cannot supply this evidence.
+3. Replace only the authorized container, retaining bucket and repository/branch/base/head identity. After restore, PASS requires unchanged marker bytes/timestamp and completion consumption without another acknowledgement; an existing clone at the same identity must agree.
+4. Different heads/protected-base identities must not inherit completion. Missing/corrupt markers, wrong identity acceptance or extra review-triggered sync fails. Record the mode exercised; one round trip is not all-mode/device proof. Unavailable safe lookup is BLOCKED.
+
+### REQ-STOR-033 Enterprise Integration interrupted-upgrade acceptance
+
+1. Under the existing private owner runbook, separately authorize an isolated Enterprise Integration bucket, no owning workload, verified applied A/target B and bucket-scoped transport control. Preserve agent selection, mode, resource policy and release identity across retry.
+2. Include changed/new target paths and a release-identical markerless user edit. Trigger `/api/storage/seed/agent-configs/upgrade`; allow some B objects to be written and independently verified before the authorized fault interrupts remaining work. Browser cancellation alone is insufficient.
+3. Confirm proper partial effects without applied-B publication. Remove only the fixture fault and use Retry upgrade with the same target. PASS requires verified completed objects skipped, remaining changes written, unchanged user edits retained and success-only final B publication.
+4. Verify applied/current state and bytes/metadata independently of POST success. Bad-marker skips, replayed completed writes, overwritten unchanged edits or premature publication fails. Do not substitute Recreate, changed identity or manufactured provenance.
+5. Existing automated fallback/admission/Recreate checks remain separate. Record concurrency against the six-operation ceiling only when approved traces expose it. If real interruption, scope or observation is unavailable, mark BLOCKED; add no product failpoint or infrastructure.
+
+### REQ-ENTERPRISE-021 migration progress acceptance
+
+Manual AC5 observes an already authorized, isolated migration fixture prepared under the existing owner runbook. Do not toggle a shared environment, create faults or modify regime state for this procedure. Missing progressing/halted fixtures are BLOCKED, not permission to build them.
+
+1. Open or reload the dashboard during the prepared migration. Observe the ancillary response and New Session control; known progress is within 0–99, and the disabled control displays `Migrating N%` for that value.
+2. Keep the page visible and record successive migration ancillary updates. Verify the existing five-second scheduling and non-overlap, distinguishing request duration from timer delay. If migration ends before that observation is possible, record BLOCKED for cadence.
+3. Observe the prepared halted fixture: percentage is omitted, New Session remains disabled, and the UI does not invent a percentage. Enabled creation, out-of-range/mismatched progress or invented halted progress is FAIL.
+
+Record build, nonsecret fixture identity, response timing and observed labels. These checks do not establish encryption conversion, drain completion or live storage preservation; their automated methods and separate acceptance boundaries remain unchanged.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
@@ -430,7 +533,7 @@ Protected managed environments restore one canonical `.codeflare/managed-paths.j
 <a id="startup--steady-state-sync-performance"></a>
 ## Performance Characteristics
 
-Six startup costs and stale-state risks are controlled (REQ-STOR-017):
+Six startup costs and stale-state risks are controlled by [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [REQ-STOR-256](../../sdd/spec/storage.md#req-stor-256-image-seed-relay-cache-reuse-and-prewarm-priority), and [REQ-STOR-257](../../sdd/spec/storage.md#req-stor-257-retired-pi-extension-sync-exclusion-and-baked-pruning):
 
 - **Bisync compares via server-modtime (AD88, all modes).**
 
@@ -450,17 +553,21 @@ Six startup costs and stale-state risks are controlled (REQ-STOR-017):
     The common rclone filter excludes the exact managed paths `.pi/agent/extensions/review-job-helpers.ts`, `review-jobs.ts`, and `review-lane-guards.ts`. Initial restore, the retrying baseline, and steady-state bisync all consume the common filter, so stale bucket objects cannot restore retired review machinery.
 - **Retired local copies are pruned before Pi loads (without remote curation).**
 
-    In the baked relay path, `relay_managed_pi_extensions()` removes those same three exact local files before laying down current managed bytes. The pruning list is exact: unrelated user-added extensions remain untouched.
+    In the baked relay path, `relay_managed_pi_extensions()` removes those same three exact local files before laying down current managed bytes. The pruning list is exact: unrelated user-added extensions remain untouched. Remote curation returns before this local pruning; its release-owned bytes remain authoritative and only declared image companions are restored. Common retired-path sync exclusions still apply to both branches. [REQ-STOR-256](../../sdd/spec/storage.md#req-stor-256-image-seed-relay-cache-reuse-and-prewarm-priority) owns baked cache reuse; [REQ-STOR-257](../../sdd/spec/storage.md#req-stor-257-retired-pi-extension-sync-exclusion-and-baked-pruning) owns the branch-specific pruning and common exclusions. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 - **Background init deprioritization (all modes).**
 
-    The background subshell running the bisync `--resync` baseline, vault seed, and sync/vault daemons runs at `nice 19` / `ionice -c 3` (idle I/O class), yielding the single vCPU and disk to the concurrent pi PTY pre-warm — whose latency was dominated by contention with the baseline, not by the baseline's own work.
+    The background subshell running the bisync `--resync` baseline, vault seed, and sync/vault daemons runs at `nice 19` / `ionice -c 3` (idle I/O class), yielding CPU and disk priority to concurrent Pi PTY pre-warm independently of deployment resource allocation — whose latency was dominated by contention with the baseline, not by the baseline's own work.
 
 <a id="governed-mode-r2-sse-c-disabled"></a>
 ## Encryption-Regime Alias
 
-When an enterprise admin enables [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable), R2 SSE-C is disabled deployment-wide so the corporate bucket is readable/scannable. Each bucket's actual encryption regime + any in-flight migration is tracked by a per-bucket **state object** (`r2-regime:<bucket>` — `{status: ready|migrating|mixed-recovery, regime, from?, to?, generation, cursor?, phase?, drained?, leaseExpiresAt?, keyMd5?, stuckCount?, lastFailedKey?}`; it replaced the old boolean `UserPreferences.r2SseRegime` marker, a boolean being unable to describe a partially in-place-migrated bucket). Flipping the policy losslessly re-encrypts the bucket in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the dashboard `batch-status` poll, with the regime committed only after a full verification HEAD-scan.
+When an enterprise admin enables [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable), R2 SSE-C is disabled deployment-wide so the corporate bucket is readable/scannable. Each bucket's actual encryption regime + any in-flight migration is tracked by a per-bucket **state object** (`r2-regime:<bucket>` — `{status: ready|migrating|mixed-recovery, regime, from?, to?, generation, cursor?, phase?, drained?, leaseExpiresAt?, keyMd5?, stuckCount?, lastFailedKey?}`; it replaced the old boolean `UserPreferences.r2SseRegime` marker, a boolean being unable to describe a partially in-place-migrated bucket). Flipping the policy losslessly re-encrypts the bucket in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the separate slower/event-driven dashboard `ancillary-status` owner, not the hot D1-only `batch-status` poll, with the regime committed only after a full verification HEAD-scan.
 
-While a bucket migrates, running containers are drained (best-effort — a drain failure leaves a brief stray-write window, caught by the verification rescan + read self-heal), every R2 writer is gated `409 BUCKET_MIGRATING`, and reads use a dual-regime fallback (a stray cross-regime object self-heals via a `mixed-recovery` scan). Session start never performs migration; it rejects an in-flight migration before runtime admission. Record creation and starting its runtime are distinct operations. Sync behaviour follows the committed regime: rclone drops the SSE-C block from `rclone.conf` and compares by checksum once the bucket is plain. See [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) (migration mechanics; supersedes [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)) and the [Deployment lane](deployment.md#governed-mode-migration-batch-status-driven).
+Migration defers while D1 records a workload-owning session, even if that runtime is unhealthy or earlier chunks drained. Ownership is rechecked after lease admission and bounded drain, before multipart aborts or object mutations; unknown authority keeps work retryable. A benign drain timeout can proceed only after a fresh no-owner result. Background migration does not destroy owning sessions. Platform writers remain gated `409 BUCKET_MIGRATING` (except explicit matching uncertain-completion abort recovery), and reads use a dual-regime fallback (a stray cross-regime object self-heals via a `mixed-recovery` scan). Session start never performs migration; it rejects an in-flight migration before runtime admission. Record creation and starting its runtime are distinct operations.
+
+The existing bucket-scoped Container DO serializes platform multipart operations with migration chunks. Upload IDs bind key/regime/generation; verified identity persists durably before KV ready publication. Unknown, legacy or stale IDs return `409 MULTIPART_RESTART_REQUIRED` without deleting parts. A lost or unverifiable completion response retains durable pending-completion admission and blocks migration until an explicit matching abort confirms removal or definitive 404 absence. Ordinary abort still rejects non-2xx responses. Migration preparation lists at most 100 provider uploads without continuation; discovery/abort failure prevents drained/ready publication, and all attempted aborts settle. This is not exhaustive cleanup or a tracker for arbitrary direct R2 uploads. Direct R2 writers must remain quiescent throughout migration maintenance.
+
+Sync behaviour follows the committed regime: rclone drops the SSE-C block from `rclone.conf` and compares by checksum once the bucket is plain. See [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) (migration mechanics; supersedes [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)) and the [Deployment lane](deployment.md#governed-mode-migration-batch-status-driven).
 
 ---
 

@@ -116,8 +116,8 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     })).status).toBe(503);
   }));
 
-  it('keeps discovery and promotion disabled, rejects a stale mutation, and preserves an independent installation', async () => withManagementApi(async request => {
-    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+  it('keeps discovery and promotion disabled, rejects stale mutation and rolls A to B to A without changing an independent installation', async () => withManagementApi(async request => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ releaseCount: 2 })).fetcher);
     const controls = await request('/access', 'POST', { revision: 0, managers: registration.managers,
       ceiling: { capabilities: [], resourceProfileIds: [] } });
     expect(controls.status).toBe(200);
@@ -126,8 +126,11 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     const operator = await registered.json() as { operatorId: string; revision: number };
     const refreshed = await request(`/operators/${operator.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
     expect(refreshed.status).toBe(200);
-    const release = (await refreshed.json() as { items: Array<{ id: string; approved: boolean }> }).items[0]!;
-    expect(release.approved).toBe(false);
+    const releases = (await refreshed.json() as { items: Array<{ id: string; approved: boolean }> }).items;
+    expect(releases).toHaveLength(2);
+    const [release, successor] = releases;
+    expect(release.id).not.toBe(successor.id);
+    expect(releases.every(item => !item.approved)).toBe(true);
     const discoveredDetail = await request(`/operators/${operator.operatorId}`);
     expect(discoveredDetail.status).toBe(200);
     const discovered = await discoveredDetail.json() as { operator: { revision: number } };
@@ -170,9 +173,21 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
     const enabled = await request(`/installations/${installation.id}/enable`, 'POST', { revision: 3, enabled: true });
     expect(enabled.status).toBe(200);
     expect(await enabled.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 4, enabled: true });
-    const rollback = await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: release.id, revision: 4 });
+    const advance = await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: successor.id, revision: 4 });
+    expect(advance.status).toBe(200);
+    expect(await advance.json()).toMatchObject({ id: installation.id, releaseId: successor.id, revision: 5, enabled: false });
+    const rollback = await request(`/installations/${installation.id}/promote`, 'POST', { releaseId: release.id, revision: 5 });
     expect(rollback.status).toBe(200);
-    expect(await rollback.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 5, enabled: false });
+    expect(await rollback.json()).toMatchObject({ id: installation.id, releaseId: release.id, revision: 6, enabled: false });
+    expect(await (await request(`/operators/${operator.operatorId}`)).json()).toMatchObject({
+      releases: expect.arrayContaining([expect.objectContaining({ id: release.id, approved: true }),
+        expect.objectContaining({ id: successor.id, approved: true })]),
+      installations: expect.arrayContaining([
+        expect.objectContaining({ id: installation.id, releaseId: release.id, revision: 6,
+          configuration: { review: { paths: ['src', 'host'], failClosed: true } } }),
+        expect.objectContaining({ id: untouched.id, revision: untouched.revision, releaseId: null, enabled: false }),
+      ]),
+    });
   }));
 
   it('rejects release capabilities outside installation policy and the current management ceiling', async () => withManagementApi(async request => {

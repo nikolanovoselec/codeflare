@@ -2,15 +2,17 @@
 
 Persistent Obsidian-style note vault: agent-written session captures plus user-curated prose, indexed into the unified graphify graph for cross-session memory queries.
 
+File ownership, synchronization artifacts and editor bootstrap mechanisms are documented in the [Vault implementation owner](../../documentation/lanes/vault.md).
+
 **Domain owner:** entrypoint.sh, codeflare-vault plugin, graphify, SilverBullet, Worker `/api/vault` route
 
 ### Key Concepts
 
 - **Vault** -- The persistent per-user vault directory holding markdown notes, pasted assets, and derived graph output. Attachment uploads land next to the note that referenced them; the dedicated raw-pasted directory is reserved for user-owned drag-drop. The vault is bisynced to R2 so it survives across sessions and is always present in the unified global graph (tagged as the user-vault source; never pruned by the active-repo prune-on-switch logic).
-- **Capture Agent** -- The background worker that writes one markdown file per batch into the vault's raw-sessions subdirectory and merges it into the unified graph. Claude is pinned to Sonnet per AD58; Pi uses the optional provider-neutral model lever with medium reasoning and bounded one-pass input per AD103. The image-owned compactor alone may fold cold captures into `Raw/Sessions/Archive.md`.
+- **Capture Agent** -- The background worker that writes one markdown file and graph chunk per batch into the vault; the launcher owns locked merging, global publication and success-only cleanup. Claude is pinned to Sonnet per AD58; Pi uses the optional provider-neutral model lever with medium reasoning and bounded one-pass input per AD103. The image-owned compactor alone may fold cold captures into `Raw/Sessions/Archive.md`.
 - **Vault-monitor Daemon** -- A polling loop in the entrypoint that watches for user-curated edits anywhere under the vault except the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four codeflare-authoritative root pages. When changes are found, writes a trigger marker. Detects changes by comparing each file's content hash against a durable manifest (REQ-VAULT-026), not its mtime, so the R2 restore's mtime reset cannot misfire a full re-extraction.
 - **Vault-extract Agent** -- The background worker that reads only detected changed files and merges their subgraph into the unified graph. Claude is pinned to Sonnet and commits its manifest; Pi uses medium reasoning/seven turns and the root promotes staged manifest bytes only after a post-commit request chunk.
-- **Unified Global Graph** -- The merged graph that combines every per-repo graph with the vault's own graph; merges are hash-keyed and serialized under a shared multi-writer lock. The graphify MCP wrapper prefers this graph when present so structural queries return a unified view across all sources.
+- **Unified Global Graph** -- The merged graph that combines `user_vault` with the current active repository's graph when present; merges are hash-keyed and serialized under a shared multi-writer lock. The graphify MCP wrapper prefers this graph when present so structural queries return a unified view across all sources.
 - **SilverBullet** -- The markdown editor running inside the container, bound to localhost only and reachable from the codeflare UI through the Worker proxy. The auth boundary lives at the Worker.
 
 ### Out of Scope
@@ -39,14 +41,14 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-001: Persistent vault directory survives across sessions
 
-**Intent:** A user opens a new session and finds their previous notes, captures, and pasted assets intact -- the same way the rest of `/home/user/` survives. This REQ covers the directory skeleton, rclone filter coverage, and storage-panel surfacing of the special folders; codeflare-authoritative file preseeding is in [REQ-VAULT-010](#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot).
+**Intent:** A user opens a new session and finds their previous notes, captures, and pasted assets intact -- the same way the rest of the user home directory survives. This REQ covers the directory skeleton, rclone filter coverage, and storage-panel surfacing of the special folders; codeflare-authoritative file preseeding is in [REQ-VAULT-010](#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The vault directory tree is included in the rclone filter set, while only the cumulative graph and extraction manifest are re-included from `Vault/graphify-out/`; derived `graph.json` and `graph.html` remain excluded. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
-2. The ephemeral global-graph workspace directory is excluded from sync so the merged graph is regenerated on boot from the per-source `graphify-out/` files rather than carrying stale state across sessions. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2 sync) / REQ-MEM-006 (advanced-only) / REQ-VAULT-001 (vault filter order) / REQ-STOR-004 (static excludes)) -->
+1. The vault directory tree is included in rclone sync; within its derived-graph output directory the cumulative graph, extraction manifest and durable `vault-extract-initialized` record are re-included, not regenerable graph-data or visualization intermediates. The initialization record preserves the first-initialization boundary required by [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
+2. The ephemeral global-graph workspace directory is excluded from sync so the merged graph is regenerated on boot from per-source graph artifacts rather than carrying stale state across sessions. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2 sync) / REQ-MEM-006 (advanced-only) / REQ-VAULT-001 (vault filter order) / REQ-STOR-004 (static excludes)) -->
 3. The vault initializer creates raw-sessions, raw-pasted, notes, references, graphify-out, and SilverBullet config subdirectories on every boot. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 4. The vault initializer runs after the bisync baseline is established and before the daemon launch block so the empty skeleton never overwrites R2-restored content. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 5. The vault initializer creates persistent Uploads and Temporary folders alongside the vault; both are R2-synced and visible in the storage panel. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: web-ui/src/__tests__/lib/special-folders.test.ts (SPECIAL_FOLDERS registry / REQ-VAULT-001 AC6 (R2 panel surfaces special folders)) -->
@@ -60,9 +62,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions) (file persistence across sessions), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) (15-min bisync), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) (initial sync restores files on container start)
+**Dependencies:** [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated test ([Behavioral test](../../host/__tests__/entrypoint-vault-boot.test.js))
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js), [special-folders.test.ts](../../web-ui/src/__tests__/lib/special-folders.test.ts)
 
 **Status:** Implemented
 
@@ -76,24 +78,26 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The capture agent writes one markdown file per batch into the vault's raw-sessions subdirectory using a dated filename and the YAML-frontmatter + Context/Decisions/Observations/References template. <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) --> <!-- @manual -->
+1. The capture agent writes one markdown file per batch into the vault's raw-sessions subdirectory using a dated filename and the YAML-frontmatter + Context/Decisions/Observations/References template. <!-- @manual -->
 2. Concept references use wikilink syntax; file paths, code symbols, and PR/issue references stay as prose. <!-- @manual -->
-3. The capture agent builds the vault graph inline: the agent emits chunk JSON matching the graph builder's schema, then a graph-build step materializes the per-extraction graph. <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) --> <!-- @manual -->
-4. The agent merges the per-extraction graph into the unified global graph under the shared multi-writer lock and tags it as the vault source. <!-- @manual -->
+3. The capture worker writes the note and emits chunk JSON matching the graph builder's schema inline; graph materialization and publication belong to the launcher publisher, without another inference call. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/build-memory-graph.py::build_graph --> <!-- @manual -->
+4. After the capture worker exits, the launcher publisher merges its graph contribution into the cumulative Vault graph and publishes it to the unified global graph as `user_vault` under the shared multi-writer lock. Only successful publication advances capture state and cleans up the request carrier; failure retains delivery state for the owning request lifecycle to retry. <!-- @manual -->
 5. If extraction fails, the markdown file stays on disk; Vault hash checks exclude the session capture directory, so memory delivery recovery remains owned by its bounded request lifecycle rather than starting a Vault extraction. <!-- @manual -->
 6. The historical MCP memory subsystem has been removed entirely; the capture agent does not invoke it, and no legacy JSONL graph is read. <!-- @manual -->
 
+**Notes:** Codeflare ships no LLM provider key for the CLI and the capture agent already IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit; the capture pipeline is documented in [Vault](../../documentation/lanes/vault.md#capture-path-req-vault-002).
+
 **Constraints:**
 
-- The dedup gate (the marker-file delete as the agent's first step) is unchanged from the pre-vault flow.
-- Compaction is not automated; the user prunes captured sessions manually via the editor when the directory becomes unwieldy.
-- The headless extraction CLI is intentionally bypassed per [REQ-MEM-001](memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC6 - codeflare ships no LLM provider key for the CLI and the capture agent already IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
+- The launcher owns the capture request carrier and dedup lifecycle; the worker does not delete the trigger as its first step or advance capture state. Publication failure retains the carrier for bounded delivery recovery.
+- The image-owned compactor automatically performs daily UTC deterministic cold-capture compaction after successful natural sync, recording the day complete only after success or no cold sources: prepare the archive, relocate and publish graph provenance under the shared lock, delete only verified unchanged manifest sources, then bisync the result. Agents must not edit the archive or delete captures; machine-only archive ownership and the sync contract remain as specified by [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory).
+- The headless extraction CLI is bypassed, with no extra inference, per [REQ-MEM-001](memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC6.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Manual check
+**Verification:** Manual: [REQ-VAULT-002 procedure](../../documentation/lanes/vault.md#req-vault-002-manual-qualification)
 
 **Status:** Implemented
 
@@ -107,11 +111,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. Generated, vendored, internal, captured, and preseed-managed content is excluded from Vault change detection. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::VAULT_GENERATED_PREFIXES --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::VAULT_PRESEED_ROOT_FILES --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (never reports excluded subtrees (agent-owned / derived / manifest itself)) --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (excludes the four codeflare-authoritative root pages from the manifest) --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content) -->
-2. Change detection compares each vault file's content hash against a durable manifest (REQ-VAULT-026), not a file mtime, so a container restart that resets every file's mtime does not misreport the vault as changed. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (THE ORACLE: an R2-style restore (rewrite every file, fresh mtime, identical bytes) yields ZERO changes) -->
+1. Generated, vendored, internal, captured, and preseed-managed content is excluded from Vault change detection. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::_excluded --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::VAULT_GENERATED_PREFIXES --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::VAULT_PRESEED_ROOT_FILES --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-032 AC3: excludes individual captures and Archive.md from semantic extraction) --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (excludes the four codeflare-authoritative root pages from the manifest) --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content) -->
+2. Change detection compares each vault file's content hash against a durable manifest (REQ-VAULT-026), not a file mtime, so a container restart that resets every file's mtime does not misreport the vault as changed. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::collect --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (THE ORACLE: an R2-style restore (rewrite every file, fresh mtime, identical bytes) yields ZERO changes) -->
 3. The hook handler exits immediately when the trigger marker is absent or when an in-flight sentinel exists and is younger than 30 minutes. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh::PROMPT_FILE --> <!-- @test: host/__tests__/vault-monitor-hook-behavior.test.js (vault-monitor-hook.sh behavior (real) / REQ-VAULT-003 AC3 (hook fast-exit + 30-min in-flight sentinel TTL)) -->
-4. The vault-extract subagent deletes the trigger marker first (dedup gate), extracts per changed file, merges via the shared global-graph add command, commits the content-hash manifest and refreshes the ephemeral dedup timestamp, and removes the in-flight sentinel last. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::LAST_MARKER --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
-5. If any extract-merge-advance step fails, the committed manifest remains unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps the committed manifest byte-identical on failure and emits the next reminder) -->
+4. The vault-extract subagent deletes the trigger marker first (dedup gate), extracts per changed file, merges via the shared global-graph add command, commits the content-hash manifest and refreshes the ephemeral dedup timestamp only after successful manifest commit, and removes the in-flight sentinel last. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::LAST_MARKER --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @manual: Follow the Claude extraction failure-preservation method in the Vault lane. -->
+5. If any extract-merge-advance step fails, the committed manifest remains unchanged. Failed listing or file extraction, including all-files-failed, is not empty success; a successful empty scan is cleanup-only. Claude executes merge/publication/commit in one Bash call to preserve the failure flag; supported PDF metadata fallback remains valid. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::EXTRACT_FAILED --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @manual: Follow the Claude extraction failure-preservation method in the Vault lane. -->
 6. Preseed-page rewrites never register as vault changes: the four pages are excluded from the manifest (AC1) and unchanged bytes never register under content-hash detection (REQ-VAULT-026), which replaces the old high-water-marker bump-after-preseed-write mechanism. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 7. Pi vault extraction is inert in child sessions, so background monitor transcripts never receive extraction follow-ups. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps all handlers inert in child sessions) -->
 
@@ -129,7 +133,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test
+**Verification:** Manual: [Claude extraction failure preservation](../../documentation/lanes/vault.md#claude-extraction-failure-preservation); Automated: [vault-monitor-hook-behavior.test.js](../../host/__tests__/vault-monitor-hook-behavior.test.js), [agent-seed-pi-memory.test.ts](../../src/__tests__/lib/agent-seed-pi-memory.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [vault-manifest-detection.test.ts](../../src/__tests__/lib/vault-manifest-detection.test.ts)
 
 **Status:** Implemented
 
@@ -161,7 +165,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume)
 
-**Verification:** Automated tests ([Claude memory hook tests](../../host/__tests__/memory-capture-hook.test.js), [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+**Verification:** Automated: [memory-capture-hook.test.js](../../host/__tests__/memory-capture-hook.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -170,23 +174,23 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <a id="req-vault-004-unified-global-knowledge-graph"></a>
 ### REQ-VAULT-004: Unified global graph merges vault and active repos
 
-**Intent:** A single `mcp__graphify__*` call returns nodes from the vault and from every per-repo graphify-out the session has touched, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.
+**Intent:** A single `mcp__graphify__*` call returns nodes from `user_vault` plus the current active repository when it has a graph, not every historically touched repository, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. The MCP wrapper's active-graph resolver prefers the unified global graph when present, falling back to the sentinel-pinned per-repo graph and then to the freshest workspace-by-mtime graph. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_resolve_active --> <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)) -->
-2. Active repositories with graphs join the unified graph unless the manifest already matches their tag, graph hash, and checkout path. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::REPO --> <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::STORED_PATH --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::planGlobalGraphReconcile --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-004 / REQ-OPS-049 AC3: memory-vault.ts publishes through the protected global graph lock) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (skips republishing a graph the manifest already records (REQ-VAULT-014 AC5)) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (republishes when another checkout of the same basename holds the tag (REQ-VAULT-014 AC5)) --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (still adds when another checkout of the same basename published an identical graph) -->
+1. The MCP wrapper's active-graph resolver prefers the unified global graph when present, falling back to the sentinel-pinned per-repo graph and then to the freshest workspace-by-mtime graph. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_resolve_active --> <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (IG0630: actual Python MCP resolver chooses global, pinned, then freshest workspace graph) -->
+2. Active repositories with graphs join the unified graph unless the manifest already matches their tag, graph hash, and checkout path. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::REPO --> <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::stored_path --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::planGlobalGraphReconcile --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-004 / REQ-OPS-049 AC3: memory-vault.ts publishes through the protected global graph lock) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (skips republishing a graph the manifest already records (REQ-VAULT-014 AC5)) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (republishes when another checkout of the same basename holds the tag (REQ-VAULT-014 AC5)) --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (still adds when another checkout of the same basename published an identical graph) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (IG0318/IG0631/IG0632: sequential switch persists source path/hash and exact global contents, then vault only) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (RQ0841: identical graphs rebind checkout provenance without rewriting global graph bytes) --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (RQ0841: matching graph bytes update only checkout provenance under the writer lock) -->
 3. Active-repo resolution walks up to the nearest git checkout, identified by a `.git` directory or a worktree `.git` file, and treats neither the vault nor a graph-output-only directory as a repository, leaving the sentinel and global graph untouched on reaching either. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::REPO --> <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::CANDIDATE --> <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts::repoRootFromPath --> <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (a bare graphify-out/ directory is NOT a repo root) -->
 4. Routine bash, edit, and write calls leave the active graph unchanged without starting another graph merge when the repository path, checked-out branch, graph presence, and graph modification time are all unchanged since the last reconciliation. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::GRAPH_MTIME --> <!-- @test: host/__tests__/graphify-active-repo.test.js (fast-path: same repo + graph mtime <= sentinel mtime -> exit 0, sentinel mtime unchanged) -->
 5. Single-active-repo invariant and multi-writer lock serialization are specified in [REQ-VAULT-014](#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation). <!-- @manual -->
-6. When the active checkout has no graph, the global graph holds the vault entry alone: every repository entry is removed and none is added. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::KEEP_TAG --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::planGlobalGraphReconcile --> <!-- @test: host/__tests__/graphify-active-repo.test.js (a checkout without a graph leaves the vault alone in the global graph (REQ-VAULT-004 AC6)) --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (a checkout without a graph removes every repo tag and adds nothing) -->
+6. When the active checkout has no graph, the global graph holds the vault entry alone: every repository entry is removed and none is added. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::KEEP_TAG --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::planGlobalGraphReconcile --> <!-- @test: host/__tests__/graphify-active-repo.test.js (a checkout without a graph leaves the vault alone in the global graph (REQ-VAULT-004 AC6)) --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (a checkout without a graph removes every repo tag and adds nothing) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (IG0318/IG0631/IG0632: sequential switch persists source path/hash and exact global contents, then vault only) -->
 7. A change of checked-out branch, or a graph that disappeared at an unchanged repository path, re-runs reconciliation against the current state rather than being treated as unchanged; this holds for git worktrees as well as plain clones. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::GRAPH_STATE --> <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::GIT_DIR --> <!-- @test: host/__tests__/graphify-active-repo.test.js (a branch switch triggers reconciliation even when the graph file is untouched) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (a branch switch in a worktree triggers reconciliation too, not just in a plain clone) -->
 
 **Constraints:**
 
-- The global-graph add is hash-keyed and idempotent: re-running it with the same per-repo graph is a no-op.
+- The global-graph add is hash-keyed and idempotent. After CLI success, equal-hash checkout changes atomically rebind only manifest `source_path` under the same lock, retaining other fields and global graph bytes; no graph rebuild is required.
 - The per-source tag is what distinguishes vault nodes from per-repo nodes in the unified graph; each source carries one stable tag.
 - The global manifest uses each repository's directory basename without branch granularity.
 - A branch change is a reconciliation trigger, not a rebuild trigger: it re-evaluates which tags belong in the global graph, and rebuilding a graph's contents stays an explicit action.
@@ -198,7 +202,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions), [REQ-VAULT-002](#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)
 
-**Verification:** Automated test
+**Verification:** Automated: [graphify-active-repo.test.js](../../host/__tests__/graphify-active-repo.test.js), [pi-global-graph-reconcile.test.ts](../../src/__tests__/lib/pi-global-graph-reconcile.test.ts), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts); Manual: [REQ-VAULT-004 procedure](../../documentation/lanes/vault.md#req-vault-004-manual-qualification)
 
 **Status:** Implemented
 
@@ -206,7 +210,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-005: Worker proxy exposes the in-container vault editor
 
-**Intent:** Clicking the Vault button in the codeflare UI opens SilverBullet in a new tab, behind the same auth + rate-limit boundary as every other tier-gated session feature. This REQ covers the in-container server, the auth/rate-limit proxy plumbing, and the host-side HTTP+WS branch; UX integration lives in [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing), and browser readiness gating lives in [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger).
+**Intent:** Clicking the Vault button in the codeflare UI opens SilverBullet in a new tab, behind the same auth + rate-limit boundary as every other tier-gated session feature. This REQ covers the in-container server, the auth/rate-limit proxy plumbing, and the host-side HTTP+WS branch; Dashboard integration lives in [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing), and control availability/opening lives in [REQ-VAULT-033](#req-vault-033-vault-button-availability-and-opening), and browser readiness gating lives in [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger).
 
 **Applies To:** User
 
@@ -228,7 +232,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts))
+**Verification:** Automated: [vault.test.ts](../../src/__tests__/routes/vault.test.ts); Manual: [REQ-VAULT-005 procedure](../../documentation/lanes/vault.md#req-vault-005-manual-qualification)
 
 **Status:** Implemented
 
@@ -236,27 +240,27 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-006: Shutdown bisync completes vault writes before SIGKILL
 
-**Intent:** A user who stops a session and closes their browser within seconds finds their latest vault edits intact on the next session, instead of losing them to a mid-bisync SIGKILL.
+**Intent:** Stopping a session drains final Vault writes before signalling stop to reduce loss from a mid-bisync SIGKILL. Failed or timed-out sync can still leave the latest edits unpersisted; this is not a no-data-loss guarantee.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The entrypoint shutdown handler wraps the final bisync in a background subshell with a watchdog that hard-kills on timeout, so the orchestrator's destroy budget always lands after bisync finishes or gives up cleanly. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
+1. The Container DO attempts the authoritative final-sync drain before SIGTERM, with up to 120 seconds inside the shared 135-second teardown deadline. Its audited failed or timed-out outcomes remain visible and do not prevent stop. The entrypoint's watchdog-bounded final bisync is a best-effort trap backstop, not a separately guaranteed drain window. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 2. The shutdown handler also terminates the vault-monitor daemon and the editor supervisor so neither lingers past container shutdown. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 3. The shutdown elapsed time is logged so operators can tune the watchdog over time if user edit volumes grow large enough to need more headroom. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @manual -->
-4. The Container DO's destroy budget is sized to cover the bisync watchdog plus enough additional time for clean process exit. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+4. The Container DO shares one 135-second teardown deadline across the pre-SIGTERM drain, audit and stop; the drain receives at most 120 seconds and at most the remaining teardown time, leaving only the remaining deadline for process exit. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 5. The container's stop handler logs the total shutdown elapsed time so operators have telemetry on whether the budget is right. <!-- @impl: src/container/container-lifecycle.ts::onStop --> <!-- @impl: src/container/index.ts::onStop --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Constraints:**
 
-- The bisync-watchdog timeout and the orchestrator's destroy budget must stay coordinated so the destroy budget exceeds the watchdog plus the minimum time required for graceful process termination.
+- Drain and stop remain coordinated within the shared 135-second deadline; the post-SIGTERM trap is not promised an additional 120 seconds. Failed, timed-out or abruptly interrupted sync can lose writes not yet persisted.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-009](session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) (container destroy wipes session state), [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) (graceful shutdown with final sync), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) (graceful shutdown performs final sync)
+**Dependencies:** [REQ-SESSION-009](session-lifecycle.md#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-shutdown.test.js](../../host/__tests__/entrypoint-shutdown.test.js), [index.test.ts](../../src/__tests__/container/index.test.ts); Manual: [REQ-VAULT-006 procedure](../../documentation/lanes/vault.md#req-vault-006-manual-qualification)
 
 **Status:** Implemented
 
@@ -271,7 +275,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. Advanced Claude preseed registers the Vault plugin, extraction prompt, capture rule, and capture and operations skills; default mode registers none. <!-- @manual -->
-2. The container image stages the editor preseed assets under a build-time preseed root so the vault initializer can install editor config from there without baking it into every R2 sync. <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) --> <!-- @manual -->
+2. The container image stages the editor preseed assets under a build-time preseed root so the vault initializer can install editor config from there without baking it into every R2 sync. <!-- @manual -->
 3. A build-time generator (run as prebuild) embeds the manifest contents into the runtime agent-seed module, which is what the Worker ships to the container at boot. <!-- @manual -->
 4. The Claude memory rule is updated to document the vault-only capture path. <!-- @manual -->
 5. Each boot restores baseline editor plugs from image preseed into the Codeflare-managed Vault plug directory. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
@@ -284,9 +288,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (preseed configs from single source), [REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start) (preseed deployed to container on start), [REQ-AGENT-014](agents.md#req-agent-014-manifest-driven-preseed-pipeline) (manifest-driven preseed pipeline)
+**Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start), [REQ-AGENT-014](agents.md#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Automated test ([entrypoint-vault-boot](../../host/__tests__/entrypoint-vault-boot.test.js))
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js); Manual: [REQ-VAULT-007 procedure](../../documentation/lanes/vault.md#req-vault-007-manual-qualification)
 
 **Status:** Implemented
 
@@ -294,13 +298,13 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-008: Zero-UI vault encryption
 
-**Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. This REQ covers encryption-at-rest with a deterministic, bucket-stable key derived by the Worker (no user passphrase prompt). The key's derivation and its role in persisting the IndexedDB index across sessions is [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key); IDB lifecycle cleanup on session DELETE and dashboard-mount sweeping lives in [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters); delivering the key to the browser and keeping it available in the service worker is [REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention). The threat model is BitLocker-grade: it defeats offline disk attacks (profile theft, backup leak, ransomware scan) and does NOT defeat anyone with an authenticated browser tab. Because the key is bucket-stable (not per-session), it deliberately relinquishes per-session forward secrecy in exchange for cross-session IndexedDB persistence (see Constraints).
+**Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. This REQ covers encryption-at-rest with a deterministic, bucket-stable key derived by the Worker (no user passphrase prompt). The key's derivation and its role in persisting the IndexedDB index across sessions is [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key); Legacy session-marker cleanup on session DELETE and successful authoritative session-list sweeping lives in [REQ-VAULT-034](#req-vault-034-legacy-session-vault-marker-cleanup); delivering the key to the browser and keeping it available in the service worker is [REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention). The threat model is BitLocker-grade: it defeats offline disk attacks (profile theft, backup leak, ransomware scan) and does NOT defeat anyone with an authenticated browser tab. Because the key is bucket-stable (not per-session), it deliberately relinquishes per-session forward secrecy in exchange for cross-session IndexedDB persistence (see Constraints).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Worker derives the vault key deterministically from the server master secret (`ENCRYPTION_KEY`) and the user's bucket name, with no user passphrase, returning the same key for a given bucket on every call. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @test: src/__tests__/routes/vault-crypto.test.ts (getVaultEncryptionKey (REQ-VAULT-021 bucket-derived key)) -->
+1. The Worker derives the vault key deterministically from the server master secret and the user's bucket name, with no user passphrase, returning the same key for a given bucket on every call. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @test: src/__tests__/routes/vault-crypto.test.ts (getVaultEncryptionKey (REQ-VAULT-021 bucket-derived key)) -->
 2. The key is stable across sessions for a given bucket — enabling the IndexedDB cache to persist and decrypt on subsequent container boots (per [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) — and is never rotated. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @test: src/__tests__/routes/vault-crypto.test.ts (getVaultEncryptionKey (REQ-VAULT-021 bucket-derived key)) -->
 3. The Worker's vault-config proxy derives the key in-Worker (no Durable-Object round-trip) and merges it, plus the enable-encryption flag, into the editor's runtime boot config. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 4. The editor uses the vault key to symmetrically encrypt its per-vault IndexedDB store via its built-in encrypted-KV wrapper. <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS --> <!-- @manual -->
@@ -313,9 +317,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault directory survives sessions), [REQ-MEM-006](memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode) (Pro mode gating)
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions), [REQ-MEM-006](memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
-**Verification:** Automated test
+**Verification:** Automated: [vault-crypto.test.ts](../../src/__tests__/routes/vault-crypto.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts); Manual: [REQ-VAULT-008 procedure](../../documentation/lanes/vault.md#req-vault-008-manual-qualification)
 
 **Status:** Implemented
 
@@ -329,9 +333,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. A state-changing request to a vault path with no Origin header is treated as same-origin and proceeds through CSRF synthesis. The synthesis adds the XHR-marker header so the downstream auth CSRF guard does not reject the write. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @impl: src/lib/vault-view.ts::maybeIssueCsrfCookie --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
+1. A state-changing request to a vault path with no Origin header is treated as same-origin and proceeds through CSRF synthesis. The synthesis adds the XHR-marker header so the downstream auth CSRF guard does not reject the write. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @impl: src/lib/vault-view.ts::maybeIssueCsrfCookie --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-009: forwards a no-Origin upload with intact bytes and synthesized CSRF headers) -->
 2. A state-changing request with an Origin header that fails the allowlist still returns a 403; the missing-Origin fallback does not widen the allowlist. <!-- @impl: src/lib/vault-view.ts::inferOriginValidated --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
-3. The forward chain preserves the request body bytes end-to-end (no double-read, no disturbed stream) on both the with-Origin and the no-Origin paths. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
+3. The forward chain preserves the request body bytes end-to-end (no double-read, no disturbed stream) on both the with-Origin and the no-Origin paths. <!-- @impl: src/lib/vault-view.ts::maybeSynthesizeCsrfHeader --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-009: forwards a no-Origin upload with intact bytes and synthesized CSRF headers) -->
 4. Existing read-only and preflight requests behave unchanged; only state-changing methods enter the fallback path. <!-- @impl: src/lib/vault-view.ts::inferOriginValidated --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 
 **Constraints:**
@@ -340,9 +344,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P1
 
-**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor)
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts))
+**Verification:** Automated: [vault.test.ts](../../src/__tests__/routes/vault.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts)
 
 **Status:** Implemented
 
@@ -357,8 +361,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. Each boot updates changed authoritative CONFIG, README, and STYLES pages; `Index.md` is create-only because the editor normalizes and autosaves it. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
-2. User content lives in dedicated user-owned subdirectories (notes, references, inbox, journal, raw-pasted, raw-sessions) and is never touched by the preseed sync; only the three codeflare-authoritative config pages are force-overwritten (`Index.md` is create-if-missing, so its edits persist). <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
+1. Each boot updates changed authoritative CONFIG, README, and STYLES pages; the editor-normalized, autosaved dashboard is created only if missing. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
+2. User content lives in dedicated user-owned subdirectories (notes, references, inbox, journal, raw-pasted, raw-sessions) and is never touched by the preseed sync; only the three codeflare-authoritative config pages are force-overwritten (the dashboard is created only if missing, so its edits persist). <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 3. Entrypoint never writes a partial built-in plug library that would shadow the editor's complete overlay. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 4. The vault graph file is seeded with an empty-graph stub only when absent; a populated graph from a prior session is never overwritten by the entrypoint. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 5. The vault initializer independently removes each stale globally-rendered graph artifact on every boot when present (idempotent removal, guarded so it fires only when the preseed counterpart is also absent). <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (removes orphaned legacy graph markdown and HTML independently (REQ-VAULT-010 AC5)) -->
@@ -375,7 +379,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test ([Behavioral test](../../host/__tests__/entrypoint-vault-boot.test.js))
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js)
 
 **Status:** Implemented
 
@@ -405,7 +409,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)
 
-**Verification:** Manual check
+**Verification:** Manual: [REQ-VAULT-011 procedure](../../documentation/lanes/vault.md#pdf-ingestion-e2e-plan-req-vault-011)
 
 **Status:** Implemented
 
@@ -413,27 +417,50 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-012: Vault button render and dashboard landing
 
-**Intent:** The Vault button appears only for active advanced sessions, and each click opens SilverBullet on the codeflare dashboard. The dashboard leads users toward durable notes and references before broader recent-content widgets.
+**Intent:** The editor opens on the codeflare dashboard, which leads users toward durable notes and references before broader recent-content widgets.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The app shell passes a Vault opener to the header only for active advanced-mode sessions. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
-2. On a cold available control, the first click prepares the current session's proxied editor and arms the control; the second click opens it. An already armed/ready control opens on the first click. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
-3. The editor opens on the codeflare dashboard page. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
-4. The dashboard links to the README near the top. <!-- @manual -->
-5. The dashboard surfaces `Notes/` and `References/` before generic recent-content widgets. <!-- @manual -->
+1. The editor opens on the codeflare dashboard page. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
+2. The dashboard links to the README near the top. <!-- @manual -->
+3. The dashboard surfaces `Notes/` and `References/` before generic recent-content widgets. <!-- @manual -->
 
 **Constraints:**
 
-- The dashboard is codeflare-authoritative preseed content.
+- Codeflare owns the initial dashboard seed, created only when `Index.md` is absent; an existing differing dashboard is preserved rather than overwritten, including user edits and editor normalization. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (seeds Index.md create-if-missing but NEVER force-overwrites an existing differing Index.md (prevents the 2nd-start sync conflict)) -->
 
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js); Manual: [REQ-VAULT-012 procedure](../../documentation/lanes/vault.md#req-vault-012-manual-qualification)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-033: Vault button availability and opening
+
+**Intent:** The Vault button is available only for active advanced sessions. A cold available control prepares the current session’s proxied editor before opening; an already armed/ready control opens on the first click.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The app shell passes a Vault opener to the header only for active advanced-mode sessions. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) --> <!-- @test: web-ui/src/__tests__/components/preferences-hydration.test.tsx (REQ-SESSION-014 / REQ-VAULT-033 / REQ-IDE-003: HTTP preference hydration) -->
+2. On a cold available control, the first click prepares the current session's proxied editor and arms the control; the second click opens it. An already armed/ready control opens on the first click. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
+
+**Constraints:**
+
+- Codeflare owns the initial dashboard seed, created only when `Index.md` is absent; an existing differing dashboard is preserved rather than overwritten, including user edits and editor normalization.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing)
+
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [preferences-hydration.test.tsx](../../web-ui/src/__tests__/components/preferences-hydration.test.tsx)
 
 **Status:** Implemented
 
@@ -449,7 +476,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. Every Vault HTML response rewrites its base href to the session proxy path so relative assets survive deep-page reloads. <!-- @impl: src/lib/vault-view.ts::rewriteVaultBaseHref --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
-2. Non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; the HTML-only guard is sufficient because the editor's API endpoints return non-HTML content types. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
+2. Except for the required Vault configuration and filesystem-listing transformations, non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; HTML rewriting applies only to HTML responses. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-013: dispatch preserves %s response bytes and upstream headers) -->
 3. When the body is rewritten, both the content-length and content-encoding headers are dropped because the rewrite path auto-decompresses upstream compression, and the original headers would otherwise trigger a browser decoding failure. <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 4. A successful HTML response lacking the expected base href logs a warning on root and deep routes. <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (warns when a successful deep SPA HTML response has no rewritable base href (REQ-VAULT-013 AC4)) -->
 
@@ -461,7 +488,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts))
+**Verification:** Automated: [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts)
 
 **Status:** Implemented
 
@@ -476,16 +503,16 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. Every removal the reconciliation decides on, together with the current entry's addition, runs in one shared-lock transaction; any failure prevents sentinel advancement and remains retryable. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::RECONCILED --> <!-- @test: host/__tests__/graphify-active-repo.test.js (REQ-VAULT-014 AC1/AC2 / REQ-OPS-049 AC2: reconciles a repo switch under one protected lock) -->
-2. End state after a successful repo switch: the global graph contains the vault entry plus exactly one per-repo entry (the user's currently active repo); a failed switch retains the prior sentinel and never adds the new entry. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::RECONCILED --> <!-- @test: host/__tests__/graphify-active-repo.test.js (keeps a failed locked switch retryable and never adds the new repo (REQ-VAULT-014 AC1/AC2)) -->
+1. Manifest/hash reads, stale-removal decisions and the current entry's addition run inside one shared-lock transaction; any failure prevents sentinel advancement and remains retryable. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::RECONCILED --> <!-- @test: host/__tests__/graphify-active-repo.test.js (REQ-VAULT-014 AC1/AC2 / REQ-OPS-049 AC2: reconciles a repo switch under one protected lock) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (IG0318: real bounded lock contention preserves manifest/graph bytes and prior sentinel, then retries) -->
+2. End state after a successful repo switch: the global graph contains the vault entry plus exactly one per-repo entry (the user's currently active repo); a failed switch retains the prior sentinel and never adds the new entry. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::RECONCILED --> <!-- @test: host/__tests__/graphify-active-repo.test.js (keeps a failed locked switch retryable and never adds the new repo (REQ-VAULT-014 AC1/AC2)) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (IG0318/IG0631/IG0632: sequential switch persists source path/hash and exact global contents, then vault only) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (IG0318: real bounded lock contention preserves manifest/graph bytes and prior sentinel, then retries) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (RQ0081: overlapping Vault-only plans settle to one active repository under the real writer lock) -->
 3. Same-tag transitions (two clones with identical directory basenames, or branch switches within the same repo) issue no removal, because the active checkout's tag is excluded from the removal set and the global add replaces the existing entry in place. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::REPO_BASENAME --> <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014 (graphify active-repo invariant + lock serialisation)) -->
-4. Every Vault and graph writer uses the shared bounded multi-writer lock, preventing concurrent corruption and permanent queue blockage. <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014 (graphify active-repo invariant + lock serialisation)) --> <!-- @manual -->
-5. Removals are enumerated from the global manifest rather than derived from the previously-recorded repository, so entries a crashed reconciliation or a formerly-misresolved directory left behind are removed too; the always-on `user_vault` entry is never a removal candidate. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::STALE_TAGS --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::planGlobalGraphReconcile --> <!-- @test: host/__tests__/graphify-active-repo.test.js (sweeps stale tags no sentinel diff could name, and never removes user_vault (REQ-VAULT-014 AC5)) --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (sweeps tags no previous-repo comparison could name, such as a crashed run leftover) -->
-6. Both agent runtimes hold this invariant: the Pi extension reconciles the same manifest under the same lock on session start and after a repository transition, rather than only adding the active repository. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::reconcileGlobalGraph --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (removes every repo tag that is not the active checkout, and adds the active one) -->
+4. Every Vault and graph writer uses the shared bounded multi-writer lock, preventing concurrent corruption and permanent queue blockage. <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014 (graphify active-repo invariant + lock serialisation)) --> <!-- @manual --> <!-- @test: host/__tests__/graphify-active-repo.test.js (IG0318: real bounded lock contention preserves manifest/graph bytes and prior sentinel, then retries) -->
+5. Removals are enumerated from the global manifest rather than derived from the previously-recorded repository, so entries a crashed reconciliation or a formerly-misresolved directory left behind are removed too; the always-on `user_vault` entry is never a removal candidate. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::STALE_TAGS --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::planGlobalGraphReconcile --> <!-- @test: host/__tests__/graphify-active-repo.test.js (sweeps stale tags no sentinel diff could name, and never removes user_vault (REQ-VAULT-014 AC5)) --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (sweeps tags no previous-repo comparison could name, such as a crashed run leftover) --> <!-- @test: host/__tests__/graphify-active-repo.test.js (IG0318/IG0631/IG0632: sequential switch persists source path/hash and exact global contents, then vault only) -->
+6. Both agent runtimes hold this invariant: the Pi extension reconciles the same manifest under the same lock on session start and after a repository transition, rather than only adding the active repository. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::reconcileGlobalGraph --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (removes every repo tag that is not the active checkout, and adds the active one) --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (IG0318: real lock contention reports failure without running graphify, then permits retry) --> <!-- @test: src/__tests__/lib/pi-global-graph-reconcile.test.ts (RQ0081: a writer that commits while Pi waits is included in the locked removal decision) -->
 
 **Constraints:**
 
-- The pre-spawn graph hash is validated hexadecimal and paired with its source path, preventing malformed or same-basename checkout matches ([REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos)).
+- Under the writer lock, the current graph hash is validated hexadecimal and paired with its source path, preventing malformed or same-basename checkout matches ([REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos)).
 - The graphify skill's commit step is one of the write sites and must include a locked global-add call so a fresh build lands in the global graph.
 - The reconciliation targets an invariant rather than replaying one transition, so drift self-heals on the next tool call instead of persisting until the graph is observed answering from the wrong repository.
 
@@ -493,7 +520,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
-**Verification:** Automated test ([graphify-active-repo](../../host/__tests__/graphify-active-repo.test.js))
+**Verification:** Automated: [graphify-active-repo.test.js](../../host/__tests__/graphify-active-repo.test.js), [pi-global-graph-reconcile.test.ts](../../src/__tests__/lib/pi-global-graph-reconcile.test.ts); Manual: [REQ-VAULT-014 procedure](../../documentation/lanes/vault.md#req-vault-014-manual-qualification)
 
 **Status:** Implemented
 
@@ -501,27 +528,51 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-015: Vault IDB lifecycle and listing filters
 
-**Intent:** SilverBullet's on-disk listings would otherwise expose derived/internal directories to the user, and stale per-session bookkeeping would otherwise accumulate in browser storage. This REQ covers per-session localStorage-marker cleanup on session DELETE, authoritative session-list sweeping of orphaned markers, and the listing filters that keep derived output and internal preseed pages out of the vault tree. As reconciled by [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap), the SilverBullet IndexedDB stores and the vault service worker are bucket-stable (one per user, persisting across sessions) and are therefore NOT torn down by this cleanup.
+**Intent:** SilverBullet listings and navigation hide derived output and internal preseed pages. Client mutation protection keeps hidden machine-owned content intact.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The editor's filesystem-listing endpoint hides the derived graph-output directory, generated `Raw/Graphs/*.html`, and machine-owned session-capture memory (`Raw/Sessions/`) from the browser listing and SilverBullet client sync/index; client mutations to those hidden paths are rejected. <!-- @impl: src/lib/vault-view.ts::filterVaultFsListing --> <!-- @impl: src/lib/vault-view.ts::isFilteredVaultMutation --> <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (CF-045: vault-html direct unit tests) -->
+1. The editor's filesystem listing hides the derived graph-output directory, generated graph HTML visualizations and machine-owned session-capture memory from browser listing and SilverBullet client sync/index; client mutations to those hidden namespaces are rejected. <!-- @impl: src/lib/vault-view.ts::filterVaultFsListing --> <!-- @impl: src/lib/vault-view.ts::isFilteredVaultMutation --> <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (CF-045: vault-html direct unit tests) --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (REQ-VAULT-015: rejects hidden mutations before upstream access but permits an adjacent human note) -->
 2. The preseed configuration page declares a treeview-exclusions block hiding the plug library, the library-manager mirror, the derived graph-output directory, and the four codeflare-authoritative root pages from the navigation tree. <!-- @test: host/__tests__/preseed-config-treeview.test.js (treeview rules hide every entry that should be hidden (REQ-VAULT-015 AC2)) --> <!-- @manual -->
-3. The frontend runs session-vault-cache cleanup on session delete (not on stop), removing only legacy session-scoped localStorage markers. SilverBullet IndexedDB stores remain bucket-stable and are not deleted on per-session delete. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache --> <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)) -->
-4. After an authoritative session-list fetch succeeds, the frontend sweeps persisted localStorage markers and, for any session no longer in the user's active sessions list, drops the corresponding marker entries. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) -->
 
 **Constraints:**
 
 - The library-manager mirror is the editor's own runtime-managed clone tree; the user does not curate it directly; The editor's internal config directory is dot-prefixed and hidden by the editor's default behavior; it requires no explicit rule.
-- Cleanup and sweep use only localStorage markers and never enumerate or delete browser databases; after [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) reconciliation they do not touch IndexedDB.
+- Cleanup and sweep use only localStorage markers and never enumerate or delete browser databases; after [REQ-VAULT-035](#req-vault-035-bucket-stable-vault-runtime-preservation) reconciliation they do not touch IndexedDB.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test
+**Verification:** Automated: [preseed-config-treeview.test.js](../../host/__tests__/preseed-config-treeview.test.js), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts); Manual: [REQ-VAULT-015 procedure](../../documentation/lanes/vault.md#req-vault-015-manual-qualification)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-034: Legacy session vault marker cleanup
+
+**Intent:** Session deletion and successful authoritative session-list fetches clean up only legacy session-scoped localStorage markers. Bucket-stable IndexedDB stores and the vault service worker remain durable per-user resources and are not torn down by this cleanup.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The frontend runs session-vault-cache cleanup on session delete (not on stop), removing only legacy session-scoped localStorage markers. SilverBullet IndexedDB stores remain bucket-stable and are not deleted on per-session delete. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache --> <!-- @impl: web-ui/src/stores/session.ts::deleteSession --> <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)) -->
+2. After an authoritative session-list fetch succeeds, the frontend sweeps persisted localStorage markers and, for any session no longer in the user's active sessions list, drops the corresponding marker entries. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) -->
+
+**Constraints:**
+
+- The library-manager mirror is the editor's own runtime-managed clone tree; the user does not curate it directly; The editor's internal config directory is dot-prefixed and hidden by the editor's default behavior; it requires no explicit rule.
+- Cleanup and sweep use only localStorage markers and never enumerate or delete browser databases; after [REQ-VAULT-035](#req-vault-035-bucket-stable-vault-runtime-preservation) reconciliation they do not touch IndexedDB.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters)
+
+**Verification:** Automated: [vault-cache.test.ts](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts)
 
 **Status:** Implemented
 
@@ -538,7 +589,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The extracted graph uses the canonical graphify node/edge schema shared with the repo and global graphs: document and code nodes carry `file_type` and a truthy `source_file` so the global merge preserves their identity. <!-- @manual -->
-2. After merging, the extraction re-renders the vault viz HTML and copies `graph.html` to `Raw/Graphs/vault-graph.html` so the `Vault Graph.md` index-page link resolves through the SilverBullet `.fs/` route. <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) --> <!-- @manual -->
+2. After merging, extraction re-renders and persists the Vault visualization HTML so its graph index-page link resolves through the editor's file-serving route. <!-- @manual -->
 
 **Constraints:**
 
@@ -548,7 +599,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)
 
-**Verification:** Manual check
+**Verification:** Manual: [REQ-VAULT-016 procedure](../../documentation/lanes/vault.md#req-vault-016-manual-qualification)
 
 **Status:** Implemented
 
@@ -564,15 +615,15 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. Service-worker registration bypasses authentication and receives the native editor worker; bootstrap supplies its cold-boot encryption key ([REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention)). <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS --> <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-017 AC1 (native SW served, AD69)) -->
+1. Service-worker registration bypasses authentication and receives the native editor worker. <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS --> <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-017 AC1 (native SW served, AD69)) -->
 2. The short-circuit selector requires GET method, exact path match for the service-worker script, and the browser-only `Service-Worker` request header (a Fetch-spec forbidden header not settable from page JavaScript); cookie presence is not checked and does not affect the match. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerRegistration --> <!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerRegistration / REQ-VAULT-017 (native SW short-circuit selector)) -->
 3. The native service worker's verbatim upstream bytes are guarded by a pinned integrity digest. <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SW_SHA256 --> <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SW_VERBATIM --> <!-- @test: src/__tests__/routes/vault.test.ts (T9: the drift guard hashes the VERBATIM upstream worker) -->
 4. The native worker's install precache bypasses stale browser HTTP-cache entries so stale assets cannot satisfy installation. <!-- @impl: src/routes/vault/native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-017 AC4: install precaching bypasses stale browser cache entries) -->
-5. The bootstrap hop supplies the bucket-stable vault encryption key to the native worker by postMessage without putting the key in the worker script body. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (removes stale workers, registers the canonical worker, persists encryption, and redirects) -->
+5. The bootstrap hop supplies the bucket-stable vault encryption key to the native worker by postMessage, including on cold boot, without putting the key in the worker script body ([REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention)). <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (removes stale workers, registers the canonical worker, persists encryption, and redirects) -->
 6. The native worker precaches the shell `/` during installation. The shell-path redirect is suppressed for Service-Worker-context fetches (`Sec-Fetch-Mode` present and not `navigate`), so the precache resolves against the real shell instead of a 302. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerContextFetch --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-017 AC1/AC6/AC7, AD69)) -->
 7. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the bootstrap-hop redirect (fail-safe), so a real first navigation never boots without the encryption key wired. <!-- @impl: src/lib/vault-view.ts::isServiceWorkerContextFetch --> <!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerContextFetch / REQ-VAULT-017 AC6/AC7 (SW precache vs navigation)) -->
 
-**Notes:** Documented in [AD69](../../documentation/decisions/README.md) and the [vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass). Under enterprise Cloudflare Access the host-wide Access app would 302 this credential-less registration fetch to the IdP login before the Worker runs; the setup wizard auto-provisions a higher-precedence bypass app scoped to the SW path so the request reaches this short-circuit ([REQ-ENTERPRISE-006](setup.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC6).
+**Notes:** The native registration boundary and enterprise Access prerequisite are documented in the [Vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass) and [AD69](../../documentation/decisions/README.md#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing).
 
 **Constraints:**
 
@@ -582,7 +633,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter), [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption)
 
-**Verification:** Automated test ([vault](../../src/__tests__/routes/vault.test.ts), [Auth-chain test](../../src/__tests__/routes/vault-auth-chain.test.ts), [Direct worker graft test](../../src/__tests__/routes/vault-native-sw-direct.test.ts))
+**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts), [vault-native-sw-direct.test.ts](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts)
 
 **Status:** Implemented
 
@@ -614,7 +665,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker)
 
-**Verification:** Automated test ([Direct worker graft test](../../src/__tests__/routes/vault-native-sw-direct.test.ts))
+**Verification:** Automated: [vault-native-sw-direct.test.ts](../../src/__tests__/routes/vault-native-sw-direct.test.ts)
 
 **Status:** Implemented
 
@@ -629,7 +680,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The Vault control remains guarded until the per-session vault proxy probe succeeds, stays visible, and exposes click/tap feedback while unavailable. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-018: stays available (no auto-prewarm) until click 1, then breathes preparing -> armed) -->
-2. The server readiness probe — a `GET /api/vault/:sid/status` check that reports ready only when SilverBullet is serving and emits no 502/timeout console noise — retries until first success, is keyed per session, and clears readiness after a later steady-probe failure. <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe --> <!-- @impl: web-ui/src/lib/vault-readiness.ts::probeVaultReady --> <!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (hits the per-session status endpoint with no-store and reports ready only when vaultReady is true) -->
+2. The per-session server readiness probe reports ready only when SilverBullet serves, without 502/timeout console noise; it retries until first success and clears readiness after a later steady-probe failure. <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe --> <!-- @impl: web-ui/src/lib/vault-readiness.ts::probeVaultReady --> <!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (hits the per-session status endpoint with no-store and reports ready only when vaultReady is true) -->
 3. Browser prewarm starts only from the available control; the first click requests best-effort persistent browser storage, with denial remaining non-fatal. Timeout or error stays visible without background retry, and a later click may retry. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/lib/browser-storage-persistence.ts::requestBrowserStoragePersistence --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (retries a timed-out prewarm only after another user click) --> <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (requests persistence when not already persisted) --> <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (does not treat a denied persistence request as fatal) -->
 4. Leaving the active view during preparation pauses it while preserving intent; returning to the still-running session resumes preparation. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/Layout.tsx::clearPrewarmingVaultStatus --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-018 AC4: dashboard departure cancels the in-flight iframe and return resumes preparation) -->
 5. Prewarm messages are accepted only from the mounted iframe, same origin, and current attempt. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol) -->
@@ -638,7 +689,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- Raw session captures and other folders remain visible during prewarm; priority indexing is out of scope.
+- Machine-owned `Raw/Sessions/` captures remain hidden from SilverBullet listing and client sync/index during prewarm as at all other times, per [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters); protected client-mutation boundaries remain unchanged. Priority indexing is out of scope.
 - The generic shell bridge stays inert unless the prewarm query and identifier are valid.
 - Sync-complete evidence must come from the current canonical controller, not another worker or the client's unscoped completion flag.
 - Controller replacement resets sync evidence and the readiness streak.
@@ -646,9 +697,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing)
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing), [REQ-VAULT-033](#req-vault-033-vault-button-availability-and-opening)
 
-**Verification:** Automated test ([Header wiring test](../../web-ui/src/__tests__/components/Header.test.tsx), [vault-readiness](../../web-ui/src/__tests__/lib/vault-readiness.test.ts), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [browser storage persistence test](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts), [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts))
+**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [browser-storage-persistence.test.ts](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [vault-readiness.test.ts](../../web-ui/src/__tests__/lib/vault-readiness.test.ts)
 
 **Status:** Implemented
 
@@ -665,10 +716,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 1. A green ('armed') control opens the vault directly via the bootstrap-hop, synchronously inside the click gesture, with no per-open re-verification of local readiness or key recoverability. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
 2. Fresh dashboards start available without a prewarm iframe; legacy readiness markers cannot auto-arm, while explicit preparation may reuse canonical browser stores. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-018: stays available (no auto-prewarm) until click 1, then breathes preparing -> armed) -->
 3. Timeout and error states never auto-retry or auto-arm. The next user click starts a fresh attempt, retaining user control over expensive sync/index work. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (retries a timed-out prewarm only after another user click) -->
-4. The control shows available, accent preparation with focus warning, then green readiness with five-second confirmation; the second click opens instantly. Reduced motion keeps state colors without animation. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
-5. A top-level Vault reloads once only when its canonical worker is active but missed first-paint control; all other states remain stable. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_CONTROLLED_RELOAD_SOURCE --> <!-- @impl: src/lib/vault-view.ts::injectVaultControlledReload --> <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (performs the exact-scope one-shot reload from bundled injected bytes) --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (keeps bundled controlled reload inert for prewarm, first boot, orphaned scope, and a spent one-shot) -->
+4. The control shows available, accent preparation with focus warning, then green readiness with five-second confirmation; the second click opens instantly. Reduced motion keeps state colors without animation. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/styles/header.css::.header-vault-button--armed --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
+5. A top-level Vault reloads once only when its canonical worker is active but missed first-paint control and the one-shot marker can be read, written and read back successfully. Inaccessible, missing or failed session storage prevents automatic reload; all other states remain stable. <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_CONTROLLED_RELOAD_SOURCE --> <!-- @impl: src/lib/vault-view.ts::injectVaultControlledReload --> <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (performs the exact-scope one-shot reload from bundled injected bytes) --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (keeps bundled controlled reload inert for prewarm, first boot, orphaned scope, and a spent one-shot) --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (REQ-VAULT-022 AC5: %s storage failure stays stable across uncontrolled navigations) -->
 6. Once armed, the control remains green across dashboard departure/return and the mobile visibility-return dashboard bounce while authoritative session status remains running. <!-- @impl: web-ui/src/components/Layout.tsx::vaultButtonStatus --> <!-- @impl: web-ui/src/components/Layout.tsx::pruneNonRunningSessionState --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC6: preserves a running session readiness latch across dashboard departure and return) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-022 AC6: preserves armed state through the mobile visibility-return dashboard bounce) -->
 7. The ready tooltip auto-surfaces only on the genuine preparing-to-armed transition, so dashboard departure/return does not re-pop it. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (a fresh already-armed remount does not re-pop the ready tooltip) -->
+
+**Notes:** Rendered armed color under sticky touch hover remains a protected-browser observation separate from component and bundle tests; [Vault](../../documentation/lanes/vault.md) owns that behavior.
 
 **Constraints:**
 
@@ -678,7 +731,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-VAULT-019](#req-vault-019-vault-key-recoverable-open-gate), [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption)
 
-**Verification:** Automated tests ([layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts)); sticky-hover color is verified against the protected deployment through the agent-driven browser-e2e lane.
+**Verification:** Automated: [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts), [bundled browser behavior](../../src/__tests__/lib/vault-browser-bundle.test.ts)
 
 **Status:** Implemented
 
@@ -692,8 +745,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The encryption key's recoverability is verified at the cold-path arming poll (before the control greens), via the auth-gated `/.vault-key` endpoint; a green control therefore opens without re-verifying the key on the click. <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
-2. If the key is not recoverable, the control enters a non-openable preparing state. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
+1. Auth-gated encryption-key recoverability is verified at the cold-path arming poll before the control greens, so a green control opens without re-verifying the key on click. <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC1 + REQ-VAULT-022 AC1: a cold-path armed click opens without re-verification) -->
+2. If the key is not recoverable, the control enters a non-openable preparing state. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC2: completed prewarm cannot arm or open a Vault without a recoverable key) -->
 3. When the prewarm proof and key recoverability both hold, the cold-path arming poll marks the control armed (green) and the next click opens it synchronously inside the click gesture. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)) -->
 4. Open intent clears when the tab opens or authoritative session status is no longer running. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/components/Layout.tsx::pruneNonRunningSessionState --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC4 (vault open-intent clearing)) -->
 5. Temporary mobile visibility-return deactivation does not clear preparation intent while authoritative session status remains running. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-019 AC5: temporary mobile deactivation preserves intent and remounts preparation) -->
@@ -706,7 +759,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
 
-**Verification:** Automated test ([Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [key recoverability test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx))
+**Verification:** Automated: [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-local-readiness.test.ts](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [VaultButton.test.tsx](../../web-ui/src/__tests__/components/VaultButton.test.tsx)
 
 **Status:** Implemented
 
@@ -735,7 +788,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-MOB-014](terminal.md#req-mob-014-mobile-background-surface-focus-isolation)
 
-**Verification:** Automated test ([Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts))
+**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts)
 
 **Status:** Implemented
 
@@ -749,11 +802,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The SilverBullet app is served under a bucket-stable URL `/api/vault/<token>/`, where the token is a deterministic, opaque hash of the user's R2 bucket name, so the served location — and thus the SB IndexedDB names — is identical across sessions. <!-- @impl: src/lib/vault-bucket-token.ts::getVaultBucketToken --> <!-- @test: src/__tests__/lib/vault-bucket-token.test.ts (getVaultBucketToken (REQ-VAULT-021)) -->
-2. The session-keyed path `/api/vault/<sid>/` is an entry that sets a routing cookie and 302-redirects to the bucket-stable URL; the session id for bucket-stable requests is read from that cookie, never the URL. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (the session-keyed entry path sets cf_vault_sid and 302s to the bucket-stable URL) -->
+1. SilverBullet is served at a bucket-stable URL whose token is a deterministic opaque hash of the user's R2 bucket name, so its served location and IndexedDB names remain identical across sessions. <!-- @impl: src/lib/vault-bucket-token.ts::getVaultBucketToken --> <!-- @test: src/__tests__/lib/vault-bucket-token.test.ts (getVaultBucketToken (REQ-VAULT-021)) -->
+2. The session-keyed entry sets a routing cookie and 302-redirects to the bucket-stable URL; session identity for bucket-stable requests comes from that cookie, never the URL. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (the session-keyed entry path sets cf_vault_sid and 302s to the bucket-stable URL) -->
 3. Route dispatch distinguishes the 32-hex bucket token from an 8-24-char session id unambiguously (length-disjoint patterns). <!-- @impl: src/routes/vault/validation.ts::validateVaultRoute --> <!-- @test: src/__tests__/routes/vault-bucket-routing.test.ts (parses a 32-hex first segment as the bucket token serving path) -->
 4. A bucket-stable request whose token is not the authenticated user's bucket is rejected (403 VAULT_BUCKET_MISMATCH); one with no routing cookie is rejected (409 VAULT_NO_SESSION). <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (rejects a bucket-stable request whose token is not the authed bucket (403)) -->
-5. The vault encryption key is derived deterministically per bucket from the server master secret (`ENCRYPTION_KEY`) and the bucket name, so it recurs across sessions and the persisted encrypted local cache decrypts. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @test: src/__tests__/routes/vault-crypto.test.ts (getVaultEncryptionKey (REQ-VAULT-021 bucket-derived key)) -->
+5. The vault encryption key is derived deterministically per bucket from the server master secret and bucket name, so it recurs across sessions and the persisted encrypted local cache decrypts. <!-- @impl: src/routes/vault/crypto.ts::getVaultEncryptionKey --> <!-- @test: src/__tests__/routes/vault-crypto.test.ts (getVaultEncryptionKey (REQ-VAULT-021 bucket-derived key)) -->
 6. Cached shell rewriting carries no session-specific readiness metadata; bucket routing and authenticated routing retain separate stable identities. <!-- @impl: src/routes/vault/index.ts::handleVaultRequest --> <!-- @impl: src/lib/vault-view.ts::rewriteVaultHtmlResponse --> <!-- @test: src/__tests__/routes/vault.test.ts (REQ-VAULT-021: rewrites every shell to the permanent bucket-token scope without session metadata) -->
 7. A prewarm-ready proof names and validates the canonical same-origin 32-hex Vault scope before the dashboard can arm. <!-- @impl: src/lib/vault-view.ts::injectVaultPrewarmBridge --> <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol) -->
 
@@ -768,7 +821,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
 
-**Verification:** Automated test ([bucket token test](../../src/__tests__/lib/vault-bucket-token.test.ts), [bucket-derived key test](../../src/__tests__/routes/vault-crypto.test.ts), [route dispatch test](../../src/__tests__/routes/vault-bucket-routing.test.ts), [auth-chain serving test](../../src/__tests__/routes/vault-auth-chain.test.ts), [HTML-rewrite split test](../../src/__tests__/routes/vault.test.ts), [prewarm scope test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts))
+**Verification:** Automated: [vault-bucket-token.test.ts](../../src/__tests__/lib/vault-bucket-token.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts), [vault-bucket-routing.test.ts](../../src/__tests__/routes/vault-bucket-routing.test.ts), [vault-crypto.test.ts](../../src/__tests__/routes/vault-crypto.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts)
 
 **Status:** Implemented
 
@@ -776,7 +829,33 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-023: Bucket-stable vault store persistence and content bootstrap
 
-**Intent:** Once the vault's IndexedDB stores and service worker are bucket-stable, they must actually behave like durable per-user resources rather than per-session scratch: session cleanup and the orphan sweep must never delete them, and the sync engine must not mistake a still-warming in-container SilverBullet server for an empty vault and wipe the local store. The vault initializer also keeps the codeflare-authoritative config pages' metadata stable across boots and seeds the landing pages a fresh or upgrading vault needs, so the persisted store never gets stuck fighting a spurious "changed on secondary" conflict.
+**Intent:** The vault initializer keeps codeflare-authoritative config pages’ metadata stable across boots and seeds missing landing pages without overwriting user edits, preventing spurious secondary-change conflicts while preserving editor-normalized dashboard content through R2.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Each boot stamps CONFIG, README and STYLES with preseed-source modification times, even when content equality skips rewriting, so the editor reports identical times across sessions; the create-if-missing dashboard is exempt. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (stamps codeflare-authoritative config pages with the deterministic preseed mtime even when cmp-skip leaves content untouched) -->
+2. Notes and References landing pages are created only if missing so the dashboard's bare `[[Notes]]` / `[[References]]` wikilinks resolve to real pages; user edits are never overwritten. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
+3. The dashboard is seeded only if missing, rather than force-overwritten; editor-normalized content persists through R2 to a stable no-conflict fixed point, and an existing dashboard differing from preseed is never overwritten. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (seeds Index.md create-if-missing but NEVER force-overwrites an existing differing Index.md (prevents the 2nd-start sync conflict)) -->
+
+**Constraints:**
+
+- The deterministic preseed-mtime stamp (REQ-VAULT-023 AC1) only equalizes the SECONDARY-side mtime for CONFIG/README/STYLES; it cannot fix a PRIMARY-side (client save) conflict, which is why `Index.md` moved to create-if-missing (REQ-VAULT-023 AC3) instead of being covered by the stamp.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
+
+**Verification:** Automated: [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-035: Bucket-stable vault runtime preservation
+
+**Intent:** Bucket-stable IndexedDB stores and canonical workers remain durable per-user resources. Ordinary cleanup preserves them, and sync aborts and retries instead of deleting a non-empty local store when the remote list is empty or unreadable.
 
 **Applies To:** User
 
@@ -784,19 +863,16 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. Ordinary session cleanup preserves bucket-stable databases and canonical workers; only the versioned cutover may unregister them ([REQ-VAULT-029](#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety)). <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache --> <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches --> <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)) -->
 2. Sync never deletes a non-empty local store while the remote list is empty or unreadable; it aborts and retries later ([REQ-VAULT-025](#req-vault-025-silverbullet-native-service-worker-runtime-graft)). <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (CF-045: vault-native-sw direct unit tests) -->
-3. On every boot the vault initializer stamps CONFIG, README, and STYLES with the preseed source's mtime (`touch -r`) — even when a content-equality skip leaves bytes untouched — so SilverBullet reports an identical `lastModified` across sessions; `Index.md` is exempt (create-if-missing, AC5). <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (stamps codeflare-authoritative config pages with the deterministic preseed mtime even when cmp-skip leaves content untouched) -->
-4. The vault initializer seeds `Notes.md` and `References.md` landing pages create-if-missing so the dashboard's bare `[[Notes]]` / `[[References]]` wikilinks resolve to real pages instead of 404ing as broken/aspiring pages; the seed never overwrites a user edit. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
-5. The vault initializer seeds `Index.md` create-if-missing rather than force-overwriting it, so the editor's normalized re-serialization persists via R2 to a stable no-conflict fixed point; the seed never overwrites an existing `Index.md` that differs from preseed. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (seeds Index.md create-if-missing but NEVER force-overwrites an existing differing Index.md (prevents the 2nd-start sync conflict)) -->
 
 **Constraints:**
 
-- The deterministic preseed-mtime stamp (AC3) only equalizes the SECONDARY-side mtime for CONFIG/README/STYLES; it cannot fix a PRIMARY-side (client save) conflict, which is why `Index.md` moved to create-if-missing (AC5) instead of being covered by the stamp.
+- The deterministic preseed-mtime stamp (REQ-VAULT-023 AC1) only equalizes the SECONDARY-side mtime for CONFIG/README/STYLES; it cannot fix a PRIMARY-side (client save) conflict, which is why `Index.md` moved to create-if-missing (REQ-VAULT-023 AC3) instead of being covered by the stamp.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger)
+**Dependencies:** [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap), [REQ-VAULT-034](#req-vault-034-legacy-session-vault-marker-cleanup)
 
-**Verification:** Automated test ([cache reconciliation test](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [not-ready sync guard test](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [boot mtime + landing-page test](../../host/__tests__/entrypoint-vault-boot.test.js))
+**Verification:** Automated: [vault-native-sw-direct.test.ts](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [vault-cache.test.ts](../../web-ui/src/__tests__/lib/vault-cache.test.ts)
 
 **Status:** Implemented
 
@@ -825,9 +901,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-022](#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap)
+**Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-022](#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap), [REQ-VAULT-035](#req-vault-035-bucket-stable-vault-runtime-preservation)
 
-**Verification:** Automated tests ([ownership burst](../../src/__tests__/lib/access.test.ts), [token cutover](../../src/__tests__/lib/vault-bucket-token.test.ts), [route burst](../../src/__tests__/routes/vault-auth-chain.test.ts), [scope cleanup](../../src/__tests__/routes/vault-html-direct.test.ts), [production-bundled browser scripts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [prewarm proof](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [control lifecycle](../../web-ui/src/__tests__/components/Layout.test.tsx))
+**Verification:** Automated: [access.test.ts](../../src/__tests__/lib/access.test.ts), [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-bucket-token.test.ts](../../src/__tests__/lib/vault-bucket-token.test.ts), [vault-auth-chain.test.ts](../../src/__tests__/routes/vault-auth-chain.test.ts), [vault-html-direct.test.ts](../../src/__tests__/routes/vault-html-direct.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault-prewarm.test.ts](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts)
 
 **Status:** Implemented
 
@@ -835,7 +911,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-024: Vault bootstrap-hop key arming and service-worker retention
 
-**Intent:** The vault key minted by [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) still has to reach the browser and stay usable there with no passphrase prompt: a one-time bootstrap-hop page arms the service worker with the key, the worker holds onto that key for its natural lifetime instead of the upstream proactive flush, and a genuinely lost key is recovered rather than bouncing the user to `.auth`. The Vault open click always routes through the hop so the key is armed before the editor boots.
+**Intent:** The vault key minted by [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) still has to reach the browser and stay usable there with no passphrase prompt: a one-time bootstrap-hop page arms the service worker with the key, the worker holds onto that key for its natural lifetime instead of the upstream proactive flush, and a genuinely lost key is recovered rather than sending the user back to authentication. The Vault open click always routes through the hop so the key is armed before the editor boots.
 
 **Applies To:** User
 
@@ -845,11 +921,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. On failure, including browser-storage rejection, the bootstrap-hop page shows an error and aborts without setting the bootstrap-completed cookie or redirecting to the shell. <!-- @impl: src/lib/vault-view.ts::injectVaultBootstrapHopHtml --> <!-- @impl: src/lib/vault-browser-scripts.ts::VAULT_COMPLETE_BOOTSTRAP_SOURCE --> <!-- @test: src/__tests__/lib/vault-browser-bundle.test.ts (does not complete bootstrap when encryption enablement cannot persist) -->
 3. Subsequent shell-path requests bypass the bootstrap hop via the cookie, and no passphrase prompt is shown to the user. <!-- @impl: src/lib/vault-view.ts::VAULT_BOOTSTRAP_COOKIE --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)) -->
 4. The service worker retains its in-memory encryption key for its natural lifetime; the codeflare graft neuters the upstream proactive flush that wiped the key 5s after the last client disconnected. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains real AES across the registered zero-client interval) -->
-5. The service worker recovers its key from the Worker only when genuinely gone (idle-terminated): the graft injects a recovery helper that re-fetches the key from the auth-gated `.vault-key` endpoint at both of the worker's key-empty failure points. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: an encryption-key query recovers and returns the server AES key through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: config recovers AES and configures encrypted storage through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout preparation and cancellation suppress pending recovery without inventing logout state) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout generation transition during pending %s recovery fences publication and configuration) -->
+5. The service worker recovers its key only when genuinely gone after idle termination: the injected recovery helper re-fetches it from the auth-gated key endpoint at both key-empty failure points. <!-- @impl: src/routes/vault/native-sw.ts::graftVaultKeyRecovery --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: an encryption-key query recovers and returns the server AES key through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: config recovers AES and configures encrypted storage through the registered handler) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout preparation and cancellation suppress pending recovery without inventing logout state) --> <!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (REQ-VAULT-024 AC5: real logout generation transition during pending %s recovery fences publication and configuration) -->
 6. Every Vault open enters the encryption bootstrap flow rather than navigating directly to the editor shell. <!-- @impl: web-ui/src/components/Layout.tsx::openVaultTab --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-VAULT-024 AC6: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell) -->
 7. Non-GET requests cannot enter bootstrap completion. <!-- @impl: src/routes/vault/index.ts::isBootstrapHopRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (REQ-VAULT-024 AC7: only GET enters bootstrap completion) -->
 
-**Notes:** Encryption rides SilverBullet's native service worker with the codeflare `graftVaultKeyRecovery` patch (`.vault-key` recovery plus proactive-flush neutering); see [AD69](../../documentation/decisions/README.md#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing) for the native-worker adoption and integration verification, and [AD84](../../documentation/decisions/README.md#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly) for the later flush-neutering fix. The SB store now persists across sessions via a bucket-stable vault URL and bucket-derived key ([REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)), which supersedes [AD83](../../documentation/decisions/README.md#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket).
+**Notes:** Native-worker key recovery, retention and bucket-stable store persistence are documented in the [Vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass), with their decision history in [AD69](../../documentation/decisions/README.md#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing) and [AD84](../../documentation/decisions/README.md#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly).
 
 **Constraints:**
 
@@ -860,9 +936,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) (vault key generation and lifecycle), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) (bucket-stable URL and session routing), [REQ-VAULT-029](#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety) (canonical worker cutover)
+**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-021](#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-029](#req-vault-029-canonical-browser-state-cutover-and-future-worker-safety)
 
-**Verification:** Automated test ([Bootstrap-hop test](../../src/__tests__/routes/vault.test.ts), [Service-worker retention test](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [Open-flow test](../../web-ui/src/__tests__/components/Layout.test.tsx))
+**Verification:** Automated: [vault-browser-bundle.test.ts](../../src/__tests__/lib/vault-browser-bundle.test.ts), [vault-native-sw-direct.test.ts](../../src/__tests__/routes/vault-native-sw-direct.test.ts), [vault.test.ts](../../src/__tests__/routes/vault.test.ts), [Layout.test.tsx](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -878,10 +954,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. Change detection reports a vault file changed exactly when its sha256 differs from, or is absent in, the persisted manifest; a file's mtime is never consulted, so rewriting every file with identical bytes (what an R2 restore does) yields zero changes. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_changed --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (THE ORACLE: an R2-style restore (rewrite every file, fresh mtime, identical bytes) yields ZERO changes) -->
-2. The manifest persists at `graphify-out/vault-extract-manifest.json`, allow-listed through the graphify-out bisync exclusion, so it round-trips to R2 and survives container restart — the property that makes "changed since last extraction" true across boots. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
+2. The extraction manifest is allow-listed through the derived-output sync exclusion, round-trips to R2 and survives container restart, preserving changed-since-last-extraction state across boots. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-VAULT-026 AC2: durable extraction manifest bytes survive local baseline and ordinary bisync restore) -->
 3. For a vault that did not exist at boot, the manifest is baselined before the R2-persisted durable initialization record is written. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (baselines only the first durable Vault initialization and leaves a later missing manifest full-delta eligible (REQ-VAULT-026 AC3/AC4/AC7)) -->
 4. On every later boot the manifest is restored from R2 and never re-baselined; a missing or corrupt restored manifest therefore behaves as an empty high-water mark so every user file remains extraction-eligible. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (treats a later missing or corrupt restored manifest as a full delta instead of rebaselining current Vault bytes) -->
-5. Claude and Pi commit equivalent manifest content and the same exclusion set for the same Vault contents. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildVaultManifest --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content) -->
+5. Claude and Pi commit equivalent manifest content and the same exclusion set for the same Vault contents, skipping file and directory symlinks, including contained, outside and dangling links; no outside target is attributed through a link. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::cmd_commit --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildVaultManifest --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content) -->
 6. Incomplete or failed Pi extraction leaves the committed manifest bytes unchanged, so the same edits remain eligible after retry, runtime switch, or restart. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps the committed manifest byte-identical on failure and emits the next reminder) -->
 7. An existing marker-less vault receives the durable initialization record without baselining, so its files remain extraction-eligible. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (baselines only the first durable Vault initialization and leaves a later missing manifest full-delta eligible (REQ-VAULT-026 AC3/AC4/AC7)) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps an existing marker-less Vault full-delta eligible during Pi fallback initialization (REQ-VAULT-026 AC7)) -->
 
@@ -895,9 +971,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion) (edit detection loop), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault + graphify-out ride the R2 sync)
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test ([Content-hash and promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts), [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [rclone persistence test](../../host/__tests__/entrypoint-rclone-filters.test.js))
+**Verification:** Automated: [entrypoint-rclone-filters.test.js](../../host/__tests__/entrypoint-rclone-filters.test.js), [entrypoint-vault-boot.test.js](../../host/__tests__/entrypoint-vault-boot.test.js), [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [vault-manifest-detection.test.ts](../../src/__tests__/lib/vault-manifest-detection.test.ts)
 
 **Status:** Implemented
 
@@ -915,7 +991,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 1. The Pi root exposes each Vault extraction as one public background `subagent` request with inherited context disabled, and never invokes a private spawn service. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
 2. After reload, the Pi root reconstructs a Vault request's exact failed-call count from durable root-session JSONL and resumes at the next delivery attempt. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-027 AC2: reconstructs Vault retry state from root JSONL after reload) -->
 3. Vault edits detected before launch coalesce into the pending request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
-4. The committed manifest advances only when the matching request-specific post-commit chunk parses and validates against the canonical Graphify extraction schema and the staged bytes validate; empty, malformed, schema-invalid, or uncorrelated chunks leave it unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isGraphifyExtractionChunk --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (rejects an empty, malformed, or schema-invalid correlated chunk before manifest promotion) -->
+4. For nonempty changed-file work, the committed manifest advances only when the matching request-specific post-commit chunk parses and validates against the canonical Graphify extraction schema and the staged bytes validate; empty, malformed, schema-invalid, or uncorrelated chunks leave it unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isGraphifyExtractionChunk --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (rejects an empty, malformed, or schema-invalid correlated chunk before manifest promotion) -->
 5. A crash after manifest promotion but before cleanup is recovered idempotently. <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-027: recovers rename-before-cleanup only when committed bytes match) -->
 6. Missing or corrupt staged data creates a full-delta follow-up request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (recovers a missing or corrupt successful stage with a new full-delta request) -->
 7. An older completion notification cannot suppress the full-delta follow-up from AC6. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (recovers a missing or corrupt successful stage with a new full-delta request) -->
@@ -926,13 +1002,14 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 - Runtime coordination uses only the existing active request pointer and request-specific execution snapshot; no queue, scheduler, service, endpoint, or distributed coordinator is introduced.
 - The already-required request chunk becomes visible at its canonical path only after graph commit and is root-cleaned after promotion.
+- An empty changed-file snapshot is an explicit no-op without graph commands; it is not failed nonempty work.
 - Claude extraction behavior and acceptance criteria remain unchanged.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
 
-**Verification:** Automated test ([Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [manifest promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts))
+**Verification:** Automated: [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [vault-manifest-detection.test.ts](../../src/__tests__/lib/vault-manifest-detection.test.ts)
 
 **Status:** Implemented
 
@@ -958,7 +1035,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
 
-**Verification:** Automated test ([Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+**Verification:** Automated: [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -985,7 +1062,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
 
-**Verification:** Automated test ([Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+**Verification:** Automated: [pi-memory-vault-delivery.test.ts](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 
@@ -1013,7 +1090,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-002](#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)
 
-**Verification:** Automated manifest-exclusion test and manual managed-instruction review
+**Verification:** Automated: [vault-manifest-detection.test.ts](../../src/__tests__/lib/vault-manifest-detection.test.ts); Manual: [REQ-VAULT-032 procedure](../../documentation/lanes/vault.md#req-vault-032-manual-qualification)
 
 **Status:** Implemented
 

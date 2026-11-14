@@ -577,6 +577,61 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await activity.commitDrive(1, update)).toEqual({ ok: false, reason: 'stale-drive' });
   }));
 
+  it('REQ-OPERATOR-016/104: never-started Dispatcher cancellation is confirmed across repeats and cold reconstruction without compute', () => withActivity(async ({ activity, ctx, activityEnv, registry }) => {
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['aud'] });
+    const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+    if (!admission) throw new Error('Missing fixture admission');
+    await ctx.storage.put('admission', { ...admission, ownerKey, receipt: { ...admission.receipt, selection: {
+      controlsRevision: 1, manifestJson: JSON.stringify({ name: 'Dispatcher', intentVersion: '4' }),
+      operator: { operatorId: 'operator', profile: 'dispatcher', revision: 1,
+        policy: { capabilities: ['fetch'], resourceProfileId: null, loggingEnabled: false } },
+      installation: { id: 'installation', revision: 1, enabled: true,
+        policy: { capabilities: ['fetch'], resourceProfileId: null }, configurationJson: '{}', releaseId: 'release' },
+      release: { id: 'release', bundleDigest: 'a'.repeat(64), intentVersion: '4' },
+    } } });
+    expect(await activity.getDispatcherDiagnostics(ownerKey)).toMatchObject({
+      parent: { driveGeneration: null, lease: null }, sdk: { status: 'unavailable', reason: 'unbound' },
+    });
+    const first = await activity.cancelDrive();
+    expect(first).toMatchObject({ ok: true, state: { generation: 1, status: 'cancel-requested' } });
+    expect(await activity.getBrowserDetail()).toMatchObject({ cleanupStatus: 'stopped', checkpoint: null, result: null });
+    const cold = new OperatorActivity(ctx, activityEnv);
+    expect(await cold.cancelDrive()).toEqual(first);
+    expect(await cold.cancelDrive()).toEqual(first);
+    expect(await cold.getBrowserSummary(ownerKey)).toMatchObject({ cleanupStatus: 'stopped', executionStatus: 'cancel-requested' });
+    expect(await registry.getOwnedActivity(ownerKey, 'activity')).toMatchObject({ cleanupStatus: 'stopped' });
+    expect(await cold.getDispatcherDiagnostics(ownerKey)).toMatchObject({
+      parent: { driveGeneration: 1, lease: null }, sdk: { status: 'unavailable', reason: 'unbound' },
+    });
+    expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    expect(await cold.start('s'.repeat(43))).toEqual({ ok: false, reason: 'already-started' });
+    expect(await cold.commitDrive(1, update)).toEqual({ ok: false, reason: 'stale-drive' });
+  }));
+
+  it.each(['begun', 'unknown', 'conductor', 'missing-proof', 'mismatched-proof'] as const)(
+    'REQ-OPERATOR-104: absent SDK lease does not prove stopped compute for %s', scenario => withActivity(async ({ activity, ctx, activityEnv }) => {
+      const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+      if (!admission) throw new Error('Missing fixture admission');
+      await ctx.storage.put('admission', { ...admission, receipt: { ...admission.receipt, selection: {
+        operator: { profile: scenario === 'conductor' ? 'conductor' : 'dispatcher', policy: { loggingEnabled: false } },
+        installation: { policy: { resourceProfileId: null } },
+        release: { bundleDigest: 'a'.repeat(64) }, manifestJson: '{}',
+      } } });
+      if (scenario === 'begun') await activity.beginDrive();
+      if (scenario === 'unknown') await activity.fenceRuntimeFailure();
+      else await activity.cancelDrive();
+      if (scenario === 'missing-proof' || scenario === 'mismatched-proof') {
+        const fenced = await ctx.storage.get<Record<string, unknown> & { diagnosticFence?: Record<string, unknown> }>('admission');
+        await ctx.storage.put('admission', { ...fenced, diagnosticFence: scenario === 'missing-proof'
+          ? undefined : { ...fenced?.diagnosticFence, generation: 1 } });
+      }
+      const cold = new OperatorActivity(ctx, activityEnv);
+      expect((await cold.getBrowserDetail())?.cleanupStatus).not.toMatch(/^(stopped|released)$/);
+      expect(await cold.cancelDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+      expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    }));
+
   it('durably owns one immutable session request while allowing status reconciliation', () => withActivity(async ({ activity }) => {
     const session = ownedSessionFixture();
     expect(await activity.saveOwnedSession(session)).toEqual({ ok: true });
@@ -780,6 +835,24 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     const reconstructed = new OperatorActivity(ctx, { ...activityEnv, ...encryption });
     expect(await reconstructed.getReviewState()).toMatchObject({ ...review,
       sealedSyncOperationId: 'sync-1', publication: { phase: 'completed', receipt: { checkId: 1, recordId: 2 } } });
+
+    const expiringSync = { ...sync, operationId: 'sync-expiry',
+      prefix: '.codeflare/operators/activity/sync-expiry/', deadline: claims.expiresAt * 1000 };
+    expect(await reconstructed.prepareSync(expiringSync)).toEqual({ ok: true, phase: 'prepared' });
+    expect(await reconstructed.authorizeSyncWrite(expiringSync.operationId, expiringSync.keys[0])).toEqual({ ok: true });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(claims.expiresAt * 1000 + 1);
+    try {
+      expect(await reconstructed.beginDrive()).toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await reconstructed.prepareSync(expiringSync)).toEqual({ ok: false, reason: 'authority-expired' });
+      for (const key of [expiringSync.keys[0], `${expiringSync.prefix}manifest.json`]) {
+        expect(await reconstructed.authorizeSyncWrite(expiringSync.operationId, key))
+          .toEqual({ ok: false, reason: 'authority-expired' });
+      }
+      expect(await reconstructed.recordSyncUploaded(expiringSync.operationId, 'e'.repeat(64)))
+        .toEqual({ ok: false, reason: 'authority-expired' });
+      expect(await reconstructed.getSync(expiringSync.operationId))
+        .toMatchObject({ phase: 'prepared', manifestDigest: null, evidence: null });
+    } finally { clock.mockRestore(); }
   }, false));
 
   it('rejects context/intent substitution and authority extending beyond the signed expiry', () => withActivity(async ({ ctx, activityEnv }) => {
@@ -799,6 +872,57 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await secured.prepareAuthorized({ ...base, deadline: claims.expiresAt * 1000 + 1 }, context)).toEqual({ ok: false, reason: 'authority-expired' });
     expect(await secured.getExecutionContext()).toBeNull();
   }, false));
+
+  it('REQ-OPERATOR-006/031: concurrent start yields one durable winner and observation preserves result authority', () => withActivity(async ({ activity, registry, token, ctx, activityEnv }) => {
+    const reconstructed = new OperatorActivity(ctx, activityEnv);
+    const attempts = await Promise.all([activity.startWebhook(token), reconstructed.startWebhook(token)]);
+    expect(attempts.map(attempt => attempt.ok).sort()).toEqual([false, true]);
+    const winner = attempts.find(attempt => attempt.ok);
+    if (!winner?.ok) throw new Error('Expected one successful webhook start');
+    expect(winner.phase).toBe('queued');
+    expect(winner.readCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(winner.readCapability).not.toBe(token);
+    expect(await reconstructed.getWebhookStatus(token)).toMatchObject({ ok: false });
+    expect(await reconstructed.getWebhookStatus(winner.readCapability)).toMatchObject({ ok: true, terminal: false });
+    expect(await reconstructed.redeemWebhookResult(winner.readCapability)).toEqual({ ok: false, reason: 'not-ready' });
+    expect(await reconstructed.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+    expect(await reconstructed.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { output: 'Original result' } })).toMatchObject({ ok: true });
+    expect((await registry.setEnabled('operator', false, 3)).ok).toBe(true);
+    expect(await activity.redeemWebhookResult(winner.readCapability))
+      .toMatchObject({ ok: true, terminal: true, result: { output: 'Original result' } });
+    expect(await new OperatorActivity(ctx, activityEnv).startWebhook(token)).toMatchObject({ ok: false });
+  }, true, false));
+
+  it.each(['failed', 'cancelled', 'expired', 'superseded'] as const)(
+    'REQ-OPERATOR-006: returns bounded terminal evidence for %s without rerunning work', outcome => withActivity(async ({ activity, token, deadline }) => {
+      const started = await activity.startWebhook(token);
+      if (!started.ok) throw new Error('Expected webhook start');
+      if (outcome === 'expired') {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(deadline + 1);
+      } else {
+        expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1 } });
+        if (outcome === 'failed') {
+          expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'failed', checkpoint: null,
+            result: { message: 'x'.repeat(64 * 1024) } })).toEqual({ ok: false, reason: 'invalid-update' });
+          expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'failed', checkpoint: null,
+            result: { message: 'Bounded failure' } })).toMatchObject({ ok: true });
+        } else if (outcome === 'cancelled') {
+          expect(await activity.cancelDrive()).toMatchObject({ ok: true });
+        } else {
+          expect(await activity.interruptDrive(1)).toMatchObject({ ok: true });
+        }
+      }
+      try {
+        const result = await activity.redeemWebhookResult(started.readCapability);
+        const status = outcome === 'cancelled' ? 'cancel-requested' : outcome === 'superseded' ? 'unknown' : outcome;
+        expect(result).toMatchObject({ ok: true, terminal: true, status });
+        expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThan(64 * 1024);
+        expect(await activity.startWebhook(token)).toMatchObject({ ok: false });
+      } finally { if (outcome === 'expired') vi.useRealTimers(); }
+    }, true, false),
+  );
 
   it('rereads identical immutable terminal bytes after lost delivery only with the original read capability', () => withActivity(async ({ activity, token, ctx, activityEnv }) => {
     const started = await activity.startWebhook(token);

@@ -30,8 +30,8 @@ describe('Setup Credentials', () => {
       const creds = await handleDeriveR2Credentials('test-token-value', steps);
 
       expect(creds.accessKeyId).toBe('token-id-123');
-      // Secret should be a SHA-256 hex string (64 chars)
-      expect(creds.secretAccessKey).toMatch(/^[a-f0-9]{64}$/);
+      // R2 credential derivation contract: independently fixed SHA-256 vector.
+      expect(creds.secretAccessKey).toBe('bc6a34869b72942287fb20fdce092fc392e924b4f1986b5dfa47fbc101e2c7fb');
       expect(steps[0].status).toBe('success');
     });
 

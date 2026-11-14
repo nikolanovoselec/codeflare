@@ -71,7 +71,7 @@ func TestCodeflareCompletedCopyKeepsIndependentMetadata(t *testing.T) {
   predicted.Modtime = speculative; predicted.Winner.Side = "src"
   ordered := append([]Results{predicted}, completed...)
   if completionFirst { ordered = append(completed, predicted) }
-  q := queues{copy1to2: bilib.Names{name: nil}, skippedDirs1: newFileList(), skippedDirs2: newFileList()}
+  q := queues{copy1to2: bilib.Names{name: nil}, skipped1: newFileList(), skipped2: newFileList()}
   if err := b.modifyListing(ctx, srcFs, dstFs, ordered, q, true); err != nil { t.Fatal(err) }
   left, err := b.loadListing(b.listing1); if err != nil { t.Fatal(err) }
   right, err := b.loadListing(b.listing2); if err != nil { t.Fatal(err) }

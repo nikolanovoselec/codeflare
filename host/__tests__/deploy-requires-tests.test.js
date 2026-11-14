@@ -66,6 +66,35 @@ function evaluateCondition(expression, values) {
 }
 
 describe('manual deploys cannot skip tests', () => {
+  it('REQ-OPS-001 AC3/4: deployment artifact-handoff contract builds assets once before the dependent consumer', () => {
+    const producer = deployWorkflow.jobs['build-worker'];
+    const container = deployWorkflow.jobs.container;
+    const consumer = deployWorkflow.jobs.deploy;
+    const assetBuilds = producer.steps.filter((step) =>
+      step.run === 'npm run build' && ['web-ui', 'landing'].includes(step['working-directory']));
+    assert.deepEqual(assetBuilds.map((step) => step['working-directory']), ['web-ui', 'landing']);
+
+    const upload = producer.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@')
+      && step.with?.name === 'web-ui-dist');
+    const download = consumer.steps.find((step) => step.uses?.startsWith('actions/download-artifact@')
+      && step.with?.name === 'web-ui-dist');
+    assert.equal(upload?.with?.path, 'web-ui/dist');
+    assert.equal(upload?.with?.['if-no-files-found'], 'error');
+    assert.deepEqual({ name: download?.with?.name, path: download?.with?.path },
+      { name: 'web-ui-dist', path: 'web-ui/dist' });
+    assert.ok(producer.steps.indexOf(assetBuilds[0]) < producer.steps.indexOf(assetBuilds[1]));
+    assert.ok(producer.steps.indexOf(assetBuilds[1]) < producer.steps.indexOf(upload));
+    assert.deepEqual(consumer.steps.filter((step) => step.run === 'npm run build'
+      && ['web-ui', 'landing'].includes(step['working-directory'])), []);
+
+    assert.ok(producer.needs.includes('prepare'));
+    assert.ok(container.needs.includes('prepare'));
+    assert.ok(!producer.needs.includes('container'));
+    assert.ok(!container.needs.includes('build-worker'));
+    assert.ok(consumer.needs.includes('build-worker'));
+    assert.ok(consumer.needs.includes('container'));
+  });
+
   it('exposes PR Checks as a reusable workflow', () => {
     assert.match(
       testYml,

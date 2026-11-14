@@ -16,7 +16,7 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
 
 **Acceptance Criteria:**
 
-1. First observable behaviour, single sentence, <=150 words. Describes what is true after the system runs. <!-- @impl: lib/services/example_service.dart::doThing --> <!-- @test: test/services/example_service_test.dart (doThing returns the processed result) -->
+1. First observable behaviour, single sentence, <=45 prose words. Describes what is true after the system runs. <!-- @impl: lib/services/example_service.dart::doThing --> <!-- @test: test/services/example_service_test.dart (doThing returns the processed result) -->
 2. Second behaviour asserting a concrete value. Use the `= <value-pattern>` form on the anchor so the value-drift check can resolve. <!-- @impl: lib/services/example_service.dart::doThing = 3 --> <!-- @test: test/services/example_service_test.dart (doThing retries three times) -->
 3. Up to 7 ACs maximum, numbered (`1.`, `2.`, ...), never bulleted (`-`). Every non-manual AC has at least one `@test` anchor; multiple anchors are valid and each must resolve. <!-- @impl: lib/services/example_service.dart::doThing --> <!-- @test: test/services/example_service_test.dart (doThing caps the list) --> <!-- @test: test/services/example_limits_test.dart (doThing rejects an oversized list) -->
 
@@ -26,7 +26,7 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
 
 **Dependencies:** [REQ-OTHER-001](other-domain.md#req-other-001-title-slug)
 
-**Verification:** Automated test
+**Verification:** Automated: [Service behavior](../../test/services/example_service_test.dart), [Service limits](../../test/services/example_limits_test.dart)
 
 **Status:** Implemented
 
@@ -34,7 +34,7 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
 
 ### REQ-EXAMPLE-002: Second REQ shows empty-field rendering and manual-verification markers
 
-**Intent:** A REQ with no constraints and no dependencies still has both fields present. The literal token `None.` renders for each empty field. Omitting either field entirely is a MEDIUM `req-missing-required-field` finding. This example also shows per-AC manual-verification markers: `Verification:` is `Manual check` because EVERY AC carries `@manual`.
+**Intent:** A REQ with no constraints and no dependencies still has both fields present. The literal token `None.` renders for each empty field. Omitting either field is a MEDIUM `req-missing-required-field` finding. Both ACs use manual verification, so Verification links a named acceptance procedure.
 
 **Applies To:** User
 
@@ -43,17 +43,17 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
 1. A behaviour only a human can verify (e.g. visual layout on a physical device) carries the bare marker instead of anchors. <!-- @manual -->
 2. A manual behaviour with a dedicated procedure carries the procedure as the marker payload. <!-- @manual: Rotate a physical device mid-animation; the layout must settle within one frame with no clipped controls. -->
 
+**Notes:** The UI affordance exists, but the server endpoint is not yet wired.
+
 **Constraints:** None.
 
 **Priority:** P2
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Manual: [Device acceptance](../../documentation/lanes/example.md#manual-acceptance)
 
 **Status:** Partial
-
-**Notes:** Status is `Partial` because the UI affordance exists but the server endpoint is not yet wired. See [pending.md](../../../pending.md).
 
 ---
 
@@ -99,7 +99,21 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
  13. Manual verification is per-AC, never REQ-level: an AC that cannot
      be verified by an automated test ends with `<!-- @manual -->`
      (bare) or `<!-- @manual: <procedure> -->` (with dedicated
-     guidance) instead of anchors. Verification: renders `Manual check`
-     only when EVERY AC carries @manual; otherwise `Automated test`.
-     No Notes doc-pointer, no external checklist.
+     guidance) instead of anchors. Verification uses Manual when all ACs
+     are manual, Automated when none are manual, and both for mixed ACs.
+     Each method has mandatory named links: actual eligible test files or
+     concrete procedures with actions and observable pass/fail outcomes.
+     Substitute real project targets when copying these illustrative links.
+ 14. Dependencies is one line: `None.` or comma-separated exact linked
+     prerequisite REQ/CON IDs only. No prose, bullets, source paths,
+     constraints, rationale, statuses, ADRs or verification evidence.
+ 15. Verification is one line: `Automated: [suite](test-path)`,
+     `Manual: [check](procedure-path#check)`, or both in that order with
+     `; ` between methods. Multiple links use comma separators. No bare
+     labels, unlabeled links, free prose, execution history or delivery
+     claims. `Unspecified.` requires a non-Implemented status and an
+     explicit live verification-gap finding. When enforce_tdd=false only,
+     Code-only: [implementation](source-path) is the linked source-only
+     method, with Manual added for manual ACs. Never fabricate test links
+     for an opted-out project. See spec-enforce for target/coherence checks.
 -->

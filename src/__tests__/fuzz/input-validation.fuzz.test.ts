@@ -10,7 +10,7 @@ import { SESSION_ID_PATTERN, getMaxSessions, REQUEST_ID_PATTERN } from '../../li
 import { escapeXml, decodeXmlEntities } from '../../lib/xml-utils';
 import { getBucketName } from '../../lib/access';
 import { getContainerId } from '../../lib/container-helpers';
-import { sanitizeSessionName, getSessionKey, getSessionPrefix, getPreferencesKey } from '../../lib/kv-keys';
+import { sanitizeSessionName, getPreferencesKey, getPushSubKey } from '../../lib/kv-keys';
 import { getR2Url, parseListObjectsXml, parseInitiateMultipartUploadXml } from '../../lib/r2-client';
 import { CircuitBreaker } from '../../lib/circuit-breaker';
 import { validateKey, MAX_KEY_LENGTH } from '../../routes/storage/validation';
@@ -320,9 +320,10 @@ describe('Fuzz: getR2Url', () => {
             const beforeBucket = afterProtocol.substring(0, idx + 1);
             expect(beforeBucket).not.toMatch(/\/\/$/);
           }
+          expect(new URL(url).pathname).toBe(`${new URL(endpoint).pathname.replace(/\/+$/, '')}/${bucket}`);
         },
       ),
-      { numRuns: NUM_RUNS },
+      { numRuns: NUM_RUNS, examples: [['http://a.aa//.', 'a0-']] },
     );
   });
 
@@ -444,43 +445,15 @@ describe('Fuzz: validateKey', () => {
 describe('Fuzz: KV key namespace isolation', () => {
   // Valid bucket names from getBucketName (no colons possible)
   const validBucket = fc.stringMatching(/^[a-z0-9][a-z0-9-]{1,20}[a-z0-9]$/);
-  const validSessionId = fc.stringMatching(/^[a-z0-9]{8,24}$/);
-
-  it('getSessionKey always has exactly 3 colon-separated segments', () => {
-    fc.assert(
-      fc.property(validBucket, validSessionId, (bucket, sessionId) => {
-        const key = getSessionKey(bucket, sessionId);
-        const segments = key.split(':');
-        expect(segments).toHaveLength(3);
-        expect(segments[0]).toBe('session');
-        expect(segments[1]).toBe(bucket);
-        expect(segments[2]).toBe(sessionId);
-      }),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('getSessionPrefix ends with colon (prevents partial-key matches)', () => {
-    fc.assert(
-      fc.property(validBucket, (bucket) => {
-        const prefix = getSessionPrefix(bucket);
-        expect(prefix.endsWith(':')).toBe(true);
-        // A bucket like "test" should not match prefix for "test-extended"
-        const otherPrefix = getSessionPrefix(`${bucket}-extended`);
-        expect(otherPrefix.startsWith(prefix)).toBe(false);
-      }),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
   it('different key functions never produce colliding keys', () => {
     fc.assert(
       fc.property(validBucket, (bucket) => {
         const prefs = getPreferencesKey(bucket);
-        const sessionPrefix = getSessionPrefix(bucket);
-        // No cross-namespace collisions
+        const pushSubscription = getPushSubKey(bucket, 'synthetic-endpoint-digest');
+        // Retained public key namespaces remain owner-bound and disjoint.
+        expect(prefs).toBe(`user-prefs:${bucket}`);
         expect(prefs.startsWith('session:')).toBe(false);
-        expect(prefs.startsWith(sessionPrefix)).toBe(false);
+        expect(prefs).not.toBe(pushSubscription);
       }),
       { numRuns: NUM_RUNS },
     );

@@ -23,8 +23,8 @@ export const SetBucketNameBodySchema = z.object({
   workspaceSyncEnabled: z.boolean(),
   syncPolicyMode: syncPolicyModeSchema.optional(),
   fastStartEnabled: z.boolean(),
-  openaiApiKey: z.string().optional(),
-  geminiApiKey: z.string().optional(),
+  openaiApiKey: z.string().nullable().optional(),
+  geminiApiKey: z.string().nullable().optional(),
   // null on any of the three deploy creds is an explicit clear that must
   // propagate to the container so a revoked credential is unset rather than
   // left stale (REQ-AGENT-029 AC2).
