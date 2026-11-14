@@ -350,10 +350,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
       const binding = { installationId: 'dispatcher-install', registrationId: 'scan-generation-one',
         bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
+      const expiresAt = Math.floor(Date.now() / 1000) + lifetimeSeconds;
       let current: Record<string, unknown> | null = { ...binding, repository: 'acme/updates', repositoryId: 424242,
         baseBranch: 'trunk', automaticRuns: true, repetitionIntervalSeconds: interval,
-        activatedAt: '2026-09-28T00:00:00.000Z', human: { email: 'admin@example.test',
-          expiresAt: Math.floor(Date.now() / 1000) + lifetimeSeconds } };
+        sourceTimeoutMs: 30_000, sourceResponseBytes: 1048576, deadline: expiresAt * 1000,
+        activatedAt: '2026-09-28T00:00:00.000Z', human: { email: 'admin@example.test', expiresAt } };
       const original = structuredClone(current);
       let availability: 'current' | 'unavailable' | 'rpc-error' = 'current';
       const live = (id: string) => current?.registrationId === id
