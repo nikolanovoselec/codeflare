@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { env, reset, runInDurableObject } from 'cloudflare:test';
-import { OperatorRegistry, type CurrentProspectiveRegistration, type ManagementExecutionSelection } from '../../operators/registry';
+import { OperatorRegistry, type CurrentProspectiveRegistration, type ManagementExecutionSelection, type ProspectiveAdmission } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
@@ -1545,7 +1545,11 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   const handoffFaults = ['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'lost-start-ack', 'admission-unavailable', 'profile-unavailable', 'profile-revoked',
     'plan-read', 'plan-missing', 'drive-plan-read', 'drive-plan-missing', 'detail-read', 'detail-missing', 'binding', 'concurrent-drive', 'persistence-unavailable',
     'prepared-start', 'admitting-start', 'preparation-proof-missing'] as const;
-  const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none', delegated = false) => fixture(async ({ native, environment, selection, state }) => {
+  const reconciliationCases = ['upgrade', 'absent', 'prepared', 'absent-global-receipt', 'admitting',
+    'ledger-unavailable', 'legacy-no-admittedAt', 'concurrent-drive', 'unknown', 'foreign-owner', 'foreign-bucket',
+    'stale-caller', 'stale-selection', 'stale-election'] as const;
+  const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none', delegated = false,
+    reconciliation?: typeof reconciliationCases[number]) => fixture(async ({ native, environment, selection, state }) => {
     // Reuse the normal installed-Worker wire fixture: real Registry/Activity/orchestrator,
     // controlled external App HTTP. This proves parent execution, not execution of Flue SDK code.
     const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
@@ -1556,7 +1560,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     await runInDurableObject(activityStub, async (_instance, activityNative) => {
       state.sessions.clear();
       const approved = normalDispatcherBundle();
-      const bytes = new TextEncoder().encode(JSON.stringify(approved));
+      let bytes = new TextEncoder().encode(JSON.stringify(approved));
       const bundleDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
       const selected = selection as ManagementExecutionSelection;
       const inference = { allowedSources: ['managed'] as Array<'managed'>, routeIds: ['approved'], defaultRouteId: 'approved',
@@ -1582,6 +1586,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       let runtimeRead = false;
       let queuedPlan: Awaited<ReturnType<OperatorActivity['getRuntimePlan']>>;
       let queuedAdmission: Awaited<ReturnType<OperatorActivity['getAdmission']>>;
+      let originalPreparation: Parameters<OperatorActivity['prepareAuthorized']> | undefined;
+      let originalStartCapability: string | undefined;
+      let missingPreparationProof = fault === 'preparation-proof-missing';
+      let ledgerUnavailable = false;
       const sensitiveError = 'private-token=never-log-this; body=private-owner-payload';
       const observations: Array<Record<string, unknown>> = [];
       const observationStatuses: string[] = [];
@@ -1608,6 +1616,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         return new Proxy(activity, { get: (target, key) => {
           const value = Reflect.get(target, key);
           return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => {
+            if (key === 'prepareAuthorized') originalPreparation = args as Parameters<OperatorActivity['prepareAuthorized']>;
+            if (key === 'start') originalStartCapability = args[0] as string;
             if (key === 'start' && fault === 'prepared-start') {
               queuedAdmission = await target.getAdmission();
               return { ok: false, reason: 'admission-uncertain' };
@@ -1671,8 +1681,16 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       });
       vi.spyOn(owner, 'resolveManagementExecution').mockResolvedValue({ ok: true, value: selected });
       // Same Registry admission/deployment authority seams used by dispatcher-production.ts.
-      vi.spyOn(owner, 'admitManagement').mockImplementation(async input => fault === 'admitting-start'
-        ? { ok: false, reason: 'disabled' } : { ok: true, value: { ...input, admittedAt: Date.now(), selection: selected } });
+      vi.spyOn(owner, 'admitManagement').mockImplementation(async input => {
+        if (fault === 'admitting-start') return { ok: false, reason: 'disabled' };
+        const receipt = { ...input, admittedAt: Date.now(), selection: selected };
+        if (reconciliation) {
+          // Preserve the real immutable ledger behind getManagementAdmission, even if local state is lost.
+          await owner.getManagementAdmission(input.activityId);
+          native.storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', input.activityId, JSON.stringify(receipt));
+        }
+        return { ok: true, value: receipt };
+      });
       vi.spyOn(owner, 'getManagementBundle').mockImplementation(async () => {
         if (fault === 'admission-unavailable') state.identityFault = 'unavailable';
         return bytes;
@@ -1681,7 +1699,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       environment.OPERATOR_REGISTRY = { getByName: () => new Proxy(owner, { get: (target, key) => {
         const value = Reflect.get(target, key);
         return typeof value === 'function' ? (...args: unknown[]) => inRegistry(async () => {
-          if (key === 'readProspectiveRenovateAdmission' && fault === 'preparation-proof-missing') return null;
+          if (key === 'readProspectiveRenovateAdmission' && missingPreparationProof) return null;
+          if (key === 'getManagementAdmission' && ledgerUnavailable) throw Error('Admission ledger unavailable');
           return Reflect.apply(value, target, args);
         }) : value;
       } }) } as never;
@@ -1727,6 +1746,142 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           observations: observations.slice(-4), observationStatuses: observationStatuses.slice(-16),
           reservationStatuses: reservationStatuses.slice(-8),
         })}`);
+        if (reconciliation) {
+          const originalId = activityId;
+          if (reconciliation === 'legacy-no-admittedAt') {
+            const { admittedAt: _unknownCreationEvidence, ...legacy } = await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId)) as ProspectiveAdmission;
+            // Historical format fixture: no authoritative reservation creation evidence.
+            await inRegistry(() => native.storage.put({ [`renovate-activity:${originalId}`]: legacy,
+              [`renovate-admission:${repoId}:1300:${head}`]: legacy }));
+          }
+          const original = await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId)) as ProspectiveAdmission;
+          const originalActivity = activity;
+          if (reconciliation === 'absent-global-receipt') {
+            expect(await inRegistry(() => owner.getManagementAdmission(originalId))).toMatchObject({ activityId: originalId });
+            await inActivity(() => activityNative.storage.delete('admission'));
+          }
+          faultArmed = false;
+          missingPreparationProof = false;
+          Object.defineProperty(exports, 'OperatorRuntimeCapability', { configurable: true, value: runtimeExport });
+          // A real new package/release selection invalidates the old consent, not its history.
+          approved.modules['resources/intent.txt'].text += 'Upgraded approved resource\n';
+          bytes = new TextEncoder().encode(JSON.stringify(approved));
+          const upgradedDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+          selected.installation.revision++;
+          selected.installation.releaseId = selected.release.id = 'upgraded-release';
+          selected.release.bundleDigest = connection.bundleDigest = upgradedDigest;
+          connection.releaseId = selected.release.id;
+          const consent = { installationId: 'dispatcher-install', scope: 'installation' as const,
+            bucket: reconciliation === 'foreign-bucket' ? 'other-bucket' : 'owner-bucket', sessionId: '', sessionGeneration: 0,
+            human: claims(reconciliation === 'foreign-owner' ? 'a@example.test' : 'z@example.test', 86400),
+            accessJwt: reconciliation === 'foreign-owner' ? 'a-jwt' : 'z-jwt',
+            repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } };
+          const current = await inRegistry(() => owner.activateProspectiveRenovate(consent));
+          if (!current.ok) throw Error('No fresh activation');
+          expect(current.activatedAt).toBe(original.activatedAt);
+          const target = pr(reconciliation === 'stale-caller' ? registration.registrationId : current.registrationId,
+            current.activatedAt, { activityId: 'reconciled-a' });
+          const originalState = await inActivity(() => originalActivity.getAdmission());
+          const originalDetail = await inActivity(() => originalActivity.getBrowserDetail());
+          const originalLedger = await inRegistry(() => owner.getManagementAdmission(originalId));
+          if (reconciliation === 'absent' || reconciliation === 'prepared') expect(originalLedger).toBeNull();
+          ledgerUnavailable = reconciliation === 'ledger-unavailable';
+          let racedDrive = false;
+          environment.OPERATOR_ACTIVITY = { idFromName: () => activityNative.id, getByName: (id: string) => {
+            if (id !== originalId) throw Error('Unexpected replacement before election');
+            return new Proxy(originalActivity, { get: (object, key) => {
+              const value = Reflect.get(object, key);
+              return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => {
+                if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'concurrent-drive' && !racedDrive) {
+                  racedDrive = true;
+                  await originalActivity.beginDrive();
+                }
+                const result = await Reflect.apply(value, object, args);
+                if (key === 'retireProspectiveRenovatePreparation' && result === true) {
+                  if (reconciliation === 'stale-selection') selected.installation.revision++;
+                  if (reconciliation === 'stale-election') await inRegistry(() => owner.activateProspectiveRenovate({
+                    ...consent, accessJwt: 'z-fresh-consent' }));
+                }
+                return result;
+              }) : value;
+            } });
+          } } as never;
+          const outcomes = await inRegistry(() => Promise.all([
+            owner.reserveProspectiveRenovateActivity(target),
+            owner.reserveProspectiveRenovateActivity({ ...target, activityId: 'reconciled-b' }),
+          ]));
+          expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId))).toEqual(original);
+          expect(await inRegistry(() => owner.getManagementAdmission(originalId))).toEqual(originalLedger);
+          expect(transport.admissions.size).toBe(0);
+          expect(transport.networkRequests).toEqual([]);
+          if (reconciliation !== 'upgrade' && reconciliation !== 'absent' && reconciliation !== 'prepared') {
+            expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('reconciled-a'))).toBeNull();
+            expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('reconciled-b'))).toBeNull();
+            if (reconciliation === 'concurrent-drive') {
+              expect(await inActivity(() => originalActivity.getBrowserDetail())).toMatchObject({ executionStatus: 'running' });
+            } else if (reconciliation === 'stale-selection' || reconciliation === 'stale-election') {
+              expect(await inActivity(() => originalActivity.getBrowserDetail())).toMatchObject({
+                executionStatus: 'cancel-requested', cleanupStatus: 'stopped' });
+            } else {
+              expect(await inActivity(() => originalActivity.getAdmission())).toEqual(originalState);
+              expect(await inActivity(() => originalActivity.getBrowserDetail())).toEqual(originalDetail);
+            }
+            return;
+          }
+          expect(outcomes[0]).toEqual(outcomes[1]);
+          const elected = outcomes[0];
+          if (!elected.ok) throw Error('No reconciled admission');
+          expect(['reconciled-a', 'reconciled-b']).toContain(elected.activityId);
+          const loser = elected.activityId === 'reconciled-a' ? 'reconciled-b' : 'reconciled-a';
+          expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(loser))).toBeNull();
+          expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(elected.activityId))).toMatchObject({
+            previousActivityId: originalId, attempt: 2, releaseId: 'upgraded-release', bundleDigest: upgradedDigest,
+            actor: { registrationId: current.registrationId, email: original.actor.email }, head, createdAt });
+          const blockedDrive = { ok: false, reason: reconciliation === 'upgrade' ? 'drive-settled' : 'not-admitted' };
+          expect(await inActivity(() => originalActivity.beginDrive())).toEqual(blockedDrive);
+          if (reconciliation === 'absent') {
+            const latePreparation = originalPreparation;
+            if (!latePreparation) throw Error('Missing original preparation input');
+            expect(await inActivity(() => originalActivity.prepareAuthorized(...latePreparation)))
+              .toEqual({ ok: false, reason: 'admission-denied' });
+            expect(await inActivity(() => originalActivity.getAdmission())).toBeNull();
+          }
+          if (reconciliation === 'prepared') {
+            const lateCapability = originalStartCapability;
+            if (!lateCapability) throw Error('Missing original start capability');
+            expect(await inActivity(() => originalActivity.start(lateCapability)))
+              .toEqual({ ok: false, reason: 'admission-denied' });
+            expect(await inActivity(() => originalActivity.getAdmission())).toMatchObject({ phase: 'cancelled', receipt: null });
+          }
+          const freshStub = activityNamespace.getByName(`alarm-reconciled-${crypto.randomUUID()}`);
+          await runInDurableObject(freshStub, async (_fresh, freshNative) => {
+            const inFresh = <T>(action: () => Promise<T>) => runInDurableObject(freshStub, () => action());
+            const freshActivity = new OperatorActivity(freshNative, environment);
+            Object.defineProperty(freshNative, 'waitUntil', { configurable: true, value: (work: Promise<unknown>) => { pending.push(work); } });
+            environment.OPERATOR_ACTIVITY = { idFromName: (id: string) => id === originalId ? activityNative.id : freshNative.id,
+              getByName: (id: string) => {
+                const object = id === originalId ? originalActivity : freshActivity;
+                if (id !== originalId && id !== elected.activityId) throw Error('Unexpected duplicate Activity');
+                const enter = id === originalId ? inActivity : inFresh;
+                return new Proxy(object, { get: (target, key) => {
+                  const value = Reflect.get(target, key);
+                  return typeof value === 'function' ? (...args: unknown[]) => enter(async () => Reflect.apply(value, target, args)) : value;
+                } });
+              } } as never;
+            const due = await inRegistry(() => native.storage.getAlarm());
+            clock.mockReturnValue(due! + 1);
+            await inRegistry(() => owner.alarm()); await drain();
+            expect(await inFresh(() => freshActivity.getBrowserDetail())).toMatchObject({ activityId: elected.activityId, executionStatus: 'running' });
+            expect(transport.admissions.size).toBe(1);
+            const accepted = structuredClone([...transport.admissions.values()]);
+            await inRegistry(() => owner.alarm()); await drain();
+            expect([...transport.admissions.values()]).toEqual(accepted);
+            expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId))).toEqual(original);
+            expect(await inRegistry(() => owner.getManagementAdmission(originalId))).toEqual(originalLedger);
+            expect(await inActivity(() => originalActivity.beginDrive())).toEqual(blockedDrive);
+          });
+          return;
+        }
         if (fault === 'preparation-proof-missing') {
           expect(observations.at(-1)).toMatchObject({ outcome: 'handoff-failure', failureStage: 'preparation',
             handoffAttempts: 0 });
@@ -1883,6 +2038,11 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       }
     });
   });
+  it.each(reconciliationCases)('REQ-OPERATOR-061 AC2/3/6/7 /062 /107: stale reservation %s preserves uncertainty and elects only atomically retired same-owner work',
+    reconciliation => normalAlarmHandoff(reconciliation === 'unknown' ? 'binding'
+      : ['absent', 'ledger-unavailable', 'legacy-no-admittedAt'].includes(reconciliation) ? 'preparation-proof-missing'
+        : reconciliation === 'prepared' ? 'prepared-start' : reconciliation === 'admitting' ? 'admitting-start'
+          : 'persistence-unavailable', false, reconciliation));
   it('role restoration without new consent cannot elect a retired admin or strand the active admin’s normal Dispatcher work',
     () => normalAlarmHandoff('none'));
   it.each(['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'admission-unavailable', 'profile-unavailable', 'profile-revoked'] as const)(

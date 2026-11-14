@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { encryptForKV, decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
-import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, discoverRawCaptures,
+import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, verifyRawCapture, discoverRawCaptures,
   type RawCaptureBinding, type RawCaptureScope, type RawCaptureStorage, type RawCapture } from '../../operators/raw-capture-storage';
 
 // Synthetic values only. The native boundary retains ciphertext, never a console facsimile.
@@ -115,6 +115,65 @@ async function rewriteManifest(f: ReturnType<typeof boundary>, change: (manifest
 }
 
 describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent verified readback', () => {
+  it('flush durably writes the private v1 frame before accepting another diagnostic chunk', async () => {
+    const f = boundary();
+    const capture = f.create();
+    capture.record('first-chunk', () => CANARY);
+    await capture.flush();
+    // Private v1 codec contract: the committed frame must exist before a final receipt.
+    const ciphertext = [...f.objects].find(([name]) => name.endsWith('/segment-0-0-0'))?.[1];
+    expect(ciphertext).toBeDefined();
+    const key = (await getOrImportKey({ ENCRYPTION_KEY: KEY }))!;
+    const encoded = await decryptFromKV(ciphertext!.slice(3), key, aad(binding, 0, { record: 0, part: 0 }));
+    expect(JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'))).toEqual([{ stage: 'first-chunk', value: CANARY }]);
+    expect(await read(f)).toEqual(incomplete);
+    capture.record('second-chunk', () => `${CANARY}-second`);
+    await capture.flush();
+    expect((await capture.finish('eof')).status).toBe('complete');
+    expect((await read(f)).records).toEqual([
+      { stage: 'first-chunk', value: CANARY }, { stage: 'second-chunk', value: `${CANARY}-second` },
+    ]);
+  });
+
+  it.each(['write failure', 'authority revoked'] as const)('flush cannot acknowledge persistence after %s', async fault => {
+    const f = boundary({ rejectWrite: () => fault === 'write failure' });
+    const capture = f.create();
+    capture.record('private-chunk', () => CANARY);
+    if (fault === 'authority revoked') f.revoke();
+    await expect(capture.flush()).rejects.toThrow('Private raw capture unavailable');
+    expect((await capture.finish('eof')).status).toBe('incomplete');
+    expect(await read(f)).toEqual(incomplete);
+  });
+
+  it('incrementally verifies every large private record without changing collecting readback', async () => {
+    const f = boundary();
+    const capture = f.create();
+    const expected = Array.from({ length: 8 }, (_, index) => ({ stage: 'sdk-chunk',
+      value: { index, password: CANARY, unicode: '漢🦊'.repeat(10_000) } }));
+    for (const record of expected) {
+      capture.record(record.stage, () => record.value);
+      await capture.flush();
+    }
+    const receipt = await capture.finish('eof');
+    expect(receipt.status).toBe('complete');
+    expect(receipt.bytes).toBeGreaterThan(256 * 1024);
+    const recovered: Array<{ stage: string; value: unknown }> = [];
+    expect(await verifyRawCapture({ binding, storage: f.storage }, record => { recovered.push(record); }))
+      .toEqual({ status: 'complete', receipt });
+    expect(recovered).toEqual(expected);
+    expect(await read(f)).toEqual({ status: 'complete', receipt, records: expected });
+  });
+
+  it('incremental verification refuses a missing tail or rejected record consumer', async () => {
+    const f = await saved();
+    await expect(verifyRawCapture({ binding, storage: f.storage }, () => { throw new Error('Synthetic invalid record'); }))
+      .resolves.toEqual({ status: 'incomplete', receipt: null });
+    await rewriteManifest(f, manifest => { manifest.receipt.records++; });
+    expect(await verifyRawCapture({ binding, storage: f.storage }, () => {}))
+      .toEqual({ status: 'incomplete', receipt: null });
+    expect(await read(f)).toEqual(incomplete);
+  });
+
   it('rebuilds >256 KiB binary and Unicode across arbitrary UTF-8 frame boundaries without console truncation', async () => {
     const f = boundary();
     const binary = Array.from({ length: 90_000 }, (_, index) => index % 256);

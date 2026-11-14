@@ -2374,7 +2374,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     const existing = await this.ctx.storage.get<ProspectiveAdmission>(key);
     if (existing && existing.createdAt !== input.createdAt) return { ok: false, reason: 'invalid-target' };
     const retry = existing ? await this.prospectiveRetryProof(existing) : null;
-    if (existing && !retry) return { ok: true, activityId: existing.activityId, actor: existing.actor };
+    if (existing && !retry && existing.actor.registrationId === input.registrationId) {
+      return { ok: true, activityId: existing.activityId, actor: existing.actor };
+    }
     const election = await this.ctx.storage.get<number>('renovate-election-revision') ?? 0;
     const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
     if (registrations.size > 32) return { ok: false, reason: 'registration-limit' };
@@ -2390,8 +2392,33 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         .localeCompare(`${right.human.issuer}:${right.human.subject}:${right.record.sessionId}:${right.record.sessionGeneration}`));
     const winner = candidates[0];
     if (!winner) return { ok: false, reason: 'no-current-admin' };
-    if (existing && !this.prospectiveRetryDue(existing, retry!, winner.record.repetitionIntervalSeconds)) {
+    if (existing && retry && !this.prospectiveRetryDue(existing, retry, winner.record.repetitionIntervalSeconds)) {
       return { ok: true, activityId: existing.activityId, actor: existing.actor };
+    }
+    let retiredPreparation = false;
+    if (existing && !retry) {
+      // Reactivation removes superseded registrations, not their immutable Activity history.
+      // Only the elected, same-owner/scope caller may retire that exact old preparation.
+      // Upgrades may select new pins for a NEW Activity; the old Activity must prove its own pins.
+      if (input.registrationId === winner.record.registrationId
+        && !registrations.has(`renovate-registration:${existing.actor.registrationId}`)
+        && winner.record.scope === 'installation' && existing.actor.sessionId === '' && existing.actor.sessionGeneration === 0
+        && winner.record.sessionId === existing.actor.sessionId && winner.record.sessionGeneration === existing.actor.sessionGeneration
+        && existing.ownerKey === winner.record.ownerKey && existing.actor.bucket === winner.record.bucket
+        && existing.actor.subject === winner.human.subject && existing.actor.issuer === winner.human.issuer
+        && existing.actor.email.toLowerCase() === winner.human.email.toLowerCase()
+        && JSON.stringify([...existing.actor.audiences].sort()) === JSON.stringify([...winner.human.audiences].sort())
+        && existing.installationId === activation.installationId && existing.repository === activation.repository
+        && existing.repositoryId === input.repositoryId && existing.baseBranch === activation.baseBranch
+        && existing.pullRequest === input.pullRequest && existing.head === input.head
+        && existing.activatedAt === activation.activatedAt && this.env.OPERATOR_ACTIVITY) {
+        try {
+          // This RPC fences atomically against beginDrive; a status GET cannot prove no effects.
+          retiredPreparation = await this.env.OPERATOR_ACTIVITY.getByName(existing.activityId)
+            .retireProspectiveRenovatePreparation(existing) === true;
+        } catch { /* Missing/uncertain original evidence always retains the reservation. */ }
+      }
+      if (!retiredPreparation) return { ok: true, activityId: existing.activityId, actor: existing.actor };
     }
     const actor: ProspectiveAdmission['actor'] = { registrationId: winner.record.registrationId,
       bucket: winner.record.bucket, sessionId: winner.record.sessionId,
@@ -2402,11 +2429,14 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       const prior = await tx.get<ProspectiveAdmission>(key);
       // The head entry is only a pointer; original Activity admissions are immutable.
       // A concurrent winner (or uncertain new preparation) always retains its actor/attempt.
-      if (prior && (!existing || prior.activityId !== existing.activityId || !retry)) {
+      if (prior && (!existing || prior.activityId !== existing.activityId || !retry && !retiredPreparation)) {
         return { ok: true, activityId: prior.activityId, actor: prior.actor } as const;
       }
-      if (existing && (!prior || !this.prospectiveRetryDue(prior, retry!, winner.record.repetitionIntervalSeconds))) {
+      if (existing && (!prior || retry && !this.prospectiveRetryDue(prior, retry, winner.record.repetitionIntervalSeconds))) {
         return { ok: false, reason: 'stale-retry' } as const;
+      }
+      if (existing && retiredPreparation && await tx.get(`renovate-registration:${existing.actor.registrationId}`)) {
+        return { ok: false, reason: 'stale-election' } as const;
       }
       const [stillActivated, stillRegistered, collision, currentElection] = await Promise.all([
         tx.get<ProspectiveActivation>('renovate-activation'),

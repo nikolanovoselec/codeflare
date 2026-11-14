@@ -136,7 +136,7 @@ export async function createOwnerRawCaptureStorage(env: Pick<Env, 'ENCRYPTION_KE
 
 /** Snapshots synchronously, persists only on the caller-local scheduled queue. */
 export function createRawCapture(input: { binding: RawCaptureBinding; enabled: boolean;
-  storage: () => Promise<RawCaptureStorage>; schedule: (work: Promise<unknown>) => void }): RawCapture {
+  storage: () => Promise<RawCaptureStorage>; schedule: (work: Promise<unknown>) => void }): RawCapture & { flush(): Promise<void> } {
   const enabled = input.enabled === true;
   const resolveStorage = input.storage;
   const schedule = input.schedule;
@@ -188,6 +188,10 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
         });
       } catch { failed = true; }
     },
+    async flush() {
+      await queue;
+      if (failed) denied();
+    },
     finish(termination) {
       if (finished) return finished;
       if (!enabled) return finished = Promise.resolve(receipt(termination, 'disabled'));
@@ -196,7 +200,7 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
         if (frames.length !== segments || pending.length || failed) denied();
         await sink.put('receipt', JSON.stringify({ version: 1, receipt: receipt(termination, 'complete'), frames }), sink.aad('receipt'));
         // Revalidate all earlier frames as well as the final receipt, not just the last write.
-        const verified = await readArchive(sink, binding);
+        const verified = await walkArchive(sink, binding);
         if (verified.receipt.records !== records || verified.receipt.segments !== segments
           || verified.receipt.bytes !== bytes || verified.receipt.termination !== termination) denied();
         // One immutable encrypted locator per capture: concurrent finishes cannot lose an append.
@@ -214,11 +218,12 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
   };
 }
 
-async function readArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCaptureBinding) {
+async function walkArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCaptureBinding,
+  onRecord?: (record: { stage: string; value: unknown }) => void) {
   const manifest = manifestSchema.parse(JSON.parse(await io.decrypt(await io.get('receipt'), io.aad('receipt'))));
   const receipt = manifest.receipt;
   if (receipt.captureId !== binding.captureId || receipt.segments !== manifest.frames.length) denied();
-  const records: Array<{ stage: string; value: unknown }> = [];
+  let records = 0;
   let chunks: Uint8Array[] = []; let length = 0; let total = 0; let part = 0; let batch = 0;
   for (const [ordinal, frame] of manifest.frames.entries()) {
     if (frame.record !== batch || frame.part !== part++) denied();
@@ -235,18 +240,19 @@ async function readArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCap
         JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(encoded)));
       for (const record of decoded) {
         if (!Object.hasOwn(record, 'value')) denied();
-        records.push({ stage: record.stage, value: record.value });
+        records++;
+        onRecord?.({ stage: record.stage, value: record.value });
       }
       chunks = []; length = 0; part = 0; batch++;
     }
   }
-  if (records.length !== receipt.records || total !== receipt.bytes) denied();
+  if (records !== receipt.records || total !== receipt.bytes) denied();
   // A valid append has only two possible next coordinates: a continuation or the next batch.
   const last = manifest.frames.at(-1);
   if (last) await io.absent(frameName(receipt.segments, { record: last.record, part: last.part + 1 }));
   await io.absent(frameName(receipt.segments, { record: batch, part: 0 }));
   await io.guard();
-  return { receipt, records };
+  return { receipt };
 }
 
 /** Private owner-DO discovery only, not a browser/SDK endpoint. The caller must authorize the
@@ -276,12 +282,22 @@ Promise<{ status: 'complete' | 'incomplete'; bindings: RawCaptureBinding[]; curs
   } catch { return { status: 'incomplete', bindings: [], cursor: null }; }
 }
 
+/** Root-only incremental consumer: intermediate records are not a complete verdict.
+ * The caller must withhold its acknowledgement until the entire archive authenticates. */
+export async function verifyRawCapture(input: { binding: RawCaptureBinding; storage: RawCaptureStorage },
+  onRecord: (record: { stage: string; value: unknown }) => void):
+Promise<{ status: 'complete' | 'incomplete'; receipt: RawCaptureReceipt | null }> {
+  try {
+    const binding = bindingSchema.parse(input.binding);
+    const archive = await walkArchive(await open(binding, input.storage), binding, onRecord);
+    return { status: 'complete', ...archive };
+  } catch { return { status: 'incomplete', receipt: null }; }
+}
+
 /** No private partial records escape until the entire archive authenticates. */
 export async function readRawCapture(input: { binding: RawCaptureBinding; storage: RawCaptureStorage }):
 Promise<{ status: 'complete' | 'incomplete'; receipt: RawCaptureReceipt | null; records: Array<{ stage: string; value: unknown }> }> {
-  try {
-    const binding = bindingSchema.parse(input.binding);
-    const archive = await readArchive(await open(binding, input.storage), binding);
-    return { status: 'complete', ...archive };
-  } catch { return { status: 'incomplete', receipt: null, records: [] }; }
+  const records: Array<{ stage: string; value: unknown }> = [];
+  const result = await verifyRawCapture(input, record => { records.push(record); });
+  return { ...result, records: result.status === 'complete' ? records : [] };
 }

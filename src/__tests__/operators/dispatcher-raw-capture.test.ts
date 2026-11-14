@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { Buffer } from 'node:buffer';
+import { getOrImportKey, decryptFromKV } from '../../lib/kv-crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { fixture, start, type DispatcherFixture } from './fixtures/dispatcher-production';
 import { normalCallback } from './fixtures/normal-dispatcher';
@@ -270,6 +271,44 @@ describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention
       expect(f.normalTransport!.networkRequests).toEqual(network);
       expect(f.ownerPortRequests).toEqual(profiles);
     } finally { log.mockRestore(); }
+  }, options));
+
+  it('persists each diagnostic input chunk before requesting the next and reconstructs all large bytes', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const bytes = new TextEncoder().encode(JSON.stringify(payload()));
+    const context = JSON.stringify(['codeflare-operator-raw-v1', f.proof.ownerKey, 'installation', 'release',
+      captureId, 'activity', f.activityId, 1]);
+    const prefix = `operator-raw:v1:${Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(context))).toString('hex')}/`;
+    const key = (await getOrImportKey(f.environment))!;
+    let offset = 0;
+    const body = new ReadableStream<Uint8Array>({ async pull(controller) {
+      if (offset) {
+        // Private v1 frame contract, observed by the diagnostic sender before it yields more bytes.
+        const persisted: Array<{ stage: string; value: { offset: number; bytes: string } }> = [];
+        await f.mutateEvidence(async storage => {
+          for (const [name, ciphertext] of await storage.list<string>({ prefix })) {
+            const frame = /\/segment-(\d+)-(\d+)-0$/.exec(name);
+            if (!frame) continue;
+            const plaintext = await decryptFromKV(ciphertext.slice(3), key,
+              JSON.stringify([context, Number(frame[1]), Number(frame[2]), 0]));
+            try { persisted.push(...JSON.parse(Buffer.from(plaintext, 'base64').toString('utf8'))); }
+            catch { /* A partial multi-frame batch is not durable input evidence. */ }
+          }
+        });
+        expect(persisted.some(record => record.stage === 'installed-sdk-chunk'
+          && record.value.offset + Buffer.from(record.value.bytes, 'base64').length === offset)).toBe(true);
+      }
+      if (offset === bytes.length) { controller.close(); return; }
+      const part = bytes.slice(offset, offset + 8192);
+      offset += part.length;
+      controller.enqueue(part);
+    } }, { highWaterMark: 0 });
+    const response = await f.installationCapability.fetch(new Request(upload(f), { method: 'POST', body }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: 'complete', termination: 'eof' });
+    const stored = await retained(f);
+    expect(stored.status).toBe('complete');
+    expect(recovered(stored.records)).toEqual(bytes);
   }, options));
 
   it('discovers and decrypts a real SDK upload after discarding its local ID and response with console unavailable', () => fixture(async f => {

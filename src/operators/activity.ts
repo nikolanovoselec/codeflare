@@ -8,7 +8,7 @@
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { createRawCapture, createOwnerRawCaptureStorage, readRawCapture, type RawCapture, type RawCaptureBinding } from './raw-capture-storage';
+import { createRawCapture, createOwnerRawCaptureStorage, verifyRawCapture, type RawCaptureBinding } from './raw-capture-storage';
 import { projectDispatcherOperationEvidence } from './dispatcher-runtime-diagnostics';
 import { publicSdkReportSchema, projectPublicSdkRecords, readPublicSdkDiagnostics } from './dispatcher-public-diagnostics';
 import { readBoundedResponse } from '../lib/bounded-stream';
@@ -48,7 +48,7 @@ import { readDispatcherSdkDiagnostics, sdkUnavailable, operationsUnavailable, ty
 import { createDispatcherPhaseState, dispatcherPhaseWire, bindDispatcherPhaseReceipt, dispatcherPhaseContext,
   advanceDispatcherPhase, collectDispatcherFinal, sameDispatcherPhaseValue, DISPATCHER_JOURNEY_RESULT_BYTES,
   bindNormalDispatcherPhaseReceipt, type DispatcherPhaseState, type DispatcherPhaseAuthority, type DispatcherPhaseReply } from './dispatcher-phases';
-import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
+import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt, ProspectiveAdmission } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -818,6 +818,7 @@ export class OperatorActivity extends Agent {
     }
     try {
       const result = await this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
+        if (await tx.get('prospective-retirement')) return { ok: false, reason: 'admission-denied' };
         if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
         if (prospectiveAdmissionId !== undefined) {
           const previous = await tx.get<string>('prospective-admission');
@@ -980,6 +981,82 @@ export class OperatorActivity extends Agent {
     if (!syncDigest.safeParse(ownerKey).success) return false;
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     return state?.ownerKey === ownerKey && (state.phase === 'prepared' || state.phase === 'admitting');
+  }
+
+  /** Retire exact original never-driven work without SDK observation, abort or recovery. */
+  async retireProspectiveRenovatePreparation(input: ProspectiveAdmission): Promise<boolean> {
+    try {
+      if (!syncIdentity.safeParse(input.activityId).success || !this.#appEnv.OPERATOR_ACTIVITY
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(input.activityId).toString() !== this.ctx.id.toString()) return false;
+      const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
+      const original = await registry.readProspectiveRenovateAdmission(input.activityId);
+      if (!original || !sameDispatcherPhaseValue(original, input)) return false;
+      // This immutable ledger is written before a management Activity can queue or acquire runtime.
+      // Missing local state alone is never proof; legacy reservations without creation evidence stay held.
+      const neverAdmitted = Number.isSafeInteger(original.admittedAt) && original.admittedAt! > 0
+        && await registry.getManagementAdmission(original.activityId) === null;
+      const retired = await this.ctx.storage.transaction(async tx => {
+        const state = await tx.get<AdmissionState>('admission');
+        const bound = await tx.get<string>('prospective-admission');
+        const retirement = await tx.get<string>('prospective-retirement');
+        if (bound && bound !== original.activityId || retirement && retirement !== original.activityId) return false;
+        if (!state && !neverAdmitted) return false;
+        if (state?.diagnosticFence?.uncertain
+          || state?.browserCollectionConsumed && !neverStartedDispatcherCancellation(state)) return false;
+        if (state) {
+          if (!state.executionContext || !('installationId' in state.intent) || bound !== original.activityId
+            || state.intent.activityId !== original.activityId || state.ownerKey !== original.ownerKey
+            || state.intent.installationId !== original.installationId
+            || state.intent.expectedRevision !== original.operatorRevision
+            || state.intent.expectedInstallationRevision !== original.installationRevision
+            || state.intent.expectedControlsRevision !== original.controlsRevision
+            || state.executionContext.activityId !== original.activityId
+            || state.executionContext.artifactDigest !== original.bundleDigest
+            || state.invocationJson !== JSON.stringify({ repository: original.repository })) return false;
+          const owner = state.executionContext.owner;
+          if (owner.subject !== original.actor.subject || owner.issuer !== original.actor.issuer
+            || owner.email.toLowerCase() !== original.actor.email.toLowerCase()
+            || !sameDispatcherPhaseValue(owner.audiences, original.actor.audiences)) return false;
+          if (state.phase === 'queued') {
+            if (!state.receipt || !isManagementReceipt(state.receipt)
+              || state.receipt.intentDigest !== state.intent.intentDigest) return false;
+            const { selection } = state.receipt;
+            if (selection.operator.profile !== 'dispatcher' || selection.installation.policy.resourceProfileId !== null
+              || selection.installation.id !== original.installationId
+              || selection.installation.revision !== original.installationRevision
+              || selection.operator.revision !== original.operatorRevision || selection.controlsRevision !== original.controlsRevision
+              || selection.release.id !== original.releaseId || selection.release.bundleDigest !== original.bundleDigest
+              || state.drive && !neverStartedDispatcherCancellation(state)) return false;
+          } else if (!neverAdmitted || state.receipt || state.drive
+            || state.phase !== 'prepared' && !(state.phase === 'cancelled' && retirement === original.activityId)) return false;
+        }
+        // Check every runtime/effect key, including orphaned legacy records; diagnostics are not effects.
+        let cursor: string | undefined;
+        for (;;) {
+          const entries = await tx.list({ prefix: 'dispatcher:', limit: 128, ...(cursor ? { startAfter: cursor } : {}) });
+          if ([...entries.keys()].some(key => !key.startsWith('dispatcher:diagnostics:'))) return false;
+          if (entries.size < 128) break;
+          cursor = [...entries.keys()].at(-1)!;
+        }
+        // Shares prepareAuthorized/start/beginDrive ordering, so delayed original work cannot win later.
+        await tx.put('prospective-retirement', original.activityId);
+        if (!state || state.drive) return true;
+        const now = Date.now();
+        if (state.phase !== 'queued') {
+          await tx.put<AdmissionState>('admission', { ...state, phase: 'cancelled',
+            intent: { ...state.intent, startVerifier: '' }, updatedAt: now });
+        } else {
+          await tx.put<AdmissionState>('admission', { ...state,
+            drive: { generation: 1, status: 'cancel-requested', checkpoint: null, result: null },
+            diagnosticFence: { generation: 0, timestamp: now, boundary: 'fence', code: 'cancelled', uncertain: false },
+            diagnosticsVersion: 1, diagnosticBinding: { generation: 0,
+              artifactDigest: state.executionContext!.artifactDigest, inputDigest: state.receipt!.intentDigest }, updatedAt: now });
+        }
+        return true;
+      });
+      if (retired) await this.publishBrowserSummary();
+      return retired;
+    } catch { return false; } // Unavailable evidence cannot authorize a replacement.
   }
 
   /** Parent-safe discriminator used to require live installation authorization at start. */
@@ -2514,7 +2591,7 @@ export class OperatorActivity extends Agent {
   /** Dedicated diagnostic upload: full bytes, original identity, no runtime-plan recovery. */
   async #dispatcherRawCapture(generation: number, request: Request): Promise<Response> {
     const noStore = { 'cache-control': 'no-store' };
-    let capture: RawCapture | undefined;
+    let capture: ReturnType<typeof createRawCapture> | undefined;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     let eof = false;
     try {
@@ -2565,6 +2642,8 @@ export class OperatorActivity extends Agent {
         for (let start = 0; start < chunk.value.byteLength; start += 32 * 1024) {
           const part = chunk.value.subarray(start, start + 32 * 1024);
           capture.record('installed-sdk-chunk', () => ({ offset, bytes: Buffer.from(part).toString('base64') }));
+          // Backpressure only this detached diagnostic upload, never the provider stream.
+          await capture.flush();
           offset += part.byteLength;
         }
       }
@@ -2573,16 +2652,16 @@ export class OperatorActivity extends Agent {
       const receipt = await capture.finish('eof');
       if (receipt.status !== 'complete') return Response.json({ status: 'incomplete', captureId }, { status: 503, headers: noStore });
       // Independent read/reconstruction, not a success inferred from queued writes or console emission.
-      const stored = await readRawCapture({ binding,
-        storage: await createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, authorize) });
       const recovered = createHash('sha256');
       let through = 0;
-      for (const record of stored.records) if (record.stage === 'installed-sdk-chunk') {
+      const stored = await verifyRawCapture({ binding,
+        storage: await createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, authorize) }, record => {
+        if (record.stage !== 'installed-sdk-chunk') return;
         const chunk = z.strictObject({ offset: z.number().safe().int().nonnegative(), bytes: z.string() }).parse(record.value);
         const bytes = Buffer.from(chunk.bytes, 'base64');
         if (chunk.offset !== through || bytes.toString('base64') !== chunk.bytes) throw new Error('Raw capture incomplete');
         recovered.update(bytes); through += bytes.byteLength;
-      }
+      });
       if (stored.status !== 'complete' || through !== offset || recovered.digest('hex') !== expected) {
         throw new Error('Raw capture incomplete');
       }
@@ -5873,7 +5952,6 @@ export class OperatorActivity extends Agent {
   /** Existing Registry reads original terminal proof. Never drives, re-admits or collects history. */
   async readProspectiveRenovateRetryProof(input: { repositoryId: number; pullRequest: number; head: string }):
     Promise<ProspectiveRenovateRetryProof | null> {
-    this.#resumeDispatcherOnEntry();
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest < 1 || !/^[a-f0-9]{40}$/.test(input.head)) return null;
     const bound = await this.ctx.storage.get<string>('prospective-admission');
