@@ -638,46 +638,51 @@ describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention
     'REQ-OPERATOR-091 AC7: native export cannot seal completion after %s while its Response is backpressured', fault => fixture(async f => {
       await start(f); await f.drainBackground();
       expect((await f.installationCapability.fetch(upload(f))).status).toBe(200);
-      const auth = ownerReadAuth(f);
-      let originalAdmission: unknown;
-      try {
-        const response = await nativeOwnerRead(f, { view: 'export', scope: activityScope(f), captureId });
-        expect(response.status).toBe(200);
-        expect(response.body).not.toBeNull();
-        if (fault === 'revoked-session') f.revokeSession();
-        if (fault === 'lost-admin') auth.kv._set('user:owner@example.test', { role: 'user' });
-        if (fault === 'expired-reader') f.advanceClock(660_000);
-        if (fault === 'replaced-owner') await f.mutateEvidence(async storage => {
-          originalAdmission = await storage.get('admission');
-          await storage.put('admission', { ...originalAdmission as object, ownerKey: 'f'.repeat(64) });
-        });
-        const before = await persistedState(f), alarm = await f.nextAlarm();
-        const network = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
-        const reader = response.body!.getReader(), decoder = new TextDecoder();
-        let text = '';
+      // Consume within the owning request: returning a Response through RPC can
+      // demand and transfer an authorized prefix before the caller revokes access.
+      await f.inOwnContext(async () => {
+        const auth = ownerReadAuth(f);
+        let originalAdmission: unknown;
         try {
-          for (;;) {
-            const chunk = await reader.read();
-            if (chunk.done) break;
-            text += decoder.decode(chunk.value, { stream: true });
-          }
-        } catch { /* An errored private stream is not a completed export. */ }
-        finally { reader.releaseLock(); }
-        text += decoder.decode();
-        // Local guards must deny delivery itself, not merely omit the footer, after role/expiry/owner changes.
-        if (fault !== 'revoked-session') expect(text).toBe('');
-        // The NDJSON completion frame, not HTTP headers or a partial prefix, certifies the full export.
-        expect(text.split('\n').filter(Boolean).some(line => {
-          try { return JSON.parse(line).type === 'complete'; } catch { return false; }
-        })).toBe(false);
-        expect(await persistedState(f)).toEqual(before);
-        expect(await f.nextAlarm()).toBe(alarm);
-        expect(f.normalTransport!.networkRequests).toEqual(network);
-        expect(f.ownerPortRequests).toEqual(profiles);
-      } finally {
-        if (originalAdmission !== undefined) await f.mutateEvidence(storage => storage.put('admission', originalAdmission));
-        auth.restore();
-      }
+          const response = await (f.activity as typeof f.activity & OwnerRawReader)
+            .readOwnerRawCaptures(ownerCredential, { view: 'export', scope: activityScope(f), captureId });
+          expect(response.status).toBe(200);
+          expect(response.body).not.toBeNull();
+          if (fault === 'revoked-session') f.revokeSession();
+          if (fault === 'lost-admin') auth.kv._set('user:owner@example.test', { role: 'user' });
+          if (fault === 'expired-reader') f.advanceClock(660_000);
+          if (fault === 'replaced-owner') await f.mutateEvidence(async storage => {
+            originalAdmission = await storage.get('admission');
+            await storage.put('admission', { ...originalAdmission as object, ownerKey: 'f'.repeat(64) });
+          });
+          const before = await persistedState(f), alarm = await f.nextAlarm();
+          const network = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
+          const reader = response.body!.getReader(), decoder = new TextDecoder();
+          let text = '', failed = false;
+          try {
+            for (;;) {
+              const chunk = await reader.read();
+              if (chunk.done) break;
+              text += decoder.decode(chunk.value, { stream: true });
+            }
+          } catch { failed = true; }
+          finally { reader.releaseLock(); }
+          text += decoder.decode();
+          expect(failed).toBe(true);
+          // Local guards deny new delivery, not bytes already transferred under earlier authority.
+          if (fault !== 'revoked-session') expect(text).toBe('');
+          expect(text.split('\n').filter(Boolean).some(line => {
+            try { return JSON.parse(line).type === 'complete'; } catch { return false; }
+          })).toBe(false);
+          expect(await persistedState(f)).toEqual(before);
+          expect(await f.nextAlarm()).toBe(alarm);
+          expect(f.normalTransport!.networkRequests).toEqual(network);
+          expect(f.ownerPortRequests).toEqual(profiles);
+        } finally {
+          if (originalAdmission !== undefined) await f.mutateEvidence(storage => storage.put('admission', originalAdmission));
+          auth.restore();
+        }
+      });
     }, options));
 
   it('REQ-OPERATOR-091 AC6: reads an original zero-controls-revision archive without changing retained work', () => fixture(async f => {

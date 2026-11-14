@@ -630,7 +630,7 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
 type ExportFrame = { type: 'record'; stage: string; value: unknown } | { type: 'complete'; receipt: RawCaptureReceipt };
 async function* exportFrames(response: Response): AsyncGenerator<ExportFrame> {
   const reader = response.body!.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   let pending = '';
   try {
     while (true) {
@@ -768,6 +768,20 @@ describe('REQ-OPERATOR-091 AC6/7: bounded private raw READ export', () => {
         expect(failed).toBe(true);
         expect(delivered.some(frame => frame.type === 'complete')).toBe(false);
       } finally { await frames.return(undefined); }
+    });
+
+  it.each(['authority revoked', 'key rotated'] as const)(
+    'rejects the first local read after %s before any private record is delivered', async fault => {
+      const f = await saved();
+      const encrypted = new Map(f.objects);
+      const response = await exportRawCapture({ binding, storage: f.storage });
+      expect(response.status).toBe(200);
+      if (fault === 'authority revoked') f.revoke();
+      else f.rotate();
+      const reader = response.body!.getReader();
+      try { await expect(reader.read()).rejects.toThrow('RAW_CAPTURE_UNAVAILABLE'); }
+      finally { reader.releaseLock(); }
+      expect(f.objects).toEqual(encrypted);
     });
 
   it('denies an initially invalid live session before private export even while local read authority remains valid', async () => {

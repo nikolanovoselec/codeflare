@@ -380,7 +380,7 @@ export async function exportRawCapture(input: { binding: RawCaptureBinding; stor
           if (frame.type === 'complete') await storage.authorizePass?.();
           await io.guard();
           controller.enqueue(encoder.encode(`${JSON.stringify(frame)}\n`));
-        } catch { throw new Error('RAW_CAPTURE_UNAVAILABLE'); }
+        } catch { controller.error(new Error('RAW_CAPTURE_UNAVAILABLE')); }
       },
     });
     const writer = stream.writable.getWriter();

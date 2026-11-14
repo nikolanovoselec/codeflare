@@ -6,7 +6,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-14
 
-- Make existing private raw archives readable by the currently authenticated original-owner administrator, including Registry observations before Activity admission. Reuse encrypted locators and incremental verification; export completion requires full persisted reconstruction, not HTTP success. Preserve separate bounded diagnostics and grant no execution or recovery authority ([REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).
+- Make existing private raw archives readable by the currently authenticated original-owner administrator, including Registry observations before Activity admission. Reuse encrypted locators and incremental verification, requiring full persisted reconstruction rather than HTTP success while preserving separate bounded diagnostics and granting no execution or recovery authority ([REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).
 
 ## 2026-11-13
 

@@ -238,7 +238,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.path.startsWith('/api/storage/')) {
     return next();
   }
-  return bodyLimit({ maxSize: 64 * 1024 })(c, next);
+  return bodyLimit({ maxSize: 64 * 1024, onError: context => context.text('Payload Too Large', 413) })(c, next);
 });
 
 // Health check. There is no unauthenticated `/health`: the only consumer was a

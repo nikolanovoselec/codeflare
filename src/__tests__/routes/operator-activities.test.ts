@@ -789,10 +789,10 @@ describe('REQ-OPERATOR-091: private original-owner administrator raw read adapte
     });
     f.activity.publishRenovateAssessment.mockImplementation(async () => { business.publicationStatus = 'published'; return { ok: true, phase: 'reserved' }; });
     f.registry.acknowledgeOwnedActivities.mockImplementation(async () => { business.unreadCount = 0; return { unreadCount: 0 }; });
-    const before = { business: structuredClone(business), users: [...f.kv._store] };
+    const before = { business: structuredClone(business), users: new Map(f.kv._store) };
     const unchanged = () => {
       expect(business).toEqual(before.business);
-      expect([...f.kv._store]).toEqual(before.users);
+      expect(new Map(f.kv._store)).toEqual(before.users);
     };
     // The approved data-only RPC is an intentional wire contract. A mismatched
     // credential, extra owner authority, view or scope receives no private bytes.
