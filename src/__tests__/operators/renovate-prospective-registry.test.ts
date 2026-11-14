@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { env, reset, runInDurableObject } from 'cloudflare:test';
-import { OperatorRegistry, type CurrentProspectiveRegistration, type ManagementExecutionSelection, type ProspectiveAdmission } from '../../operators/registry';
+import { OperatorRegistry, type CurrentProspectiveRegistration, type ManagementExecutionSelection, type ProspectiveAdmission, type ProspectiveObservationCapture } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
@@ -16,7 +16,7 @@ import * as access from '../../lib/access';
 import { openOperatorExecutionAccess } from '../../operators/execution-context';
 import activityRoutes from '../../routes/operator-activities';
 import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
-import { createOwnerRawCaptureStorage, readRawCapture, type RawCaptureReceipt } from '../../operators/raw-capture-storage';
+import { createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures, type RawCaptureReceipt } from '../../operators/raw-capture-storage';
 import type { Env } from '../../types';
 import type { ProspectiveRenovateRetryProof } from '../../operators/renovate-retry-proof';
 
@@ -42,7 +42,7 @@ type Prospective = {
     | { status: 'unavailable' } | { status: 'denied' }>;
 
   reserveProspectiveRenovateActivity(input: { registrationId: string; repositoryId: number;
-    pullRequest: number; head: string; createdAt: string; activityId: string }): Promise<Reservation>;
+    pullRequest: number; head: string; createdAt: string; activityId: string }, observation?: ProspectiveObservationCapture): Promise<Reservation>;
   readProspectiveRenovateAdmission(activityId: string): Promise<unknown | null>;
   retainedProspectiveRenovateRetryTargets(registrationId: string): Promise<unknown[]>;
 };
@@ -1552,7 +1552,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     'partial-pins', 'invalid-pins', 'mismatched-pins', 'invalid-admittedAt', 'legacy-full-ledger-missing', 'legacy-full-ledger-mismatch',
     'orphan-effect', 'orphan-publication', 'orphan-lease', 'active-original', 'head-boundary'] as const;
   const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none', delegated = false,
-    reconciliation?: typeof reconciliationCases[number]) => fixture(async ({ native, environment, selection, state }) => {
+    reconciliation?: typeof reconciliationCases[number], diagnostics: 'on' | 'off' | 'throws' | 'rpc-throws' | 'writer-throws' | 'foreign-scope' = 'on') => fixture(async ({ native, environment, selection, state }) => {
     // 2160810c's complete persisted layout used a fixed numeric repository and session authority.
     const historical = reconciliation?.startsWith('legacy-full-') === true;
     const sessionScoped = historical || reconciliation === 'session-pinned';
@@ -1580,6 +1580,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         reasoningLevels: ['off'] as Array<'off'>, defaultReasoningLevel: 'off' as const, inheritUserDefaults: false };
       selected.installation.policy = { capabilities: ['fetch', 'inference'], resourceProfileId: null, inference };
       selected.operator.policy = selected.installation.policy;
+      if (diagnostics === 'off') selected.operator.policy.loggingEnabled = false;
       Object.assign(selected.release, { bundleDigest, sourceCommit: approved.sourceCommit, manifestDigest: 'd'.repeat(64),
         intentVersion: '3', coreVersion: '1', provenance: { compilerCommit: normalDeployment.compilerCommit } });
       const transport = createNormalDispatcherTransport();
@@ -1605,18 +1606,26 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       let ledgerUnavailable = false;
       const sensitiveError = 'private-token=never-log-this; body=private-owner-payload';
       const observations: Array<Record<string, unknown>> = [];
+      const refusals: Array<{ module: string; data: Record<string, unknown> }> = [];
+      const publicOutputs: string[] = [];
       const observationStatuses: string[] = [];
       const reservationStatuses: string[] = [];
       const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const logs = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
-        try {
-          const entry = JSON.parse(String(line));
-          if (entry?.message !== 'Prospective Renovate observation') return;
-          const { outcome, stage, failureStage, candidates, reservationDenied, retainedOtherRegistration,
-            retainedExisting, handoffAttempts } = entry.data;
-          observations.push({ outcome, stage, failureStage, candidates, reservationDenied,
-            retainedOtherRegistration, retainedExisting, handoffAttempts });
-        } catch { /* Unrelated console output is not admission evidence. */ }
+        publicOutputs.push(String(line));
+        let entry;
+        try { entry = JSON.parse(String(line)); }
+        catch { return; } // Unrelated console output is not admission evidence.
+        if (entry?.message === 'Prospective Renovate preparation retained') {
+          refusals.push(entry);
+          if (diagnostics === 'throws') throw Error(sensitiveError);
+          return;
+        }
+        if (entry?.message !== 'Prospective Renovate observation') return;
+        const { outcome, stage, failureStage, candidates, reservationDenied, retainedOtherRegistration,
+          retainedExisting, handoffAttempts } = entry.data;
+        observations.push({ outcome, stage, failureStage, candidates, reservationDenied,
+          retainedOtherRegistration, retainedExisting, handoffAttempts });
       });
       setLogLevel('info');
       environment.CONTAINER = { getByName: () => { throw Error('No user Host may be opened'); },
@@ -1688,8 +1697,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       });
       const owner = new OperatorRegistry(native, environment);
       const observe = owner.observeProspectiveRenovateRegistration.bind(owner);
-      const observation = vi.spyOn(owner, 'observeProspectiveRenovateRegistration').mockImplementation(async id => {
-        const result = await observe(id);
+      const observation = vi.spyOn(owner, 'observeProspectiveRenovateRegistration').mockImplementation(async (id, capture) => {
+        const result = await observe(id, capture);
         observationStatuses.push(result.status);
         return result;
       });
@@ -1720,7 +1729,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         const value = Reflect.get(target, key);
         return typeof value === 'function' ? (...args: unknown[]) => inRegistry(async () => {
           if (key === 'readProspectiveRenovateAdmission' && missingPreparationProof) return null;
-          if (key === 'getManagementAdmission' && ledgerUnavailable) throw Error('Admission ledger unavailable');
+          if (key === 'getManagementAdmission' && ledgerUnavailable) throw Error('Admission ledger unavailable', { cause: Error(sensitiveError) });
+          if (key === 'retainRawObservation' && diagnostics === 'writer-throws') throw Error(sensitiveError);
           return Reflect.apply(value, target, args);
         }) : value;
       } }) } as never;
@@ -1778,6 +1788,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             pullRequest: persisted.pullRequest, head: persisted.head, createdAt: persisted.createdAt,
             activatedAt: persisted.activatedAt, ownerKey: persisted.ownerKey, actor: { ...persisted.actor },
           } : { ...persisted };
+          let deep: unknown = { original: 'SYNTHETIC_PRIVATE_DEEP_秘密🧪' };
+          for (let index = 0; index < 80; index++) deep = { child: deep };
+          const privateEvidence = { token: 'SYNTHETIC_PRIVATE_秘密🧪'.repeat(6000), deep,
+            nested: Array.from({ length: 40 }, (_, index) => ({ index, body: `Original secret ${index}` })) };
+          legacy.privateOwnerEvidence = `SYNTHETIC_OWNER_ONLY_${originalId}`;
+          if (['prepared', 'absent', 'orphan-effect', 'upgrade'].includes(reconciliation)) legacy.privateEvidence = privateEvidence;
           if (reconciliation === 'legacy-no-admittedAt') delete legacy.admittedAt;
           if (reconciliation === 'partial-pins') delete legacy.releaseId;
           if (reconciliation === 'invalid-pins') legacy.controlsRevision = '1';
@@ -1846,6 +1862,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
                 sessionId: original.actor.sessionId, sessionGeneration: original.actor.sessionGeneration,
                 activityGeneration: 1, assessmentDigest: 'd'.repeat(64), operationId: 'old-publication', effects: { comment: { phase: 'unknown' } } }
                 : { generation: 1, requestDigest: 'd'.repeat(64), phase: 'unknown' }));
+          if (['prepared', 'orphan-effect', 'upgrade'].includes(reconciliation)) await inActivity(async () => {
+            const state = await activityNative.storage.get<Record<string, unknown>>('admission');
+            await activityNative.storage.put('admission', { ...state, privateEvidence });
+          });
           const originalState = await inActivity(() => originalActivity.getAdmission());
           const originalDetail = await inActivity(() => originalActivity.getBrowserDetail());
           const originalLedger = await inRegistry(() => owner.getManagementAdmission(originalId));
@@ -1857,6 +1877,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             return new Proxy(originalActivity, { get: (object, key) => {
               const value = Reflect.get(object, key);
               return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => {
+                if (key === 'retireProspectiveRenovatePreparation' && diagnostics === 'rpc-throws') throw Error(sensitiveError);
                 if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'concurrent-drive' && !racedDrive) {
                   racedDrive = true;
                   await originalActivity.beginDrive();
@@ -1877,10 +1898,84 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               }) : value;
             } });
           } } as never;
+          refusals.length = 0;
+          const captureId = crypto.randomUUID();
+          const observation: ProspectiveObservationCapture = { registrationId: current.registrationId,
+            loggingEnabled: diagnostics !== 'off', binding: { ownerKey: await operatorOwnerKey(consent.human),
+              installationId: consent.installationId, releaseId: selected.release.id, captureId,
+              scope: { kind: 'observation', observationId: captureId } } };
+          if (diagnostics === 'foreign-scope') observation.binding.ownerKey = 'f'.repeat(64);
           const outcomes = await inRegistry(() => Promise.all([
-            owner.reserveProspectiveRenovateActivity(target),
-            owner.reserveProspectiveRenovateActivity({ ...target, activityId: 'reconciled-b' }),
+            owner.reserveProspectiveRenovateActivity(target, observation),
+            owner.reserveProspectiveRenovateActivity({ ...target, activityId: 'reconciled-b' }, observation),
           ]));
+          const protectedRecords = await inRegistry(async () => {
+            const storage = await createOwnerRawCaptureStorage(environment, native.storage, async () => {});
+            const records: Array<{ stage: string; value: unknown }> = [];
+            const sequences = new Map<string, number[]>();
+            let cursor: string | undefined;
+            do {
+              const page = await discoverRawCaptures({ scope: observation.binding, storage, authorize: async () => {}, cursor });
+              expect(page.status).toBe('complete');
+              for (const binding of page.bindings) {
+                expect(binding.captureId).not.toBe(captureId); // Independent writers, shared authorized observation.
+                const archive = await readRawCapture({ binding, storage });
+                expect(archive.status).toBe('complete');
+                const parent = archive.records.find(record => record.stage === 'observation-parent')?.value as ProspectiveObservationCapture;
+                expect(parent.binding.scope).toEqual(observation.binding.scope);
+                const sequence = archive.records.find(record => record.stage === 'interaction-sequence')?.value;
+                if (typeof sequence === 'number') {
+                  expect(parent.parentCaptureId).toEqual(expect.any(String));
+                  sequences.set(parent.binding.captureId, [...(sequences.get(parent.binding.captureId) ?? []), sequence]);
+                }
+                records.push(...archive.records);
+              }
+              cursor = page.cursor ?? undefined;
+            } while (cursor);
+            for (const sequence of sequences.values()) {
+              expect(sequence.sort((left, right) => left - right)).toEqual(Array.from({ length: sequence.length }, (_, index) => index));
+            }
+            return records;
+          });
+          if (diagnostics === 'off' || diagnostics === 'foreign-scope') expect(protectedRecords).toEqual([]);
+          else {
+            expect(protectedRecords).toContainEqual({ stage: 'registry-reservation-request', value: target });
+            expect(protectedRecords.some(record => record.stage === 'registry-reservation-response')).toBe(true);
+            if (original.ownerKey === observation.binding.ownerKey) {
+              expect(protectedRecords).toContainEqual({ stage: 'registry-reservation-existing', value: original });
+            } else {
+              expect(JSON.stringify(protectedRecords)).not.toContain(legacy.privateOwnerEvidence);
+              expect(JSON.stringify(protectedRecords)).not.toContain(original.ownerKey);
+            }
+            if (['prepared', 'absent', 'orphan-effect', 'upgrade'].includes(reconciliation) && diagnostics !== 'writer-throws') {
+              expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-request', value: original });
+              expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-ledger-response', value: originalLedger });
+              if (originalLedger) {
+                const row = protectedRecords.find(record => record.stage === 'registry-management-admission-row')?.value as { data: string };
+                expect(JSON.parse(row.data)).toEqual(originalLedger);
+              }
+              expect(protectedRecords.some(record => record.stage === 'activity-retirement-state'
+                && JSON.stringify(record.value).includes(privateEvidence.token))).toBe(reconciliation !== 'absent');
+              expect(JSON.stringify(protectedRecords)).toContain(privateEvidence.token);
+              expect(protectedRecords.some(record => record.stage === 'registry-retry-proof-response')).toBe(true);
+              if (reconciliation === 'orphan-effect') {
+                expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-runtime-response', value: expect.arrayContaining([[orphanKey,
+                  { generation: 1, requestDigest: 'd'.repeat(64), phase: 'unknown' }]]) });
+              } else {
+                expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-write-request',
+                  value: { key: 'prospective-retirement', value: originalId } });
+              }
+              expect(protectedRecords.some(record => record.stage === 'activity-retirement-response'
+                && record.value === (reconciliation !== 'orphan-effect'))).toBe(true);
+            }
+            if (reconciliation === 'ledger-unavailable') {
+              const error = protectedRecords.find(record => record.stage === 'activity-retirement-ledger-error')?.value;
+              expect(error).toMatchObject({ message: 'Admission ledger unavailable', stack: expect.any(String),
+                cause: { message: sensitiveError, stack: expect.any(String) } });
+            }
+          }
+          expect(publicOutputs.join('\n')).not.toContain(privateEvidence.token);
+          expect(publicOutputs.join('\n')).not.toContain(legacy.privateOwnerEvidence);
           if (reconciliation === 'legacy-full-ledger-missing' || reconciliation === 'legacy-full-ledger-mismatch') {
             vi.mocked(owner.getManagementAdmission).mockRestore();
           }
@@ -1888,7 +1983,48 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           expect(await inRegistry(() => owner.getManagementAdmission(originalId))).toEqual(originalLedger);
           expect(transport.admissions.size).toBe(0);
           expect(transport.networkRequests).toEqual([]);
+          // Intentional public diagnostic allowlist: closed first-refusal code + original admission digest only.
+          // Invalid layouts return before policy is known; same-registration reuse also precedes retirement.
+          // Neither path adds protected I/O solely to diagnose retention.
+          const expectedRefusal: Partial<Record<typeof reconciliationCases[number], [string, string]>> = {
+            'absent-global-receipt': ['operator-activity', 'missing-state-with-ledger'],
+            admitting: ['operator-activity', 'phase-or-ledger'],
+            'ledger-unavailable': ['operator-registry', 'retirement-refused'],
+            'concurrent-drive': ['operator-activity', 'drive-started'],
+            unknown: ['operator-activity', 'uncertain'],
+            'foreign-owner': ['operator-registry', 'original-registration-present'],
+            'foreign-bucket': ['operator-registry', 'bucket-mismatch'],
+            'legacy-full-missing-local': ['operator-activity', 'missing-state-with-ledger'],
+            'mismatched-pins': ['operator-activity', 'receipt-selection-mismatch'],
+            'legacy-full-ledger-missing': ['operator-activity', 'receipt-mismatch'],
+            'legacy-full-ledger-mismatch': ['operator-activity', 'receipt-mismatch'],
+            'orphan-effect': ['operator-activity', 'runtime-effect-present'],
+            'orphan-publication': ['operator-activity', 'publication-present'],
+            'orphan-lease': ['operator-activity', 'runtime-effect-present'],
+            'active-original': ['operator-registry', 'original-registration-present'],
+            'head-boundary': ['operator-registry', 'head-mismatch'],
+          };
+          const expected = diagnostics === 'rpc-throws' ? ['operator-registry', 'retirement-rpc-failed'] : expectedRefusal[reconciliation];
+          if (diagnostics === 'off' || !expected) expect(refusals).toEqual([]);
+          else {
+            const admissionDigest = hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', originalId]));
+            expect(refusals).toContainEqual(expect.objectContaining({ module: expected[0],
+              data: { reason: expected[1], admissionDigest } }));
+            for (const entry of refusals) {
+              expect(entry.data).toEqual({ admissionDigest,
+                reason: entry.module === expected[0] ? expected[1] : 'retirement-refused' });
+            }
+            for (const privateValue of [originalId, original.ownerKey, original.actor.email, original.actor.issuer,
+              original.actor.bucket, original.actor.registrationId, original.head, original.bundleDigest,
+              original.releaseId, sensitiveError, 'z-jwt', 'upgraded-release']) {
+              if (privateValue) expect(JSON.stringify(refusals)).not.toContain(privateValue);
+            }
+          }
           if (!replaceable) {
+            const reason = ['partial-pins', 'invalid-pins', 'invalid-admittedAt', 'legacy-full-foreign-repository'].includes(reconciliation)
+              ? 'invalid-target' : reconciliation === 'stale-selection' || reconciliation === 'stale-election' ? 'stale-election' : null;
+            const retained = reason ? { ok: false, reason } : { ok: true, activityId: originalId, actor: original.actor };
+            expect(outcomes).toEqual([retained, retained]);
             expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('reconciled-a'))).toBeNull();
             expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('reconciled-b'))).toBeNull();
             if (reconciliation === 'concurrent-drive') {
@@ -2118,6 +2254,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       : ['absent', 'ledger-unavailable', 'legacy-no-admittedAt', 'legacy-full-absent'].includes(reconciliation) ? 'preparation-proof-missing'
         : reconciliation === 'prepared' || reconciliation === 'legacy-full-prepared' ? 'prepared-start' : reconciliation === 'admitting' ? 'admitting-start'
           : 'persistence-unavailable', false, reconciliation));
+  it.each(['off', 'throws', 'rpc-throws', 'writer-throws', 'foreign-scope'] as const)(
+    'REQ-OPERATOR-063/079: stale reservation diagnostics %s preserve the original effect fence and election',
+    diagnostics => normalAlarmHandoff('persistence-unavailable', false, 'orphan-effect', diagnostics));
   it('role restoration without new consent cannot elect a retired admin or strand the active admin’s normal Dispatcher work',
     () => normalAlarmHandoff('none'));
   it.each(['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'admission-unavailable', 'profile-unavailable', 'profile-revoked'] as const)(

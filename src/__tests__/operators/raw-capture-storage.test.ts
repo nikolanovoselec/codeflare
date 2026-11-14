@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { encryptForKV, decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
-import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, verifyRawCapture, discoverRawCaptures,
+import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, verifyRawCapture, discoverRawCaptures, captureRawInteraction, captureRawTransaction,
   type RawCaptureBinding, type RawCaptureScope, type RawCaptureStorage, type RawCapture } from '../../operators/raw-capture-storage';
 
 // Synthetic values only. The native boundary retains ciphertext, never a console facsimile.
@@ -93,6 +93,65 @@ async function saved(f = boundary(), scope = binding) {
   expect((await capture.finish('eof')).status).toBe('complete');
   return f;
 }
+
+it('retains complete interaction inputs/results/original errors before projections, with no private truncation', async () => {
+  const f = boundary();
+  const capture = f.create();
+  let deep: unknown = { secret: CANARY };
+  for (let index = 0; index < 80; index++) deep = { child: deep };
+  const request = { token: CANARY.repeat(12000), deep, values: Array.from({ length: 1500 }, (_, index) => ({ index, text: CANARY })) };
+  const response = { ...request, result: 'original result' };
+  const original = new Error(CANARY, { cause: new Error(`Cause ${CANARY}`) });
+  expect(await captureRawInteraction(capture, 'success', () => request, async () => response)).toBe(response);
+  await expect(captureRawInteraction(capture, 'failure', () => request, async () => { throw original; })).rejects.toBe(original);
+  expect((await capture.finish('failed')).status).toBe('complete');
+  const archive = await read(f);
+  expect(archive.status).toBe('complete');
+  expect(archive.records).toContainEqual({ stage: 'success-request', value: request });
+  expect(archive.records).toContainEqual({ stage: 'success-response', value: response });
+  expect(archive.records).toContainEqual({ stage: 'failure-request', value: request });
+  expect(archive.records.find(record => record.stage === 'failure-error')?.value).toMatchObject({
+    message: CANARY, stack: original.stack, cause: { message: `Cause ${CANARY}`, stack: original.cause instanceof Error ? original.cause.stack : undefined },
+  });
+  expect([...f.objects.values()].join('')).not.toContain(CANARY);
+});
+
+it('OFF never evaluates interaction suppliers and diagnostic failure preserves results and identical throws', async () => {
+  const f = boundary();
+  const off = f.create(binding, { enabled: false });
+  const supplier = () => { throw Error('Optional supplier must not execute'); };
+  const result = { original: true };
+  expect(await captureRawInteraction(off, 'off', supplier, async () => result)).toBe(result);
+  expect(await captureRawInteraction(undefined, 'absent', supplier, async () => result)).toBe(result);
+  expect((await off.finish('complete')).status).toBe('disabled');
+  expect(f.objects.size).toBe(0);
+  const failed = boundary({ rejectWrite: () => true }).create();
+  const original = Error(CANARY);
+  expect(await captureRawInteraction(failed, 'success', () => result, async () => result)).toBe(result);
+  await expect(captureRawInteraction(failed, 'failure', () => result, async () => { throw original; })).rejects.toBe(original);
+  expect((await failed.finish('failed')).status).toBe('incomplete');
+});
+
+it('captures business transaction reads and computed writes without entering its capture sink before commit', async () => {
+  const f = boundary();
+  let businessTransactionOpen = false;
+  const capture = f.create(binding, { storage: async () => {
+    if (businessTransactionOpen) throw Error('Capture cannot nest its transaction in the business transaction');
+    return f.storage;
+  } });
+  const original = { secret: CANARY, revision: 1 };
+  const updated = { ...original, revision: 2 };
+  expect(await captureRawTransaction(capture, async trace => {
+    businessTransactionOpen = true;
+    try {
+      trace?.record('read', () => original);
+      trace?.record('write', () => updated);
+      return updated;
+    } finally { businessTransactionOpen = false; }
+  })).toBe(updated);
+  expect((await capture.finish('complete')).status).toBe('complete');
+  expect((await read(f)).records).toEqual([{ stage: 'read', value: original }, { stage: 'write', value: updated }]);
+});
 
 // Private v1 codec contract, used to construct authenticated malformed archives, not to bypass the reader.
 const aad = (scope: RawCaptureBinding, ordinal: number | 'receipt', frame?: { record: number; part: number }) => {

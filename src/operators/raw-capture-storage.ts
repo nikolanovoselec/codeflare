@@ -30,6 +30,8 @@ export type RawCaptureReceipt = Omit<z.infer<typeof receiptSchema>, 'status'> & 
 export interface RawCapture {
   record(stage: string, lazy: () => unknown): void;
   finish(termination: Termination): Promise<RawCaptureReceipt>;
+  /** Optional backpressure for local writers and data-only Root RPC relays. */
+  flush?(): Promise<void>;
 }
 type Frame = z.infer<typeof frameSchema>;
 // Preserve authenticated frame coordinates in locators even without a final receipt.
@@ -132,6 +134,43 @@ export async function createOwnerRawCaptureStorage(env: Pick<Env, 'ENCRYPTION_KE
   };
   await guard();
   return { storage, encryptionKey, authorize: guard };
+}
+
+/** Retain the full interaction without changing its result or original thrown value.
+ * Suppliers are never evaluated without a capture; flushing uses the existing framed sink. */
+export async function captureRawInteraction<T>(capture: RawCapture | undefined, stage: string,
+  request: () => unknown, work: () => Promise<T>, ownerSnapshot?: (value: T) => unknown): Promise<T> {
+  if (!capture) return work();
+  const record = async (suffix: string, value: () => unknown) => {
+    try { capture?.record(`${stage}-${suffix}`, value); await capture?.flush?.(); }
+    catch { /* Evidence delivery cannot replace business I/O. */ }
+  };
+  try { capture.record(`${stage}-request`, request); } catch { /* Preserve business I/O. */ }
+  try {
+    const result = await work();
+    await record('response', () => ownerSnapshot ? ownerSnapshot(result) : result);
+    return result;
+  } catch (error) {
+    await record('error', () => error);
+    throw error;
+  }
+}
+
+/** A native business transaction must not await capture transactions in the same DO.
+ * Snapshot only that transaction's already-consulted inputs, then drain after it closes.
+ * No retries, detached request payloads, or additional business reads are retained. */
+export async function captureRawTransaction<T>(capture: RawCapture | undefined,
+  work: (transactionCapture: RawCapture | undefined) => Promise<T>): Promise<T> {
+  if (!capture) return work(undefined);
+  const records: Array<{ stage: string; value: unknown }> = [];
+  const pending: RawCapture = { record: (stage, lazy) => {
+    try { records.push({ stage, value: captureRawValue(lazy()) }); } catch { /* Preserve transaction. */ }
+  }, finish: termination => capture.finish(termination) };
+  try { return await work(pending); }
+  finally {
+    for (const record of records) try { capture.record(record.stage, () => record.value); await capture.flush?.(); }
+    catch { /* Retention cannot replace commit, rollback, or its original error. */ }
+  }
 }
 
 /** Snapshots synchronously, persists only on the caller-local scheduled queue. */
