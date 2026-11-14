@@ -24,7 +24,11 @@ I use the Knowledge Graph for relevant architecture and dependency work. Buildin
 
 ## Decide the approach before executing it
 
-Plan Mode provides a read-only investigation and planning workflow with structured questions and an explicit handoff. I establish scope, inspect evidence, surface a material decision, and make the intended work reviewable before implementation.
+In Pi, the planning skill turns your request into a scoped implementation plan before coding. I inspect the project and relevant history, ask only questions that change the approach, and save the plan under `Vault/Notes/Plans`. The plan names the files, interfaces, acceptance criteria, behavioral tests, and delivery gates needed for the change—without adding optional features or weakening security.
+
+You can ask: “Plan this change before coding. Keep the scope minimal, save it in my Vault, and prepare dependent TODOs for my approval.” I keep implementation tasks pending until you authorize execution. An approved plan can also provide the objective for Goal; writing it does not start autonomous work.
+
+Plan Mode is separate: it provides a read-only investigation workflow with its own structured questions and explicit handoff. I respect that mode's tool restrictions and export route rather than bypassing them to save files or change tasks.
 
 Goal owns a session-scoped objective and its continuation. With an authorized goal active, I keep moving toward its acceptance evidence without requiring you to prompt every routine next step. Cancellation, pacing, and stale-continuation guards keep that progression tied to the current objective.
 

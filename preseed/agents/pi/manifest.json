@@ -707,6 +707,18 @@
       "advanced"
     ]
   },
+  "skills/planning/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/_licenses/superpowers-MIT.txt": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "skills/pi-codex-fast/SKILL.md": {
     "modes": [
       "default",

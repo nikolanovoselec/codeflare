@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-14
+
+- Add the Pi-native planning skill to both mode inventories and capability guidance, with Vault Plans storage, structured clarification, dependent TODOs and user-approved Goal handoff. Native Plan/Goal ownership, user-requested advisor and existing safety boundaries remain unchanged ([REQ-AGENT-095](agents.md#req-agent-095-compact-pi-skill-catalog), [REQ-AGENT-207](agents.md#req-agent-207-user-focused-capability-deep-dives)).
+
 ## 2026-11-13
 
 - Retain complete admin-enabled parent and public Flue/SDK evidence without raw-value redaction in existing private Durable Object storage. Authenticated SDK uploads require independent byte reconstruction before completion acknowledgement; console projections remain separate, with original execution, byte limits and cancellation preserved ([REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).

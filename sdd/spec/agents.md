@@ -4640,7 +4640,7 @@ None.
 **Acceptance Criteria:**
 
 1. Pi packages canonical path-scoped Claude rules into grouped native skills while keeping Claude and other agent outputs unchanged. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-2. Proactive workflows remain discoverable through Pi's selected native metadata and actual skill read paths. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::eligibleSkillSnapshot --> <!-- @manual -->
+2. Proactive workflows, including the Pi-native planning skill in both modes, remain discoverable through Pi's selected native metadata and actual skill read paths. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillDiscovery --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::eligibleSkillSnapshot --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
 3. Compiler-compacted Codeflare-owned skill descriptions contain at most 80 characters. <!-- @impl: scripts/agent-seed-core.mjs::compactPiSkillDescription --> <!-- @manual -->
 4. Compact descriptions preserve the routing triggers needed for Pi to discover each proactive workflow. <!-- @impl: scripts/agent-seed-core.mjs::PI_SKILL_DESCRIPTION_OVERRIDES --> <!-- @manual: Ask Pi for representative proactive workflows and inspect metadata-backed discovery and native reads. -->
 5. Originally restricted command, event, and reviewer skills remain ineligible for model discovery. <!-- @impl: scripts/agent-seed-core.mjs::setPiModelVisibility --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::eligibleSkillSnapshot --> <!-- @manual -->
@@ -4662,7 +4662,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
+**Verification:** Automated: [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js); Manual: [Seed projection inspection](../../documentation/lanes/preseed.md#seed-projection-inspection)
 
 **Status:** Implemented
 
