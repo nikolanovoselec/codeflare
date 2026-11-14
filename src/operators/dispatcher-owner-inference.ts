@@ -2,7 +2,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { emitRaw } from '../../host/src/operator-raw-logging';
+import { emitRaw, type RawLogContext } from '../../host/src/operator-raw-logging';
 import { getContainerId, forwardExisting } from '../lib/container-helpers';
 import { readBoundedResponse, readBoundedStream } from '../lib/bounded-stream';
 import { loadEnterpriseRouteConfig, resolveSessionAccessGroup, resolveBucketName, operatorAccessSessionCurrent } from '../lib/access';
@@ -24,7 +24,7 @@ export type ConfiguredDispatcherInference = z.infer<typeof profile> & (
   { source: 'pi-native' } | { source: 'managed'; routeId: string });
 type Input = { generation: number; plan: OperatorRuntimePlan; env: Env; current(): Promise<boolean>; signal?: AbortSignal;
   connection?: Awaited<ReturnType<typeof installedDispatcherConnection>> };
-type SendInput = Input & Pick<ExecutionContext, 'waitUntil'>;
+type SendInput = Input & Pick<ExecutionContext, 'waitUntil'> & { raw?: RawLogContext };
 
 /** Current grants select the source. Normal Flue providers resolve models; no Root vendor lookup or fallback. */
 /** Root authority/configuration scope only: never resolves models or opens a user Host. */
@@ -126,7 +126,7 @@ async function ownerContext(input: Input, selection?: ConfiguredDispatcherInfere
 }
 
 async function send(input: SendInput, pathname: string, body: Record<string, unknown>, selection?: ConfiguredDispatcherInference): Promise<Response> {
-  const loggingContext = { activityId: input.plan.activityId, generation: input.generation,
+  const loggingContext = { ...input.raw, activityId: input.plan.activityId, generation: input.generation,
     loggingEnabled: 'selection' in input.plan.receipt && input.plan.receipt.selection.operator.policy.loggingEnabled !== false };
   try {
     const context = await ownerContext(input, selection);
@@ -148,13 +148,15 @@ async function send(input: SendInput, pathname: string, body: Record<string, unk
     let response: Response;
     try {
       emitRaw(loggingContext, 'owner-request', () => ({ pathname, body }));
-      const pending = forwardExisting(context.container, request, loggingContext);
+      const pending = forwardExisting(context.container, request, { activityId: loggingContext.activityId,
+        generation: loggingContext.generation, loggingEnabled: loggingContext.loggingEnabled });
       input.waitUntil(pending.then(response => {
         if (signal.aborted) return response.body?.cancel().catch(() => undefined);
       }, () => {}));
       response = await Promise.race([pending, cancelled]);
     } finally { if (abort) signal.removeEventListener('abort', abort); }
-    const bytes = await readBoundedResponse(response, context.maxResponseBytes, 'Owner inference response', signal).catch(error => {
+    const bytes = await readBoundedResponse(response, context.maxResponseBytes, 'Owner inference response', signal,
+      event => emitRaw(loggingContext, `owner-${event.type}`, () => event, () => ({ type: event.type, wireCaptured: true }))).catch(error => {
       if (response.body) input.waitUntil(response.body.cancel().catch(() => undefined));
       throw error;
     });
@@ -174,9 +176,9 @@ async function send(input: SendInput, pathname: string, body: Record<string, unk
   }
 }
 export async function discoverDispatcherOwnerProfile(input: SendInput): Promise<ConfiguredDispatcherInference> {
-  const logging = { activityId: input.plan.activityId, generation: input.generation,
+  const logging = { ...input.raw, activityId: input.plan.activityId, generation: input.generation,
     loggingEnabled: 'selection' in input.plan.receipt && input.plan.receipt.selection.operator.policy.loggingEnabled !== false,
-    credentials: [] as string[] };
+    credentials: [...(input.raw?.credentials ?? [])] };
   try {
     const context = await dispatcherSdkOwnerContext(input);
     if (!('selection' in input.plan.receipt)) throw new Error('Dispatcher installation missing');
@@ -202,7 +204,8 @@ export async function discoverDispatcherOwnerProfile(input: SendInput): Promise<
         activityId: input.plan.activityId, generation: input.generation, releaseId: release.id,
         connectionRevision: connection.connectionRevision, workerVersionId: connection.workerVersionId }),
     }));
-    const bytes = await readBoundedResponse(response, 1024 * 1024, 'SDK profile', signal);
+    const bytes = await readBoundedResponse(response, 1024 * 1024, 'SDK profile', signal,
+      event => emitRaw(logging, `owner-${event.type}`, () => event, () => ({ type: event.type, wireCaptured: true })));
     emitRaw(logging, 'owner-response', () => ({ pathname: '/control/profile', status: response.status,
       headers: response.headers, body: new TextDecoder().decode(bytes) }));
     if (!response.ok) {
@@ -261,8 +264,20 @@ export class OperatorOwnerInferenceAuthority extends WorkerEntrypoint<Env> {
     try {
       const url = new URL(request.url);
       if (request.method !== 'POST' || url.origin !== 'https://operator.internal'
-        || url.pathname !== '/v1/dispatcher/owner-context' || url.search) throw new Error('Denied');
+        || !['/v1/dispatcher/owner-context', '/v1/dispatcher/owner-raw'].includes(url.pathname) || url.search || url.hash) throw new Error('Denied');
       const props = z.strictObject({ bucket: identity, sessionId: identity, email: identity }).parse(this.ctx.props);
+      if (url.pathname === '/v1/dispatcher/owner-raw') {
+        if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') throw new Error('Denied');
+        const input = z.strictObject({ activityId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+          generation: z.number().int().positive().safe(), stage: z.string().min(1), value: z.unknown() }).parse(await request.json());
+        if (!Object.hasOwn(input, 'value')) throw new Error('Denied');
+        const container = this.env.CONTAINER.getByName(getContainerId(props.bucket, props.sessionId));
+        const session = await container.getPersonalPiSession(props, true);
+        const receipt = await this.env.OPERATOR_ACTIVITY!.getByName(input.activityId).retainDispatcherOwnerObservation(
+          input.generation, { ...props, sessionGeneration: session.generation }, input.stage, input.value);
+        return Response.json(receipt, { status: receipt.status === 'complete' ? 200 : 503,
+          headers: { 'cache-control': 'no-store' } });
+      }
       const bytes = await readBoundedStream(request.body, 4096, 'Owner context', AbortSignal.timeout(5000));
       const input = z.strictObject({ activityId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
         generation: z.number().int().positive().safe() }).parse(JSON.parse(new TextDecoder().decode(bytes)));

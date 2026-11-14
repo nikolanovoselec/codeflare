@@ -402,7 +402,14 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
       if (fault === 'key rotation') f.rotate();
       if (fault === 'missing encryption') f.storage.encryptionKey = '';
       if (fault === 'bad encryption') f.storage.encryptionKey = 'invalid';
-      if (fault === 'verification missing') f.native.get = (async () => undefined) as RawCaptureStorage['storage']['get'];
+      if (fault === 'verification missing') {
+        function missing<T>(key: string): Promise<T | undefined>;
+        function missing<T>(keys: string[]): Promise<Map<string, T>>;
+        async function missing<T>(key: string | string[]): Promise<T | undefined | Map<string, T>> {
+          return Array.isArray(key) ? new Map<string, T>() : undefined;
+        }
+        f.native.get = missing;
+      }
       if (fault === 'transaction failure') f.native.transaction = async () => { throw new Error('Native write failed'); };
       if (fault === 'read failure') f.native.get = async () => { throw new Error('Native read failed'); };
       const capture = f.create(binding, fault === 'storage' ? { storage: async () => { throw new Error('Unavailable'); } }

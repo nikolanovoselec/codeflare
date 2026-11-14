@@ -19,6 +19,7 @@ import { setLogLevel } from '../../lib/logger';
 import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
 import { nativePiAuthFailure } from '../../operators/pi-auth-failure';
 import { EgressController } from '../../egress-controller';
+import { createOwnerRawCaptureStorage, readRawCapture } from '../../operators/raw-capture-storage';
 
 // Metadata-only Root: replace the external container lifecycle base, not Root's
 // ownership/credential coordination. Native DO storage and RPC remain real; no
@@ -1642,7 +1643,11 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
   }, true, false, { loggingEnabled: false }));
 
   it('vendor credential echoes cannot enter the durable SDK response journal or exported evidence', () => lane(async f => {
-    await admitted(f);
+    await admitted(f); await f.drainBackground();
+    const logs: Array<{ module?: string; message?: string; data: { value?: unknown; captureId?: string } }> = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (typeof line === 'string') try { logs.push(JSON.parse(line)); } catch { /* Other logs. */ }
+    });
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
@@ -1654,6 +1659,26 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
       headers: [['authorization', `Bearer ${oldOAuth.access}`]], bodyBase64: encodeBody(sdkBody) }, 'credential-echo');
     expect(response.ok).toBe(false);
     expect(await response.text()).not.toContain(oldOAuth.access);
+    await f.drainBackground();
+    const chunks = logs.filter(record => record.module === 'operator-execution' && record.message === 'sdk-http-chunk');
+    expect(chunks.length).toBeGreaterThan(0);
+    for (const chunk of chunks) expect(chunk.data.value).toEqual({ type: 'chunk', wireCaptured: true });
+    expect(JSON.stringify(logs)).not.toContain(oldOAuth.access);
+    const retainedChunks: number[] = [];
+    await f.mutateEvidence(async storage => {
+      for (const record of logs.filter(record => record.message === 'raw-capture-receipt')) {
+        if (!record.data.captureId) throw new Error('Missing raw capture identity');
+        const capture = await readRawCapture({ binding: { ownerKey: f.proof.ownerKey, installationId: 'installation',
+          releaseId: 'release', captureId: record.data.captureId,
+          scope: { kind: 'activity', activityId: f.activityId, generation: 1 } },
+        storage: await createOwnerRawCaptureStorage(f.environment, storage, async () => {}) });
+        for (const observation of capture.records) if (observation.stage === 'sdk-http-chunk') {
+          const value = observation.value as { bytes: Record<string, number> };
+          retainedChunks.push(...Object.values(value.bytes));
+        }
+      }
+    });
+    expect(new TextDecoder().decode(Uint8Array.from(retainedChunks))).toBe(`provider echoed ${oldOAuth.access}`);
     await f.mutateEvidence(async storage => {
       // Stored binary responses must be decoded, not merely inspected as numbers.
       const retained = inspect(decodeRetainedBytes([...await storage.list()]), { depth: null, maxArrayLength: null,

@@ -266,7 +266,8 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
     firstResponse.headers.set('x-synthetic-evidence', 'literal-placeholder');
     const candidates = await capturedScan([firstResponse, secondResponse], recorded.capture, metadataResponse);
     expect(candidates.map(candidate => candidate.pullRequest)).toEqual(Array.from({ length: 101 }, (_, index) => index + 1));
-    expect(recorded.events.filter(event => event.stage === 'discovery-request').map(event => event.value))
+    const requests = recorded.events.filter(event => event.stage === 'discovery-request').map(event => event.value);
+    expect(requests, JSON.stringify(requests))
       .toEqual([root, pageUrl, next].map(url => expect.objectContaining({ method: 'GET', url,
         path: url.slice(root.length), redirect: 'manual', headers: expect.arrayContaining([
           ['accept', 'application/vnd.github+json'], ['user-agent', 'Codeflare-Operator-Renovate'],

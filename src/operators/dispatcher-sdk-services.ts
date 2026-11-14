@@ -184,7 +184,8 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
     AbortSignal.timeout(Math.max(1, input.plan.deadline - Date.now()))]);
   const request = new Request(url, { method: input.request.method, headers, body, redirect: 'manual', signal });
   await sameOwner(input, owner);
-  emitRaw(input.raw, 'sdk-http-request', () => ({ url: request.url, method: request.method, headers: request.headers, body }));
+  emitRaw(input.raw, 'sdk-http-request', () => ({ url: request.url, method: request.method, headers: request.headers, body }),
+    () => ({ method: request.method, wireCaptured: true }));
   let response: Response;
   const transportCredentials: string[] = [];
   if (input.selection.source === 'managed') {

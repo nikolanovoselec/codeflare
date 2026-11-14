@@ -222,7 +222,8 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     (env as unknown as { CONTAINER: unknown }).CONTAINER = { idFromName: (value: string) => value,
       get: () => ({ armRenovateScan: async () => ({ ok: true, activatedAt: observed.activatedAt }) }) };
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { installation: { id: 'dispatcher-install',
-      revision: 1, enabled: true, policy: { resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) }, operator: { profile: 'dispatcher', revision: 1, invokers: { users: [claims.email], groups: [] } },
+      revision: 1, enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) }, operator: { profile: 'dispatcher', revision: 1, policy: { capabilities: ['fetch'], resourceProfileId: null },
+        invokers: { users: [claims.email], groups: [] } },
       release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
       manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) } });
     const command = { installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 };
@@ -565,9 +566,10 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
   function activationFixture() {
     const f = fixture();
     const selected = { installation: { id: 'dispatcher-install', revision: 2, enabled: true,
-      policy: { resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: {
+      policy: { capabilities: ['fetch'], resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: {
         repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) },
-      operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher', invokers: { users: [claims.email], groups: [] } },
+      operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
+        policy: { capabilities: ['fetch'], resourceProfileId: null }, invokers: { users: [claims.email], groups: [] } },
       release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
       manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
     f.registry.resolveManagementExecution.mockImplementation(async () => ({ ok: true, value: selected }));

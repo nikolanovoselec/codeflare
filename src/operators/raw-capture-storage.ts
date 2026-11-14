@@ -47,8 +47,7 @@ async function open(bindingInput: RawCaptureBinding, source: RawCaptureStorage) 
     if (source.encryptionKey !== encryptionKey || source.storage !== native) denied();
   };
   await guard();
-  const key = await getOrImportKey({ ENCRYPTION_KEY: encryptionKey });
-  if (!key) denied();
+  const key = await getOrImportKey({ ENCRYPTION_KEY: encryptionKey }) ?? denied();
   await guard();
   const scope = binding.scope.kind === 'observation' ? ['observation', binding.scope.observationId]
     : ['activity', binding.scope.activityId, binding.scope.generation];
@@ -192,7 +191,7 @@ async function readArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCap
     if (!next || next.record !== frame.record) {
       const encoded = Buffer.concat(chunks, length);
       const decoded = z.array(z.strictObject({ stage: z.string(), value: z.unknown() })).min(1).parse(
-        JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(encoded)));
+        JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(encoded)));
       for (const record of decoded) {
         if (!Object.hasOwn(record, 'value')) denied();
         records.push({ stage: record.stage, value: record.value });

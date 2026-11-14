@@ -1,6 +1,6 @@
 import { parseRenovateRunSettings, renovateRepositoryIdentity } from './renovate-run-settings';
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { inferenceDiagnostic, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
+import { inferenceDiagnostic, inferenceDiagnosticWire, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
 import { interceptedGithubHosts } from '../github-interceptor';
 import type { Env } from '../types';
 import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup,
@@ -619,7 +619,7 @@ export async function createDispatcherOperation(input: {
         sessionId: plan.activityId,
         gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
         operatorInference: { activityId: plan.activityId, operatorId: plan.executionContext.operatorId, policy, trusted,
-          diagnosticContext: input.diagnosticContext } } });
+          diagnosticContext: inferenceDiagnosticWire(input.diagnosticContext) } } });
       return await transport.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', signal: operation.signal,
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...value.input,
           max_tokens: value.input.max_tokens ?? limits.inferenceDefaultTokens, model: trusted.routeId, stream: value.input.stream ?? true }) }));

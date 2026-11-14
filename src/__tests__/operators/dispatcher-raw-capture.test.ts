@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fixture, start, type DispatcherFixture } from './fixtures/dispatcher-production';
 import { normalCallback } from './fixtures/normal-dispatcher';
 import { createOwnerRawCaptureStorage, readRawCapture } from '../../operators/raw-capture-storage';
+import { OperatorOwnerInferenceAuthority } from '../../operators/dispatcher-owner-inference';
 
 const options = { normalHosting: true, repositoryOnly: true };
 const captureId = 'sdk-raw-capture-1';
@@ -43,6 +44,86 @@ async function persistedState(f: DispatcherFixture) {
 }
 
 describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention', () => {
+  it.each([true, false])('failed profile evidence has exact private readback with original logging=%s', loggingEnabled => {
+    const body = JSON.stringify({ password: 'SYNTHETIC_PROFILE_SECRET', detail: '漢🦊'.repeat(40_000) });
+    return fixture(async f => {
+      const ids: string[] = [], consoleLines: string[] = [];
+      vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+        if (typeof line !== 'string') return;
+        consoleLines.push(line);
+        try { const record = JSON.parse(line); if (record.message === 'raw-capture-receipt') ids.push(record.data.captureId); } catch { /* Other logs. */ }
+      });
+      await start(f); await f.drainBackground();
+      expect(f.normalTransport!.admissions.size).toBe(0);
+      const records = (await Promise.all(ids.map(id => retained(f, id)))).flatMap(result => result.records);
+      if (loggingEnabled) {
+        expect(records).toContainEqual({ stage: 'owner-response', value: expect.objectContaining({ status: 502, body }) });
+      } else { expect(records).toEqual([]); expect(ids).toEqual([]); }
+      expect(consoleLines.join('\n')).not.toContain('SYNTHETIC_PROFILE_SECRET');
+      for (const line of consoleLines) {
+        let record;
+        try { record = JSON.parse(line); } catch { continue; }
+        if (record.module === 'operator-execution' && record.message === 'owner-chunk') {
+          expect(record.data.value).toEqual({ type: 'chunk', wireCaptured: true });
+        }
+      }
+    }, { ...options, loggingEnabled, normalProfileTransport: async request =>
+      new URL(request.url).pathname === '/control/profile' ? new Response(body, { status: 502 }) : undefined });
+  });
+
+  it.each([true, false])('ordinary Host observations require original logging=%s and retain full values without execution renewal', loggingEnabled => fixture(async f => {
+    await start(f); await f.drainBackground(); f.expire();
+    const before = structuredClone(f.normalTransport!.networkRequests);
+    const value = { password: 'SYNTHETIC_HOST_SECRET', provider: { body: '漢🦊'.repeat(45_000) },
+      error: { message: 'SYNTHETIC_HOST_STREAM_FAILURE', cause: { message: 'SYNTHETIC_ORIGINAL_PROVIDER_CAUSE' } } };
+    const uploadOwner = (bucket: string, generation = 1) => new OperatorOwnerInferenceAuthority({ props: {
+      bucket, sessionId: 'ownerhost123', email: 'owner@example.test' } } as unknown as ExecutionContext, f.environment)
+      .fetch(new Request('https://operator.internal/v1/dispatcher/owner-raw', { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ activityId: f.activityId,
+          generation, stage: 'configured-owner-observations', value }) }));
+    expect((await uploadOwner('foreign-owner')).status).toBe(403);
+    expect((await uploadOwner('owner-bucket', 2)).status).toBe(403);
+    const response = await uploadOwner('owner-bucket');
+    expect(response.status).toBe(loggingEnabled ? 200 : 403);
+    if (loggingEnabled) {
+      const receipt = await response.json() as { captureId: string };
+      expect((await retained(f, receipt.captureId)).records).toEqual([{ stage: 'configured-owner-observations', value }]);
+    }
+    expect(f.normalTransport!.networkRequests).toEqual(before);
+    expect((await f.installationCapability.fetch(normalCallback(f.activityId, 'source', {
+      operationId: 'host-log-cannot-renew-work', url: 'https://api.github.com/repos/another/service',
+    }))).status).toBe(403);
+  }, { ...options, loggingEnabled }));
+
+  it('opaque SDK credentials remain exact privately but unrecoverable from console on refused model work', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const ids: string[] = [], output: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (typeof line !== 'string') return;
+      output.push(line);
+      try { const record = JSON.parse(line); if (record.message === 'raw-capture-receipt') ids.push(record.data.captureId); } catch { /* Other logs. */ }
+    });
+    const secret = 'SYNTHETIC_OPAQUE_SDK_SECRET';
+    const bodyBase64 = Buffer.from(JSON.stringify({ password: secret })).toString('base64');
+    const body = { operationId: 'unadmitted-opaque-request', permitId: 'missing-permit', request: {
+      url: 'https://custom.example.test/native/stream', method: 'POST', headers: [['x-api-key', secret]], bodyBase64 } };
+    const before = structuredClone(f.normalTransport!.networkRequests);
+    expect((await f.installationCapability.fetch(normalCallback(f.activityId, 'model-fetch', body))).ok).toBe(false);
+    await f.drainBackground();
+    const records = (await Promise.all(ids.map(id => retained(f, id)))).flatMap(result => result.records);
+    expect(records).toContainEqual({ stage: 'sdk-service-request', value: {
+      path: '/v1/dispatcher/model-fetch', body } });
+    expect(output.join('\n')).not.toContain(secret);
+    expect(output.join('\n')).not.toContain(bodyBase64);
+    for (const line of output) {
+      let record;
+      try { record = JSON.parse(line); } catch { continue; }
+      if (record.message === 'sdk-service-request') expect(record.data.value)
+        .toEqual({ path: '/v1/dispatcher/model-fetch', wireCaptured: true });
+    }
+    expect(f.normalTransport!.networkRequests).toEqual(before);
+  }, options));
+
   it('independently reconstructs >256 KiB of complete private SDK data without redaction or new SDK execution', () => fixture(async f => {
     await start(f); await f.drainBackground();
     const original = await persistedState(f);

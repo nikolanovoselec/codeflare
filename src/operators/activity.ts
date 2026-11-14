@@ -26,6 +26,7 @@ import { Agent, type RetryOptions, type Schedule, type ScheduleCriteria } from '
 import { DISPATCHER_SCHEDULE_CALLBACK, childScheduleRow, dispatcherScheduleEnvelope,
   dispatcherSchedulePath, migrateDispatcherSchedules, parseDispatcherSchedule, projectChildSchedule } from './dispatcher-scheduler';
 import type { Env as AppEnv } from '../types';
+import { getContainerId } from '../lib/container-helpers';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
@@ -2004,6 +2005,7 @@ export class OperatorActivity extends Agent {
         const inference = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (inference.inferencePolicies.every(policy => policy.capabilities.includes('inference'))) {
           const profileInput = { generation, plan, env: this.#appEnv, connection,
+            raw: trace,
             waitUntil: (promise: Promise<unknown>) => this.ctx.waitUntil(promise), current: () => this.operatorGenerationCurrent(generation) };
           boundary = 'model';
           const selection = await discoverDispatcherOwnerProfile(profileInput);
@@ -2355,6 +2357,47 @@ export class OperatorActivity extends Agent {
     } catch { return dispatcherRefusal('execution-inactive'); }
   }
 
+  /** Fixed ordinary-Host transport may retain observations, never renew execution. */
+  async retainDispatcherOwnerObservation(generation: number, reference: {
+    bucket: string; sessionId: string; email: string; sessionGeneration: number;
+  }, stage: string, value: unknown) {
+    const parsed = z.strictObject({ generation: z.number().int().positive().safe(),
+      reference: z.strictObject({ bucket: z.string().min(1), sessionId: syncIdentity, email: z.string().min(1),
+        sessionGeneration: z.number().int().positive().safe() }), stage: z.string().min(1) }).parse({ generation, reference, stage });
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+      || !executionLoggingEnabled(state.receipt)) throw new Error('Raw capture unavailable');
+    const owner = state.executionContext.owner;
+    const ownerKey = await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] });
+    if (state.ownerKey !== ownerKey) throw new Error('Raw capture unavailable');
+    const admissionId = await this.ctx.storage.get<string>('prospective-admission');
+    const proof = admissionId ? await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').readProspectiveRenovateAdmission(admissionId) : null;
+    if (proof && (proof.activityId !== state.intent.activityId || proof.ownerKey !== ownerKey)) throw new Error('Raw capture unavailable');
+    const source = state.ownerSource ?? proof?.actor;
+    if (!source || source.bucket !== parsed.reference.bucket || source.sessionId !== parsed.reference.sessionId
+      || source.sessionGeneration !== parsed.reference.sessionGeneration
+      || owner.email.toLowerCase() !== parsed.reference.email.toLowerCase()) throw new Error('Raw capture unavailable');
+    const authorize = async () => {
+      const [current, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
+        this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
+      if (!current?.executionContext || !current.receipt || !executionLoggingEnabled(current.receipt)
+        || current.ownerKey !== ownerKey || current.receipt.intentDigest !== state.receipt!.intentDigest
+        || current.executionContext.artifactDigest !== state.executionContext!.artifactDigest || lease?.generation !== generation
+        || !sameDispatcherPhaseValue(current.executionContext.owner, owner)) throw new Error('Raw capture unavailable');
+      const host = this.#appEnv.CONTAINER.getByName(getContainerId(source.bucket, source.sessionId));
+      const session = await host.getPersonalPiSession({ bucket: source.bucket, sessionId: source.sessionId, email: owner.email }, true);
+      if (session.generation !== source.sessionGeneration) throw new Error('Raw capture unavailable');
+    };
+    await authorize();
+    const { installation, release } = state.receipt.selection;
+    const capture = createRawCapture({ enabled: true,
+      binding: { ownerKey, installationId: installation.id, releaseId: release.id, captureId: crypto.randomUUID(),
+        scope: { kind: 'activity', activityId: state.intent.activityId, generation } },
+      storage: () => createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, authorize), schedule: work => this.ctx.waitUntil(work) });
+    capture.record(stage, () => value);
+    return capture.finish('complete');
+  }
+
   /** Existing Root emitters retain their full snapshot before any console projection. */
   #captureTrace<T extends InferenceDiagnosticContext>(context: T): T {
     return { ...context, privateArchive: (stage: string, value: unknown) => {
@@ -2628,7 +2671,7 @@ export class OperatorActivity extends Agent {
       const body: unknown = JSON.parse(await readDispatcherBody(request, request.signal,
         modelScope ? Math.ceil(inferenceRequestBytes(policy) * 4 / 3) + 64 * 1024 : credentials ? 1024 * 1024 : 4096));
       if (request.signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
-      emitRaw(trace, 'sdk-service-request', () => ({ path, body }));
+      emitRaw(trace, 'sdk-service-request', () => ({ path, body }), () => ({ path, wireCaptured: true }));
       const plan = await this.getRuntimePlan();
       if (!plan) return dispatcherRefusal('execution-inactive');
       const conflict = () => {
@@ -2804,9 +2847,11 @@ export class OperatorActivity extends Agent {
           if (/key|token|secret|signature/i.test(name) && value) secrets.push(value);
         }
         const responseTrace = { ...trace, credentials: [...(trace.credentials ?? []), ...secrets] };
-        emitRaw(responseTrace, 'sdk-http-response', () => ({ status: response.status, headers: response.headers }));
+        emitRaw(responseTrace, 'sdk-http-response', () => ({ status: response.status, headers: response.headers }),
+          () => ({ status: response.status, wireCaptured: true }));
         const bytes = await readBoundedResponse(response, inferenceRequestBytes(policy), 'SDK HTTP response', signal,
-          trace.loggingEnabled === false ? undefined : event => emitRaw(responseTrace, `sdk-http-${event.type}`, () => event));
+          trace.loggingEnabled === false ? undefined : event => emitRaw(responseTrace, `sdk-http-${event.type}`, () => event,
+            () => ({ type: event.type, wireCaptured: true })));
         await checkScope();
         // Reject credential echoes rather than persist them or change exact vendor bytes.
         const text = new TextDecoder().decode(bytes);
@@ -4428,7 +4473,7 @@ export class OperatorActivity extends Agent {
         const selection = lease.configuredSelection;
         perform = async () => {
           try { return await forwardDispatcherOwnerInference({ plan: { ...plan, deadline: Math.min(plan.deadline, lease!.expiresAt) },
-            generation, env: this.#appEnv, operation: configuredOperation, selection, signal: request.signal,
+            generation, env: this.#appEnv, operation: configuredOperation, selection, signal: request.signal, raw: trace,
             waitUntil: promise => this.ctx.waitUntil(promise),
             current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope) }); }
           catch (error) { if (error instanceof PiAuthRequiredError) await this.#nativeLoginStop(generation, error.authFailure); throw error; }

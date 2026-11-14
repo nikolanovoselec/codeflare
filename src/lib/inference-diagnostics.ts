@@ -1,3 +1,4 @@
+import { RpcTarget } from 'cloudflare:workers';
 import { createLogger } from './logger';
 import { emitRaw, type RawLogContext } from '../../host/src/operator-raw-logging';
 
@@ -10,6 +11,37 @@ export interface InferenceDiagnosticContext {
   privateArchive?: RawLogContext['privateArchive'];
   operationOrdinal?: number;
   requestDigest?: string;
+}
+class PrivateArchiveTarget extends RpcTarget {
+  #archive: NonNullable<RawLogContext['privateArchive']>;
+  constructor(archive: NonNullable<RawLogContext['privateArchive']>) { super(); this.#archive = archive; }
+  record(stage: string, value: unknown): void {
+    if (typeof stage !== 'string') throw new Error('Raw observation unavailable');
+    this.#archive(stage, value);
+  }
+}
+export type InferenceDiagnosticWireContext = Omit<InferenceDiagnosticContext, 'privateArchive'> & {
+  privateArchiveSink?: PrivateArchiveTarget;
+};
+
+/** Native RPC carries a scoped target, never a JavaScript callback in props. */
+export function inferenceDiagnosticWire(context: InferenceDiagnosticContext | undefined): InferenceDiagnosticWireContext | undefined {
+  if (!context) return undefined;
+  const { privateArchive, ...metadata } = context;
+  return { ...metadata, ...(privateArchive && context.loggingEnabled !== false
+    ? { privateArchiveSink: new PrivateArchiveTarget(privateArchive) } : {}) };
+}
+
+/** Recompose only at the receiving private entrypoint, retaining its invocation lifetime. */
+export function inferenceDiagnosticLocal(context: InferenceDiagnosticWireContext | undefined,
+  schedule: (work: Promise<unknown>) => void): InferenceDiagnosticContext | undefined {
+  if (!context) return undefined;
+  const { privateArchiveSink, ...metadata } = context;
+  return { ...metadata, ...(privateArchiveSink && context.loggingEnabled !== false ? {
+    privateArchive: (stage: string, value: unknown) => {
+      try { schedule(Promise.resolve(privateArchiveSink.record(stage, value)).catch(() => {})); } catch { /* Optional retention only. */ }
+    },
+  } : {}) };
 }
 const logger = createLogger('operator-inference');
 const categories: Record<string, ReadonlySet<string>> = {

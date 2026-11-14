@@ -2129,7 +2129,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
               releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
             if (!await handoffCurrent()) return;
             observe('prospective-preparation-response', () => prepared);
-            try { await invoke('prospective-start', { activityId: reserved.activityId, capability: prepared.startCapability },
+            try { await invoke<Awaited<ReturnType<typeof activity.start>>>('prospective-start', { activityId: reserved.activityId, capability: prepared.startCapability },
               () => activity.start(prepared.startCapability)); } catch { /* Read the same Activity below. */ }
             stage = 'plan';
             plan = await invoke('prospective-plan', { activityId: reserved.activityId }, () => activity.getRuntimePlan());

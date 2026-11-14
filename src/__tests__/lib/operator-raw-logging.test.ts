@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { inferenceDiagnostic } from '../../lib/inference-diagnostics';
+import { inferenceDiagnostic, inferenceDiagnosticLocal, inferenceDiagnosticWire } from '../../lib/inference-diagnostics';
 import { setLogLevel } from '../../lib/logger';
 
 // Approved additive runtime-log contract. The bounded metadata channel is unchanged.
@@ -37,6 +37,36 @@ it.each([false, true])('REQ-OPERATOR-090/091: private capture stays unredacted w
     token: source.token, thinking: source.thinking, thoughtSignature: source.thoughtSignature, body: source.body,
     error: expect.objectContaining({ message: 'FULL_EXCEPTION_EVIDENCE', cause: expect.objectContaining({ message: 'FULL_NESTED_CAUSE' }) }) }) }]);
   if (!consoleFailure) expect(JSON.stringify(records())).not.toMatch(/SYNTHETIC_RAW_PASSWORD|SYNTHETIC_RAW_TOKEN|FULL_REASONING_EVIDENCE/);
+});
+
+it('REQ-OPERATOR-090: private interceptor observations reach their original owner through the scoped RPC capability', async () => {
+  const records = capture();
+  const retained: Array<{ stage: string; value: unknown }> = [];
+  const pending: Promise<unknown>[] = [];
+  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire({ ...admitted,
+    privateArchive: (stage, value) => { retained.push({ stage, value }); },
+  }), work => { pending.push(work); });
+  const source = { password: 'SYNTHETIC_INTERCEPTOR_SECRET', body: '漢🦊'.repeat(70_000),
+    error: new Error('SYNTHETIC_INTERCEPTOR_FAILURE', { cause: new Error('SYNTHETIC_ORIGINAL_CAUSE') }) };
+  const original = { unchanged: true };
+  const execute = () => { inferenceDiagnostic(context, metadata, () => source); return original; };
+  expect(execute()).toBe(original);
+  await Promise.all(pending);
+  expect(retained).toEqual([{ stage: metadata.stage, value: expect.objectContaining({ password: source.password,
+    body: source.body, error: expect.objectContaining({ message: source.error.message,
+      cause: expect.objectContaining({ message: 'SYNTHETIC_ORIGINAL_CAUSE' }) }) }) }]);
+  expect(JSON.stringify(records())).not.toContain(source.password);
+});
+
+it('REQ-OPERATOR-090: original OFF never delivers an interceptor private observation', async () => {
+  const retained: unknown[] = [];
+  const pending: Promise<unknown>[] = [];
+  const context = inferenceDiagnosticLocal(inferenceDiagnosticWire({ ...admitted, loggingEnabled: false,
+    privateArchive: (_stage, value) => { retained.push(value); },
+  }), work => { pending.push(work); });
+  inferenceDiagnostic(context, metadata, () => { throw new Error('OFF evaluated optional supplier'); });
+  await Promise.all(pending);
+  expect(retained).toEqual([]);
 });
 
 describe('protected raw execution logging through the existing diagnostic entrypoint', () => {
