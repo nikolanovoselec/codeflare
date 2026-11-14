@@ -105,6 +105,56 @@ describe('REQ-SESSION-025: final Worker lifecycle error logging', () => {
   });
 });
 
+describe('REQ-OPERATOR-091: mounted private raw read no-store boundary', () => {
+  const paths = ['/api/operator-activities/diagnostics/v2/raw', '/api/operator-activities/diagnostics/v2/raw/export'];
+
+  it.each(paths)('outer API body-limit rejection remains no-store at %s', async path => {
+    const { env } = createMockEnv();
+    env.ENTERPRISE_MODE = 'active';
+    const response = await worker.fetch(new Request(`https://example.com${path}`, {
+      method: 'POST', body: `PRIVATE_RAW_CANARY${'x'.repeat(64 * 1024)}`,
+      headers: { 'content-length': String('PRIVATE_RAW_CANARY'.length + 64 * 1024) },
+    }), env, createMockCtx());
+    expect(response.status).toBe(413);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.text()).not.toContain('PRIVATE_RAW_CANARY');
+  });
+
+  it.each(paths)('outer authentication failures remain generic, private and no-store at %s', async path => {
+    resetSetupCacheShared();
+    const { env, mockKV } = createMockEnv();
+    env.ENTERPRISE_MODE = 'active';
+    // Resolve only the existing namespace handles; authentication fails before any read RPC.
+    Object.assign(env, { OPERATOR_REGISTRY: { getByName: () => ({}) }, OPERATOR_ACTIVITY: { getByName: () => ({}) } });
+    const privateValue = 'PRIVATE_RAW_CANARY private.access.jwt';
+    mockKV.get.mockRejectedValue(new Error(privateValue));
+    const output: string[] = [];
+    const capture = (...args: unknown[]) => { output.push(args.map(String).join(' ')); };
+    const spies = [vi.spyOn(console, 'log').mockImplementation(capture), vi.spyOn(console, 'warn').mockImplementation(capture),
+      vi.spyOn(console, 'error').mockImplementation(capture)];
+    try {
+      const response = await worker.fetch(new Request(`https://example.com${path}`, { headers: {
+        'cf-access-authenticated-user-email': 'owner@example.test', 'cf-access-jwt-assertion': 'private.access.jwt',
+      } }), env, createMockCtx());
+      expect(response.status).toBe(503);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toEqual({ code: 'RAW_CAPTURE_UNAVAILABLE' });
+      expect(output.join('\n')).not.toContain('PRIVATE_RAW_CANARY');
+      expect(output.join('\n')).not.toContain('private.access.jwt');
+    } finally { for (const spy of spies) spy.mockRestore(); resetSetupCacheShared(); }
+  });
+
+  it.each(paths)('outer early misconfiguration rejection remains no-store at %s', async path => {
+    const { env } = createMockEnv();
+    env.ENTERPRISE_MODE = 'active';
+    env.SAAS_MODE = 'active';
+    env.STRESS_TEST_MODE = 'active';
+    const response = await worker.fetch(new Request(`https://example.com${path}`), env, createMockCtx());
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+  });
+});
+
 describe('Edge-level setup redirect', () => {
   it.each([
     ['GET', '/api/admin/operators'],

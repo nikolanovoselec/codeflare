@@ -24,6 +24,8 @@ export interface RawCaptureStorage {
   storage: Pick<DurableObjectStorage, 'get' | 'transaction' | 'list'>;
   encryptionKey: string;
   authorize: () => Promise<void>;
+  /** Caller-local fresh session check at export pass boundaries; never an RPC field. */
+  authorizePass?: () => Promise<void>;
 }
 type Termination = z.infer<typeof terminationSchema>;
 export type RawCaptureReceipt = Omit<z.infer<typeof receiptSchema>, 'status'> & { status: 'complete' | 'incomplete' | 'disabled' };
@@ -278,13 +280,15 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
 }
 
 async function walkArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCaptureBinding,
-  onRecord?: (record: { stage: string; value: unknown }) => void) {
+  onRecord?: (record: { stage: string; value: unknown }) => void | Promise<void>, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const manifest = manifestSchema.parse(JSON.parse(await io.decrypt(await io.get('receipt'), io.aad('receipt'))));
   const receipt = manifest.receipt;
   if (receipt.captureId !== binding.captureId || receipt.segments !== manifest.frames.length) denied();
   let records = 0;
   let chunks: Uint8Array[] = []; let length = 0; let total = 0; let part = 0; let batch = 0;
   for (const [ordinal, frame] of manifest.frames.entries()) {
+    signal?.throwIfAborted();
     if (frame.record !== batch || frame.part !== part++) denied();
     const ciphertext = await io.get(frameName(ordinal, frame));
     if (await digest(ciphertext) !== frame.digest) denied();
@@ -300,7 +304,8 @@ async function walkArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCap
       for (const record of decoded) {
         if (!Object.hasOwn(record, 'value')) denied();
         records++;
-        onRecord?.({ stage: record.stage, value: record.value });
+        signal?.throwIfAborted();
+        await onRecord?.({ stage: record.stage, value: record.value });
       }
       chunks = []; length = 0; part = 0; batch++;
     }
@@ -308,8 +313,11 @@ async function walkArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCap
   if (records !== receipt.records || total !== receipt.bytes) denied();
   // A valid append has only two possible next coordinates: a continuation or the next batch.
   const last = manifest.frames.at(-1);
+  signal?.throwIfAborted();
   if (last) await io.absent(frameName(receipt.segments, { record: last.record, part: last.part + 1 }));
+  signal?.throwIfAborted();
   await io.absent(frameName(receipt.segments, { record: batch, part: 0 }));
+  signal?.throwIfAborted();
   await io.guard();
   return { receipt };
 }
@@ -351,6 +359,50 @@ Promise<{ status: 'complete' | 'incomplete'; receipt: RawCaptureReceipt | null }
     const archive = await walkArchive(await open(binding, input.storage), binding, onRecord);
     return { status: 'complete', ...archive };
   } catch { return { status: 'incomplete', receipt: null }; }
+}
+
+/** Private streaming read, not a completion proof until the final receipt arrives.
+ * Preflight retains only the manifest/current persisted batch. The second pass
+ * awaits each local write; cancellation stops it rather than draining the archive. */
+export async function exportRawCapture(input: { binding: RawCaptureBinding; storage: RawCaptureStorage }): Promise<Response> {
+  try {
+    const binding = bindingSchema.parse(input.binding);
+    const storage = input.storage;
+    await storage.authorizePass?.();
+    const io = await open(binding, storage);
+    await walkArchive(io, binding);
+    const encoder = new TextEncoder();
+    const stream = new TransformStream<
+      { type: 'record'; stage: string; value: unknown } | { type: 'complete'; receipt: RawCaptureReceipt }, Uint8Array>({
+      async transform(frame, controller) {
+        // Recheck the live session on footer demand, not before a backpressured write.
+        try {
+          if (frame.type === 'complete') await storage.authorizePass?.();
+          await io.guard();
+          controller.enqueue(encoder.encode(`${JSON.stringify(frame)}\n`));
+        } catch { throw new Error('RAW_CAPTURE_UNAVAILABLE'); }
+      },
+    });
+    const writer = stream.writable.getWriter();
+    const cancellation = new AbortController();
+    void writer.closed.catch(() => { cancellation.abort(); });
+    void (async () => {
+      try {
+        await storage.authorizePass?.();
+        const archive = await walkArchive(io, binding,
+          record => writer.write({ type: 'record', ...record }), cancellation.signal);
+        await writer.write({ type: 'complete', receipt: archive.receipt });
+        await writer.close();
+      } catch {
+        await writer.abort(new Error('RAW_CAPTURE_UNAVAILABLE')).catch(() => {});
+      } finally { writer.releaseLock(); }
+    })().catch(() => {});
+    return new Response(stream.readable, { headers: {
+      'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store',
+    } });
+  } catch {
+    return Response.json({ error: 'RAW_CAPTURE_UNAVAILABLE' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }
 }
 
 /** No private partial records escape until the entire archive authenticates. */

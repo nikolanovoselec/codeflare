@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-14
+
+- Make existing private raw archives readable by the currently authenticated original-owner administrator, including Registry observations before Activity admission. Reuse encrypted locators and incremental verification; export completion requires full persisted reconstruction, not HTTP success. Preserve separate bounded diagnostics and grant no execution or recovery authority ([REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).
+
 ## 2026-11-13
 
 - Retain complete admin-enabled parent and public Flue/SDK evidence without raw-value redaction in existing private Durable Object storage. Authenticated SDK uploads require independent byte reconstruction before completion acknowledgement; console projections remain separate, with original execution, byte limits and cancellation preserved ([REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).

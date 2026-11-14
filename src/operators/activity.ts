@@ -9,6 +9,8 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { createRawCapture, createOwnerRawCaptureStorage, verifyRawCapture, captureRawInteraction, type RawCaptureBinding, type RawCapture, type RawCaptureReceipt } from './raw-capture-storage';
+import { requireOwnerRawReader, parseOwnerRawReadRequest, readOwnerRawCapturePage, ownerRawReadUnavailable,
+  type OwnerRawReadCredential, type OwnerRawReadRequest } from './raw-capture-read';
 import { projectDispatcherOperationEvidence } from './dispatcher-runtime-diagnostics';
 import { publicSdkReportSchema, projectPublicSdkRecords, readPublicSdkDiagnostics } from './dispatcher-public-diagnostics';
 import { readBoundedResponse } from '../lib/bounded-stream';
@@ -2590,6 +2592,62 @@ export class OperatorActivity extends Agent {
     const exports = (this.ctx as unknown as { exports: { OperatorDispatcherCapability: InferenceArchiveFactory } }).exports;
     return inferenceArchiveCapability(context, { ownerKey: await operatorOwnerKey(plan.executionContext.owner),
       receiptDigest: await sha256(JSON.stringify(plan.receipt)) }, options => exports.OperatorDispatcherCapability(options));
+  }
+
+  /** Passive private history: no lease, runtime-plan recovery, current policy or deadline authority. */
+  async readOwnerRawCaptures(credential: OwnerRawReadCredential, input: OwnerRawReadRequest): Promise<Response> {
+    try {
+      const request = parseOwnerRawReadRequest(input);
+      const reader = await requireOwnerRawReader(this.#appEnv, credential);
+      const scope = request.scope;
+      if (scope.kind !== 'activity' || !this.#appEnv.OPERATOR_ACTIVITY
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(scope.activityId).toString() !== this.ctx.id.toString()) {
+        return ownerRawReadUnavailable();
+      }
+      const retained = async (): Promise<ManagementAdmissionReceipt> => {
+        const state = await this.ctx.storage.get<AdmissionState>('admission');
+        if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+          || state.ownerKey !== reader.ownerKey || state.intent.activityId !== scope.activityId
+          || !('installationId' in state.intent) || state.executionContext.activityId !== scope.activityId
+          || state.executionContext.schemaVersion !== 1 || state.executionContext.principal !== 'operator'
+          || state.executionContext.operatorId !== state.intent.operatorId
+          || await operatorOwnerKey(state.executionContext.owner) !== reader.ownerKey) throw new Error('Raw capture unavailable');
+        const receipt = state.receipt;
+        const { installation, operator, release, controlsRevision } = receipt.selection;
+        if (!Number.isSafeInteger(receipt.admittedAt) || receipt.admittedAt <= 0
+          || [receipt.expectedInstallationRevision, receipt.expectedOperatorRevision]
+            .some(revision => !Number.isSafeInteger(revision) || revision < 1)
+          || !Number.isSafeInteger(receipt.expectedControlsRevision) || receipt.expectedControlsRevision < 0
+          || !syncIdentity.safeParse(installation.id).success || !syncIdentity.safeParse(release.id).success
+          || !syncDigest.safeParse(release.bundleDigest).success || !executionLoggingEnabled(receipt)
+          || operator.policy.loggingEnabled !== undefined && typeof operator.policy.loggingEnabled !== 'boolean'
+          || receipt.activityId !== scope.activityId || receipt.installationId !== state.intent.installationId
+          || receipt.intentDigest !== state.intent.intentDigest
+          || receipt.intentDigest !== await createOperatorIntentDigest(state.intent.operatorId, scope.activityId, state.invocationJson ?? 'null')
+          || installation.id !== receipt.installationId || installation.releaseId !== release.id
+          || installation.operatorId !== state.intent.operatorId || operator.operatorId !== state.intent.operatorId
+          || release.operatorId !== state.intent.operatorId || release.bundleDigest !== state.executionContext.artifactDigest
+          || receipt.expectedInstallationRevision !== state.intent.expectedInstallationRevision
+          || receipt.expectedInstallationRevision !== installation.revision
+          || receipt.expectedOperatorRevision !== state.intent.expectedRevision || receipt.expectedOperatorRevision !== operator.revision
+          || receipt.expectedControlsRevision !== state.intent.expectedControlsRevision || receipt.expectedControlsRevision !== controlsRevision) {
+          throw new Error('Raw capture unavailable');
+        }
+        return receipt;
+      };
+      const receipt = await retained();
+      const original = JSON.stringify(receipt);
+      const checkRetained = async () => {
+        if (JSON.stringify(await retained()) !== original) throw new Error('Raw capture unavailable');
+      };
+      const guard = async () => { await reader.guard(); await checkRetained(); };
+      const authorizePass = async () => { await reader.authorize(); await checkRetained(); };
+      const storage = await createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, guard);
+      // Generation comes from the authenticated scoped locator, not the current drive/lease.
+      // Every locator on the selected page must agree with the retained original receipt.
+      return await readOwnerRawCapturePage({ request, ownerKey: reader.ownerKey, storage: { ...storage, authorizePass },
+        bindingPins: { installationId: receipt.selection.installation.id, releaseId: receipt.selection.release.id } });
+    } catch { return ownerRawReadUnavailable(); }
   }
 
   /** Existing Root emitters retain their full snapshot before any console projection. */

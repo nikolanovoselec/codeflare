@@ -16,7 +16,7 @@ import * as access from '../../lib/access';
 import { openOperatorExecutionAccess } from '../../operators/execution-context';
 import activityRoutes from '../../routes/operator-activities';
 import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
-import { createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures, type RawCaptureReceipt } from '../../operators/raw-capture-storage';
+import { createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures, type RawCaptureReceipt, type RawCaptureBinding } from '../../operators/raw-capture-storage';
 import type { Env } from '../../types';
 import type { ProspectiveRenovateRetryProof } from '../../operators/renovate-retry-proof';
 
@@ -69,8 +69,11 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
         observation_sequence: 0, editor_ready: 1, editor_ready_error: 0,
       } : null;
     } }) }) };
-    kv.get = vi.fn(async (key: string) => key.startsWith('user:')
-      ? JSON.stringify({ role: state.roles.get(key.slice(5)) ?? 'user' }) : kv._store.get(key) ?? null) as typeof kv.get;
+    kv.get = vi.fn(async (key: string, type?: string) => {
+      const value = key.startsWith('user:') ? JSON.stringify({ role: state.roles.get(key.slice(5)) ?? 'user' })
+        : kv._store.get(key) ?? null;
+      return type === 'json' && value !== null ? JSON.parse(value) : value;
+    }) as typeof kv.get;
     const proofs = new Map<string, unknown>();
     const environment = { OPERATOR_ACTIVITY: { getByName: (id: string) => ({
       readProspectiveRenovateRetryProof: async () => proofs.get(id) ?? null,
@@ -111,6 +114,45 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
     finally { globalThis.fetch = originalFetch; }
   });
 }
+type NativeRawInput = { view: 'discover' | 'export'; scope: RawCaptureBinding['scope']; cursor?: string; captureId?: string };
+type NativeRawReader = { readOwnerRawCaptures(credential: { email: string; accessJwt: string }, input: NativeRawInput): Promise<Response> };
+// Same existing auth-boundary seam used by the native activation route fixture below.
+// Tokens fix their typed verified claims; the DO must still check live Access and KV admin.
+function registryReadAuth() {
+  return vi.spyOn(access, 'requireOperatorHumanContext').mockImplementation(async (request, _environment, email) => {
+    const accessJwt = request.headers.get('cf-access-jwt-assertion') ?? '';
+    const signedEmail = accessJwt === 'a-jwt' ? 'a@example.test' : accessJwt === 'z-jwt' ? 'z@example.test' : null;
+    if (!signedEmail || signedEmail !== email) throw new Error('Authentication rejected');
+    return { human: claims(signedEmail, 3600), accessJwt };
+  });
+}
+async function registryRawPage(response: Response) {
+  expect(response).toBeInstanceOf(Response);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  const page = await response.json() as { status: 'complete'; bindings: RawCaptureBinding[]; cursor: string | null };
+  expect(page).toEqual({ status: 'complete', bindings: expect.any(Array), cursor: page.cursor });
+  if (page.cursor !== null) expect(page.cursor).toMatch(/^[a-f0-9]{64}$/);
+  return page;
+}
+async function registryRawExport(response: Response) {
+  expect(response).toBeInstanceOf(Response);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(response.headers.get('content-type')).toContain('application/x-ndjson');
+  const text = await response.text();
+  expect(text.endsWith('\n')).toBe(true);
+  const frames = text.trimEnd().split('\n').map(line => JSON.parse(line));
+  expect(frames.pop()).toEqual({ type: 'complete', receipt: expect.objectContaining({ status: 'complete' }) });
+  for (const frame of frames) expect(frame).toStrictEqual({ type: 'record', stage: expect.any(String), value: frame.value });
+  return frames.map(frame => ({ stage: frame.stage as string, value: frame.value as unknown }));
+}
+async function registryRawDenied(response: Response) {
+  expect(response).toBeInstanceOf(Response);
+  expect(response.ok).toBe(false);
+  expect(await response.text()).not.toMatch(/SYNTHETIC_|a-jwt|z-jwt|"type":"record"|"type":"complete"|@example.test/);
+}
+
 async function enroll(registry: Prospective, user: 'a' | 'z', generation = user === 'a' ? 3 : 4, repository = { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' }, lifetimeSeconds = 300) {
   return registry.activateProspectiveRenovate({ installationId: 'dispatcher-install', bucket: 'owner-bucket',
     sessionId: `${user}session01`, sessionGeneration: generation, human: claims(`${user}@example.test`, lifetimeSeconds), accessJwt: `${user}-jwt`, repository });
@@ -138,6 +180,119 @@ async function dispatcherPlan(registry: Prospective, environment: Env, selection
   const host = { ...environment, OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as Env;
   return { plan: plan as never, host };
 }
+
+describe('REQ-OPERATOR-090/091 AC6/7: Registry-native private observation reads', () => {
+  it('exports all 538181 available pre-admission discovery bytes and original nested errors after finalization without an Activity or current registration', () => fixture(async ({ registry, native, environment, selection, state }) => {
+    environment.ENTERPRISE_MODE = 'active';
+    const body = new TextEncoder().encode('SYNTHETIC_PRE_ADMISSION_BODY;'.repeat(20_000)).slice(0, 538181);
+    expect(body.byteLength).toBe(538181);
+    const cause = new TypeError('SYNTHETIC_PRE_ADMISSION_CAUSE', { cause: new Error('SYNTHETIC_DEEPEST_CAUSE') });
+    const original = new Error('SYNTHETIC_PRE_ADMISSION_STREAM_ERROR', { cause });
+    const requests: string[] = [], output: string[] = [];
+    environment.OPERATOR_ACTIVITY = { getByName: () => { throw new Error('No Activity exists for this observation'); } } as never;
+    Object.defineProperty(native, 'exports', { configurable: true, value: { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
+      requests.push(request.url);
+      if (!request.url.includes('/pulls?')) return Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' });
+      let offset = 0;
+      return new Response(new ReadableStream<Uint8Array>({ pull(controller) {
+        if (offset === body.length) { controller.error(original); return; }
+        const part = body.slice(offset, offset + 8192); offset += part.byteLength; controller.enqueue(part);
+      } }, { highWaterMark: 0 }));
+    } }) } });
+    const activation = await registry.activateProspectiveRenovate({ installationId: 'dispatcher-install', scope: 'installation',
+      bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0, human: claims('a@example.test', 3600), accessJwt: 'a-jwt',
+      repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } });
+    if (!activation.ok) throw Error('No activation');
+    let publish!: (receipt: RawCaptureReceipt) => void;
+    const finalized = new Promise<RawCaptureReceipt>(resolve => { publish = resolve; });
+    const log = vi.spyOn(console, 'log').mockImplementation((line: string) => {
+      output.push(line);
+      const record = JSON.parse(line);
+      if (record.message === 'raw-capture-receipt' && record.data.termination === 'failed') publish(record.data);
+    });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+    const auth = registryReadAuth();
+    try {
+      await registry.alarm();
+      const receipt = await finalized;
+      expect(receipt).toMatchObject({ status: 'complete', termination: 'failed' });
+      expect((await native.storage.list({ prefix: 'renovate-admission:' })).size).toBe(0);
+      expect((await native.storage.list({ prefix: 'management-admission:' })).size).toBe(0);
+      // Historical locator provenance, not mutable registration/selection or logging settings, owns the read.
+      await native.storage.delete(`renovate-registration:${activation.registrationId}`);
+      (selection as ManagementExecutionSelection).operator.policy.loggingEnabled = false;
+      state.enabled = false; state.sessions.clear();
+      const before = structuredClone(await native.storage.list()), alarm = await native.storage.getAlarm();
+      const users = await environment.KV.list();
+      const network = [...requests];
+      const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
+      const read = (input: NativeRawInput) => runInDurableObject(namespace.get(native.id), () =>
+        (new OperatorRegistry(native, environment) as OperatorRegistry & NativeRawReader)
+          .readOwnerRawCaptures({ email: 'a@example.test', accessJwt: 'a-jwt' }, input));
+      const scope = { kind: 'observation' as const, observationId: receipt.captureId };
+      let cursor: string | undefined;
+      const records: Array<{ stage: string; value: unknown }> = [];
+      do {
+        const page = await registryRawPage(await read({ view: 'discover', scope, cursor }));
+        for (const binding of page.bindings) records.push(...await registryRawExport(await read({
+          view: 'export', scope, cursor, captureId: binding.captureId })));
+        cursor = page.cursor ?? undefined;
+      } while (cursor);
+      expect(records.find(record => record.stage === 'discovery-observation')?.value).toMatchObject({ accessJwt: 'a-jwt' });
+      const chunks = records.filter(record => record.stage === 'discovery-response-chunk'
+        && (record.value as { url: string }).url.includes('/pulls?'));
+      const captured = Uint8Array.from(chunks.flatMap(record => (record.value as { bytes: number[] }).bytes));
+      expect(captured).toEqual(body);
+      const failure = records.find(record => record.stage === 'discovery-response-error'
+        && (record.value as { error?: { message: string } }).error?.message === original.message)?.value;
+      expect(failure).toMatchObject({ error: { name: original.name, message: original.message, stack: original.stack,
+        cause: { name: cause.name, message: cause.message, stack: cause.stack,
+          cause: { message: 'SYNTHETIC_DEEPEST_CAUSE', stack: (cause.cause as Error).stack } } } });
+      expect(await native.storage.list()).toEqual(before);
+      expect(await native.storage.getAlarm()).toBe(alarm);
+      expect(requests).toEqual(network);
+      expect(await environment.KV.list()).toEqual(users);
+      expect(JSON.stringify([...before])).not.toMatch(/SYNTHETIC_PRE_ADMISSION_|SYNTHETIC_DEEPEST_CAUSE/);
+      expect(output.join('\n')).not.toMatch(/SYNTHETIC_PRE_ADMISSION_|SYNTHETIC_DEEPEST_CAUSE|a-jwt/);
+    } finally { auth.mockRestore(); clock.mockRestore(); log.mockRestore(); }
+  }));
+
+  it.each(['foreign-owner', 'forged-email', 'unsigned-admin', 'revoked', 'non-admin', 'scope', 'capture', 'page', 'corrupt'] as const)(
+    'native Registry %s read is generic non-success without private output or mutation', fault => fixture(async ({ native, environment, state }) => {
+      environment.ENTERPRISE_MODE = 'active';
+      const owner = new OperatorRegistry(native, environment);
+      const binding: RawCaptureBinding = { ownerKey: await operatorOwnerKey(claims('a@example.test')),
+        installationId: 'dispatcher-install', releaseId: 'original-release', captureId: 'registry-private-capture',
+        scope: { kind: 'observation', observationId: 'registry-private-observation' } };
+      expect(await owner.retainRawObservation({ binding, records: [{ stage: 'private-native-read-fixture',
+        value: { password: 'SYNTHETIC_REGISTRY_PRIVATE_PASSWORD', error: 'SYNTHETIC_REGISTRY_PRIVATE_ERROR' } }],
+      termination: 'failed', failed: false })).toMatchObject({ status: 'complete' });
+      const auth = registryReadAuth();
+      try {
+        const credential = fault === 'foreign-owner' ? { email: 'z@example.test', accessJwt: 'z-jwt' }
+          : fault === 'forged-email' ? { email: 'a@example.test', accessJwt: 'z-jwt' }
+          : fault === 'unsigned-admin' ? { email: 'a@example.test', accessJwt: 'UNSIGNED_ADMIN', role: 'admin', ownerKey: binding.ownerKey, human: true }
+          : { email: 'a@example.test', accessJwt: 'a-jwt' };
+        if (fault === 'revoked') state.revoked.add('a-jwt');
+        if (fault === 'non-admin') state.roles.set('a@example.test', 'user');
+        if (fault === 'corrupt') {
+          const entries = await native.storage.list({ prefix: 'operator-raw:' });
+          const segment = [...entries.keys()].find(key => key.includes('/segment-'));
+          expect(segment).toBeDefined();
+          await native.storage.put(segment!, 'v1:AAAA');
+        }
+        const before = structuredClone(await native.storage.list()), alarm = await native.storage.getAlarm();
+        const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
+        const scope = fault === 'scope' ? { kind: 'observation' as const, observationId: 'foreign-observation' } : binding.scope;
+        const response = await runInDurableObject(namespace.get(native.id), () => (owner as OperatorRegistry & NativeRawReader)
+          .readOwnerRawCaptures(credential, { view: 'export', scope,
+            captureId: fault === 'capture' ? 'foreign-capture' : binding.captureId, ...(fault === 'page' ? { cursor: 'f'.repeat(64) } : {}) }));
+        await registryRawDenied(response);
+        expect(await native.storage.list()).toEqual(before);
+        expect(await native.storage.getAlarm()).toBe(alarm);
+      } finally { auth.mockRestore(); }
+    }));
+});
 
 describe('REQ-OPERATOR-061: durable prospective activation and admission', () => {
   it('REQ-OPERATOR-045/047/061: finite live transport grants exactly one prospective decision, not cached authority', () => fixture(async ({ registry, environment, selection }) => {
@@ -1983,6 +2138,42 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             }
             return records;
           });
+          if (reconciliation === 'prepared' && diagnostics === 'on' && !loggingPolicy) {
+            // Existing real Actor retirement fixture relays data into Registry storage.
+            // Supplement (do not replace) its full 31-case reconciliation assertions with public native reads.
+            environment.ENTERPRISE_MODE = 'active';
+            const auth = registryReadAuth();
+            try {
+              const beforeRegistry = await inRegistry(async () => structuredClone(await native.storage.list()));
+              const beforeActivity = await inActivity(async () => structuredClone(await activityNative.storage.list()));
+              const registryAlarm = await inRegistry(() => native.storage.getAlarm());
+              const activityAlarm = await inActivity(() => activityNative.storage.getAlarm());
+              const network = structuredClone(transport.networkRequests);
+              const credential = { email: consent.human.email, accessJwt: consent.accessJwt };
+              const scope = observation.binding.scope;
+              const nativeRecords: Array<{ stage: string; value: unknown }> = [];
+              let cursor: string | undefined;
+              do {
+                const page = await registryRawPage(await inRegistry(() => (owner as OperatorRegistry & NativeRawReader)
+                  .readOwnerRawCaptures(credential, { view: 'discover', scope, cursor })));
+                for (const binding of page.bindings) nativeRecords.push(...await registryRawExport(await inRegistry(() =>
+                  (owner as OperatorRegistry & NativeRawReader).readOwnerRawCaptures(credential,
+                    { view: 'export', scope, cursor, captureId: binding.captureId }))));
+                cursor = page.cursor ?? undefined;
+              } while (cursor);
+              expect(nativeRecords).toEqual(protectedRecords);
+              expect(nativeRecords).toContainEqual({ stage: 'activity-retirement-request', value: original });
+              expect(nativeRecords.some(record => record.stage === 'activity-retirement-state')).toBe(true);
+              // The real Activity cannot discover the relayed observation from the wrong storage owner.
+              await registryRawDenied(await inActivity(() => (activity as OperatorActivity & NativeRawReader)
+                .readOwnerRawCaptures(credential, { view: 'discover', scope })));
+              expect(await inRegistry(() => native.storage.list())).toEqual(beforeRegistry);
+              expect(await inActivity(() => activityNative.storage.list())).toEqual(beforeActivity);
+              expect(await inRegistry(() => native.storage.getAlarm())).toBe(registryAlarm);
+              expect(await inActivity(() => activityNative.storage.getAlarm())).toBe(activityAlarm);
+              expect(transport.networkRequests).toEqual(network);
+            } finally { auth.mockRestore(); }
+          }
           if (!observation.loggingEnabled || diagnostics === 'foreign-scope') expect(protectedRecords).toEqual([]);
           else {
             expect(protectedRecords).toContainEqual({ stage: 'registry-reservation-request', value: target });

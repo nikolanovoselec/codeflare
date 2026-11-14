@@ -1,6 +1,7 @@
 import { parseRenovateRunSettings, prospectiveRenovatePackageSupported } from '../operators/renovate-run-settings';
 import { resolveProspectiveRenovateRepository } from '../operators/renovate-prospective';
 import type { RawCapture, RawCaptureBinding, RawCaptureReceipt } from '../operators/raw-capture-storage';
+import { requireOwnerRawReader, type OwnerRawReadCredential, type OwnerRawReadRequest } from '../operators/raw-capture-read';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 /** Authenticated browser adapter for owner-scoped operator activity projections. */
 import { Hono, type Context } from 'hono';
@@ -34,6 +35,13 @@ const app = new Hono<ActivityRouteEnv>();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const startBody = z.strictObject({ capability: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/) });
 const readBody = z.strictObject({ through: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) });
+const rawReadSelectors = { cursor: z.string().regex(/^[a-f0-9]{64}$/).optional(), captureId: identifier.optional() };
+const rawReadQuery = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('observation'), observationId: identifier, ...rawReadSelectors }),
+  z.strictObject({ kind: z.literal('activity'), activityId: identifier,
+    generation: z.string().regex(/^[1-9][0-9]*$/).transform(Number).pipe(z.number().int().positive().safe()),
+    ...rawReadSelectors }),
+]);
 const publicationBody = z.strictObject({ sessionId: identifier,
   sessionGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) });
 const prospectiveBody = z.union([z.strictObject({ installationId: identifier, revision: z.number().int().positive().safe() }),
@@ -360,6 +368,36 @@ async function handleBrowserDetail(c: Context<ActivityRouteEnv>, resultOnly: boo
     || receiptAfter >= detail.effectReceipts.journalCount)) return invalidCursor();
   return detail ? c.json({ ...detail, updatedAt: new Date(detail.updatedAt).toISOString() }) : c.notFound();
 }
+/** Private read-only adapter: native owner DOs authenticate again and own archive verification. */
+async function handleOwnerRawRead(c: Context<ActivityRouteEnv>, view: OwnerRawReadRequest['view']) {
+  const invalid = () => c.json({ code: 'INVALID_RAW_CAPTURE_REQUEST' }, 400);
+  const authority = c.get('operatorHuman');
+  const credential: OwnerRawReadCredential = { email: authority.human.email, accessJwt: authority.accessJwt };
+  try {
+    await requireOwnerRawReader(c.env, credential);
+    if (c.req.raw.body !== null || ['x-operator-owner-key', 'x-operator-owner', 'x-operator-human',
+      'x-operator-role', 'x-operator-installation-id', 'x-operator-release-id'].some(header => c.req.raw.headers.has(header))) return invalid();
+    const query = new URL(c.req.url).searchParams;
+    if ([...query.keys()].some(key => query.getAll(key).length !== 1)) return invalid();
+    const parsed = rawReadQuery.safeParse(Object.fromEntries(query));
+    if (!parsed.success || (view === 'export') !== (parsed.data.captureId !== undefined)) return invalid();
+    const { cursor, captureId, ...scope } = parsed.data;
+    const request: OwnerRawReadRequest = { view, scope,
+      ...(cursor === undefined ? {} : { cursor }), ...(captureId === undefined ? {} : { captureId }) };
+    const response = await (scope.kind === 'observation' ? c.get('registry')
+      : c.env.OPERATOR_ACTIVITY!.getByName(scope.activityId)).readOwnerRawCaptures(credential, request);
+    // Preserve the native body stream, including read rejection and its final verified receipt.
+    const result = new Response(response.body, response);
+    result.headers.set('Cache-Control', 'no-store');
+    return result;
+  } catch (error) {
+    const status = error instanceof AppError && (error.statusCode === 401 || error.statusCode === 403) ? error.statusCode : 503;
+    return c.json({ code: 'RAW_CAPTURE_UNAVAILABLE' }, status);
+  }
+}
+app.get('/diagnostics/v2/raw', c => handleOwnerRawRead(c, 'discover'));
+app.get('/diagnostics/v2/raw/export', c => handleOwnerRawRead(c, 'export'));
+
 app.get('/:activityId', c => handleBrowserDetail(c, false));
 app.get('/:activityId/result', c => handleBrowserDetail(c, true));
 app.get('/:activityId/diagnostics', async c => {

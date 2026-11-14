@@ -8,6 +8,67 @@ import { createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures } fro
 import { OperatorOwnerInferenceAuthority } from '../../operators/dispatcher-owner-inference';
 import { OperatorDispatcherCapability } from '../../operators/activity';
 import type { InferenceArchiveBinding } from '../../lib/inference-archive-capability';
+import * as access from '../../lib/access';
+import { createMockKV } from '../helpers/mock-kv';
+import type { RawCaptureBinding, RawCaptureReceipt } from '../../operators/raw-capture-storage';
+
+type OwnerRawInput = { view: 'discover' | 'export'; scope: RawCaptureBinding['scope']; cursor?: string; captureId?: string };
+type OwnerRawReader = { readOwnerRawCaptures(credential: { email: string; accessJwt: string }, input: OwnerRawInput): Promise<Response> };
+type OwnerRawPage = { status: 'complete'; bindings: RawCaptureBinding[]; cursor: string | null };
+const ownerCredential = { email: 'owner@example.test', accessJwt: 'PRIVATE_RAW_OWNER_JWT' };
+
+// Reuse diagnosticsBrowser's existing requireOperatorHumanContext seam. JWT signature,
+// issuer, audience and principal validation are covered by lib/jwt.test.ts and access tests.
+// Here a token fixes the signed principal: changing email/owner/role cannot mint one.
+function ownerReadAuth(f: DispatcherFixture) {
+  const kv = createMockKV();
+  kv._set('user:owner@example.test', { role: 'admin' });
+  kv._set('user:foreign@example.test', { role: 'admin' });
+  f.environment.KV = kv as unknown as KVNamespace;
+  const human = vi.spyOn(access, 'requireOperatorHumanContext').mockImplementation(async (request, _environment, email) => {
+    const accessJwt = request.headers.get('cf-access-jwt-assertion') ?? '';
+    const signedEmail = accessJwt === ownerCredential.accessJwt ? ownerCredential.email
+      : accessJwt === 'PRIVATE_RAW_FOREIGN_JWT' ? 'foreign@example.test' : null;
+    if (!signedEmail || signedEmail !== email) throw new Error('Authentication rejected');
+    return { human: { subject: signedEmail === ownerCredential.email ? 'owner' : 'foreign', email: signedEmail,
+      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 1,
+      expiresAt: Math.floor(Date.now() / 1000) + 600 }, accessJwt };
+  });
+  return { kv, restore: () => human.mockRestore() };
+}
+const activityScope = (f: DispatcherFixture, generation = 1): RawCaptureBinding['scope'] =>
+  ({ kind: 'activity', activityId: f.activityId, generation });
+const nativeOwnerRead = (f: DispatcherFixture, input: OwnerRawInput, credential = ownerCredential) =>
+  f.inOwnContext(() => (f.activity as typeof f.activity & OwnerRawReader).readOwnerRawCaptures(credential, input));
+async function ownerPage(response: Response): Promise<OwnerRawPage> {
+  expect(response).toBeInstanceOf(Response);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  const page = await response.json() as OwnerRawPage;
+  expect(page).toEqual({ status: 'complete', bindings: expect.any(Array), cursor: page.cursor });
+  if (page.cursor !== null) expect(page.cursor).toMatch(/^[a-f0-9]{64}$/);
+  return page;
+}
+async function ownerExport(response: Response) {
+  expect(response).toBeInstanceOf(Response);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(response.headers.get('content-type')).toContain('application/x-ndjson');
+  const text = await response.text();
+  expect(text.endsWith('\n')).toBe(true);
+  const frames = text.trimEnd().split('\n').map(line => JSON.parse(line));
+  const last = frames.pop();
+  expect(last).toEqual({ type: 'complete', receipt: expect.objectContaining({ status: 'complete' }) });
+  for (const frame of frames) expect(frame).toStrictEqual({ type: 'record', stage: expect.any(String), value: frame.value });
+  return { records: frames.map(frame => ({ stage: frame.stage as string, value: frame.value as unknown })),
+    receipt: last.receipt as RawCaptureReceipt };
+}
+async function rawDenied(response: Response) {
+  expect(response).toBeInstanceOf(Response);
+  expect(response.ok).toBe(false);
+  const text = await response.text();
+  expect(text).not.toMatch(/SYNTHETIC_|PRIVATE_RAW_|"type":"record"|"type":"complete"|owner@example|foreign@example/);
+}
 
 const options = { normalHosting: true, repositoryOnly: true };
 const captureId = 'sdk-raw-capture-1';
@@ -355,6 +416,20 @@ describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention
       const host = archives.filter(archive => archive.records.some(record => record.stage === 'configured-owner-observations'));
       expect(host).toHaveLength(1);
       expect(host[0]).toMatchObject({ status: 'complete', records: [{ stage: 'configured-owner-observations', value }] });
+      const auth = ownerReadAuth(f);
+      try {
+        const before = await persistedState(f), alarm = await f.nextAlarm();
+        const network = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
+        const page = await ownerPage(await nativeOwnerRead(f, { view: 'discover', scope: activityScope(f) }));
+        const exported: Array<{ stage: string; value: unknown }> = [];
+        for (const binding of page.bindings) exported.push(...(await ownerExport(await nativeOwnerRead(f,
+          { view: 'export', scope: activityScope(f), captureId: binding.captureId }))).records);
+        expect(exported).toContainEqual({ stage: 'configured-owner-observations', value });
+        expect(await persistedState(f)).toEqual(before);
+        expect(await f.nextAlarm()).toBe(alarm);
+        expect(f.normalTransport!.networkRequests).toEqual(network);
+        expect(f.ownerPortRequests).toEqual(profiles);
+      } finally { auth.restore(); }
     } finally { log.mockRestore(); }
   }, options));
 
@@ -507,6 +582,260 @@ describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention
     for (const [key, value] of before) expect(after.get(key)).toEqual(value);
     expect(f.normalTransport!.networkRequests).toEqual(network);
   }, options));
+
+  it('REQ-OPERATOR-091 AC6/7: native owner Response exports every authenticated SDK byte after current OFF and generation advance without renewing execution', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const auth = ownerReadAuth(f);
+    const output: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((line: unknown) => { output.push(String(line)); });
+    try {
+      const content = payload(), bytes = new TextEncoder().encode(JSON.stringify(content));
+      expect(bytes.byteLength).toBeGreaterThan(256 * 1024);
+      expect((await f.installationCapability.fetch(upload(f, content))).status).toBe(200);
+      await f.drainBackground();
+      f.setCurrentLogging(false); f.expire();
+      // Read history, not a lease/current-generation/deadline grant. Preserve the original receipt.
+      let originalLease: unknown, originalAdmission: unknown;
+      await f.mutateEvidence(async storage => {
+        originalLease = await storage.get('dispatcher:lease');
+        originalAdmission = await storage.get('admission');
+        const admission = originalAdmission as { drive: Record<string, unknown> };
+        await storage.put('dispatcher:lease', { ...originalLease as object, generation: 2 });
+        await storage.put('admission', { ...admission, drive: { ...admission.drive, generation: 2 } });
+      });
+      try {
+        const before = await persistedState(f), alarm = await f.nextAlarm();
+        const users = [...auth.kv._store];
+        const network = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
+        const page = await ownerPage(await nativeOwnerRead(f, { view: 'discover', scope: activityScope(f), cursor: '0'.repeat(64) }));
+        const binding = page.bindings.find(value => value.captureId === captureId);
+        expect(binding).toEqual({ ownerKey: f.proof.ownerKey, installationId: 'installation', releaseId: 'release',
+          captureId, scope: activityScope(f) });
+        // Only the ID from scoped discovery crosses the public read boundary, not a full binding/storage callback.
+        const archive = await ownerExport(await nativeOwnerRead(f, { view: 'export', scope: activityScope(f),
+          cursor: '0'.repeat(64), captureId: binding!.captureId }));
+        expect(recovered(archive.records)).toEqual(bytes);
+        expect(JSON.parse(new TextDecoder().decode(recovered(archive.records)))).toEqual(content);
+        expect(archive.receipt).toMatchObject({ status: 'complete', captureId, termination: 'eof' });
+        expect(archive.records.find(record => record.stage === 'installed-sdk-eof')?.value).toMatchObject({ bytes: bytes.byteLength });
+        expect(await persistedState(f)).toEqual(before);
+        expect(await f.nextAlarm()).toBe(alarm);
+        expect(f.normalTransport!.networkRequests).toEqual(network);
+        expect(f.ownerPortRequests).toEqual(profiles);
+        expect([...auth.kv._store]).toEqual(users);
+        expect(JSON.stringify([...before])).not.toMatch(/SYNTHETIC_RAW_PASSWORD|SYNTHETIC_RAW_TOKEN|SYNTHETIC_THROW_SITE/);
+        expect(output.join('\n')).not.toMatch(/SYNTHETIC_RAW_PASSWORD|SYNTHETIC_RAW_TOKEN|SYNTHETIC_THROW_SITE/);
+      } finally {
+        await f.mutateEvidence(async storage => {
+          await storage.put('admission', originalAdmission);
+          await storage.put('dispatcher:lease', originalLease);
+        });
+      }
+    } finally { log.mockRestore(); auth.restore(); }
+  }, options));
+
+  it.each(['revoked-session', 'lost-admin', 'expired-reader', 'replaced-owner'] as const)(
+    'REQ-OPERATOR-091 AC7: native export cannot seal completion after %s while its Response is backpressured', fault => fixture(async f => {
+      await start(f); await f.drainBackground();
+      expect((await f.installationCapability.fetch(upload(f))).status).toBe(200);
+      const auth = ownerReadAuth(f);
+      let originalAdmission: unknown;
+      try {
+        const response = await nativeOwnerRead(f, { view: 'export', scope: activityScope(f), captureId });
+        expect(response.status).toBe(200);
+        expect(response.body).not.toBeNull();
+        if (fault === 'revoked-session') f.revokeSession();
+        if (fault === 'lost-admin') auth.kv._set('user:owner@example.test', { role: 'user' });
+        if (fault === 'expired-reader') f.advanceClock(660_000);
+        if (fault === 'replaced-owner') await f.mutateEvidence(async storage => {
+          originalAdmission = await storage.get('admission');
+          await storage.put('admission', { ...originalAdmission as object, ownerKey: 'f'.repeat(64) });
+        });
+        const before = await persistedState(f), alarm = await f.nextAlarm();
+        const network = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
+        const reader = response.body!.getReader(), decoder = new TextDecoder();
+        let text = '';
+        try {
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            text += decoder.decode(chunk.value, { stream: true });
+          }
+        } catch { /* An errored private stream is not a completed export. */ }
+        finally { reader.releaseLock(); }
+        text += decoder.decode();
+        // Local guards must deny delivery itself, not merely omit the footer, after role/expiry/owner changes.
+        if (fault !== 'revoked-session') expect(text).toBe('');
+        // The NDJSON completion frame, not HTTP headers or a partial prefix, certifies the full export.
+        expect(text.split('\n').filter(Boolean).some(line => {
+          try { return JSON.parse(line).type === 'complete'; } catch { return false; }
+        })).toBe(false);
+        expect(await persistedState(f)).toEqual(before);
+        expect(await f.nextAlarm()).toBe(alarm);
+        expect(f.normalTransport!.networkRequests).toEqual(network);
+        expect(f.ownerPortRequests).toEqual(profiles);
+      } finally {
+        if (originalAdmission !== undefined) await f.mutateEvidence(storage => storage.put('admission', originalAdmission));
+        auth.restore();
+      }
+    }, options));
+
+  it('REQ-OPERATOR-091 AC6: reads an original zero-controls-revision archive without changing retained work', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const content = { stage: 'original-zero-controls', value: { text: '秘密🦊' } };
+    expect((await f.installationCapability.fetch(upload(f, content))).status).toBe(200);
+    const auth = ownerReadAuth(f);
+    let original: unknown;
+    try {
+      await f.mutateEvidence(async storage => {
+        original = await storage.get('admission');
+        const state = structuredClone(original) as { intent: { expectedControlsRevision: number };
+          receipt: { expectedControlsRevision: number; selection: { controlsRevision: number } } };
+        state.intent.expectedControlsRevision = 0;
+        state.receipt.expectedControlsRevision = 0;
+        state.receipt.selection.controlsRevision = 0;
+        await storage.put('admission', state);
+      });
+      const before = await persistedState(f), alarm = await f.nextAlarm();
+      const network = structuredClone(f.normalTransport!.networkRequests);
+      const archive = await ownerExport(await nativeOwnerRead(f, { view: 'export', scope: activityScope(f), captureId }));
+      expect(JSON.parse(new TextDecoder().decode(recovered(archive.records)))).toEqual(content);
+      expect(await persistedState(f)).toEqual(before);
+      expect(await f.nextAlarm()).toBe(alarm);
+      expect(f.normalTransport!.networkRequests).toEqual(network);
+    } finally {
+      await f.mutateEvidence(storage => storage.put('admission', original));
+      auth.restore();
+    }
+  }, options));
+
+  it.each(['foreign-owner', 'forged-email', 'unsigned-admin', 'missing-credential', 'revoked-session', 'non-admin'] as const)(
+    'REQ-OPERATOR-090/091: native owner read refuses %s without private partial data or work', fault => fixture(async f => {
+      await start(f); await f.drainBackground();
+      expect((await f.installationCapability.fetch(upload(f))).status).toBe(200);
+      const auth = ownerReadAuth(f);
+      try {
+        const credential = fault === 'foreign-owner' ? { email: 'foreign@example.test', accessJwt: 'PRIVATE_RAW_FOREIGN_JWT' }
+          : fault === 'forged-email' ? { email: 'owner@example.test', accessJwt: 'PRIVATE_RAW_FOREIGN_JWT' }
+          : fault === 'unsigned-admin' ? { ...ownerCredential, accessJwt: 'UNSIGNED_ADMIN', ownerKey: f.proof.ownerKey, role: 'admin', human: true }
+          : fault === 'missing-credential' ? { ...ownerCredential, accessJwt: '' } : ownerCredential;
+        if (fault === 'revoked-session') f.revokeSession();
+        if (fault === 'non-admin') auth.kv._set('user:owner@example.test', { role: 'user' });
+        const before = await persistedState(f), alarm = await f.nextAlarm();
+        const network = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
+        for (const view of ['discover', 'export'] as const) await rawDenied(await nativeOwnerRead(f,
+          { view, scope: activityScope(f), ...(view === 'export' ? { captureId } : {}) }, credential));
+        expect(await persistedState(f)).toEqual(before);
+        expect(await f.nextAlarm()).toBe(alarm);
+        expect(f.normalTransport!.networkRequests).toEqual(network);
+        expect(f.ownerPortRequests).toEqual(profiles);
+      } finally { auth.restore(); }
+    }, options));
+
+  it.each(['activity', 'generation', 'observation', 'capture', 'malformed-capture', 'cursor', 'malformed-cursor'] as const)(
+    'REQ-OPERATOR-091 AC6/7: native export cannot resolve another %s or a capture outside its discovery page', fault => fixture(async f => {
+      await start(f); await f.drainBackground();
+      expect((await f.installationCapability.fetch(upload(f))).status).toBe(200);
+      const auth = ownerReadAuth(f);
+      try {
+        const page = await ownerPage(await nativeOwnerRead(f, { view: 'discover', scope: activityScope(f) }));
+        expect(page.bindings.some(binding => binding.captureId === captureId)).toBe(true);
+        const input: OwnerRawInput = { view: 'export', scope: activityScope(f), captureId };
+        if (fault === 'activity') input.scope = { kind: 'activity', activityId: 'foreign-activity', generation: 1 };
+        if (fault === 'generation') input.scope = activityScope(f, 2);
+        if (fault === 'observation') input.scope = { kind: 'observation', observationId: f.activityId };
+        if (fault === 'capture') input.captureId = 'foreign-capture';
+        if (fault === 'malformed-capture') input.captureId = '../foreign/capture';
+        if (fault === 'cursor') input.cursor = 'f'.repeat(64); // After every capture on this scope's page.
+        if (fault === 'malformed-cursor') input.cursor = 'not-a-native-cursor';
+        const before = await persistedState(f), alarm = await f.nextAlarm();
+        const network = structuredClone(f.normalTransport!.networkRequests);
+        await rawDenied(await nativeOwnerRead(f, input));
+        // Native cursors work in both views; discovery isn't a whole-run certificate.
+        const end = await ownerPage(await nativeOwnerRead(f, { view: 'discover', scope: activityScope(f), cursor: 'f'.repeat(64) }));
+        expect(end.bindings).toEqual([]);
+        expect(end.cursor).toBeNull();
+        expect(await persistedState(f)).toEqual(before);
+        expect(await f.nextAlarm()).toBe(alarm);
+        expect(f.normalTransport!.networkRequests).toEqual(network);
+      } finally { auth.restore(); }
+    }, options));
+
+  it('REQ-OPERATOR-091 AC6/7: native owner read cannot materialize original OFF history after current ON', () => fixture(async f => {
+    await start(f); await f.drainBackground(); f.setCurrentLogging(true);
+    expect((await f.installationCapability.fetch(upload(f))).status).toBe(204);
+    const auth = ownerReadAuth(f);
+    try {
+      const before = await persistedState(f), alarm = await f.nextAlarm();
+      const network = structuredClone(f.normalTransport!.networkRequests);
+      await rawDenied(await nativeOwnerRead(f, { view: 'discover', scope: activityScope(f) }));
+      await rawDenied(await nativeOwnerRead(f, { view: 'export', scope: activityScope(f), captureId }));
+      expect(await persistedState(f)).toEqual(before);
+      expect(await f.nextAlarm()).toBe(alarm);
+      expect(f.normalTransport!.networkRequests).toEqual(network);
+    } finally { auth.restore(); }
+  }, { ...options, loggingEnabled: false }));
+
+  it.each(['receipt', 'owner', 'activity', 'installation', 'release'] as const)(
+    'REQ-OPERATOR-091 AC6/7: native owner read checks actual retained %s binding rather than caller claims', fault => fixture(async f => {
+      await start(f); await f.drainBackground();
+      expect((await f.installationCapability.fetch(upload(f))).status).toBe(200);
+      const auth = ownerReadAuth(f);
+      let original: unknown;
+      try {
+        await f.mutateEvidence(async storage => {
+          original = await storage.get('admission');
+          const state = structuredClone(original) as { ownerKey: string; intent: { activityId: string };
+            receipt?: { selection: { installation: { id: string }; release: { id: string } } } };
+          if (fault === 'receipt') delete state.receipt;
+          if (fault === 'owner') state.ownerKey = 'f'.repeat(64);
+          if (fault === 'activity') state.intent.activityId = 'foreign-activity';
+          if (fault === 'installation') state.receipt!.selection.installation.id = 'foreign-installation';
+          if (fault === 'release') state.receipt!.selection.release.id = 'foreign-release';
+          await storage.put('admission', state);
+        });
+        const before = await persistedState(f), alarm = await f.nextAlarm();
+        const network = structuredClone(f.normalTransport!.networkRequests);
+        await rawDenied(await nativeOwnerRead(f, { view: 'discover', scope: activityScope(f) }));
+        await rawDenied(await nativeOwnerRead(f, { view: 'export', scope: activityScope(f), captureId }));
+        expect(await persistedState(f)).toEqual(before);
+        expect(await f.nextAlarm()).toBe(alarm);
+        expect(f.normalTransport!.networkRequests).toEqual(network);
+      } finally {
+        await f.mutateEvidence(storage => storage.put('admission', original));
+        auth.restore();
+      }
+    }, options));
+
+  it.each(['missing', 'locator', 'segment', 'receipt', 'incomplete'] as const)(
+    'REQ-OPERATOR-091 AC6/7: %s private SDK archive never produces a native success or partial private response', fault => fixture(async f => {
+      await start(f); await f.drainBackground();
+      if (fault !== 'missing') expect((await f.installationCapability.fetch(upload(f))).status).toBe(200);
+      const auth = ownerReadAuth(f);
+      try {
+        if (fault !== 'missing') await f.mutateEvidence(async storage => {
+          const context = JSON.stringify(['codeflare-operator-raw-v1', f.proof.ownerKey, 'installation', 'release',
+            captureId, 'activity', f.activityId, 1]);
+          const prefix = `operator-raw:v1:${Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(context))).toString('hex')}/`;
+          const indexContext = JSON.stringify(['codeflare-operator-raw-index-v1', f.proof.ownerKey, 'activity', f.activityId, 1]);
+          const indexPrefix = `operator-raw-index:v1:${Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(indexContext))).toString('hex')}/`;
+          // Existing encrypted v1 artifact coordinates, also used by the incremental-upload fixture above.
+          const entries = await storage.list<string>({ prefix: fault === 'locator' ? indexPrefix : prefix });
+          const name = [...entries.keys()].find(key => fault === 'locator' ? key.endsWith(prefix.slice('operator-raw:v1:'.length, -1))
+            : fault === 'segment' ? key.includes('/segment-') : key.endsWith('/receipt'));
+          expect(name).toBeDefined();
+          if (fault === 'incomplete') await storage.delete(name!);
+          else await storage.put(name!, 'v1:AAAA');
+        });
+        const before = await persistedState(f), alarm = await f.nextAlarm();
+        const network = structuredClone(f.normalTransport!.networkRequests);
+        await rawDenied(await nativeOwnerRead(f, { view: 'export', scope: activityScope(f), captureId }));
+        if (fault === 'locator') await rawDenied(await nativeOwnerRead(f, { view: 'discover', scope: activityScope(f) }));
+        expect(await persistedState(f)).toEqual(before);
+        expect(await f.nextAlarm()).toBe(alarm);
+        expect(f.normalTransport!.networkRequests).toEqual(network);
+      } finally { auth.restore(); }
+    }, options));
 
   it('native retention failure cannot mutate original business state or claim a complete capture', () => fixture(async f => {
     await start(f); await f.drainBackground();

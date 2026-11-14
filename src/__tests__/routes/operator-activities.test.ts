@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';
@@ -5,13 +6,14 @@ import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import routes from '../../routes/operator-activities';
 import { operatorOwnerKey } from '../../operators/browser-activity';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 
 const claims = {
   subject: 'owner-subject', email: 'owner@example.test', issuer: 'https://route-identity.cloudflareaccess.com',
   audiences: ['account-audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
   expiresAt: Math.floor(Date.now() / 1000) + 300,
 };
-const accessState = vi.hoisted(() => ({ active: true, realIdentity: false }));
+const accessState = vi.hoisted(() => ({ active: true, realIdentity: false, adminGroups: [] as string[] }));
 vi.mock('../../lib/access', async importOriginal => {
   const actual = await importOriginal<typeof import('../../lib/access')>();
   return { ...actual,
@@ -20,6 +22,7 @@ vi.mock('../../lib/access', async importOriginal => {
       return { human: claims, accessJwt: 'private.access.jwt' };
     },
     operatorAccessSessionCurrent: async () => accessState.active,
+    resolveAdminAccessGroup: async () => accessState.adminGroups,
     resolveOperatorGroupIdentity: async (human: Parameters<typeof actual.resolveOperatorGroupIdentity>[0], accessJwt: string) =>
       accessState.realIdentity ? actual.resolveOperatorGroupIdentity(human, accessJwt) : human,
     authenticateRequest: async (_request: Request, bindings: Env) => {
@@ -88,18 +91,21 @@ function fixture() {
   let githubTransport: (request: Request) => Promise<Response> = async () => Response.json({
     id: 424242, full_name: 'acme/updates', default_branch: 'trunk' });
   const setGithub = (handler: typeof githubTransport) => { githubTransport = handler; };
-  const request = (path = '', method = 'GET', body?: unknown, csrf = true, bindings: Env = env) => app.request(
+  const request = (path = '', method = 'GET', body?: unknown, csrf = true, bindings: Env = env,
+    headers: Record<string, string> = {}) => app.request(
     `https://enterprise.example.test/api/operator-activities${path}`,
     { method, headers: {
       'content-type': 'application/json', 'cf-access-authenticated-user-email': claims.email,
-      ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}),
+      ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}), ...headers,
     }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, bindings,
     { waitUntil, passThroughOnException: vi.fn(), props: {}, exports: { OperatorRuntimeCapability: loopback, GitHubInterceptor: () => ({ fetch: (request: Request) => githubTransport(request) }) } },
   );
-  return { activity, registry, env, kv, request, waitUntil, loopback, setGithub };
+  return { activity, registry, env, kv, app, request, waitUntil, loopback, setGithub };
 }
 
-beforeEach(() => { vi.clearAllMocks(); accessState.active = true; accessState.realIdentity = false; });
+beforeEach(() => {
+  vi.clearAllMocks(); accessState.active = true; accessState.realIdentity = false; accessState.adminGroups = [];
+});
 
 describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () => {
   it('REQ-OPERATOR-027: retired private failure inspection returns 404 for the approved owner', async () => {
@@ -728,3 +734,367 @@ describe('REQ-OPERATOR-081: v2 owner HTTP boundary', () => {
     });
 });
 
+
+// REQ-OPERATOR-091 AC6/7: this suite owns the HTTP/RPC wire and streaming adapter,
+// not archive verification. Storage and native DO suites prove persisted reconstruction.
+describe('REQ-OPERATOR-091: private original-owner administrator raw read adapter', () => {
+  const rawPath = '/diagnostics/v2/raw';
+  const cursor = 'a'.repeat(64);
+  const secret = 'PRIVATE_RAW_CANARY /private/archive/token';
+  const observation = { kind: 'observation' as const, observationId: 'observation-1' };
+  const activityScope = { kind: 'activity' as const, activityId: 'activity-1', generation: 3 };
+  type RawReadRequest = {
+    view: 'discover' | 'export'; scope: typeof observation | typeof activityScope;
+    cursor?: string; captureId?: string;
+  };
+  type Credential = { email: string; accessJwt: string };
+  type Reader = (credential: Credential, request: RawReadRequest) => Promise<Response>;
+  const targets = [
+    { backend: 'registry' as const, scope: observation, query: 'kind=observation&observationId=observation-1' },
+    { backend: 'activity' as const, scope: activityScope, query: 'kind=activity&activityId=activity-1&generation=3' },
+  ];
+  const views = [
+    { view: 'discover' as const, suffix: '', selector: '' },
+    { view: 'export' as const, suffix: '/export', selector: '&captureId=capture-1' },
+  ];
+  const receipt = { status: 'complete', captureId: 'capture-1', records: 1, segments: 1, bytes: 123, termination: 'eof' };
+  const record = { type: 'record', stage: 'owner-response', value: { body: secret } };
+  const exportBody = `${JSON.stringify(record)}\n${JSON.stringify({ type: 'complete', receipt })}\n`;
+
+  async function rawFixture() {
+    const f = fixture();
+    f.kv._set(`user:${claims.email}`, { addedBy: 'setup', addedAt: '2026-01-01T00:00:00Z',
+      role: 'admin', accessTier: 'advanced' });
+    f.kv._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'existing-configured-admin-group');
+    const ownerKey = await operatorOwnerKey(claims);
+    const readers: Record<'registry' | 'activity', Reader> = {
+      registry: async () => new Response(null, { status: 404 }),
+      activity: async () => new Response(null, { status: 404 }),
+    };
+    Object.assign(f.registry, { readOwnerRawCaptures: (credential: Credential, request: RawReadRequest) => readers.registry(credential, request) });
+    Object.assign(f.activity, { readOwnerRawCaptures: (credential: Credential, request: RawReadRequest) => readers.activity(credential, request) });
+    Object.assign(f.env, {
+      OPERATOR_REGISTRY: { getByName: (name: string) => name === 'registry' ? f.registry : undefined },
+      OPERATOR_ACTIVITY: { getByName: (name: string) => name === activityScope.activityId ? f.activity : undefined },
+    });
+    const business = { executionStatus: 'running', result: null as unknown,
+      publicationStatus: 'unpublished', unreadCount: 1 };
+    f.activity.start.mockImplementation(async () => { business.executionStatus = 'queued'; return { ok: true, phase: 'queued' }; });
+    f.activity.cancelDrive.mockImplementation(async () => {
+      business.executionStatus = 'cancel-requested'; return { ok: true, state: { status: 'cancel-requested' } };
+    });
+    f.activity.collectBrowserResult.mockImplementation(async () => {
+      business.result = { report: 'collected' };
+      return { ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } };
+    });
+    f.activity.publishRenovateAssessment.mockImplementation(async () => { business.publicationStatus = 'published'; return { ok: true, phase: 'reserved' }; });
+    f.registry.acknowledgeOwnedActivities.mockImplementation(async () => { business.unreadCount = 0; return { unreadCount: 0 }; });
+    const before = { business: structuredClone(business), users: [...f.kv._store] };
+    const unchanged = () => {
+      expect(business).toEqual(before.business);
+      expect([...f.kv._store]).toEqual(before.users);
+    };
+    // The approved data-only RPC is an intentional wire contract. A mismatched
+    // credential, extra owner authority, view or scope receives no private bytes.
+    const allow = (backend: 'registry' | 'activity', expected: RawReadRequest, reply: () => Response) => {
+      const credential = { email: claims.email, accessJwt: 'private.access.jwt' };
+      readers[backend] = async (receivedCredential, receivedRequest) => {
+        const { cursor: receivedCursor, captureId: receivedCaptureId, ...required } = receivedRequest;
+        const request = { ...required, ...(receivedCursor === undefined ? {} : { cursor: receivedCursor }),
+          ...(receivedCaptureId === undefined ? {} : { captureId: receivedCaptureId }) };
+        return isDeepStrictEqual(receivedCredential, credential) && isDeepStrictEqual(request, expected)
+          ? reply() : new Response(null, { status: 404 });
+      };
+    };
+    const binding = (scope: RawReadRequest['scope']) => ({ ownerKey, scope,
+      installationId: 'installation-1', releaseId: 'release-1', captureId: 'capture-1' });
+    return { ...f, readers, allow, binding, unchanged };
+  }
+
+  async function denied(response: Response, status: number) {
+    expect(response.status).toBe(status);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.text()).not.toMatch(/PRIVATE_RAW_CANARY|private\.access\.jwt|owner-subject|owner@example|Error:|\n\s+at /);
+  }
+
+  it.each(targets)('AC6: $backend discovery dispatches the original-owner scope and returns only one page', async target => {
+    const f = await rawFixture();
+    // Pre-admission observations cannot depend on an Activity ownership index.
+    if (target.backend === 'registry') f.registry.getOwnedActivity.mockRejectedValue(new Error('No admitted Activity exists'));
+    const page = { status: 'complete', bindings: [f.binding(target.scope)], cursor };
+    f.allow(target.backend, { view: 'discover', scope: target.scope }, () => Response.json(page));
+    const response = await f.request(`${rawPath}?${target.query}`, 'GET', undefined, false);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    // 'complete' describes only this locator page, not an archive certificate.
+    expect(await response.json()).toEqual(page);
+    f.unchanged();
+  });
+
+  it.each(targets)('AC6/7: $backend discovery and export pass the same native locator cursor without collecting another page', async target => {
+    const f = await rawFixture();
+    const page = { status: 'complete', bindings: [f.binding(target.scope)], cursor: null };
+    f.allow(target.backend, { view: 'discover', scope: target.scope, cursor }, () => Response.json(page));
+    const discovery = await f.request(`${rawPath}?${target.query}&cursor=${cursor}`);
+    expect(discovery.status).toBe(200);
+    expect(discovery.headers.get('cache-control')).toBe('no-store');
+    expect(await discovery.json()).toEqual(page);
+    f.allow(target.backend, { view: 'export', scope: target.scope, captureId: 'capture-1', cursor },
+      () => new Response(exportBody, { headers: { 'content-type': 'application/x-ndjson' } }));
+    const exported = await f.request(`${rawPath}/export?${target.query}&captureId=capture-1&cursor=${cursor}`);
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get('cache-control')).toBe('no-store');
+    expect(exported.headers.get('content-type')).toBe('application/x-ndjson');
+    expect(await exported.text()).toBe(exportBody);
+    // A target outside the selected page is not recovered by an unbounded scan.
+    f.allow(target.backend, { view: 'export', scope: target.scope, captureId: 'capture-1', cursor },
+      () => new Response(null, { status: 404 }));
+    await denied(await f.request(`${rawPath}/export?${target.query}&captureId=capture-1&cursor=${cursor}`), 404);
+    f.unchanged();
+  });
+
+  it.each([1, Number.MAX_SAFE_INTEGER])('AC6: accepts positive safe generation %s and maximum-length valid selectors', async generation => {
+    const f = await rawFixture();
+    const scope = { ...activityScope, generation };
+    const page = { status: 'complete', bindings: [f.binding(scope)], cursor: null };
+    f.allow('activity', { view: 'discover', scope }, () => Response.json(page));
+    const response = await f.request(`${rawPath}?kind=activity&activityId=activity-1&generation=${generation}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual(page);
+    const longScope = { kind: 'observation' as const, observationId: 'a'.repeat(128) };
+    const captureId = 'c'.repeat(128);
+    const longExport = `${JSON.stringify(record)}\n${JSON.stringify({ type: 'complete', receipt: { ...receipt, captureId } })}\n`;
+    f.allow('registry', { view: 'export', scope: longScope, captureId },
+      () => new Response(longExport, { headers: { 'content-type': 'application/x-ndjson' } }));
+    const exported = await f.request(`${rawPath}/export?kind=observation&observationId=${longScope.observationId}&captureId=${captureId}`);
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get('cache-control')).toBe('no-store');
+    expect(await exported.text()).toBe(longExport);
+    f.unchanged();
+  });
+
+  it.each(targets)('AC6/7: $backend valid empty discovery is a page, but missing export is never empty complete success', async target => {
+    const f = await rawFixture();
+    const empty = { status: 'complete', bindings: [], cursor: null };
+    f.allow(target.backend, { view: 'discover', scope: target.scope }, () => Response.json(empty));
+    const response = await f.request(`${rawPath}?${target.query}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual(empty);
+    f.allow(target.backend, { view: 'export', scope: target.scope, captureId: 'capture-1' },
+      () => Response.json({ code: 'RAW_CAPTURE_UNAVAILABLE' }, { status: 404 }));
+    await denied(await f.request(`${rawPath}/export?${target.query}&captureId=capture-1`), 404);
+    f.unchanged();
+  });
+
+  it.each(views)('AC6: $view denies missing human, inactive Access, nonenterprise and current nonadmin without effects', async view => {
+    const f = await rawFixture();
+    f.allow('registry', { view: view.view, scope: observation, ...(view.view === 'export' ? { captureId: 'capture-1' } : {}) },
+      () => new Response(secret));
+    const path = `${rawPath}${view.suffix}?${targets[0].query}${view.selector}`;
+    await denied(await f.request(path, 'GET', undefined, true, f.env, { 'cf-access-authenticated-user-email': '' }), 401);
+    accessState.active = false;
+    await denied(await f.request(path), 403);
+    accessState.active = true;
+    await denied(await f.request(path, 'GET', undefined, true, { ...f.env, ENTERPRISE_MODE: 'inactive' }), 404);
+    f.unchanged();
+    const admin = f.kv._store.get(`user:${claims.email}`)!;
+    try {
+      for (const record of [{ role: 'user' }, { role: 'Admin' }, { role: 1 }, null]) {
+        f.kv._set(`user:${claims.email}`, record);
+        await denied(await f.request(path), 403);
+        expect(f.kv._store.get(`user:${claims.email}`)).toBe(JSON.stringify(record));
+      }
+      f.kv._store.delete(`user:${claims.email}`);
+      await denied(await f.request(path), 403);
+      expect(f.kv._store.has(`user:${claims.email}`)).toBe(false);
+    } finally { f.kv._store.set(`user:${claims.email}`, admin); }
+    f.unchanged();
+  });
+
+  it('AC6: the existing current admin Access-group grant permits reads and its revocation denies the next request', async () => {
+    const f = await rawFixture();
+    const admin = f.kv._store.get(`user:${claims.email}`)!;
+    try {
+      f.kv._set(`user:${claims.email}`, { addedBy: 'setup', addedAt: '', role: 'user' });
+      const before = [...f.kv._store];
+      const page = { status: 'complete', bindings: [], cursor: null };
+      f.allow('registry', { view: 'discover', scope: observation }, () => Response.json(page));
+      accessState.adminGroups = ['existing-configured-admin-group'];
+      const response = await f.request(`${rawPath}?${targets[0].query}`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toEqual(page);
+      accessState.adminGroups = [];
+      await denied(await f.request(`${rawPath}?${targets[0].query}`), 403);
+      expect([...f.kv._store]).toEqual(before);
+    } finally { f.kv._store.set(`user:${claims.email}`, admin); accessState.adminGroups = []; }
+    f.unchanged();
+  });
+
+  it.each(views)('AC6: $view rejects closed-query violations, duplicates and incompatible selectors', async view => {
+    const f = await rawFixture();
+    const valid = `${targets[0].query}${view.selector}`;
+    const invalid = [
+      '', 'kind=observation', 'kind=activity&activityId=activity-1',
+      'kind=other&observationId=observation-1', 'kind=observation&observationId=',
+      'kind=observation&observationId=bad%2Fid', `kind=observation&observationId=${'a'.repeat(129)}`,
+      'kind=activity&activityId=bad%20id&generation=3',
+      'kind=observation&observationId=observation-1&activityId=activity-1',
+      'kind=observation&observationId=observation-1&generation=3',
+      'kind=activity&activityId=activity-1&generation=3&observationId=observation-1',
+      ...['', '0', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992', '1e3', '+3'].map(generation =>
+        `kind=activity&activityId=activity-1&generation=${encodeURIComponent(generation)}`),
+    ].map(query => `${query}${view.selector}`);
+    invalid.push(...['owner=foreign', 'ownerKey=foreign', 'ownerId=foreign', 'human=foreign', 'role=admin',
+      'installationId=installation-1', 'releaseId=release-1', 'email=foreign@example.test', 'accessJwt=forged',
+      'body=true', 'limit=100', 'sql=SELECT+1', 'unknown=1',
+      'kind=observation', 'observationId=observation-1',
+      'cursor=', 'cursor=not-a-native-locator', `cursor=${'a'.repeat(63)}`, `cursor=${'a'.repeat(65)}`,
+      `cursor=${'A'.repeat(64)}`, `cursor=${cursor}&cursor=${cursor}`].map(extra => `${valid}&${extra}`));
+    invalid.push(`kind=activity&activityId=activity-1&activityId=activity-1&generation=3${view.selector}`,
+      `kind=activity&activityId=activity-1&generation=3&generation=3${view.selector}`);
+    if (view.view === 'discover') invalid.push(`${valid}&captureId=capture-1`);
+    else invalid.push(targets[0].query, `${targets[0].query}&captureId=`,
+      `${targets[0].query}&captureId=bad%2Fid`, `${targets[0].query}&captureId=${'c'.repeat(129)}`,
+      `${valid}&captureId=capture-1`);
+    for (const query of invalid) await denied(await f.request(`${rawPath}${view.suffix}?${query}`), 400);
+    f.unchanged();
+  });
+
+  it.each(views)('AC6: $view rejects forged authority headers and any GET body', async view => {
+    const f = await rawFixture();
+    const path = `${rawPath}${view.suffix}?${targets[0].query}${view.selector}`;
+    for (const header of ['x-operator-owner-key', 'x-operator-owner', 'x-operator-human',
+      'x-operator-role', 'x-operator-installation-id', 'x-operator-release-id']) {
+      await denied(await f.request(path, 'GET', undefined, true, f.env, { [header]: secret }), 400);
+    }
+    // Fetch constructors prohibit GET bodies; the Worker can still receive one.
+    // Preserve a real native body stream while presenting its incoming GET method.
+    for (const body of ['{}', JSON.stringify({ ownerKey: 'foreign', role: 'admin' }), 'not-json']) {
+      const request = new Request(`https://enterprise.example.test/api/operator-activities${path}`,
+        { method: 'POST', headers: { 'cf-access-authenticated-user-email': claims.email }, body });
+      Object.defineProperty(request, 'method', { value: 'GET' });
+      await denied(await f.app.fetch(request, f.env), 400);
+    }
+    f.unchanged();
+  });
+
+  it.each(targets)('AC6: $backend wrong owner/run or scope denial is not promoted to private success', async target => {
+    const f = await rawFixture();
+    f.allow(target.backend, { view: 'discover', scope: target.scope },
+      () => Response.json({ status: 'complete', bindings: [f.binding(target.scope)], cursor: null }));
+    const wrongScope = target.backend === 'registry' ? 'kind=observation&observationId=foreign-observation'
+      : 'kind=activity&activityId=activity-1&generation=4';
+    await denied(await f.request(`${rawPath}?${wrongScope}`), 404);
+    const email = claims.email;
+    try {
+      claims.email = 'other-owner@example.test';
+      f.kv._set(`user:${claims.email}`, { addedBy: 'setup', addedAt: '', role: 'admin' });
+      await denied(await f.request(`${rawPath}?${target.query}`), 404);
+    } finally { f.kv._store.delete(`user:${claims.email}`); claims.email = email; }
+    f.unchanged();
+  });
+
+  it.each([400, 403, 404, 503])('AC6/7: forwards native rejection %s without changing its body or headers, except no-store', async status => {
+    const f = await rawFixture();
+    const body = JSON.stringify({ code: 'RAW_CAPTURE_UNAVAILABLE' });
+    f.allow('registry', { view: 'export', scope: observation, captureId: 'capture-1' },
+      () => new Response(body, { status, headers: { 'content-type': 'application/json',
+        'cache-control': 'public, max-age=3600', 'x-archive-wire': 'native-rejection' } }));
+    const response = await f.request(`${rawPath}/export?${targets[0].query}&captureId=capture-1`);
+    expect(response.status).toBe(status);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('content-type')).toBe('application/json');
+    expect(response.headers.get('x-archive-wire')).toBe('native-rejection');
+    expect(await response.text()).toBe(body);
+    f.unchanged();
+  });
+
+  it.each(views)('AC6/7: $view preserves fail-closed corrupt/archive rejection and sanitizes thrown private errors', async view => {
+    const f = await rawFixture();
+    const lines: string[] = [];
+    const capture = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    const spies = [vi.spyOn(console, 'log').mockImplementation(capture), vi.spyOn(console, 'warn').mockImplementation(capture),
+      vi.spyOn(console, 'error').mockImplementation(capture), vi.spyOn(console, 'debug').mockImplementation(capture)];
+    try {
+      const expected = { view: view.view, scope: observation, ...(view.view === 'export' ? { captureId: 'capture-1' } : {}) };
+      const path = `${rawPath}${view.suffix}?${targets[0].query}${view.selector}`;
+      f.allow('registry', expected, () => Response.json({ code: 'RAW_CAPTURE_UNAVAILABLE' }, { status: 503 }));
+      await denied(await f.request(path), 503);
+      for (const error of [new Error(`${secret} private.access.jwt`),
+        new AppError('RAW_CAPTURE_UNAVAILABLE', 503, `${secret} private.access.jwt`)]) {
+        f.readers.registry = async () => { throw error; };
+        await denied(await f.request(path), 503);
+      }
+      expect(lines.join('\n')).not.toContain(secret);
+      expect(lines.join('\n')).not.toContain('private.access.jwt');
+      f.unchanged();
+    } finally { for (const spy of spies) spy.mockRestore(); }
+  });
+
+  it.each(targets)('AC7: $backend export streams records before EOF and forwards completion only when supplied after verification', async target => {
+    const f = await rawFixture();
+    let producer!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(controller) { producer = controller; } });
+    f.allow(target.backend, { view: 'export', scope: target.scope, captureId: 'capture-1' },
+      () => new Response(stream, { headers: { 'content-type': 'application/x-ndjson', 'x-archive-wire': 'unchanged' } }));
+    const response = await f.request(`${rawPath}/export?${target.query}&captureId=capture-1`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('content-type')).toBe('application/x-ndjson');
+    expect(response.headers.get('x-archive-wire')).toBe('unchanged');
+    const reader = response.body!.getReader();
+    const first = `${JSON.stringify(record)}\n`;
+    producer.enqueue(new TextEncoder().encode(first));
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(first);
+    const final = `${JSON.stringify({ type: 'complete', receipt })}\n`;
+    producer.enqueue(new TextEncoder().encode(final));
+    producer.close();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(final);
+    expect(await reader.read()).toEqual({ done: true, value: undefined });
+    f.unchanged();
+  });
+
+  it('AC7: failure after export headers rejects the read, emits no false completion and never logs private bytes', async () => {
+    const f = await rawFixture();
+    let producer!: ReadableStreamDefaultController<Uint8Array>;
+    const lines: string[] = [];
+    const capture = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    const spies = [vi.spyOn(console, 'log').mockImplementation(capture), vi.spyOn(console, 'warn').mockImplementation(capture),
+      vi.spyOn(console, 'error').mockImplementation(capture)];
+    try {
+      f.allow('registry', { view: 'export', scope: observation, captureId: 'capture-1' }, () => new Response(
+        new ReadableStream<Uint8Array>({ start(controller) { producer = controller; } }),
+        { headers: { 'content-type': 'application/x-ndjson' } }));
+      const response = await f.request(`${rawPath}/export?${targets[0].query}&captureId=capture-1`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      const reader = response.body!.getReader();
+      producer.enqueue(new TextEncoder().encode(`${JSON.stringify(record)}\n`));
+      const delivered = new TextDecoder().decode((await reader.read()).value);
+      expect(JSON.parse(delivered)).toEqual(record);
+      producer.error(new Error(secret));
+      await expect(reader.read()).rejects.toThrow();
+      expect(delivered).not.toContain('"type":"complete"');
+      expect(lines.join('\n')).not.toContain(secret);
+      f.unchanged();
+    } finally { for (const spy of spies) spy.mockRestore(); }
+  });
+
+  it('AC6: raw static routes do not displace the existing owned Activity detail and bounded diagnostics wire', async () => {
+    const f = await rawFixture();
+    const detail = await f.request('/activity-1');
+    expect(detail.status).toBe(200);
+    expect(await detail.json()).toMatchObject({ activityId: 'activity-1', checkpoint: { step: 1 }, result: null });
+    const snapshot = { activityId: 'activity-1', version: 2, status: 'unavailable' };
+    Object.assign(f.activity, { getDispatcherDiagnosticsV2: async () => ({ status: 200, value: snapshot }) });
+    const bounded = await f.request('/activity-1/diagnostics/v2');
+    expect(bounded.status).toBe(200);
+    expect(bounded.headers.get('cache-control')).toBe('no-store');
+    expect(await bounded.json()).toEqual(snapshot);
+    await denied(await f.request('/activity-1/diagnostics/v2?kind=observation&observationId=observation-1'), 400);
+    f.unchanged();
+  });
+});

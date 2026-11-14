@@ -37,6 +37,8 @@ import { createOperatorExecutionContext, openOperatorExecutionAccess,
   type OperatorExecutionContext } from './execution-context';
 import { operatorOwnerKey } from './browser-activity';
 import type { Env } from '../types';
+import { requireOwnerRawReader, parseOwnerRawReadRequest, readOwnerRawCapturePage, ownerRawReadUnavailable,
+  type OwnerRawReadCredential, type OwnerRawReadRequest } from './raw-capture-read';
 
 import { parseRenovateRunSettings, renovateRepositoryIdentity, prospectiveRenovatePackageSupported,
   type RenovateRunSettings, type RenovateRepositoryIdentity } from './renovate-run-settings';
@@ -2154,6 +2156,20 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       return receipt;
     } };
     } catch { return; } // Setup cannot replace a business result or error.
+  }
+
+  /** Private observation reads belong to Registry, including Actor-relayed pre-admission evidence. */
+  async readOwnerRawCaptures(credential: OwnerRawReadCredential, input: OwnerRawReadRequest): Promise<Response> {
+    try {
+      const request = parseOwnerRawReadRequest(input);
+      const reader = await requireOwnerRawReader(this.env as Env, credential);
+      if (request.scope.kind !== 'observation') return ownerRawReadUnavailable();
+      // Authenticated encrypted locators pin historical provenance. No current registration,
+      // Activity admission, execution authority or mutable logging setting is consulted.
+      const storage = await createOwnerRawCaptureStorage(this.env as Env, this.ctx.storage, reader.guard);
+      return await readOwnerRawCapturePage({ request, ownerKey: reader.ownerKey,
+        storage: { ...storage, authorizePass: reader.authorize } });
+    } catch { return ownerRawReadUnavailable(); }
   }
 
   /** Trusted Root-only persistence for pre-admission observations; never an installed SDK/browser capability. */
