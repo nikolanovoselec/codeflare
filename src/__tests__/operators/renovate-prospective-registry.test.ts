@@ -1774,7 +1774,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           const originalId = activityId;
           const persisted = await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId)) as ProspectiveAdmission;
           const legacy: Record<string, unknown> = historical ? {
-            activityId: persisted.activityId, installationId: persisted.installationId, repositoryId,
+            activityId: persisted.activityId, installationId: persisted.installationId, repositoryId: repoId,
             pullRequest: persisted.pullRequest, head: persisted.head, createdAt: persisted.createdAt,
             activatedAt: persisted.activatedAt, ownerKey: persisted.ownerKey, actor: { ...persisted.actor },
           } : { ...persisted };
