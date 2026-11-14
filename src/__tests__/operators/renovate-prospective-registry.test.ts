@@ -1555,9 +1555,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
     const inRegistry = <T>(action: () => Promise<T>) => runInDurableObject(registryNamespace.get(native.id), () => action());
     const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-    const activityStub = activityNamespace.getByName(`alarm-normal-${crypto.randomUUID()}`);
-    const inActivity = <T>(action: () => Promise<T>) => runInDurableObject(activityStub, () => action());
-    await runInDurableObject(activityStub, async (_instance, activityNative) => {
+    const activityName = `alarm-normal-${crypto.randomUUID()}`;
+    // Retain only names; each caller must acquire its own I/O stub, as in inOwnContext.
+    const inActivity = <T>(action: () => Promise<T>) => runInDurableObject(activityNamespace.getByName(activityName), () => action());
+    await runInDurableObject(activityNamespace.getByName(activityName), async (_instance, activityNative) => {
       state.sessions.clear();
       const approved = normalDispatcherBundle();
       let bytes = new TextEncoder().encode(JSON.stringify(approved));
@@ -1853,9 +1854,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               .toEqual({ ok: false, reason: 'admission-denied' });
             expect(await inActivity(() => originalActivity.getAdmission())).toMatchObject({ phase: 'cancelled', receipt: null });
           }
-          const freshStub = activityNamespace.getByName(`alarm-reconciled-${crypto.randomUUID()}`);
-          await runInDurableObject(freshStub, async (_fresh, freshNative) => {
-            const inFresh = <T>(action: () => Promise<T>) => runInDurableObject(freshStub, () => action());
+          const freshName = `alarm-reconciled-${crypto.randomUUID()}`;
+          await runInDurableObject(activityNamespace.getByName(freshName), async (_fresh, freshNative) => {
+            const inFresh = <T>(action: () => Promise<T>) => runInDurableObject(activityNamespace.getByName(freshName), () => action());
             const freshActivity = new OperatorActivity(freshNative, environment);
             Object.defineProperty(freshNative, 'waitUntil', { configurable: true, value: (work: Promise<unknown>) => { pending.push(work); } });
             environment.OPERATOR_ACTIVITY = { idFromName: (id: string) => id === originalId ? activityNative.id : freshNative.id,
