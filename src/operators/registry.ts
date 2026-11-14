@@ -258,6 +258,8 @@ export interface CurrentProspectiveRegistration extends RenovateRepositoryIdenti
   scope?: 'installation'; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; activatedAt: string; bucket: string;
   sessionId: string; sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string; repetitionIntervalSeconds: number;
+  /** Parent-selected transport capacities and original authority deadline; never caller policy. */
+  sourceTimeoutMs: number; sourceResponseBytes: number; deadline: number;
   /** Parent-validated original policy; an absent older RPC field never enables capture. */
   loggingEnabled?: boolean;
 }
@@ -265,7 +267,8 @@ export type ProspectiveRegistrationObservation =
   | { status: 'current'; registration: CurrentProspectiveRegistration }
   | { status: 'unavailable' } | { status: 'denied' };
 type ProspectiveAuthorityObservation =
-  | { status: 'current'; authority: { human: VerifiedHumanAccessClaims; accessJwt: string }; loggingEnabled: boolean; routingGroups?: string[] }
+  | { status: 'current'; authority: { human: VerifiedHumanAccessClaims; accessJwt: string }; loggingEnabled: boolean;
+    sourceTimeoutMs: number; sourceResponseBytes: number; routingGroups?: string[] }
   | { status: 'unavailable' } | { status: 'denied' };
 interface ProspectiveObservationDiagnostic {
   outcome: 'authority-denied' | 'authority-unavailable' | 'claim-lost' | 'binding-unavailable'
@@ -1988,6 +1991,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       return expiresAt * 1000 > Date.now() && canInvokeOperator(human, final.value.operator)
         ? { status: 'current', authority: { human, accessJwt: authority.accessJwt },
           loggingEnabled: final.value.operator.policy.loggingEnabled !== false,
+          sourceTimeoutMs: dispatcherCapacities(final.value.operator.policy).sourceTimeoutMs,
+          sourceResponseBytes: effectiveSourceResponseBytes(final.value.installation.policy),
           ...(captureRoutingGroups ? { routingGroups: refreshed.routingGroups } : {}) }
         : { status: 'denied' };
     } catch (error) {
@@ -2537,7 +2542,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         bucket: record.bucket, sessionId: record.sessionId, sessionGeneration: record.sessionGeneration,
         controlsRevision: record.controlsRevision, installationRevision: record.installationRevision,
         operatorRevision: record.operatorRevision, releaseId: record.releaseId, bundleDigest: record.bundleDigest,
-        loggingEnabled: observed.loggingEnabled, ...current } };
+        loggingEnabled: observed.loggingEnabled, sourceTimeoutMs: observed.sourceTimeoutMs,
+        sourceResponseBytes: observed.sourceResponseBytes,
+        deadline: Math.min(record.context.expiresAt, current.human.expiresAt) * 1000, ...current } };
     } catch (error) {
       trace.capture?.record('registry-registration-error', () => error);
       return { status: error instanceof ProspectiveDependencyUnavailable ? 'unavailable' : 'denied' };

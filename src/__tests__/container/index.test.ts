@@ -649,7 +649,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         return { generation: actor.sessionGeneration };
       } }),
     };
-    const current = { ...pin, repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
+    const current = { ...pin, sourceTimeoutMs: 30_000, sourceResponseBytes: 1048576, deadline: human.expiresAt * 1000, repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
       repetitionIntervalSeconds: 900, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
       releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt: '2026-09-28T00:00:00.000Z', human, accessJwt: 'a-jwt' };
     const retained = { repositoryId: 424242, pullRequest: 1300, head: 'a'.repeat(40), createdAt: '2026-09-28T00:00:00.001Z' };
@@ -741,7 +741,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       async observeProspectiveRenovateRegistration() {
         return { status: 'current', registration: await this.currentProspectiveRenovateRegistration() };
       },
-      currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, installationId: 'dispatcher-install',
+      currentProspectiveRenovateRegistration: async () => ({ sourceTimeoutMs: 30_000, sourceResponseBytes: 1048576,
+          deadline: Date.now() + 14_400_000, repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, installationId: 'dispatcher-install',
         registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
         human: { expiresAt: Math.floor(Date.now() / 1000) + 14_400 } }),
     }) };
@@ -808,7 +809,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       async observeProspectiveRenovateRegistration() {
         return { status: 'current', registration: await this.currentProspectiveRenovateRegistration() };
       },
-      currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt, installationId: 'dispatcher-install',
+      currentProspectiveRenovateRegistration: async () => ({ sourceTimeoutMs: 30_000, sourceResponseBytes: 1048576,
+          deadline: Date.now() + 14_400_000, repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt, installationId: 'dispatcher-install',
         registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
         human: { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
           audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
@@ -964,7 +966,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         async observeProspectiveRenovateRegistration() {
           return { status: 'current', registration: await this.currentProspectiveRenovateRegistration() };
         },
-        currentProspectiveRenovateRegistration: async () => ({ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest, registrationId: 'registered-admin',
+        currentProspectiveRenovateRegistration: async () => ({ sourceTimeoutMs: 30_000, sourceResponseBytes: 1048576,
+          deadline: Date.now() + 14_400_000, repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest, registrationId: 'registered-admin',
           activatedAt: '2026-09-28T00:00:00.000Z', installationId: 'dispatcher-install', bucket,
           sessionId: 'session0001', sessionGeneration: 3, human, accessJwt: 'sealed-admin' }),
         reserveProspectiveRenovateActivity: async (input: { activityId: string }) => {

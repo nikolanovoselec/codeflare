@@ -9,6 +9,7 @@ import { renovateRepositoryIdentity, type RenovateRepositoryIdentity } from './r
 type ParentScanTransport = {
   env: Env; exports: Record<string, (input: { props: Record<string, unknown> }) => Fetcher>;
   repository: string; human: { email: string }; bucket: string; current: () => Promise<boolean>; capture?: RawCapture;
+  sourceTimeoutMs: number; sourceResponseBytes: number; deadline: number; signal?: AbortSignal;
 };
 type ScanRequest = { method: string; url: string; path: string };
 type ScanCapture = Pick<RawCapture, 'record' | 'flush'>;
@@ -50,19 +51,27 @@ function scanError(capture: ScanCapture | undefined, request: ScanRequest, error
   return error;
 }
 // Each wait uses the original request signal, including time already spent waiting for headers.
-async function beforeScanDeadline<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
-  if (signal.aborted) throw signal.reason;
+function requireScanDeadline(signal: AbortSignal | undefined, deadline: number): void {
+  if (signal?.aborted) throw signal.reason;
+  if (Date.now() >= deadline) throw new DOMException('Renovate scan deadline exceeded', 'TimeoutError');
+}
+async function beforeScanDeadline<T>(signal: AbortSignal, deadline: number, work: () => Promise<T>): Promise<T> {
+  requireScanDeadline(signal, deadline);
   let abort: () => void = () => {};
   const stopped = new Promise<never>((_, reject) => {
     abort = () => { reject(signal.reason); };
     signal.addEventListener('abort', abort, { once: true });
   });
-  try { return await Promise.race([work(), stopped]); }
+  try {
+    const result = await Promise.race([work(), stopped]);
+    requireScanDeadline(signal, deadline);
+    return result;
+  }
   finally { signal.removeEventListener('abort', abort); }
 }
 
-/** Only refused responses have an independent reader. Successful JSON consumption stays unchanged. */
-async function readRefusedScanResponse(response: Response, capture: ScanCapture, request: ScanRequest, signal: AbortSignal): Promise<void> {
+/** Only refused responses have an independent capture reader; successful JSON has one functional reader. */
+async function readRefusedScanResponse(response: Response, capture: ScanCapture, request: ScanRequest, signal: AbortSignal, deadline: number): Promise<void> {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let size = 0, delivered = 0, eof = false, observedError: unknown;
   try {
@@ -71,11 +80,11 @@ async function readRefusedScanResponse(response: Response, capture: ScanCapture,
     if (!body) throw Error('Renovate page unavailable');
     reader = body.getReader(); // A foreign lock is evidence of unavailability, never ours to release.
     for (;;) {
-      const chunk = await beforeScanDeadline(signal, () => reader!.read());
+      const chunk = await beforeScanDeadline(signal, deadline, () => reader!.read());
       if (chunk.done) {
         eof = true;
         capture.record('discovery-response-eof', () => ({ ...request, offset: size }));
-        await beforeScanDeadline(signal, () => capture.flush?.() ?? Promise.resolve());
+        await beforeScanDeadline(signal, deadline, () => capture.flush?.() ?? Promise.resolve());
         break;
       }
       delivered += chunk.value.byteLength;
@@ -84,7 +93,7 @@ async function readRefusedScanResponse(response: Response, capture: ScanCapture,
         const bytes = chunk.value.subarray(start, start + 64 * 1024), offset = size;
         size += bytes.byteLength;
         capture.record('discovery-response-chunk', () => ({ ...request, offset, bytes: Array.from(bytes) }));
-        await beforeScanDeadline(signal, () => capture.flush?.() ?? Promise.resolve());
+        await beforeScanDeadline(signal, deadline, () => capture.flush?.() ?? Promise.resolve());
       }
     }
   } catch (error) {
@@ -106,7 +115,7 @@ async function readRefusedScanResponse(response: Response, capture: ScanCapture,
           });
           // Release locally now; observing cancellation cannot extend the original request deadline.
           reader.releaseLock(); reader = undefined;
-          await beforeScanDeadline(signal, () => cancelled);
+          await beforeScanDeadline(signal, deadline, () => cancelled);
         } catch (error) {
           scanError(capture, request, error);
           record(capture, 'discovery-response-incomplete', () => ({ ...request, offset: size, deliveredOffset: delivered,
@@ -118,9 +127,9 @@ async function readRefusedScanResponse(response: Response, capture: ScanCapture,
   }
 }
 
-function captureRefusedScanResponse(response: Response, capture: RawCapture | undefined, request: ScanRequest, signal: AbortSignal): void {
+function captureRefusedScanResponse(response: Response, capture: RawCapture | undefined, request: ScanRequest, signal: AbortSignal, deadline: number): void {
   if (!capture) return;
-  const produce = (writer: ScanCapture) => readRefusedScanResponse(response, writer, request, signal);
+  const produce = (writer: ScanCapture) => readRefusedScanResponse(response, writer, request, signal, deadline);
   try {
     if (capture.defer) capture.defer(produce);
     else {
@@ -134,7 +143,8 @@ function captureRefusedScanResponse(response: Response, capture: RawCapture | un
   }
 }
 
-async function readScanPage(response: Response, capture: RawCapture | undefined, request: ScanRequest): Promise<unknown> {
+async function readScanPage(response: Response, capture: RawCapture | undefined, request: ScanRequest,
+  signal: AbortSignal, deadline: number, responseBytes: number): Promise<unknown> {
   let reader: ReadableStreamDefaultReader<Uint8Array>, decoder: TextDecoder;
   try {
     if (!response.body) throw Error('Renovate page unavailable');
@@ -144,7 +154,7 @@ async function readScanPage(response: Response, capture: RawCapture | undefined,
   let size = 0, text = '', eof = false, observedError: unknown;
   try {
     for (;;) {
-      const chunk = await reader.read();
+      const chunk = await beforeScanDeadline(signal, deadline, () => reader.read());
       if (chunk.done) {
         eof = true;
         record(capture, 'discovery-response-eof', () => ({ ...request, offset: size }));
@@ -152,7 +162,7 @@ async function readScanPage(response: Response, capture: RawCapture | undefined,
       }
       record(capture, 'discovery-response-chunk', () => ({ ...request, offset: size, bytes: Array.from(chunk.value) }));
       size += chunk.value.byteLength;
-      if (size > 2 * 1024 * 1024) throw Error('Renovate page exceeds byte bound');
+      if (size > responseBytes) throw Error('Renovate page exceeds byte bound');
       text += decoder.decode(chunk.value, { stream: true });
     }
     return JSON.parse(text + decoder.decode()) as unknown;
@@ -161,12 +171,17 @@ async function readScanPage(response: Response, capture: RawCapture | undefined,
     scanError(capture, request, cause);
     throw Error('Renovate page unavailable', { cause });
   } finally {
+    const reason = signal.aborted ? signal.reason : undefined;
     if (!eof) record(capture, 'discovery-response-cancel', () => ({ ...request, offset: size,
-      eof, action: 'reader.cancel', reason: undefined, observedError }));
-    void reader.cancel().catch(() => {}); reader.releaseLock();
+      eof, action: 'reader.cancel', reason, observedError }));
+    void reader.cancel(reason).catch(() => {}); reader.releaseLock();
   }
 }
 function scanTransport(input: ParentScanTransport) {
+  // Older/malformed projections must not silently bypass either configured bound.
+  if (![input.sourceTimeoutMs, input.sourceResponseBytes, input.deadline].every(value => Number.isSafeInteger(value) && value > 0)) {
+    throw Error('Renovate registration unavailable');
+  }
   if (!input.exports.GitHubInterceptor) throw Error('GitHub transport unavailable');
   const host = input.env.GITHUB_API_HOST?.trim() || 'api.github.com';
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw Error('GitHub host invalid');
@@ -183,28 +198,36 @@ function scanTransport(input: ParentScanTransport) {
     const correlation = { method: 'GET', url: `${root}${path}`, path };
     let response: Response;
     try {
+      requireScanDeadline(input.signal, input.deadline);
       if (!await input.current()) throw Error('Scan session changed');
+      requireScanDeadline(input.signal, input.deadline);
+    } catch (error) { throw scanError(input.capture, correlation, error); }
+    const deadline = Math.min(input.deadline, Date.now() + input.sourceTimeoutMs);
+    const timeout = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+    const signal = input.signal ? AbortSignal.any([timeout, input.signal]) : timeout;
+    try {
       const request = new Request(`${root}${path}`, {
-        redirect: 'manual', signal: AbortSignal.timeout(8000), headers: {
+        redirect: 'manual', signal, headers: {
           accept: 'application/vnd.github+json', 'user-agent': 'Codeflare-Operator-Renovate',
         },
       });
       record(input.capture, 'discovery-request', () => ({ ...correlation,
         ...transportMetadata(request, requestFields, requestDescriptors),
         aborted: request.signal.aborted, abortReason: request.signal.reason }));
-      response = await transport.fetch(request);
+      response = await beforeScanDeadline(signal, deadline, () => transport.fetch(request));
       record(input.capture, 'discovery-response', () => {
         const { url: responseUrl, ...metadata } = transportMetadata(response, responseFields, responseDescriptors);
         return { ...correlation, responseUrl, ...metadata };
       });
       if (response.status !== 200 || response.redirected) {
-        captureRefusedScanResponse(response, input.capture, correlation, request.signal);
+        captureRefusedScanResponse(response, input.capture, correlation, signal, deadline);
         throw Error('Incomplete Renovate scan');
       }
     } catch (error) { throw scanError(input.capture, correlation, error); }
-    const value = await readScanPage(response, input.capture, correlation);
+    const value = await readScanPage(response, input.capture, correlation, signal, deadline, input.sourceResponseBytes);
     try {
       if (!await input.current()) throw Error('Scan session changed');
+      requireScanDeadline(signal, deadline);
       return { value, link: response.headers.get('link') };
     } catch (error) { throw scanError(input.capture, correlation, error); }
   } };
@@ -231,7 +254,7 @@ const pr = z.object({ number: z.number().int().positive().safe(), state: z.liter
     repo: z.object({ id: z.number().int().positive().safe(), full_name: z.string() }) }) });
 export async function listProspectiveRenovatePrs(input: {
   env: Env; exports: ParentScanTransport['exports']; registration: CurrentProspectiveRegistration;
-  current: () => Promise<boolean>; retainedRetryTargets?: readonly RetainedRenovateRetryTarget[]; capture?: RawCapture;
+  current: () => Promise<boolean>; retainedRetryTargets?: readonly RetainedRenovateRetryTarget[]; capture?: RawCapture; signal?: AbortSignal;
 }): Promise<Array<RenovateRepositoryIdentity & { pullRequest: number; head: string; createdAt: string }>> {
   const { registration } = input;
   const identity = renovateRepositoryIdentity.safeParse({ repository: registration.repository,
@@ -281,6 +304,7 @@ export async function listProspectiveRenovatePrs(input: {
   try {
     if (!complete) throw Error('Renovate scan exceeds page bound');
     if (!await input.current()) throw Error('Scan session changed');
+    requireScanDeadline(input.signal, registration.deadline);
   } catch (error) { throw scanError(input.capture, { method: 'GET', url: `${root}${path}`, path }, error); }
   return found;
 }

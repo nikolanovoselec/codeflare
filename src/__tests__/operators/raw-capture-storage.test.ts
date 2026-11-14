@@ -112,6 +112,7 @@ it('immediate parent finalization retains the refused HTTP body through its dela
   }, { highWaterMark: 0 }), { status: 403 });
   try {
     await expect(resolveProspectiveRenovateRepository({ env: {} as Env,
+      sourceTimeoutMs: 30_000, sourceResponseBytes: 1048576, deadline: Date.now() + 60_000,
       exports: { GitHubInterceptor: () => ({ fetch: async () => response,
         connect: () => { throw Error('No sockets'); } }) },
       repository: 'acme/updates', human: { email: 'owner@example.test' }, bucket: 'owner',

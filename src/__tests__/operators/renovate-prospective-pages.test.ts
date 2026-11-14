@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { listProspectiveRenovatePrs, resolveProspectiveRenovateRepository } from '../../operators/renovate-prospective';
 import { createLogger, setLogLevel } from '../../lib/logger';
 import { toError } from '../../lib/error-types';
+import { dispatcherCapacities } from '../../operators/dispatcher-capacity-limits';
+import { sourceResponseBytes } from '../../operators/dispatcher-source-limits';
 import type { CurrentProspectiveRegistration } from '../../operators/registry';
 import type { Env } from '../../types';
 import type { RawCapture } from '../../operators/raw-capture-storage';
@@ -13,29 +15,32 @@ const row = (number: number) => ({ number, state: 'open', created_at: '2026-09-2
   draft: false, head: { sha: 'a'.repeat(40) }, base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } });
 const next = `${root}/pulls?state=open&per_page=100&page=2`;
 type Page = { rows: unknown[]; link?: string } | Response;
+const sourceBudget = () => ({ sourceTimeoutMs: dispatcherCapacities().sourceTimeoutMs,
+  sourceResponseBytes: sourceResponseBytes({}), deadline: Date.now() + 60_000 });
 function scanExports(pages: Page[], metadata: unknown = { id: 424242, full_name: 'acme/updates', default_branch: 'trunk' },
-  onResponse: (request: Request) => void = () => {}) {
+  onResponse: (request: Request) => void | Promise<void> = () => {}) {
   return { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
     const url = new URL(request.url);
     if (url.href === root) {
       const response = metadata instanceof Response ? metadata : Response.json(metadata);
-      onResponse(request);
+      await onResponse(request);
       return response;
     }
     const page = pages[Number(url.searchParams.get('page')) - 1];
     if (!page) throw Error('Unprovided external GitHub page');
     const response = page instanceof Response ? page : Response.json(page.rows, { headers: page.link ? { link: page.link } : {} });
-    onResponse(request);
+    await onResponse(request);
     return response;
   }, connect: () => { throw Error('Prospective GitHub reads do not open sockets'); } }) };
 }
 function scan(pages: Page[], metadata?: unknown, current: () => Promise<boolean> = async () => true,
-  onResponse: (request: Request) => void = () => {}, retainedRetryTargets: RetainedRenovateRetryTarget[] = [], capture?: RawCapture) {
+  onResponse: (request: Request) => void | Promise<void> = () => {}, retainedRetryTargets: RetainedRenovateRetryTarget[] = [], capture?: RawCapture,
+  budget: Partial<ReturnType<typeof sourceBudget>> & { signal?: AbortSignal } = {}) {
   return listProspectiveRenovatePrs({ env: {} as Env,
     registration: { bucket: 'owner', human: { email: 'owner@example.test' },
       activatedAt: '2026-09-27T00:00:00.000Z', repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
-      repetitionIntervalSeconds: 900 } as unknown as CurrentProspectiveRegistration,
-    current, retainedRetryTargets, capture, exports: scanExports(pages, metadata, onResponse),
+      repetitionIntervalSeconds: 900, ...sourceBudget(), ...budget } as unknown as CurrentProspectiveRegistration,
+    current, retainedRetryTargets, capture, signal: budget.signal, exports: scanExports(pages, metadata, onResponse),
   });
 }
 
@@ -64,6 +69,82 @@ describe('REQ-OPERATOR-061 AC2: prospective GitHub page completeness', () => {
   });
 });
 
+
+describe('REQ-OPERATOR-061/101/090/091: configured discovery transport', () => {
+  it.each([false, true].flatMap(logging => [
+    { logging, timeout: 12_000, expiry: 60_000, header: 6000, body: 3000, cancelAt: null, accepted: true },
+    { logging, timeout: 7000, expiry: 60_000, header: 6000, body: 3000, cancelAt: null, accepted: false },
+    { logging, timeout: 12_000, expiry: 7000, header: 6000, body: 3000, cancelAt: null, accepted: false },
+    { logging, timeout: 12_000, expiry: 60_000, header: 6000, body: 3000, cancelAt: 6500, accepted: false },
+    { logging, timeout: 7000, expiry: 60_000, header: 9000, body: 0, cancelAt: null, accepted: false },
+  ]))('configured timeout=$timeout expiry=$expiry cancellation=$cancelAt logging=$logging accepts=$accepted despite abort-ignoring I/O', async test => {
+    vi.useFakeTimers();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+      const controller = new AbortController();
+      setTimeout(() => { controller.abort(new DOMException('Configured source timeout', 'TimeoutError')); }, milliseconds);
+      return controller.signal;
+    });
+    const controller = new AbortController();
+    const bytes = new TextEncoder().encode(JSON.stringify([row(1)]));
+    const retained: number[] = [];
+    let cancelled = false, prefixDelivered = false;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      async pull(stream) {
+        if (!prefixDelivered) { prefixDelivered = true; stream.enqueue(bytes.subarray(0, 10)); return; }
+        // This source deliberately ignores Request.signal; the parent must still refuse a late tail.
+        await new Promise<void>(resolve => { setTimeout(resolve, test.body); });
+        if (!cancelled) { stream.enqueue(bytes.subarray(10)); stream.close(); }
+      },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 }));
+    const capture: RawCapture = { record(stage, lazy) {
+      const value = lazy() as { url?: string; bytes?: number[] };
+      if (stage === 'discovery-response-chunk' && value.url !== root) retained.push(...value.bytes!);
+    }, async finish() { throw Error('Only the parent finishes capture'); } };
+    const state: { outcome?: { value?: Awaited<ReturnType<typeof scan>>; error?: unknown } } = {};
+    const result = scan([response], undefined, undefined, async request => {
+      if (request.url !== root) await new Promise<void>(resolve => { setTimeout(resolve, test.header); });
+    }, undefined, test.logging ? capture : undefined, { sourceTimeoutMs: test.timeout,
+      deadline: Date.now() + test.expiry, signal: controller.signal })
+      .then(value => { state.outcome = { value }; }, (error: unknown) => { state.outcome = { error }; });
+    if (test.cancelAt !== null) setTimeout(() => { controller.abort(Error('Caller cancelled')); }, test.cancelAt);
+    try {
+      await vi.advanceTimersByTimeAsync(8000);
+      if (test.accepted) expect(state.outcome).toBeUndefined();
+      else expect(state.outcome?.error).toBeInstanceOf(Error);
+      await vi.advanceTimersByTimeAsync(1000);
+      await result;
+      if (test.accepted) {
+        expect(state.outcome?.value?.map(candidate => candidate.pullRequest)).toEqual([1]);
+        expect(new Uint8Array(retained)).toEqual(test.logging ? bytes : new Uint8Array());
+      } else {
+        expect(state.outcome?.value).toBeUndefined();
+        expect(state.outcome?.error).toBeInstanceOf(Error);
+        expect(new Uint8Array(retained)).toEqual(test.logging && test.header < test.timeout ? bytes.subarray(0, 10) : new Uint8Array());
+        if (test.header < test.timeout) {
+          expect(cancelled).toBe(true);
+          expect(response.body!.locked).toBe(false);
+        }
+      }
+    } finally { timeout.mockRestore(); vi.useRealTimers(); }
+  });
+
+  it.each(['sourceTimeoutMs', 'sourceResponseBytes', 'deadline'] as const)(
+    'refuses an older projection missing %s rather than inventing a transport allowance', async field => {
+      await expect(scan([{ rows: [row(1)] }], undefined, undefined, undefined, undefined, undefined,
+        { [field]: undefined })).rejects.toThrow('Renovate registration unavailable');
+    });
+
+  it('uses the original authority expiry across metadata and PR requests rather than renewing it per page', async () => {
+    const start = Date.now();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(start);
+    try {
+      await expect(scan([{ rows: [row(1)] }], undefined, undefined, request => {
+        now.mockReturnValue(start + (request.url === root ? 6000 : 9000));
+      }, undefined, undefined, { deadline: start + 8000, sourceTimeoutMs: 12_000 })).rejects.toThrow();
+    } finally { now.mockRestore(); }
+  });
+});
 
 describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
   it.each([{ id: 1, full_name: 'acme/updates', default_branch: 'trunk' },
@@ -118,7 +199,7 @@ describe('REQ-OPERATOR-061 AC2: retained failures never bypass the original cuto
 });
 
 describe('REQ-OPERATOR-063 AC1/5/6: discovery cause retention', () => {
-  const resolve = (response: Response) => resolveProspectiveRenovateRepository({ env: {} as Env,
+  const resolve = (response: Response) => resolveProspectiveRenovateRepository({ ...sourceBudget(), env: {} as Env,
     exports: scanExports([], response), repository: 'acme/updates', human: { email: 'owner@example.test' },
     bucket: 'owner', current: async () => true });
   const bodyResponse = (body: string | Uint8Array) => new Response(new ReadableStream<Uint8Array>({
@@ -162,9 +243,10 @@ describe('REQ-OPERATOR-063 AC1/5/6: discovery cause retention', () => {
     expect(failure.cause).toMatchObject({ message: 'Renovate page exceeds byte bound' });
   });
 
-  it('still accepts valid JSON padded to exactly 2 MiB', async () => {
+  it('accepts valid JSON at an explicitly authorized 2 MiB byte boundary', async () => {
     const body = JSON.stringify([row(1)]).padEnd(2 * 1024 * 1024, ' ');
-    expect(await scan([bodyResponse(body)])).toEqual([{ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
+    expect(await scan([bodyResponse(body)], undefined, undefined, undefined, undefined, undefined,
+      { sourceResponseBytes: 2 * 1024 * 1024 })).toEqual([{ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
       pullRequest: 1, head: 'a'.repeat(40), createdAt: '2026-09-28T00:00:00.000Z' }]);
   });
 
@@ -209,10 +291,10 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
     };
     return { capture, events, get finished() { return finished; } };
   }
-  const capturedScan = (pages: Page[], capture?: RawCapture, metadata?: unknown) =>
-    scan(pages, metadata, undefined, undefined, undefined, capture);
+  const capturedScan = (pages: Page[], capture?: RawCapture, metadata?: unknown, budget: Partial<ReturnType<typeof sourceBudget>> = {}) =>
+    scan(pages, metadata, undefined, undefined, undefined, capture, budget);
   const resolve = (response: Response, capture?: RawCapture) => resolveProspectiveRenovateRepository({
-    env: {} as Env, exports: scanExports([], response), repository: 'acme/updates',
+    ...sourceBudget(), env: {} as Env, exports: scanExports([], response), repository: 'acme/updates',
     human: { email: 'owner@example.test' }, bucket: 'owner', current: async () => true, capture,
   });
   function responseBytes(bytes: Uint8Array, width = 8191, init?: ResponseInit): Response {
@@ -243,6 +325,21 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
   }
   const errors = (events: Event[], url: string) => events.filter(event =>
     event.stage === 'discovery-response-error' && event.value.url === url).map(event => event.value.error);
+
+  it.each([false, true])('REQ-OPERATOR-061/101/090/091: configured discovery transport accepts authorized bytes above 2 MiB and refuses one byte over with logging=%s', async logging => {
+    const bytes = encode(JSON.stringify([{ ...row(1), evidence: '漢🎉'.repeat(310000) }]));
+    expect(bytes.length).toBeGreaterThan(2 * 1024 * 1024);
+    for (const accepted of [true, false]) {
+      const recorded = collector();
+      const result = capturedScan([responseBytes(bytes, accepted ? 32749 : bytes.length)], logging ? recorded.capture : undefined,
+        undefined, { sourceResponseBytes: bytes.length - (accepted ? 0 : 1) });
+      if (accepted) expect((await result).map(candidate => candidate.pullRequest)).toEqual([1]);
+      else await expect(result).rejects.toThrow('Renovate page unavailable');
+      expect(reassemble(recorded.events, pageUrl)).toEqual(logging ? bytes : new Uint8Array());
+      expect(recorded.events.some(event => event.stage === 'discovery-response-eof' && event.value.url === pageUrl)).toBe(logging && accepted);
+      expect(recorded.finished).toBe(false);
+    }
+  });
 
   it('retains more than 256 KiB of multi-chunk Unicode bytes through EOF without changing candidates or finishing the session', async () => {
     const bytes = encode(JSON.stringify([{ ...row(1), evidence: '漢🎉☃'.repeat(40000) }]));
@@ -334,7 +431,7 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
     const exports = { GitHubInterceptor: () => ({
       fetch: async () => { throw original; }, connect: () => { throw Error('No sockets'); },
     }) };
-    const result = resolveProspectiveRenovateRepository({ env: {} as Env, exports,
+    const result = resolveProspectiveRenovateRepository({ ...sourceBudget(), env: {} as Env, exports,
       repository: 'acme/updates', human: { email: 'owner@example.test' }, bucket: 'owner',
       current: async () => true, capture: recorded.capture });
     await expect(result).rejects.toBe(original);
@@ -485,7 +582,7 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
   });
 
   it.each(['stalled body', 'throwing recorder', 'rejected flush', 'stalled flush'] as const)(
-    '%s cannot delay the refusal, renew the original eight-second deadline or claim an unreceived tail', async fault => {
+    '%s cannot delay the refusal, renew the original configured eight-second deadline or claim an unreceived tail', async fault => {
       vi.useFakeTimers();
       const deadlineError = new DOMException('SYNTHETIC_PRIVATE_ORIGINAL_DEADLINE', 'TimeoutError');
       // Drive the platform timeout deterministically; behavior is checked at the original absolute deadline.
@@ -526,7 +623,7 @@ describe('REQ-OPERATOR-090 AC4/5: parent-owned discovery raw capture', () => {
       const transportState: { signal?: AbortSignal } = {};
       let outward: unknown;
       const destinations: string[] = [];
-      const result = resolveProspectiveRenovateRepository({ env: {} as Env,
+      const result = resolveProspectiveRenovateRepository({ ...sourceBudget(), sourceTimeoutMs: 8000, env: {} as Env,
         repository: 'acme/updates', human: { email: 'owner@example.test' }, bucket: 'owner', current: async () => true,
         capture: recorded.capture, exports: { GitHubInterceptor: () => ({
           fetch: async (request: Request) => {

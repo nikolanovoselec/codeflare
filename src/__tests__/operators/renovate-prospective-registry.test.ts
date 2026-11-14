@@ -1347,6 +1347,40 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     scope: 'installation', bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
     human: claims(`${user}@example.test`, lifetimeSeconds), accessJwt: `${user}-jwt`,
     repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } });
+  it.each(['operator', 'installation', 'controls'] as const)(
+    'REQ-OPERATOR-061/101: prospective transport capacities are current parent policy pinned by revisions (%s)', revision => fixture(async ({ registry, restart, selection }) => {
+      const selected = selection as ManagementExecutionSelection;
+      selected.operator.policy.sourceTimeoutMs = 45_000;
+      selected.operator.policy.sourceResponseBytes = 4 * 1024 * 1024;
+      selected.installation.policy.sourceResponseBytes = 3 * 1024 * 1024;
+      const authority = claims('a@example.test', 3600);
+      const first = await registry.activateProspectiveRenovate({ installationId: 'dispatcher-install', scope: 'installation',
+        bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0, human: authority, accessJwt: 'a-jwt',
+        repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } });
+      if (!first.ok) throw Error('No activation');
+      const original = await restart().currentProspectiveRenovateRegistration(first.registrationId);
+      expect(original).toMatchObject({ sourceTimeoutMs: 45_000, sourceResponseBytes: 3 * 1024 * 1024,
+        deadline: authority.expiresAt * 1000 });
+      // Existing records carry no numeric policy: reconstruction uses the validated selection, not child data.
+      // Change the selected pins during protected PR I/O: the completed body supplies no candidates.
+      await expect(listProspectiveRenovatePrs({ env: {} as Env, registration: original as CurrentProspectiveRegistration,
+        current: async () => await restart().currentProspectiveRenovateRegistration(first.registrationId) !== null,
+        exports: { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
+          if (!request.url.includes('/pulls?')) return Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' });
+          selected.operator.policy.sourceTimeoutMs = 60_000;
+          selected.installation.policy.sourceResponseBytes = 4 * 1024 * 1024;
+          if (revision === 'controls') selected.controlsRevision++;
+          else selected[revision].revision++;
+          return Response.json([{ number: 1300, state: 'open', draft: false,
+            created_at: new Date(Date.parse(first.activatedAt) + 1).toISOString(),
+            user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
+            base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } }]);
+        }, connect: () => { throw Error('No sockets'); } }) },
+      })).rejects.toThrow('Scan session changed');
+      expect(await restart().observeProspectiveRenovateRegistration(first.registrationId)).toEqual({ status: 'denied' });
+      expect(original).toMatchObject({ sourceTimeoutMs: 45_000, sourceResponseBytes: 3 * 1024 * 1024,
+        deadline: authority.expiresAt * 1000 });
+    }));
   it.each([true, false, undefined])('REQ-OPERATOR-090/091: validated prospective logging=%s is parent-owned and pinned', loggingEnabled => fixture(async ({ registry, selection }) => {
     const selected = selection as ManagementExecutionSelection;
     if (loggingEnabled !== undefined) selected.operator.policy.loggingEnabled = loggingEnabled;
@@ -1354,7 +1388,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw Error('No activation');
     expect(await registry.observeProspectiveRenovateRegistration(first.registrationId)).toMatchObject({
-      status: 'current', registration: { registrationId: first.registrationId, loggingEnabled: loggingEnabled !== false },
+      status: 'current', registration: { registrationId: first.registrationId, loggingEnabled: loggingEnabled !== false,
+        sourceTimeoutMs: 30_000, sourceResponseBytes: 1048576 },
     });
     // A changed setting/revision cannot become a fresh capture or execution grant for this registration.
     selected.operator.policy.loggingEnabled = loggingEnabled === false;

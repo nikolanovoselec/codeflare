@@ -1,5 +1,7 @@
 import { parseRenovateRunSettings, prospectiveRenovatePackageSupported } from '../operators/renovate-run-settings';
 import { resolveProspectiveRenovateRepository } from '../operators/renovate-prospective';
+import { dispatcherCapacities } from '../operators/dispatcher-capacity-limits';
+import { sourceResponseBytes } from '../operators/dispatcher-source-limits';
 import type { RawCapture, RawCaptureBinding, RawCaptureReceipt } from '../operators/raw-capture-storage';
 import { requireOwnerRawReader, type OwnerRawReadCredential, type OwnerRawReadRequest } from '../operators/raw-capture-read';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
@@ -317,7 +319,9 @@ app.post('/renovate/activation', async c => {
   let repository: Awaited<ReturnType<typeof resolveProspectiveRenovateRepository>>;
   try {
     repository = await resolveProspectiveRenovateRepository({ env: c.env, exports,
-      repository: configured.repository, human: authority.human, bucket: authenticated.bucketName, current, capture });
+      repository: configured.repository, human: authority.human, bucket: authenticated.bucketName, current, capture,
+      sourceTimeoutMs: dispatcherCapacities(selected.value.operator.policy).sourceTimeoutMs,
+      sourceResponseBytes: sourceResponseBytes(selected.value.installation.policy), deadline: authority.human.expiresAt * 1000 });
     terminal = 'complete';
   } catch (error) {
     try { capture?.record('prospective-repository-error', () => error); } catch { /* Preserve original failure. */ }
