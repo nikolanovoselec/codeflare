@@ -6305,9 +6305,9 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
     } catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
   }
 
-  async #bridge<T>(method: DispatcherSdkMethod, args: unknown[]): Promise<T> {
+  #bridge<T>(method: DispatcherSdkMethod, args: unknown[]): Promise<T> {
     const { activity, generation } = this.#binding();
-    return await activity.dispatcherBridge(generation, method, args) as T;
+    return activity.dispatcherBridge(generation, method, args) as Promise<T>;
   }
   async _cf_scheduleForFacet<T = string>(ownerPath: DispatcherFacetPath, when: Date | string | number,
     callback: string, payload?: T, options?: { retry?: RetryOptions; idempotent?: boolean }): Promise<{ schedule: Schedule<T>; created: boolean }> {
