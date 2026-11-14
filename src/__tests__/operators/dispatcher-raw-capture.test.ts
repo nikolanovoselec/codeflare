@@ -109,16 +109,29 @@ it.each(['owner', 'receipt', 'generation'] as const)('REQ-OPERATOR-090/091: inte
 it.each(['receipt', 'generation'] as const)('REQ-OPERATOR-090/091: previously issued interceptor logging denies replaced %s', fault => fixture(async f => {
   await start(f); await f.drainBackground();
   const { handle } = await interceptorArchive(f);
-  await f.mutateEvidence(async storage => {
-    const state = await storage.get<{ receipt: { intentDigest: string }; drive: { generation: number } }>('admission');
-    if (!state) throw new Error('Missing fixture admission');
-    if (fault === 'receipt') state.receipt.intentDigest = 'd'.repeat(64);
-    else state.drive.generation++;
-    await storage.put('admission', state);
-  });
-  const before = await persistedState(f);
-  await expect(handle.record('stale-interceptor-value', { password: 'SYNTHETIC_SECRET' })).rejects.toThrow('Raw capture unavailable');
-  expect(await persistedState(f)).toEqual(before);
+  let originalDigest: string | undefined;
+  try {
+    await f.mutateEvidence(async storage => {
+      const state = await storage.get<{ receipt: { intentDigest: string }; drive: { generation: number } }>('admission');
+      if (!state) throw new Error('Missing fixture admission');
+      if (fault === 'receipt') {
+        originalDigest = state.receipt.intentDigest;
+        state.receipt.intentDigest = 'd'.repeat(64);
+      } else state.drive.generation++;
+      await storage.put('admission', state);
+    });
+    const before = await persistedState(f);
+    await expect(handle.record('stale-interceptor-value', { password: 'SYNTHETIC_SECRET' })).rejects.toThrow('Raw capture unavailable');
+    expect(await persistedState(f)).toEqual(before);
+  } finally {
+    // Existing authenticated teardown must still abort the original fixture job.
+    const intentDigest = originalDigest;
+    if (intentDigest !== undefined) await f.mutateEvidence(async storage => {
+      const state = await storage.get<{ receipt: { intentDigest: string } }>('admission');
+      if (!state) throw new Error('Missing fixture admission');
+      await storage.put('admission', { ...state, receipt: { ...state.receipt, intentDigest } });
+    });
+  }
 }, options));
 
 it('REQ-OPERATOR-090/091: original logging OFF denies a logging-only interceptor handle', () => fixture(async f => {
