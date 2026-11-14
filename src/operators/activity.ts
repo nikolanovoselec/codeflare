@@ -48,7 +48,8 @@ import { readDispatcherSdkDiagnostics, sdkUnavailable, operationsUnavailable, ty
 import { createDispatcherPhaseState, dispatcherPhaseWire, bindDispatcherPhaseReceipt, dispatcherPhaseContext,
   advanceDispatcherPhase, collectDispatcherFinal, sameDispatcherPhaseValue, DISPATCHER_JOURNEY_RESULT_BYTES,
   bindNormalDispatcherPhaseReceipt, type DispatcherPhaseState, type DispatcherPhaseAuthority, type DispatcherPhaseReply } from './dispatcher-phases';
-import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt, ProspectiveAdmission } from './registry';
+import { prospectiveAdmissionLayout, type OperatorAdmissionRequest, type OperatorAdmissionReceipt,
+  type ManagementAdmissionReceipt, type ProspectiveAdmission } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -991,10 +992,12 @@ export class OperatorActivity extends Agent {
       const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
       const original = await registry.readProspectiveRenovateAdmission(input.activityId);
       if (!original || !sameDispatcherPhaseValue(original, input)) return false;
-      // This immutable ledger is written before a management Activity can queue or acquire runtime.
-      // Missing local state alone is never proof; legacy reservations without creation evidence stay held.
-      const neverAdmitted = Number.isSafeInteger(original.admittedAt) && original.admittedAt! > 0
-        && await registry.getManagementAdmission(original.activityId) === null;
+      const layout = prospectiveAdmissionLayout(original);
+      if (!layout) return false;
+      // Even the original 2160810c start path wrote this immutable ledger before queue/runtime.
+      // A later optional reservation timestamp is not admission evidence; local absence alone is not either.
+      const ledger = await registry.getManagementAdmission(original.activityId);
+      const neverAdmitted = ledger === null;
       const retired = await this.ctx.storage.transaction(async tx => {
         const state = await tx.get<AdmissionState>('admission');
         const bound = await tx.get<string>('prospective-admission');
@@ -1007,30 +1010,44 @@ export class OperatorActivity extends Agent {
           if (!state.executionContext || !('installationId' in state.intent) || bound !== original.activityId
             || state.intent.activityId !== original.activityId || state.ownerKey !== original.ownerKey
             || state.intent.installationId !== original.installationId
-            || state.intent.expectedRevision !== original.operatorRevision
-            || state.intent.expectedInstallationRevision !== original.installationRevision
-            || state.intent.expectedControlsRevision !== original.controlsRevision
             || state.executionContext.activityId !== original.activityId
-            || state.executionContext.artifactDigest !== original.bundleDigest
-            || state.invocationJson !== JSON.stringify({ repository: original.repository })) return false;
+            || state.executionContext.operatorId !== state.intent.operatorId
+            || state.intent.intentDigest !== await createOperatorIntentDigest(state.intent.operatorId, original.activityId, state.invocationJson ?? 'null')
+            || (layout === 'pinned' && (state.intent.expectedRevision !== original.operatorRevision
+              || state.intent.expectedInstallationRevision !== original.installationRevision
+              || state.intent.expectedControlsRevision !== original.controlsRevision
+              || state.executionContext.artifactDigest !== original.bundleDigest))
+            || state.invocationJson !== JSON.stringify(layout === 'legacy'
+              ? { repository: 'nikolanovoselec/komodo', pullRequest: original.pullRequest }
+              : { repository: original.repository })) return false;
           const owner = state.executionContext.owner;
           if (owner.subject !== original.actor.subject || owner.issuer !== original.actor.issuer
             || owner.email.toLowerCase() !== original.actor.email.toLowerCase()
             || !sameDispatcherPhaseValue(owner.audiences, original.actor.audiences)) return false;
           if (state.phase === 'queued') {
-            if (!state.receipt || !isManagementReceipt(state.receipt)
-              || state.receipt.intentDigest !== state.intent.intentDigest) return false;
-            const { selection } = state.receipt;
+            if (!ledger || !state.receipt || !isManagementReceipt(state.receipt)
+              || !sameDispatcherPhaseValue(state.receipt, ledger)
+              || ledger.activityId !== original.activityId || ledger.installationId !== original.installationId
+              || ledger.intentDigest !== state.intent.intentDigest || ledger.deadline !== state.intent.deadline
+              || ledger.expectedInstallationRevision !== state.intent.expectedInstallationRevision
+              || ledger.expectedOperatorRevision !== state.intent.expectedRevision
+              || ledger.expectedControlsRevision !== state.intent.expectedControlsRevision) return false;
+            const { selection } = ledger;
             if (selection.operator.profile !== 'dispatcher' || selection.installation.policy.resourceProfileId !== null
               || selection.installation.id !== original.installationId
-              || selection.installation.revision !== original.installationRevision
-              || selection.operator.revision !== original.operatorRevision || selection.controlsRevision !== original.controlsRevision
-              || selection.release.id !== original.releaseId || selection.release.bundleDigest !== original.bundleDigest
+              || selection.operator.operatorId !== state.intent.operatorId
+              || selection.installation.operatorId !== state.intent.operatorId
+              || selection.installation.revision !== state.intent.expectedInstallationRevision
+              || selection.operator.revision !== state.intent.expectedRevision || selection.controlsRevision !== state.intent.expectedControlsRevision
+              || selection.release.bundleDigest !== state.executionContext.artifactDigest
+              || await sha256(JSON.stringify(selection.installation.policy)) !== state.executionContext.policyDigest
+              || layout === 'pinned' && selection.release.id !== original.releaseId
               || state.drive && !neverStartedDispatcherCancellation(state)) return false;
           } else if (!neverAdmitted || state.receipt || state.drive
             || state.phase !== 'prepared' && !(state.phase === 'cancelled' && retirement === original.activityId)) return false;
         }
         // Check every runtime/effect key, including orphaned legacy records; diagnostics are not effects.
+        if (await tx.get(RENOVATE_PUBLICATION)) return false;
         let cursor: string | undefined;
         for (;;) {
           const entries = await tx.list({ prefix: 'dispatcher:', limit: 128, ...(cursor ? { startAfter: cursor } : {}) });

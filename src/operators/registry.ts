@@ -215,6 +215,36 @@ export interface ProspectiveAdmission extends RenovateRepositoryIdentity, Prospe
   actor: { registrationId: string; bucket: string; sessionId: string; sessionGeneration: number;
     subject: string; issuer: string; email: string; audiences: readonly string[] };
 }
+const persistedProspectiveIdentity = z.object({ activityId: z.string().regex(scanId), installationId: z.string().regex(scanId),
+  repositoryId: z.number().int().positive().safe(), pullRequest: z.number().int().positive().safe(), head: z.string().regex(sha),
+  createdAt: z.string(), activatedAt: z.string(), ownerKey: z.string().regex(/^[0-9a-f]{64}$/),
+  actor: z.object({ registrationId: z.string().regex(scanId), bucket: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+    sessionId: z.string(), sessionGeneration: z.number().int().nonnegative().safe(),
+    subject: z.string().min(1), issuer: z.string().min(1), email: z.string().min(1), audiences: z.array(z.string().min(1)).min(1) }),
+});
+const persistedProspectivePins = z.object({ ...renovateRepositoryIdentity.shape,
+  controlsRevision: z.number().int().nonnegative().safe(), installationRevision: z.number().int().positive().safe(),
+  operatorRevision: z.number().int().positive().safe(), releaseId: z.string().regex(scanId),
+  bundleDigest: z.string().regex(/^[0-9a-f]{64}$/),
+});
+/** The two source-proven persisted layouts; absence is not permission to fill partial pins. */
+export function prospectiveAdmissionLayout(value: ProspectiveAdmission): 'legacy' | 'pinned' | null {
+  if (!persistedProspectiveIdentity.safeParse(value).success) return null;
+  const created = prospectiveRenovateTimestamp(value.createdAt), cutoff = prospectiveRenovateTimestamp(value.activatedAt);
+  if (created === null || cutoff === null || created <= cutoff
+    || !(value.actor.sessionId === '' && value.actor.sessionGeneration === 0
+      || scanSession.test(value.actor.sessionId) && value.actor.sessionGeneration > 0)
+    || Object.hasOwn(value, 'admittedAt') && (!Number.isSafeInteger(value.admittedAt) || value.admittedAt! <= 0)
+    || Object.hasOwn(value, 'attempt') && (!Number.isSafeInteger(value.attempt) || value.attempt! < 1)
+    || Object.hasOwn(value, 'previousActivityId') && (typeof value.previousActivityId !== 'string' || !scanId.test(value.previousActivityId))) return null;
+  const pinKeys = ['repository', 'baseBranch', 'controlsRevision', 'installationRevision', 'operatorRevision', 'releaseId', 'bundleDigest'];
+  if (pinKeys.every(key => !Object.hasOwn(value, key))) {
+    // 2160810c used this fixed numeric repository, session authority and no reservation timestamp.
+    return value.repositoryId === 973175879 && scanSession.test(value.actor.sessionId)
+      && !['admittedAt', 'attempt', 'previousActivityId'].some(key => Object.hasOwn(value, key)) ? 'legacy' : null;
+  }
+  return persistedProspectivePins.safeParse(value).success ? 'pinned' : null;
+}
 export interface CurrentProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
   scope?: 'installation'; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; activatedAt: string; bucket: string;
@@ -2372,7 +2402,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     }
     const key = `renovate-admission:${input.repositoryId}:${input.pullRequest}:${input.head}`;
     const existing = await this.ctx.storage.get<ProspectiveAdmission>(key);
-    if (existing && existing.createdAt !== input.createdAt) return { ok: false, reason: 'invalid-target' };
+    const existingLayout = existing ? prospectiveAdmissionLayout(existing) : null;
+    if (existing && (!existingLayout || existing.createdAt !== input.createdAt)) return { ok: false, reason: 'invalid-target' };
     const retry = existing ? await this.prospectiveRetryProof(existing) : null;
     if (existing && !retry && existing.actor.registrationId === input.registrationId) {
       return { ok: true, activityId: existing.activityId, actor: existing.actor };
@@ -2402,14 +2433,16 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       // Upgrades may select new pins for a NEW Activity; the old Activity must prove its own pins.
       if (input.registrationId === winner.record.registrationId
         && !registrations.has(`renovate-registration:${existing.actor.registrationId}`)
-        && winner.record.scope === 'installation' && existing.actor.sessionId === '' && existing.actor.sessionGeneration === 0
-        && winner.record.sessionId === existing.actor.sessionId && winner.record.sessionGeneration === existing.actor.sessionGeneration
+        && winner.record.scope === 'installation' && winner.record.delegation?.version === 1
+        && winner.record.sessionId === '' && winner.record.sessionGeneration === 0
         && existing.ownerKey === winner.record.ownerKey && existing.actor.bucket === winner.record.bucket
         && existing.actor.subject === winner.human.subject && existing.actor.issuer === winner.human.issuer
         && existing.actor.email.toLowerCase() === winner.human.email.toLowerCase()
         && JSON.stringify([...existing.actor.audiences].sort()) === JSON.stringify([...winner.human.audiences].sort())
-        && existing.installationId === activation.installationId && existing.repository === activation.repository
-        && existing.repositoryId === input.repositoryId && existing.baseBranch === activation.baseBranch
+        && existing.installationId === activation.installationId
+        && existing.repositoryId === input.repositoryId
+        && (existingLayout === 'legacy' ? activation.repository === 'nikolanovoselec/komodo'
+          : existing.repository === activation.repository && existing.baseBranch === activation.baseBranch)
         && existing.pullRequest === input.pullRequest && existing.head === input.head
         && existing.activatedAt === activation.activatedAt && this.env.OPERATOR_ACTIVITY) {
         try {

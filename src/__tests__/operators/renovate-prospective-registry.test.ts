@@ -1547,9 +1547,19 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     'prepared-start', 'admitting-start', 'preparation-proof-missing'] as const;
   const reconciliationCases = ['upgrade', 'absent', 'prepared', 'absent-global-receipt', 'admitting',
     'ledger-unavailable', 'legacy-no-admittedAt', 'concurrent-drive', 'unknown', 'foreign-owner', 'foreign-bucket',
-    'stale-caller', 'stale-selection', 'stale-election'] as const;
+    'stale-caller', 'stale-selection', 'stale-election', 'legacy-full-queued', 'legacy-full-absent',
+    'legacy-full-prepared', 'legacy-full-missing-local', 'legacy-full-foreign-repository', 'session-pinned',
+    'partial-pins', 'invalid-pins', 'mismatched-pins', 'invalid-admittedAt', 'legacy-full-ledger-missing', 'legacy-full-ledger-mismatch',
+    'orphan-effect', 'orphan-publication', 'orphan-lease', 'active-original', 'head-boundary'] as const;
   const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none', delegated = false,
     reconciliation?: typeof reconciliationCases[number]) => fixture(async ({ native, environment, selection, state }) => {
+    // 2160810c's complete persisted layout used a fixed numeric repository and session authority.
+    const historical = reconciliation?.startsWith('legacy-full-') === true;
+    const sessionScoped = historical || reconciliation === 'session-pinned';
+    const repoId = historical ? 973175879 : 424242;
+    const repository = historical ? 'nikolanovoselec/komodo' : 'acme/updates';
+    const replaceable = ['upgrade', 'absent', 'prepared', 'legacy-no-admittedAt', 'legacy-full-queued',
+      'legacy-full-absent', 'legacy-full-prepared', 'session-pinned'].includes(reconciliation ?? '');
     // Reuse the normal installed-Worker wire fixture: real Registry/Activity/orchestrator,
     // controlled external App HTTP. This proves parent execution, not execution of Flue SDK code.
     const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
@@ -1564,6 +1574,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       let bytes = new TextEncoder().encode(JSON.stringify(approved));
       const bundleDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
       const selected = selection as ManagementExecutionSelection;
+      selected.installation.configurationJson = JSON.stringify({ renovate: {
+        repository, automaticRuns: true, repetitionIntervalSeconds: 900 } });
       const inference = { allowedSources: ['managed'] as Array<'managed'>, routeIds: ['approved'], defaultRouteId: 'approved',
         reasoningLevels: ['off'] as Array<'off'>, defaultReasoningLevel: 'off' as const, inheritUserDefaults: false };
       selected.installation.policy = { capabilities: ['fetch', 'inference'], resourceProfileId: null, inference };
@@ -1617,7 +1629,14 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         return new Proxy(activity, { get: (target, key) => {
           const value = Reflect.get(target, key);
           return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => {
-            if (key === 'prepareAuthorized') originalPreparation = args as Parameters<OperatorActivity['prepareAuthorized']>;
+            if (key === 'prepareAuthorized') {
+              if (historical) {
+                const intent = args[0] as Parameters<OperatorActivity['prepareAuthorized']>[0];
+                args[2] = JSON.stringify({ repository, pullRequest: 1300 });
+                args[0] = { ...intent, intentDigest: await createOperatorIntentDigest(intent.operatorId, intent.activityId, args[2] as string) };
+              }
+              originalPreparation = args as Parameters<OperatorActivity['prepareAuthorized']>;
+            }
             if (key === 'start') originalStartCapability = args[0] as string;
             if (key === 'start' && fault === 'prepared-start') {
               queuedAdmission = await target.getAdmission();
@@ -1658,8 +1677,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?')
         ? Response.json(createdAt ? [{ number: 1300, state: 'open', draft: false, created_at: createdAt,
           user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: head },
-          base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: 'acme/updates' } } }] : [])
-        : Response.json({ id: repoId, full_name: 'acme/updates', default_branch: 'trunk' }) }),
+          base: { ref: 'trunk', sha: newerHead, repo: { id: repoId, full_name: repository } } }] : [])
+        : Response.json({ id: repoId, full_name: repository, default_branch: 'trunk' }) }),
         OperatorRuntimeCapability: ({ props }: { props: Record<string, unknown> }) =>
           new OperatorRuntimeCapability({ props } as unknown as ExecutionContext, environment) };
       const runtimeExport = exports.OperatorRuntimeCapability;
@@ -1726,8 +1745,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       try {
         activity = new OperatorActivity(activityNative, environment);
         await drain();
-        const retired = await inRegistry(() => activate(owner as unknown as Prospective));
-        const registration = await inRegistry(() => activate(owner as unknown as Prospective, 'z'));
+        const activateOwner = (user: 'a' | 'z') => owner.activateProspectiveRenovate({
+          installationId: 'dispatcher-install', scope: 'installation', bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
+          human: claims(`${user}@example.test`, 3600), accessJwt: `${user}-jwt`,
+          repository: { repository, repositoryId: repoId, baseBranch: 'trunk' } });
+        const retired = await inRegistry(() => activateOwner('a'));
+        const registration = await inRegistry(() => activateOwner('z'));
         if (!retired.ok || !registration.ok) throw Error('No installation activation');
         if (!delegated) {
           await inRegistry(() => seedLegacyInstallation(native, retired));
@@ -1749,15 +1772,40 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         })}`);
         if (reconciliation) {
           const originalId = activityId;
-          if (reconciliation === 'legacy-no-admittedAt') {
-            const { admittedAt: _unknownCreationEvidence, ...legacy } = await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId)) as ProspectiveAdmission;
-            // Historical format fixture: no authoritative reservation creation evidence.
-            await inRegistry(() => native.storage.put({ [`renovate-activity:${originalId}`]: legacy,
-              [`renovate-admission:${repoId}:1300:${head}`]: legacy }));
+          const persisted = await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId)) as ProspectiveAdmission;
+          const legacy: Record<string, unknown> = historical ? {
+            activityId: persisted.activityId, installationId: persisted.installationId, repositoryId,
+            pullRequest: persisted.pullRequest, head: persisted.head, createdAt: persisted.createdAt,
+            activatedAt: persisted.activatedAt, ownerKey: persisted.ownerKey, actor: { ...persisted.actor },
+          } : { ...persisted };
+          if (reconciliation === 'legacy-no-admittedAt') delete legacy.admittedAt;
+          if (reconciliation === 'partial-pins') delete legacy.releaseId;
+          if (reconciliation === 'invalid-pins') legacy.controlsRevision = '1';
+          if (reconciliation === 'mismatched-pins') legacy.releaseId = 'not-the-original-release';
+          if (reconciliation === 'invalid-admittedAt') legacy.admittedAt = null;
+          if (sessionScoped) {
+            legacy.actor = { ...persisted.actor, sessionId: 'zsession01', sessionGeneration: 4 };
+            // Authentic session record; only the subsequent explicit installation consent may supersede it.
+            await inRegistry(async () => {
+              const key = `renovate-registration:${registration.registrationId}`;
+              const { scope: _scope, delegation: _delegation, nextObservationAt: _due, ...record } =
+                (await native.storage.get<Record<string, unknown>>(key))!;
+              await native.storage.put(key, { ...record, sessionId: 'zsession01', sessionGeneration: 4 });
+            });
           }
+          if (reconciliation === 'legacy-full-foreign-repository') legacy.repositoryId = repoId + 1;
+          await inRegistry(() => native.storage.put({ [`renovate-activity:${originalId}`]: legacy,
+            [`renovate-admission:${repoId}:1300:${head}`]: legacy }));
           const original = await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId)) as ProspectiveAdmission;
+          // No fresh installation consent: valid legacy work stays attached to its original actor.
+          if (historical && reconciliation !== 'legacy-full-foreign-repository' || reconciliation === 'session-pinned') {
+            expect(await inRegistry(() => owner.reserveProspectiveRenovateActivity({
+              ...pr(registration.registrationId, registration.activatedAt), repositoryId: repoId, activityId: 'before-consent',
+            }))).toMatchObject({ ok: true, activityId: originalId });
+            expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('before-consent'))).toBeNull();
+          }
           const originalActivity = activity;
-          if (reconciliation === 'absent-global-receipt') {
+          if (reconciliation === 'absent-global-receipt' || reconciliation === 'legacy-full-missing-local') {
             expect(await inRegistry(() => owner.getManagementAdmission(originalId))).toMatchObject({ activityId: originalId });
             await inActivity(() => activityNative.storage.delete('admission'));
           }
@@ -1776,16 +1824,32 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             bucket: reconciliation === 'foreign-bucket' ? 'other-bucket' : 'owner-bucket', sessionId: '', sessionGeneration: 0,
             human: claims(reconciliation === 'foreign-owner' ? 'a@example.test' : 'z@example.test', 86400),
             accessJwt: reconciliation === 'foreign-owner' ? 'a-jwt' : 'z-jwt',
-            repository: { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' } };
+            repository: { repository, repositoryId: repoId, baseBranch: 'trunk' } };
+          const originalRegistration = await inRegistry(() => native.storage.get(`renovate-registration:${registration.registrationId}`));
           const current = await inRegistry(() => owner.activateProspectiveRenovate(consent));
           if (!current.ok) throw Error('No fresh activation');
           expect(current.activatedAt).toBe(original.activatedAt);
           const target = pr(reconciliation === 'stale-caller' ? registration.registrationId : current.registrationId,
-            current.activatedAt, { activityId: 'reconciled-a' });
+            current.activatedAt, { activityId: 'reconciled-a', repositoryId: repoId });
+          if (reconciliation === 'head-boundary') {
+            target.head = newerHead;
+            await inRegistry(() => native.storage.put(`renovate-admission:${repoId}:1300:${newerHead}`, original));
+          }
+          if (reconciliation === 'active-original') await inRegistry(() => native.storage.put(
+            `renovate-registration:${registration.registrationId}`, originalRegistration));
+          const orphanKey = reconciliation === 'orphan-effect' ? 'dispatcher:operation:orphan'
+            : reconciliation === 'orphan-publication' ? 'renovate:publication' : reconciliation === 'orphan-lease' ? 'dispatcher:lease' : null;
+          if (orphanKey) await inActivity(() => activityNative.storage.put(orphanKey,
+            reconciliation === 'orphan-lease' ? { generation: 1, artifactDigest: persisted.bundleDigest,
+              inputDigest: originalPreparation![0].intentDigest, expiresAt: Date.now() + 60_000, submissionId: null, status: 'unknown' }
+              : reconciliation === 'orphan-publication' ? { ownerKey: original.ownerKey, bucket: original.actor.bucket,
+                sessionId: original.actor.sessionId, sessionGeneration: original.actor.sessionGeneration,
+                activityGeneration: 1, assessmentDigest: 'd'.repeat(64), operationId: 'old-publication', effects: { comment: { phase: 'unknown' } } }
+                : { generation: 1, requestDigest: 'd'.repeat(64), phase: 'unknown' }));
           const originalState = await inActivity(() => originalActivity.getAdmission());
           const originalDetail = await inActivity(() => originalActivity.getBrowserDetail());
           const originalLedger = await inRegistry(() => owner.getManagementAdmission(originalId));
-          if (reconciliation === 'absent' || reconciliation === 'prepared') expect(originalLedger).toBeNull();
+          if (['absent', 'prepared', 'legacy-no-admittedAt', 'legacy-full-absent', 'legacy-full-prepared'].includes(reconciliation)) expect(originalLedger).toBeNull();
           ledgerUnavailable = reconciliation === 'ledger-unavailable';
           let racedDrive = false;
           environment.OPERATOR_ACTIVITY = { idFromName: () => activityNative.id, getByName: (id: string) => {
@@ -1796,6 +1860,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
                 if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'concurrent-drive' && !racedDrive) {
                   racedDrive = true;
                   await originalActivity.beginDrive();
+                }
+                if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'legacy-full-ledger-missing') {
+                  vi.spyOn(owner, 'getManagementAdmission').mockResolvedValue(null);
+                }
+                if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'legacy-full-ledger-mismatch') {
+                  vi.spyOn(owner, 'getManagementAdmission').mockResolvedValue({ ...originalLedger!, intentDigest: 'f'.repeat(64) });
                 }
                 const result = await Reflect.apply(value, object, args);
                 if (key === 'retireProspectiveRenovatePreparation' && result === true) {
@@ -1811,11 +1881,14 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             owner.reserveProspectiveRenovateActivity(target),
             owner.reserveProspectiveRenovateActivity({ ...target, activityId: 'reconciled-b' }),
           ]));
+          if (reconciliation === 'legacy-full-ledger-missing' || reconciliation === 'legacy-full-ledger-mismatch') {
+            vi.mocked(owner.getManagementAdmission).mockRestore();
+          }
           expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId))).toEqual(original);
           expect(await inRegistry(() => owner.getManagementAdmission(originalId))).toEqual(originalLedger);
           expect(transport.admissions.size).toBe(0);
           expect(transport.networkRequests).toEqual([]);
-          if (reconciliation !== 'upgrade' && reconciliation !== 'absent' && reconciliation !== 'prepared') {
+          if (!replaceable) {
             expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('reconciled-a'))).toBeNull();
             expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('reconciled-b'))).toBeNull();
             if (reconciliation === 'concurrent-drive') {
@@ -1838,16 +1911,17 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(elected.activityId))).toMatchObject({
             previousActivityId: originalId, attempt: 2, releaseId: 'upgraded-release', bundleDigest: upgradedDigest,
             actor: { registrationId: current.registrationId, email: original.actor.email }, head, createdAt });
-          const blockedDrive = { ok: false, reason: reconciliation === 'upgrade' ? 'drive-settled' : 'not-admitted' };
+          const queuedOriginal = ['upgrade', 'legacy-full-queued', 'session-pinned'].includes(reconciliation);
+          const blockedDrive = { ok: false, reason: queuedOriginal ? 'drive-settled' : 'not-admitted' };
           expect(await inActivity(() => originalActivity.beginDrive())).toEqual(blockedDrive);
-          if (reconciliation === 'absent') {
+          if (['absent', 'legacy-no-admittedAt', 'legacy-full-absent'].includes(reconciliation)) {
             const latePreparation = originalPreparation;
             if (!latePreparation) throw Error('Missing original preparation input');
             expect(await inActivity(() => originalActivity.prepareAuthorized(...latePreparation)))
               .toEqual({ ok: false, reason: 'admission-denied' });
             expect(await inActivity(() => originalActivity.getAdmission())).toBeNull();
           }
-          if (reconciliation === 'prepared') {
+          if (reconciliation === 'prepared' || reconciliation === 'legacy-full-prepared') {
             const lateCapability = originalStartCapability;
             if (!lateCapability) throw Error('Missing original start capability');
             expect(await inActivity(() => originalActivity.start(lateCapability)))
@@ -2041,8 +2115,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   });
   it.each(reconciliationCases)('REQ-OPERATOR-061 AC2/3/6/7 /062 /107: stale reservation %s preserves uncertainty and elects only atomically retired same-owner work',
     reconciliation => normalAlarmHandoff(reconciliation === 'unknown' ? 'binding'
-      : ['absent', 'ledger-unavailable', 'legacy-no-admittedAt'].includes(reconciliation) ? 'preparation-proof-missing'
-        : reconciliation === 'prepared' ? 'prepared-start' : reconciliation === 'admitting' ? 'admitting-start'
+      : ['absent', 'ledger-unavailable', 'legacy-no-admittedAt', 'legacy-full-absent'].includes(reconciliation) ? 'preparation-proof-missing'
+        : reconciliation === 'prepared' || reconciliation === 'legacy-full-prepared' ? 'prepared-start' : reconciliation === 'admitting' ? 'admitting-start'
           : 'persistence-unavailable', false, reconciliation));
   it('role restoration without new consent cannot elect a retired admin or strand the active admin’s normal Dispatcher work',
     () => normalAlarmHandoff('none'));
