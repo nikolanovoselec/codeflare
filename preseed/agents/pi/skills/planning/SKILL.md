@@ -80,7 +80,7 @@ Check the plan against the request/spec: every requested outcome has a task/test
 
 Once the plan is accepted, or the user asks for implementation tasks, use the exposed `todo` tool for pending tasks and genuine `blockedBy` dependencies. Read `../rpiv-todo/SKILL.md` if not already loaded. List first, reuse/update related tasks, preserve unrelated tasks, and avoid duplicate plan/task inventories.
 
-- Reference the absolute plan path, relevant ACs, files, evidence and completion gate in task descriptions. Record returned TODO IDs in the plan.
+- For tasks derived from an existing Vault plan, follow the Todo skill's **Vault-plan task contract**; it owns the reference format and start/resume rereading procedure. Keep only task-specific action/acceptance context in descriptions rather than copying the plan. Record returned TODO IDs in the plan.
 - Create prerequisites first and use returned IDs; a batch may contain independent tasks but cannot reference sibling IDs not yet created. Never guess IDs.
 - Leave implementation tasks pending until authorized. During execution keep at most one task `in_progress`, complete each immediately when verified, and reconcile plan/TODO state after material changes. Saving a plan does not complete implementation tasks.
 
