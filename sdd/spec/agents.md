@@ -3012,6 +3012,7 @@ None.
 3. A reviewer call without correlated successful terminal evidence remains in flight without an age timeout. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification) -->
 4. Completion for an earlier reminder never acknowledges a replacement PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not emit FIX when exact head drifts before marker write) -->
 5. Delayed successful completion acknowledges its reviewed head only while that head remains authoritative. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not emit FIX when exact head drifts before marker write) -->
+6. After each completed tool batch, unclaimed and unconsumed native terminal announcements reach the next model request despite queued follow-ups. <!-- @impl: scripts/patch-pi-subagents-notifications.mjs::patchPiSubagentsNotifications --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (REQ-AGENT-053: queued parent follow-ups cannot starve completion past the next safe turn) --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (Task118: result consumed by a tool in the same batch is not announced) --> <!-- @test: host/__tests__/pi-subagents-notifications.test.js (Task118: claimed and consumed outcomes are suppressed both at enqueue and at flush) -->
 
 **Constraints:**
 
@@ -3021,7 +3022,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts)
+**Verification:** Automated: [enforce-review-spawn.test.js](../../host/__tests__/enforce-review-spawn.test.js), [review-enforcement.test.ts](../../src/__tests__/lib/review-enforcement.test.ts), [review-helpers.test.ts](../../src/__tests__/lib/review-helpers.test.ts), [pi-subagents-notifications.test.js](../../host/__tests__/pi-subagents-notifications.test.js)
 
 **Status:** Implemented
 

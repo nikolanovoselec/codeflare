@@ -24,6 +24,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-15
 
+- Native background outcomes reach the next model request after the current tool batch instead of waiting for all queued follow-ups to drain; claimed/consumed suppression, ordering and shutdown guards remain intact ([REQ-AGENT-053](agents.md#req-agent-053-pi-native-review-result-correlation)).
+
 - Keep historical reconciliation on a one-way Registry-to-Activity exchange with authoritative admission/ledger results and bounded private evidence streaming. Preserve atomic retirement guards and logging non-interference; reacquire the same Activity's stub for the existing guarded fence after RPC failure ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-authorized-renovate-scan), [REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).
 
 ## 2026-11-14
