@@ -776,6 +776,7 @@ export async function fixture(test: (f: {
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     const staleCapability = new OperatorDispatcherCapability({ props: { activityId, generation: 2 } } as unknown as ExecutionContext,
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
+    const failures: unknown[] = [];
     try {
       await test({ activity, capability, staleCapability, environment, bundle: fixtureBundle, artifactDigest, activityId, deliveredTail,
         normalTransport, changeConnection: patch => { connectionRecord = { ...connectionRecord, ...patch }; },
@@ -933,17 +934,22 @@ export async function fixture(test: (f: {
           });
         },
       });
-    } finally {
+    } catch (error) { failures.push(error); }
+    finally {
       failOwnedAbort = false;
       try { await activity.cancelDrive(); }
+      catch (error) { failures.push(error); }
       finally {
         if (!options.preserveGlobalMocks) {
           vi.restoreAllMocks();
           vi.unstubAllGlobals();
         }
-        await drainBackground();
+        try { await drainBackground(); }
+        catch (error) { failures.push(error); }
       }
     }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, 'Fixture callback or teardown failed');
   });
 }
 export function diagnosticReport(body: unknown = { stage: 'fetch-rejected' }, path = '/v1/dispatcher/diagnostic', method = 'POST') {

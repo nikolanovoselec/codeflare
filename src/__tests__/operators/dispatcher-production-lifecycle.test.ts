@@ -68,6 +68,30 @@ describe('fixture background promise ownership', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     })).rejects.toBe(original);
   });
+
+  it.each([
+    { callback: true, cancellation: false, background: false },
+    { callback: false, cancellation: true, background: false },
+    { callback: true, cancellation: true, background: false },
+    { callback: true, cancellation: false, background: true },
+    { callback: false, cancellation: true, background: true },
+    { callback: true, cancellation: true, background: true },
+  ])('teardown retains callback=$callback cancellation=$cancellation background=$background failures', async phases => {
+    const callbackFailure = new Error('Synthetic callback failure');
+    const cancellationFailure = new Error('Synthetic cancellation failure');
+    const backgroundFailure = new Error('Synthetic background failure');
+    const expected: Error[] = [];
+    if (phases.callback) expected.push(callbackFailure);
+    if (phases.cancellation) expected.push(cancellationFailure);
+    if (phases.background) expected.push(backgroundFailure);
+    const result = fixture(async f => {
+      if (phases.cancellation) vi.spyOn(OperatorActivity.prototype, 'cancelDrive').mockRejectedValue(cancellationFailure);
+      if (phases.background) f.waitUntil(Promise.reject(backgroundFailure));
+      if (phases.callback) throw callbackFailure;
+    });
+    if (expected.length === 1) await expect(result).rejects.toBe(expected[0]);
+    else await expect(result).rejects.toMatchObject({ name: 'AggregateError', errors: expected });
+  });
 });
 
 describe('retained retirement and preparation fences', () => {
