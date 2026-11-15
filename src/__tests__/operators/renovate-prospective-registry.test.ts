@@ -210,37 +210,68 @@ function adaptReconciliationResult(stream: ReadableStream<Uint8Array>, onResult:
   const encoder = new TextEncoder();
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   const TEXT = 4096, LINE = 64 * 1024;
-  let pending = '';
-  const transform = new TransformStream<Uint8Array, Uint8Array>({
-    async transform(chunk, controller) {
-      // Native byte-pipe chunks can split UTF-8/lines or contain many frames.
-      // Retain only one bounded physical line, never reconstructed evidence.
-      for (let at = 0; at < chunk.length; at += TEXT) {
-        pending += decoder.decode(chunk.subarray(at, at + TEXT), { stream: true });
-        let end: number;
-        while ((end = pending.indexOf('\n')) >= 0) {
-          if (end > LINE) throw Error('RECONCILIATION_FRAME_INVALID');
-          const line = pending.slice(0, end); pending = pending.slice(end + 1);
+  const reader = stream.getReader();
+  // closed is a parallel notification; read() below still exposes source errors.
+  void reader.closed.catch(() => {});
+  let pending = ''; let chunk: Uint8Array | undefined; let at = 0; let finished = false;
+  const cleanup = async (reason?: unknown) => {
+    try { await reader.cancel(reason); } catch { /* Preserve the original read/decoder/callback error. */ }
+    finally { reader.releaseLock(); chunk = undefined; pending = ''; }
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        while (!finished) {
+          if (!chunk || at === chunk.length) {
+            const next = await reader.read();
+            if (finished) return;
+            if (next.done) {
+              pending += decoder.decode();
+              if (pending) throw Error('RECONCILIATION_INTERRUPTED');
+              finished = true; controller.close();
+              await cleanup(); return;
+            }
+            chunk = next.value; at = 0;
+          }
+          // Decode at most TEXT bytes, stopping at the next physical newline.
+          // Keep only the current input chunk and one bounded partial line.
+          const slice = chunk.subarray(at, at + TEXT);
+          const newline = slice.indexOf(10);
+          const end = at + (newline < 0 ? slice.length : newline + 1);
+          pending += decoder.decode(chunk.subarray(at, end), { stream: true });
+          at = end;
+          if (at === chunk.length) chunk = undefined;
+          if (newline < 0) {
+            if (pending.length > LINE) throw Error('RECONCILIATION_FRAME_INVALID');
+            continue;
+          }
+          const line = pending.slice(0, -1); pending = '';
+          if (line.length > LINE) throw Error('RECONCILIATION_FRAME_INVALID');
           const frame: unknown = JSON.parse(line);
           const replacement = frame !== null && typeof frame === 'object' && 'type' in frame && frame.type === 'result'
             ? await onResult(line) : line;
+          if (finished) return;
           if (replacement !== null) controller.enqueue(encoder.encode(`${replacement}\n`));
-          // Dropped/corrupted footers end the injected exchange and cancel its
-          // source; unchanged race footers still require genuine EOF afterward.
-          if (replacement !== line) { controller.terminate(); return; }
+          // Dropped/corrupted footers cancel the source; an unchanged footer
+          // must keep reading so genuine EOF, trailing data and failures survive.
+          if (replacement !== line) {
+            finished = true; controller.close();
+            await cleanup();
+          }
+          return;
         }
-        if (pending.length > LINE) throw Error('RECONCILIATION_FRAME_INVALID');
+      } catch (error) {
+        if (finished) return;
+        finished = true; controller.error(error);
+        await cleanup(error);
       }
     },
-    flush() {
-      pending += decoder.decode();
-      if (pending) throw Error('RECONCILIATION_INTERRUPTED');
+    async cancel(reason) {
+      if (finished) return;
+      finished = true;
+      await cleanup(reason);
     },
-  });
-  void stream.pipeTo(transform.writable).catch(() => {
-    // Default piping still propagates failure to the readable consumed by the test.
-  });
-  return transform.readable;
+  }, { highWaterMark: 0 });
 }
 
 describe('REQ-OPERATOR-061 AC2/6/7 /090/091: reconciliation consumer wire integrity', () => {
@@ -327,6 +358,35 @@ describe('REQ-OPERATOR-061 AC2/6/7 /090/091: reconciliation consumer wire integr
         await expect(consumeProspectiveReconciliation(stream([damaged]), value => value)).rejects.toThrow();
       }
     });
+
+  it('caller footer callback rejection stays reader-visible and cancels the source', async () => {
+    const failure = Error('Caller footer callback failed');
+    let cancellation: unknown;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(valid()); },
+      cancel(reason) { cancellation = reason; },
+    }, { highWaterMark: 0 });
+    await expect(consumeProspectiveReconciliation(adaptReconciliationResult(source, async () => {
+      await Promise.resolve(); throw failure;
+    }), value => value)).rejects.toBe(failure);
+    expect(cancellation).toBe(failure);
+    expect(source.locked).toBe(false);
+  });
+
+  it('caller cancellation cancels and releases the adapted source', async () => {
+    const reason = Error('Caller stopped reading');
+    let cancellation: unknown;
+    const source = new ReadableStream<Uint8Array>({
+      cancel(value) { cancellation = value; },
+    }, { highWaterMark: 0 });
+    const reader = adaptReconciliationResult(source, async line => line).getReader();
+    const pendingRead = reader.read();
+    await reader.cancel(reason);
+    expect(await pendingRead).toEqual({ done: true, value: undefined });
+    expect(cancellation).toBe(reason);
+    expect(source.locked).toBe(false);
+    reader.releaseLock();
+  });
 
   it('decodes exact Unicode evidence and outcome when every UTF-8 byte is a separate chunk', async () => {
     const captured: Array<{ stage: string; value: unknown }> = [];
