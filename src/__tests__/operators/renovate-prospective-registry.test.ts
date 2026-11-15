@@ -211,7 +211,7 @@ function adaptReconciliationResult(stream: ReadableStream<Uint8Array>, onResult:
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   const TEXT = 4096, LINE = 64 * 1024;
   let pending = '';
-  return stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+  const transform = new TransformStream<Uint8Array, Uint8Array>({
     async transform(chunk, controller) {
       // Native byte-pipe chunks can split UTF-8/lines or contain many frames.
       // Retain only one bounded physical line, never reconstructed evidence.
@@ -236,7 +236,11 @@ function adaptReconciliationResult(stream: ReadableStream<Uint8Array>, onResult:
       pending += decoder.decode();
       if (pending) throw Error('RECONCILIATION_INTERRUPTED');
     },
-  }));
+  });
+  void stream.pipeTo(transform.writable).catch(() => {
+    // Default piping still propagates failure to the readable consumed by the test.
+  });
+  return transform.readable;
 }
 
 describe('REQ-OPERATOR-061 AC2/6/7 /090/091: reconciliation consumer wire integrity', () => {
