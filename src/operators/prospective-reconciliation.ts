@@ -52,7 +52,9 @@ function* json(value: unknown): Generator<string> {
  * within the Activity's atomic effect scan; the consumer persists in Registry. */
 export function prospectiveReconciliationStream<T>(enabled: boolean,
   work: (raw: RawCapture | undefined) => Promise<T>): ReadableStream<Uint8Array> {
-  const stream = new TransformStream<Uint8Array, Uint8Array>();
+  // Native byte pumping does not re-enter the Actor's parent input gate while
+  // a storage transaction holds its critical section; backpressure stays intact.
+  const stream = new IdentityTransformStream();
   const writer = stream.writable.getWriter();
   const encoder = new TextEncoder();
   let queue = Promise.resolve(); let sequence = 0; let failed = false;

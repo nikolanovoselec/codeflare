@@ -17,7 +17,7 @@ import * as access from '../../lib/access';
 import { openOperatorExecutionAccess } from '../../operators/execution-context';
 import activityRoutes from '../../routes/operator-activities';
 import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
-import { createRawCapture, exportRawCapture, createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures, type RawCaptureReceipt, type RawCaptureBinding } from '../../operators/raw-capture-storage';
+import { captureRawInteraction, createRawCapture, exportRawCapture, createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures, type RawCaptureReceipt, type RawCaptureBinding } from '../../operators/raw-capture-storage';
 import type { Env } from '../../types';
 import * as rawCaptureStorage from '../../operators/raw-capture-storage';
 import { prospectiveReconciliationStream, consumeProspectiveReconciliation } from '../../operators/prospective-reconciliation';
@@ -204,6 +204,41 @@ async function dispatcherPlan(registry: Prospective, environment: Env, selection
   return { plan: plan as never, host };
 }
 
+// Caller-side fault/race seam only: never wrap the Activity's native readable
+// before Response transfers it out of the transaction's parent input gate.
+function adaptReconciliationResult(stream: ReadableStream<Uint8Array>, onResult: (line: string) => Promise<string | null>) {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+  const TEXT = 4096, LINE = 64 * 1024;
+  let pending = '';
+  return stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    async transform(chunk, controller) {
+      // Native byte-pipe chunks can split UTF-8/lines or contain many frames.
+      // Retain only one bounded physical line, never reconstructed evidence.
+      for (let at = 0; at < chunk.length; at += TEXT) {
+        pending += decoder.decode(chunk.subarray(at, at + TEXT), { stream: true });
+        let end: number;
+        while ((end = pending.indexOf('\n')) >= 0) {
+          if (end > LINE) throw Error('RECONCILIATION_FRAME_INVALID');
+          const line = pending.slice(0, end); pending = pending.slice(end + 1);
+          const frame: unknown = JSON.parse(line);
+          const replacement = frame !== null && typeof frame === 'object' && 'type' in frame && frame.type === 'result'
+            ? await onResult(line) : line;
+          if (replacement !== null) controller.enqueue(encoder.encode(`${replacement}\n`));
+          // Dropped/corrupted footers end the injected exchange and cancel its
+          // source; unchanged race footers still require genuine EOF afterward.
+          if (replacement !== line) { controller.terminate(); return; }
+        }
+        if (pending.length > LINE) throw Error('RECONCILIATION_FRAME_INVALID');
+      }
+    },
+    flush() {
+      pending += decoder.decode();
+      if (pending) throw Error('RECONCILIATION_INTERRUPTED');
+    },
+  }));
+}
+
 describe('REQ-OPERATOR-061 AC2/6/7 /090/091: reconciliation consumer wire integrity', () => {
   const encoder = new TextEncoder();
   const privateText = 'PRIVATE_秘密🧪';
@@ -259,7 +294,35 @@ describe('REQ-OPERATOR-061 AC2/6/7 /090/091: reconciliation consumer wire integr
 
   it.each(malformed)('$name rejects rather than returning retirement eligibility', async ({ chunks, failure }) => {
     await expect(consumeProspectiveReconciliation(stream(chunks, failure), value => value)).rejects.toThrow();
+    await expect(consumeProspectiveReconciliation(
+      adaptReconciliationResult(stream(chunks, failure), async line => line), value => value)).rejects.toThrow();
   });
+
+  it.each(['bytewise', 'coalesced'] as const)(
+    'caller footer faults/races preserve physical evidence across %s UTF-8 chunks', async chunking => {
+      // Deliberately noncanonical whitespace must survive, not just parsed values.
+      const evidence = records().map(frame => ` ${JSON.stringify(frame)} \r\n`).join('');
+      const footer = ` ${JSON.stringify(result())} \r\n`;
+      const bytes = encoder.encode(evidence + footer);
+      const chunks = chunking === 'bytewise' ? Array.from(bytes, byte => Uint8Array.of(byte)) : [bytes];
+      let revision = 1;
+      const raced = adaptReconciliationResult(stream(chunks), async line => {
+        await Promise.resolve(); revision++; return line;
+      });
+      const [physical, checked] = raced.tee();
+      const [forwarded, outcome] = await Promise.all([
+        new Response(physical).arrayBuffer(),
+        consumeProspectiveReconciliation(checked, value => ({ value, revision })),
+      ]);
+      expect(new Uint8Array(forwarded)).toEqual(bytes);
+      expect(outcome).toEqual({ value: { value: { retired: true, text: privateText }, revision: 2 }, evidenceComplete: true });
+      for (const replacement of [null, '{"type":"result","value":true}']) {
+        const damaged = new Uint8Array(await new Response(adaptReconciliationResult(
+          stream(chunks), async () => replacement)).arrayBuffer());
+        expect(damaged).toEqual(encoder.encode(evidence + (replacement === null ? '' : `${replacement}\n`)));
+        await expect(consumeProspectiveReconciliation(stream([damaged]), value => value)).rejects.toThrow();
+      }
+    });
 
   it('decodes exact Unicode evidence and outcome when every UTF-8 byte is a separate chunk', async () => {
     const captured: Array<{ stage: string; value: unknown }> = [];
@@ -290,17 +353,27 @@ describe('REQ-OPERATOR-090/091 AC6/7: Registry-native private observation reads'
       const pages = Array.from({ length: 3 }, (_, page) => Array.from({ length: 128 }, (_, row) => ({ page, row, body: privateText.slice(row, row + 40) })));
       let evaluated = false;
       const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-      const response = await runInDurableObject(activityNamespace.getByName(`multi-batch-${crypto.randomUUID()}`), () =>
+      const activityName = `multi-batch-${crypto.randomUUID()}`;
+      const response = await runInDurableObject(activityNamespace.getByName(activityName), (_instance, state) =>
         new Response(prospectiveReconciliationStream(policy !== 'off', async raw => {
-          for (const page of pages) {
-            raw?.record('retained-history-page', () => { evaluated = true; return page; }); await raw?.flush?.();
-          }
-          raw?.record('retained-history-error', () => error); await raw?.flush?.();
-          return { retired: true };
+          raw?.record('retained-history-start', () => ({ pages: pages.length }));
+          return state.storage.transaction(async tx => {
+            await captureRawInteraction(raw, 'transaction-write', () => ({ key: 'reconciliation-ready', value: true }),
+              () => tx.put('reconciliation-ready', true));
+            for (const page of pages) {
+              raw?.record('retained-history-page', () => { evaluated = true; return page; }); await raw?.flush?.();
+            }
+            raw?.record('retained-history-error', () => error); await raw?.flush?.();
+            const retired = await captureRawInteraction(raw, 'transaction-read', () => 'reconciliation-ready',
+              () => tx.get<boolean>('reconciliation-ready'));
+            return { retired: retired === true };
+          });
         })));
       if (!response.body) throw Error('Missing reconciliation response body');
       const outcome = await consumeProspectiveReconciliation(response.body, value => value, policy === 'off' ? undefined : capture);
       expect(outcome.value).toEqual({ retired: true });
+      expect(await runInDurableObject(activityNamespace.getByName(activityName), (_instance, state) =>
+        state.storage.get('reconciliation-ready'))).toBe(true);
       expect(evaluated).toBe(policy !== 'off');
       const receipt = await capture.finish('complete');
       expect(receipt.status).toBe(policy === 'off' ? 'disabled' : policy === 'writer-failure' ? 'incomplete' : 'complete');
@@ -1891,9 +1964,13 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     const activityName = `alarm-normal-${crypto.randomUUID()}`;
     // Retain only names; each caller must acquire its own I/O stub, as in inOwnContext.
     const inActivity = <T>(action: () => Promise<T>) => runInDurableObject(activityNamespace.getByName(activityName), () => action());
-    const inStream = async (enter: typeof inActivity, action: () => Promise<ReadableStream<Uint8Array>>) => {
+    const inStream = async (enter: typeof inActivity, action: () => Promise<unknown>) => {
       // Only Response uses native fetch transfer; ordinary results stay in the helper's shared map.
-      const response = await enter(async () => new Response(await action()));
+      const response = await enter(async () => {
+        const result = await action();
+        if (!(result instanceof ReadableStream)) throw Error('Invalid reconciliation stream');
+        return new Response(result);
+      });
       if (!response.body) throw Error('Missing reconciliation response body');
       return response.body;
     };
@@ -1974,7 +2051,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         return new Proxy(activity, { get: (target, key) => {
           const value = Reflect.get(target, key);
           const invoke = key === 'readProspectiveRenovateRetryProof' || key === 'retireProspectiveRenovatePreparation'
-            ? (action: () => Promise<ReadableStream<Uint8Array>>) => inStream(inActivity, action) : inActivity;
+            ? (action: () => Promise<unknown>) => inStream(inActivity, action) : inActivity;
           return typeof value === 'function' ? (...args: unknown[]) => invoke(async () => {
             if (poisoned) throw Error(sensitiveError);
             if (faultArmed && key === 'getRuntimePlan' && ['poisoned-plan', 'poisoned-concurrent-drive'].includes(fault)) {
@@ -2277,42 +2354,41 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             return new Proxy(originalActivity, { get: (object, key) => {
               const value = Reflect.get(object, key);
               const invoke = key === 'readProspectiveRenovateRetryProof' || key === 'retireProspectiveRenovatePreparation'
-                ? (action: () => Promise<ReadableStream<Uint8Array>>) => inStream(inActivity, action) : inActivity;
-              return typeof value === 'function' ? (...args: unknown[]) => invoke(async () => {
-                if (key === 'retireProspectiveRenovatePreparation' && diagnostics === 'rpc-throws') throw Error(sensitiveError);
-                if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'concurrent-drive' && !racedDrive) {
-                  racedDrive = true;
-                  await originalActivity.beginDrive();
-                }
-                const result = await Reflect.apply(value, object, args);
+                ? (action: () => Promise<unknown>) => inStream(inActivity, action) : inActivity;
+              return typeof value === 'function' ? async (...args: unknown[]) => {
+                const result = await invoke(async () => {
+                  if (key === 'retireProspectiveRenovatePreparation' && diagnostics === 'rpc-throws') throw Error(sensitiveError);
+                  if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'concurrent-drive' && !racedDrive) {
+                    racedDrive = true;
+                    await originalActivity.beginDrive();
+                  }
+                  return Reflect.apply(value, object, args);
+                });
+                // inStream has now transferred the native Activity readable in
+                // Response.body. JS adapters belong to this caller, not Actor.
                 if (key === 'retireProspectiveRenovatePreparation' && ['interrupted-exchange', 'malformed-exchange'].includes(reconciliation)
                   || key === 'readProspectiveRenovateRetryProof' && ['interrupted-proof-exchange', 'malformed-proof-exchange'].includes(reconciliation)) {
-                    // Consume the real atomic retirement, then lose/corrupt its
-                    // final response: it must not certify a replacement.
-                    const reader = (result as ReadableStream<Uint8Array>).getReader();
-                    return new ReadableStream<Uint8Array>({ async pull(controller) {
-                      const next = await reader.read();
-                      if (next.done) { controller.close(); return; }
-                      const text = new TextDecoder().decode(next.value);
-                      if (text.startsWith('{"type":"result"')) {
-                        if (reconciliation === 'malformed-exchange' || reconciliation === 'malformed-proof-exchange') controller.enqueue(new TextEncoder().encode('{"type":"result","value":true}\n'));
-                        controller.close(); await reader.cancel();
-                      } else controller.enqueue(next.value);
-                    } });
+                  if (!(result instanceof ReadableStream)) throw Error('Invalid reconciliation stream');
+                  // Consume the real atomic result before dropping/corrupting
+                  // its footer; neither fault may certify a replacement.
+                  return adaptReconciliationResult(result, async () =>
+                    reconciliation === 'malformed-exchange' || reconciliation === 'malformed-proof-exchange'
+                      ? '{"type":"result","value":true}' : null);
                 }
-                if (key === 'retireProspectiveRenovatePreparation') {
-                  return (result as ReadableStream<Uint8Array>).pipeThrough(new TransformStream({ async transform(chunk, controller) {
-                    const text = new TextDecoder().decode(chunk);
-                    if (text.startsWith('{"type":"result"') && JSON.parse(text).value.retired) {
+                if (key === 'retireProspectiveRenovatePreparation' && ['stale-selection', 'stale-election'].includes(reconciliation)) {
+                  if (!(result instanceof ReadableStream)) throw Error('Invalid reconciliation stream');
+                  return adaptReconciliationResult(result, async line => {
+                    const frame: { value?: { retired?: boolean } } = JSON.parse(line);
+                    if (frame.value?.retired) {
                       if (reconciliation === 'stale-selection') selected.installation.revision++;
                       if (reconciliation === 'stale-election') await inRegistry(() => owner.activateProspectiveRenovate({
                         ...consent, accessJwt: 'z-fresh-consent' }));
                     }
-                    controller.enqueue(chunk);
-                  } }));
+                    return line;
+                  });
                 }
                 return result;
-              }) : value;
+              } : value;
             } });
           } } as never;
           refusals.length = 0;
@@ -2547,6 +2623,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             } else if (['stale-selection', 'stale-election', 'interrupted-exchange', 'malformed-exchange'].includes(reconciliation)) {
               expect(await inActivity(() => originalActivity.getBrowserDetail())).toMatchObject({
                 executionStatus: 'cancel-requested', cleanupStatus: 'stopped' });
+              expect(await inActivity(() => originalActivity.beginDrive())).toMatchObject({ ok: false });
             } else {
               expect(await inActivity(() => originalActivity.getAdmission())).toEqual(originalState);
               expect(await inActivity(() => originalActivity.getBrowserDetail())).toEqual(originalDetail);
@@ -2604,7 +2681,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
                 return new Proxy(object, { get: (target, key) => {
                   const value = Reflect.get(target, key);
                   const invoke = key === 'readProspectiveRenovateRetryProof' || key === 'retireProspectiveRenovatePreparation'
-                    ? (action: () => Promise<ReadableStream<Uint8Array>>) => inStream(enter, action) : enter;
+                    ? (action: () => Promise<unknown>) => inStream(enter, action) : enter;
                   return typeof value === 'function' ? (...args: unknown[]) => invoke(async () => Reflect.apply(value, target, args)) : value;
                 } });
               } } as never;
