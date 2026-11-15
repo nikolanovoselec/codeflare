@@ -1118,7 +1118,38 @@ export class OperatorActivity extends Agent {
           const entries = await tx.list({ prefix: 'dispatcher:', limit: 128, ...(cursor ? { startAfter: cursor } : {}) });
           trace?.record('activity-retirement-runtime-response', () => [...entries]);
           try { await trace?.flush?.(); } catch { /* Keep the original effect guard. */ }
-          if ([...entries.keys()].some(key => !key.startsWith('dispatcher:diagnostics:'))) return refuse('runtime-effect-present');
+          const profile = entries.get(DISPATCHER_PROFILE_LEASE) as DispatcherLease | undefined;
+          let bootstrapOnly = false;
+          if (neverLeased && profile && state?.receipt && isManagementReceipt(state.receipt)) {
+            const { selection } = state.receipt;
+            const deployment = profile.deployment;
+            const descriptor = JSON.parse(selection.manifestJson);
+            const serial = selection.release.intentVersion === '4' && descriptor?.id === 'renovate-dispatcher'
+              && descriptor.profile === 'dispatcher' && descriptor.intentVersion === '4';
+            // This initial envelope permits profile discovery, not SDK/model work.
+            // Keep it as evidence; any advanced or unexplained state remains fenced.
+            bootstrapOnly = profile.generation === 1 && profile.hosting === 'normal' && profile.status === 'admitting'
+              && profile.submissionId === null && profile.expiresAt === Math.floor(state.intent.deadline / 1000) * 1000
+              && profile.artifactDigest === state.executionContext?.artifactDigest && profile.inputDigest === state.receipt.intentDigest
+              && typeof profile.connectionSecretCiphertext === 'string' && profile.connectionSecretCiphertext.length > 0
+              && Object.keys(profile).every(key => ['generation', 'artifactDigest', 'inputDigest', 'expiresAt', 'submissionId',
+                'status', 'serial', 'hosting', 'publicSdkVersion', 'sdkProvenance', 'deployment', 'connectionSecretCiphertext'].includes(key))
+              && !!deployment && deployment.installationId === selection.installation.id && deployment.releaseId === selection.release.id
+              && deployment.bundleDigest === selection.release.bundleDigest && deployment.manifestDigest === selection.release.manifestDigest
+              && deployment.sourceCommit === selection.release.sourceCommit && deployment.compilerCommit === selection.release.provenance?.compilerCommit
+              && Number.isSafeInteger(deployment.connectionRevision) && deployment.connectionRevision > 0
+              && typeof deployment.workerName === 'string' && deployment.workerName.length > 0
+              && typeof deployment.workerVersionId === 'string' && deployment.workerVersionId.length > 0
+              && typeof deployment.controlOrigin === 'string' && deployment.controlOrigin.length > 0
+              && Object.keys(deployment).every(key => ['installationId', 'releaseId', 'connectionRevision', 'workerName',
+                'workerVersionId', 'sourceCommit', 'compilerCommit', 'manifestDigest', 'bundleDigest', 'controlOrigin'].includes(key))
+              && (serial ? !!profile.serial && sameDispatcherPhaseValue(profile.serial,
+                createDispatcherPhaseState('submission', await sha256(JSON.stringify(state.receipt)), {
+                  deliveryToken: profile.serial.current.deliveryToken, idempotencyKey: profile.serial.current.idempotencyKey,
+                })) : profile.serial === undefined);
+          }
+          if ([...entries.keys()].some(key => !key.startsWith('dispatcher:diagnostics:')
+            && !(key === DISPATCHER_PROFILE_LEASE && bootstrapOnly))) return refuse('runtime-effect-present');
           if (entries.size < 128) break;
           cursor = [...entries.keys()].at(-1)!;
         }
