@@ -18,6 +18,28 @@ const input = (overrides: Record<string, unknown> = {}) => ({ activityId: 'activ
   artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human: human(), accessJwt: 'signed.jwt.assertion', ...overrides });
 
 describe('REQ-OPERATOR-003: protected verified execution context', () => {
+  it('REQ-OPERATOR-061: seals bounded scheduling delegation with the original authority rather than public context fields', async () => {
+    const request = { ...input(), human: human({ groups: ['verified-team'] }),
+      delegation: { version: 1 as const, routingGroups: ['verified-route'] } };
+    const context = await createOperatorExecutionContext(request, env);
+    expect(await openOperatorExecutionAccess(context, env)).toEqual({ human: request.human,
+      accessJwt: request.accessJwt, delegation: request.delegation });
+    expect(projectOperatorExecution(context)).not.toHaveProperty('delegation');
+    const ordinary = await createOperatorExecutionContext(input(), env);
+    expect(await openOperatorExecutionAccess({ ...ordinary, delegation: request.delegation } as typeof ordinary, env))
+      .not.toHaveProperty('delegation');
+    const refreshed = await reauthenticateOperatorExecution(context, human({ groups: ['new-team'] }), 'fresh.jwt.assertion', env);
+    expect(await openOperatorExecutionAccess(refreshed, env)).not.toHaveProperty('delegation');
+  });
+
+  it('REQ-OPERATOR-061: delegation cannot manufacture membership or extend the captured expiry', async () => {
+    await expect(createOperatorExecutionContext({ ...input(), delegation: { version: 1, routingGroups: [] } }, env))
+      .rejects.toThrow('Invalid operator execution authority');
+    await expect(createOperatorExecutionContext({ ...input(), human: human({ groups: [] }),
+      delegation: { version: 1, routingGroups: [], expiresAt: human().expiresAt + 1 } }, env))
+      .rejects.toThrow('Invalid operator execution authority');
+  });
+
   it('encrypts Access authority for one activity and exposes only a safe immutable projection', async () => {
     const request = input();
     const context = await createOperatorExecutionContext(request, env);

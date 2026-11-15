@@ -4,7 +4,7 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 
 **Audience:** Developers
 
-**Owns:** method, public path, authorization, request, response, error, rate-limit, requirement, and handler contracts. **Does not own:** provisioning implementation, private host mechanics, deployment values, or security rationale.
+**Owns:** method, public path, authorization, request, response, error, rate-limit, requirement, and handler contracts. **Does not own:** provisioning implementation, private host mechanics, deployment values, security rationale, or operator policy/procedure. Conductor's [Review guide](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md) owns packet/lane/reviewer behavior, history/reassessment and publication format. Existing `review-*` handler names identify actual Root adapters, not ownership of that application policy.
 
 ## Contents
 
@@ -135,8 +135,8 @@ These Worker routes exist only in enterprise mode and implement [REQ-OPERATOR-01
 | GET | `/api/operator-activities` (`?limit=5[&after=<activityId>]`) | Session and verified human Access | [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | List owner-scoped activity summaries, optionally five per page. |
 | GET | `/api/operator-activities/installations` (`?cursor=<installationId>`) | Session, verified current human Access, invocation or eligible management visibility | [REQ-OPERATOR-086](../../sdd/spec/operators.md#req-operator-086-dropdown-runs-and-installed-workspace) | List bounded installed metadata without granting execution. |
 | GET | `/api/operator-activities/installations/:installationId/preview` | Session, verified current human Access and invocation grant | [REQ-OPERATOR-086](../../sdd/spec/operators.md#req-operator-086-dropdown-runs-and-installed-workspace) | Read the current enabled/approved pin's guided input contract. |
-| POST | `/api/operator-activities/renovate/activation` | Current owner-admin Access session, invoker grant, CSRF | [REQ-OPERATOR-061](../../sdd/spec/operators.md#req-operator-061-prospective-admin-session-renovate-scan) | Explicitly activate the exact installation revision or legacy running session generation; no caller cutoff or transport limits. |
-| POST | `/api/operator-activities/:activityId/publish` | Exact owner, current admin/session authority, CSRF | [REQ-OPERATOR-060](../../sdd/spec/operators.md#req-operator-060-fenced-renovate-publication), [REQ-OPERATOR-071](../../sdd/spec/operators.md#req-operator-071-renovate-publication-policy-and-reconciliation) | Explicit parent publication command, never a result-read effect. |
+| POST | `/api/operator-activities/automatic/activation` | Current owner-admin Access session, invoker grant, CSRF | [REQ-OPERATOR-061](../../sdd/spec/operators.md#req-operator-061-authorized-application-triggers-and-coordination) | Activate the declared installation schedule at the supplied revision. |
+| POST | `/api/operator-activities/:activityId/publish` | Exact owner, current administrator, CSRF | Compatibility refusal | Returns `409 {ok:false, reason:"application-owned"}` after request validation; performs no publication. |
 | POST | `/api/operator-activities/read` | Session, exact owner, CSRF | [REQ-OPERATOR-059](../../sdd/spec/operators.md#req-operator-059-new-activity-observation) | Acknowledge admissions through an observed sequence without collecting results. |
 | GET | `/api/operator-activities/:activityId` | Session and exact owner | [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | Read one bounded activity detail. |
 | POST | `/api/operator-activities/:activityId/start` | Session, exact owner, CSRF | [REQ-OPERATOR-016](../../sdd/spec/operators.md#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-018](../../sdd/spec/operators.md#req-operator-018-request-attached-operator-orchestration), [REQ-OPERATOR-027](../../sdd/spec/operators.md#req-operator-027-owned-activity-user-surface) | Admit and schedule one winning direct drive. |
@@ -153,6 +153,7 @@ These Worker routes exist only in enterprise mode and implement [REQ-OPERATOR-01
 | POST | `/operator-webhook/v1/activities/claims/discovery` | Signed protected Action OIDC bearer, bounded JSON | [REQ-OPERATOR-072](../../sdd/spec/operators.md#req-operator-072-protected-review-registration-and-discovery-fences) | Discover an actor-bound match without consuming the handoff or returning capabilities. |
 | POST | `/operator-webhook/v1/activities/claims/boundary` | Signed protected Action OIDC bearer and bounded JSON claim | [REQ-OPERATOR-054](../../sdd/spec/operators.md#req-operator-054-protected-action-claim-and-stop-fence) | Claim the exact prepared Action start handoff once. |
 | POST | `/operator-webhook/v1/activities/claims/publication` | Signed protected Action OIDC bearer and bounded JSON intent | [REQ-OPERATOR-055](../../sdd/spec/operators.md#req-operator-055-pr-wide-publication-ordering) | Reconcile an opaque PR-wide effect receipt; no GitHub write or publication credential. |
+| POST | `/operator-webhook/v1/activities/claims/publication-preparation` | Signed protected Action OIDC bearer and bounded JSON binding | [REQ-OPERATOR-056](../../sdd/spec/operators.md#req-operator-056-independent-review-publication) | Read the frozen owner-backed publication projection for an already collected terminal result; no publication write. |
 | POST | `/operator-webhook/v1/activities/:activityId/start` | Activity start bearer capability | [REQ-OPERATOR-006](../../sdd/spec/operators.md#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge) | Queue one activity and issue read authority once. |
 | GET | `/operator-webhook/v1/activities/:activityId/status` | Activity read bearer capability | [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge), [REQ-OPERATOR-031](../../sdd/spec/operators.md#req-operator-031-non-consuming-webhook-observation) | Read bounded status and generation without consumption. |
 | POST | `/operator-webhook/v1/activities/:activityId/continue` | Activity read bearer capability, JSON `{ "generation": 1 }` | [REQ-OPERATOR-053](../../sdd/spec/operators.md#req-operator-053-enterprise-pr-boundary-review-handoff) | Claim one observed waiting generation for a fenced resume. |
@@ -240,28 +241,52 @@ An exactly bound immediately retired intent4 lease can expose `effectReceipts` w
 
 For another ascending page, pass the returned `nextAfterOrdinal` as one canonical nonnegative safe-integer `receiptAfter`. Malformed, duplicate, nonexistent or unavailable cursors return `400` after existing authentication and ownership checks; an other-owner Activity remains `404`. Plain detail and POST collection retain their existing contracts. These reads add no execution or collection authority. See [REQ-OPERATOR-041](../../sdd/spec/operators.md#req-operator-041-owned-activity-browser-reads) and [retained evidence limitations](operators.md#owner-scoped-activity-surface) for original bindings, privacy and missing-history caveats.
 
-- `POST /api/operator-activities/renovate/activation` registers prospective scanning for the selected installation or legacy administrator session. [REQ-OPERATOR-061](../../sdd/spec/operators.md#req-operator-061-prospective-admin-session-renovate-scan)
-- `POST /api/operator-activities/:activityId/publish` requests fenced parent publication without collecting results or granting child write capability. [REQ-OPERATOR-060](../../sdd/spec/operators.md#req-operator-060-fenced-renovate-publication), [REQ-OPERATOR-071](../../sdd/spec/operators.md#req-operator-071-renovate-publication-policy-and-reconciliation)
+<a id="legacy-renovate-route-compatibility"></a>
+#### Schedule activation and publication compatibility
 
-Activation accepts `{ installationId, revision }` for installation-scoped observation without a workspace: `installationId` is a string identifier and `revision` a positive safe JSON integer from current installed metadata. The legacy `{ installationId, sessionId, sessionGeneration }` form requires the selected running D1 generation. Current owner-admin Access and invocation permission are required. <!-- @impl: src/routes/operator-activities.ts::app -->
+`POST /api/operator-activities/automatic/activation` accepts `{installationId, revision}`. Current administrator identity, invoker grant, installation revision, declared enabled schedule and verified human delegation are required; successful registration returns `202 {activatedAt}`. Registration does not execute application work. The former `/renovate/activation` route is not registered.
 
-Only acknowledged activation returns `202 { activatedAt, repositoryId }`: `activatedAt` is an ISO-8601 UTC timestamp string, and `repositoryId` the authenticated numeric repository identity. Invalid bodies return `400`; authorization/session/registration rejection returns `403`; revision conflict returns `409`; a missing legacy container or rejected scheduling returns `503`. The server cutoff is immutable across retry. A `202` acknowledges activation, not discovery, SDK execution or collection. <!-- @impl: src/routes/operator-activities.ts::app -->
+The retained `/:activityId/publish` route accepts `{sessionId, sessionGeneration}` and validates owner, administrator and request before returning `409 {ok:false, reason:"application-owned"}`. [Publication policy and procedures](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/develop/sdd/spec/renovate.md#req-operator-060-fenced-renovate-publication) belong to Dispatcher; this route grants no publication authority. Original records and fences are retained.
 
-For Enterprise activation, reuse your normal approved Access login cookie jar, including `CF_Authorization`; an email header or service token cannot replace verified human authority. The CSRF header is exactly `X-Requested-With: XMLHttpRequest`. In this illustrative command, `CODEFLARE_ORIGIN` is the application origin and `CODEFLARE_COOKIE_JAR` your local authenticated jar; replace `INSTALLATION_ID` and `1` with current installed metadata. Never share credential values. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @impl: src/routes/operator-activities.ts::app -->
+<a id="application-workflow-control"></a>
+#### Application workflow control (integration contract; not a live-availability claim)
 
-```sh
-curl --include --request POST \
-  --cookie "$CODEFLARE_COOKIE_JAR" \
-  --header 'Content-Type: application/json' \
-  --header 'X-Requested-With: XMLHttpRequest' \
-  --data '{"installationId":"INSTALLATION_ID","revision":1}' \
-  "$CODEFLARE_ORIGIN/api/operator-activities/renovate/activation"
+Approved packages may declare `manifest.application = { controlVersion: 1, configurationSchema?, githubWriteRepositoriesPath?, schedule?: { enabledPath, intervalSecondsPath } }`. The schedule and write-repository fields are configuration pointers. The write selector must resolve a repository name or array; omitting it denies GitHub mutations. Root renders existing simple fields and enforces generic shape/bounds; the application interprets domain configuration. Manual and timer intake pass the same immutable configuration/input. Save/enable/activation and human authority remain separate gates.
+
+Installation-authenticated normal `POST /control/plan` receives the original run/deployment identity, immutable `initialData`, nullable opaque `checkpoint`, delivery `{token, ordinal}`, and optional exact confirmed settlement:
+
+```ts
+// Successful SDK settlement: unchanged public reply, including coalesced data.
+{ receipt, reply }
+// Failed SDK settlement: actual named data for this submission only.
+{ status: 'failed', receipt, data: Record<string, JsonValue[]> }
 ```
 
-Metadata resolution and subsequent automatic discovery use parent-selected `sourceTimeoutMs` and validated installation `sourceResponseBytes`, with one header/body request deadline clamped to original authority expiry. No timeout/byte policy is accepted in the activation body; existing management capacity fields and hierarchy remain authoritative. Incomplete or changed-authority observations admit no work. <!-- @impl: src/operators/renovate-prospective.ts::scanTransport --> [REQ-OPERATOR-061](../../sdd/spec/operators.md#req-operator-061-prospective-admin-session-renovate-scan)
+`receipt` retains `{submissionId, uid, acceptedAt, deduplicated?: true}`. Root accepts failure evidence only from the exact current installation-authenticated `/control/read` response `{status:'failed', receipt, submissionId, data}`. The SDK observer verifies the same UID and terminal `failed` history, then projects only messages for that submission; no unrelated or coalesced reply fallback supplies failed data. A verified empty projection may be `{}`; failed or missing history is unavailable, not empty.
 
-Publication accepts exactly `{ sessionId, sessionGeneration }`. Exact owner, administrator and CSRF gates precede fresh parent authority/revision checks. Success returns `200` with its bounded outcome; durable denial/uncertainty returns `409`. Comments require current identity, revisions and publication authority; approval/merge additionally require compatible checks, reviews, rules and mergeability. [REQ-OPERATOR-060](../../sdd/spec/operators.md#req-operator-060-fenced-renovate-publication), [REQ-OPERATOR-071](../../sdd/spec/operators.md#req-operator-071-renovate-publication-policy-and-reconciliation)
+The current decision wire is one of:
 
+```ts
+{ kind: 'dispatch', checkpoint, message, context }
+{ kind: 'complete', checkpoint, result }
+```
+
+`message` is a normal SDK user/signal message; `context`, `checkpoint` and `result` are bounded JSON. Root persists original key/payload before dispatch, checks exact SDK receipt/settlement independently, and never advances on pending, aborted, unavailable or mismatched proof. Verified failure may be interpreted by the application, but cannot supply a successful final result. Original authority, native-login, generation, deadline and unresolved-journal fences still apply. While a plan is pending, protected source/model calls remain denied; admitted tools supply evidence and the planner uses state/CAS, not protected source reads. The callback cannot mint receipts, renew deadlines or dispatch a second runtime. Application checkpoint/result validation does not replace Root authorization.
+
+Through the existing authenticated `OPERATOR` callback, `POST /v1/dispatcher/state` accepts:
+
+```ts
+{ operation: 'read', keys: string[] }
+{ operation: 'compare-exchange', expected: [{key, version: string | null}], writes: [{key, value}] }
+```
+
+Read returns `{entries}` containing `{key,status:'absent',version:null}`, `{key,status:'value',version,value}`, or `{key,status:'conflict'}` without foreign payload. Compare/exchange returns `{status:'committed'|'conflict'}`; version mismatch commits no writes. Keys/values are bounded opaque application data, not arbitrary Registry paths. Root derives source/application scope, owner, installation, live Activity/generation and original deadline; current grants and release/configuration revisions remain mandatory. Trusted legacy mapping preserves original records and cross-registration collisions, never caller-selected namespaces or safety flags. Unknown/malformed state fails closed.
+
+`POST /v1/dispatcher/context` returns `{context, delivery, receipt}` for the current admitted delivery only; a pending plan has no execution context authority. `POST /v1/dispatcher/execution` accepts `{operation:'read'|'retire', key, version, activityId}` tied to an owned state entry and the original execution. A read returns `{status:'value', activityId, terminal}` (original verified settlement/collection facts, or `terminal:null` only for proven never-started work), or `conflict`/`unavailable`. Retirement returns `{status:'retired'|'held'|'conflict'|'unavailable', activityId}`. Only original non-admission/atomic retirement evidence permits retirement; no missing lease or arbitrary application-supplied ID does. These operations neither open an old SDK job nor decide application retry policy. Exhaustive storage inspection uses existing 128-entry pages, retaining proof metadata rather than full operation payloads; there is no new total-record cutoff.
+
+These application callbacks are not owner diagnostic APIs. The existing passive v2 reads/export above remain the debugging surface; do not dump private state or replay work to inspect it. Source implementation, generated package CI, compatible Root delivery and hosted acceptance are distinct pending gates.
+
+<a id="protected-action-discovery"></a>
 ### Protected Action discovery [REQ-OPERATOR-072](../../sdd/spec/operators.md#req-operator-072-protected-review-registration-and-discovery-fences) <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @impl: src/operators/review-boundary-claim.ts::discoverVerifiedBoundaryAction -->
 
 `POST /operator-webhook/v1/activities/claims/discovery` is Enterprise-only and uses the same bounded claim JSON and signed protected Action OIDC identity described below. `200` returns a bounded `match` or `no-match` observation; uncertain service/identity observation returns `503 { status: "unavailable" }`. Invalid bodies return `400`, missing/invalid bearer `401`, wrong method `405`, and non-Enterprise `404`. Responses are `no-store`; discovery never consumes the start handoff, returns capabilities or authorizes work.
@@ -272,6 +297,7 @@ Publication accepts exactly `{ sessionId, sessionGeneration }`. Exact owner, adm
 
 On verified current PR/run, human authority and session generation, `200` returns `{ activityId, origin, startCapability, repositoryId, pullRequest, head, base, mergeBase, workflowId, runId, runAttempt, generation, contextDigest }` once; `generation` is the session lifecycle generation, while `contextDigest` is the prepared context digest. Invalid bodies return `400`, absent Action bearer `401`, denied claims `403`, stale/absent handoffs `409`, and uncertain claims `503`; none return the capability. Responses are `no-store`. A lost successful response cannot redeem the consumed handoff again.
 
+<a id="protected-publication-journal"></a>
 ### Protected publication journal [REQ-OPERATOR-055](../../sdd/spec/operators.md#req-operator-055-pr-wide-publication-ordering) <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @impl: src/operators/review-boundary-claim.ts::operateBoundaryPublication -->
 
 `POST /operator-webhook/v1/activities/claims/publication` is Enterprise-only. Its signed protected `pull_request_target` OIDC bearer has a deployment-specific audience, distinct from the start-claim audience. Strict JSON (at most 4096 bytes; two-second stalled-body deadline) binds numeric repository/PR/workflow/run/attempt, exact head/base/merge-base, activity and session/terminal-drive generations, context and effect digests, one `artifact|comment|check` effect, and `begin|read|complete`. Only `complete` accepts a positive numeric `externalId`.
@@ -279,6 +305,14 @@ On verified current PR/run, human authority and session generation, `200` return
 The parent rechecks protected workflow bytes and current GitHub PR, the consumed run handoff, and non-driving collected terminal Activity metadata before the Registry records an effect. `200` returns `new` once, then `pending` until a trusted publisher-reported numeric external ID is acknowledged; the journal binds only that ID as `published` metadata, not as GitHub provenance. No bearer, browser JWT, GitHub credential or result bytes are returned. Invalid JSON returns `400`, absent OIDC `401`, denied identity `403`, stale/conflicting context `409`, and uncertain I/O `503`; all responses are `no-store`.
 
 A pending receipt never authorizes a blind second write. Execution expiry does not renew a start capability: existing receipts remain reconcilable, but new effects are denied. This journal does not itself prove independent GitHub publication, current check selection or required-check activation.
+
+### Protected publication preparation [REQ-OPERATOR-056](../../sdd/spec/operators.md#req-operator-056-independent-review-publication) <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @impl: src/operators/review-boundary-claim.ts::prepareBoundaryPublication -->
+
+`POST /operator-webhook/v1/activities/claims/publication-preparation` is an existing Enterprise-only read of frozen evidence, not publication or new execution. The signed protected Action OIDC bearer uses this route's own deployment audience and the verified exact reusable-runtime pin. Strict JSON has the same 4096-byte/two-second body bound and exact repository/PR/head/base/merge-base/workflow/run/attempt/activity/session-generation/terminal-generation/context binding as the journal, but supplies `resultDigest` instead of `effect`, `digest`, `operation` or `externalId`.
+
+`200 { status: "ready", projection }` is returned only after current human/installation/claim/PR/session checks and matching collected terminal evidence. The projection contains `schemaVersion`, `admission`, `context`, `contextDigest`, resource and packet descriptors, frozen `initialization`, `packetDigest`, `resultDigest` and `activityGeneration`; the response is bounded to 64 KiB and contains no credential. Absent or changed evidence cannot be substituted by caller labels. Invalid JSON returns `400`, absent/malformed bearer `401`, denied identity `403`, stale context `409`, uncertain I/O `503`, wrong method `405` and non-Enterprise `404`; all responses are `no-store`.
+
+This contract authenticates existing evidence; it does not define Review lanes, report or comment format, finding clearance or check conclusions. Those belong to [Conductor's protected publisher](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/sdd/spec/conductor.md#req-conductor-005-trusted-boundary-reviews-action-and-publisher). Root's current compatibility publisher and fixed adapters remain implemented here; the docs split does not replace them or prove deployment.
 
 ### Webhook activity endpoint details [REQ-OPERATOR-029](../../sdd/spec/operators.md#req-operator-029-capability-authenticated-webhook-edge) <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @impl: src/operators/activity.ts::OperatorActivity -->
 

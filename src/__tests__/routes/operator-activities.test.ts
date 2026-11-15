@@ -22,6 +22,9 @@ vi.mock('../../lib/access', async importOriginal => {
       return { human: claims, accessJwt: 'private.access.jwt' };
     },
     operatorAccessSessionCurrent: async () => accessState.active,
+    observeOperatorAccessIdentity: async (...args: Parameters<typeof actual.observeOperatorAccessIdentity>) =>
+      accessState.realIdentity ? actual.observeOperatorAccessIdentity(...args)
+        : { status: 'current', groups: [], routingGroups: [] },
     resolveAdminAccessGroup: async () => accessState.adminGroups,
     resolveOperatorGroupIdentity: async (human: Parameters<typeof actual.resolveOperatorGroupIdentity>[0], accessJwt: string) =>
       accessState.realIdentity ? actual.resolveOperatorGroupIdentity(human, accessJwt) : human,
@@ -31,10 +34,17 @@ vi.mock('../../lib/access', async importOriginal => {
     },
   };
 });
-const orchestration = vi.hoisted(() => ({
-  prepare: vi.fn(async () => ({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 })),
-  run: vi.fn(async (_activityId: string, _env: Env, _bindCapability: unknown) => {}),
-}));
+const orchestration = vi.hoisted(() => {
+  const prepared: unknown[] = [];
+  return {
+    prepared,
+    prepare: vi.fn(async (input: unknown, _authority: unknown, _env: Env) => {
+      prepared.push(input);
+      return { activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 };
+    }),
+    run: vi.fn(async (_activityId: string, _env: Env, _bindCapability: unknown) => {}),
+  };
+});
 vi.mock('../../operators/orchestrator', async importOriginal => ({
   ...await importOriginal<typeof import('../../operators/orchestrator')>(),
   prepareOperatorActivity: orchestration.prepare,
@@ -46,6 +56,16 @@ const summary = {
   collectionStatus: 'unavailable', attention: false, sessionId: 'session-1', source: 'Repository dispatch',
   updatedAt: 1_800_000_000_000,
 };
+
+const application = { controlVersion: 1, configurationSchema: { type: 'object', properties: {
+  automation: { type: 'object', properties: {
+    enabled: { type: 'boolean', default: false }, interval: { type: 'integer', default: 900 },
+  } },
+} }, schedule: { enabledPath: '/automation/enabled', intervalSecondsPath: '/automation/interval' } };
+const manifest = (overrides: Record<string, unknown> = {}) => ({ schemaVersion: 1, interfaceVersion: 1,
+  id: 'test-application', name: 'Test application', description: 'Package-owned workflow',
+  coreVersion: '1', intentVersion: '1', profile: 'dispatcher', inputSchema: { type: 'object' },
+  requiredCapabilities: ['fetch'], artifact: { path: '/bundle.json', sha256: 'a'.repeat(64) }, ...overrides });
 
 function fixture() {
   const activity = {
@@ -61,7 +81,7 @@ function fixture() {
     getBrowserSummary: vi.fn(async (_ownerKey: string): Promise<(typeof summary & {
       operatorName?: string; context?: string }) | null> => null),
     collectBrowserResult: vi.fn(async () => ({ ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } })),
-    publishRenovateAssessment: vi.fn(async () => ({ ok: true, phase: 'reserved' })),
+    publishRenovateAssessment: vi.fn(async () => ({ ok: false, reason: 'application-owned' })),
   };
   const registry = {
     listOwnedActivities: vi.fn(async () => [summary]),
@@ -104,7 +124,8 @@ function fixture() {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks(); accessState.active = true; accessState.realIdentity = false; accessState.adminGroups = [];
+  vi.clearAllMocks(); orchestration.prepared.length = 0;
+  accessState.active = true; accessState.realIdentity = false; accessState.adminGroups = [];
 });
 
 describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () => {
@@ -119,51 +140,24 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
       expect(response.status).toBe(404);
     } finally { claims.email = previousEmail; }
   });
-  it('previews only an enabled, authorized pinned Renovate Dispatcher without creating an Activity or exposing credentials', async () => {
-    const { request, registry, activity } = fixture();
-    const selection = { operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      policy: { capabilities: ['fetch'] }, invokers: { users: [claims.email], groups: [] } },
-      release: { tagName: 'v0.1.2', githubReleaseId: 17 }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: { type: 'object', additionalProperties: false,
-        required: ['repository', 'pullRequest'], properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
-      installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}',
-        policy: { capabilities: ['fetch'], resourceProfileId: null } } };
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selection });
-    const preview = await request('/installations/installation-1/preview');
-    expect(preview.status).toBe(200);
-    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false });
-    const schema = { type: 'object', additionalProperties: false, required: ['repository'],
-      properties: { repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } };
-    const installed = (inputSchema: unknown) => ({ ...selection,
-      manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema }) });
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: installed(schema) });
-    expect(await (await request('/installations/installation-1/preview?guidedMode=legacy-pull-request')).json())
-      .toMatchObject({ guidedAssessment: true, guidedMode: 'repository', version: 'v0.1.2' });
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: {
-      ...installed(schema), installation: { ...selection.installation,
-        configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false } }) },
-    } });
-    const configured = await request('/installations/installation-1/preview');
-    expect(configured.status).toBe(200);
-    expect(await configured.json()).toMatchObject({ guidedAssessment: true, guidedMode: 'repository',
-      version: 'v0.1.2', configuredRepository: 'acme/updates' });
-    for (const unsupportedSchema of [undefined, { ...schema, additionalProperties: true },
-      { ...schema, required: [] }, { ...schema, properties: { ...schema.properties, surprise: { type: 'string' } } },
-      { ...schema, properties: { repository: { ...schema.properties.repository, maxLength: 256 } } }]) {
-      registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: installed(unsupportedSchema) });
-      expect(await (await request('/installations/installation-1/preview')).json())
-        .toMatchObject({ guidedAssessment: false, guidedMode: null });
-    }
-    expect(activity.start).not.toHaveBeenCalled();
-    expect(orchestration.prepare).not.toHaveBeenCalled();
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection, operator: { ...selection.operator, invokers: { users: [], groups: [] } } } });
-    expect((await request('/installations/installation-1/preview')).status).toBe(404);
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection, manifestJson: JSON.stringify({ name: 'Custom Dispatcher' }) } });
-    const unsupported = await request('/installations/installation-1/preview');
-    expect(unsupported.status).toBe(200);
-    expect(await unsupported.json()).toMatchObject({ name: 'Custom Dispatcher', guidedAssessment: false });
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selection,
-      operator: { ...selection.operator, repositoryUrl: 'https://github.com/elsewhere/dispatcher' } } });
-    expect(await (await request('/installations/installation-1/preview')).json()).toMatchObject({ guidedAssessment: false });
+  it.each([undefined, application])('previews authorized pinned schema and optional application metadata %j without interpreting business inputs', async metadata => {
+    const f = fixture();
+    const inputSchema = { type: 'object', properties: { request: { type: 'string' } } };
+    const selected = { operator: { id: 'operator-1', profile: 'dispatcher',
+      invokers: { users: [claims.email], groups: [] } },
+      release: { tagName: 'v0.1.47' }, manifestJson: JSON.stringify(manifest({ inputSchema, application: metadata })),
+      installation: { id: 'installation-1', configurationJson: JSON.stringify({ private: 'DO_NOT_PROJECT' }) } };
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selected });
+    const response = await f.request('/installations/installation-1/preview?repository=foreign/repo&guidedMode=repository');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ name: 'Test application', description: 'Package-owned workflow',
+      version: 'v0.1.47', guidedAssessment: false, guidedMode: null, inputSchema, application: metadata ?? null, requiresSourceHost: false });
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
+    expect((await f.request('/installations/installation-1/preview')).status).toBe(404);
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
+      operator: { ...selected.operator, invokers: { users: [], groups: [] } } } });
+    expect((await f.request('/installations/installation-1/preview')).status).toBe(404);
+    expect(orchestration.prepared).toEqual([]);
   });
   it.each([
     { operatorInference: true, installationInference: true, requiresSourceHost: false },
@@ -177,16 +171,16 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
         invokers: { users: [claims.email], groups: [] }, policy: { capabilities: policy.operatorInference ? ['fetch', 'inference'] : ['fetch'] } },
       installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}',
         policy: { capabilities: policy.installationInference ? ['fetch', 'inference'] : ['fetch'], resourceProfileId: null } },
-      release: { tagName: 'v0.1.2' }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: {
+      release: { tagName: 'v0.1.2' }, manifestJson: JSON.stringify(manifest({ name: 'Renovate Dispatcher', inputSchema: {
         type: 'object', additionalProperties: false, required: ['repository', 'pullRequest'],
-        properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
+        properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } })),
     } });
     const response = await f.request('/installations/installation-1/preview?requiresSourceHost=false&sourceSession=caller-source');
     expect(response.status).toBe(200);
     // Public preview contract: inference eligibility does not require a Host picker,
     // and URL-supplied source hints never choose the execution principal.
-    expect(await response.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true,
-      guidedMode: 'legacy-pull-request', requiresSourceHost: policy.requiresSourceHost });
+    expect(await response.json()).toMatchObject({ name: 'Renovate Dispatcher', version: 'v0.1.2',
+      guidedAssessment: false, guidedMode: null, application: null, requiresSourceHost: policy.requiresSourceHost });
   });
 
   it('returns a side-effect-free safe summary collection for the exact human account', async () => {
@@ -214,37 +208,21 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(registry.acknowledgeOwnedActivities).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/), 1);
   });
 
-  it('REQ-OPERATOR-061: only a current authorized admin session can activate an immutable server-timed Komodo scan', async () => {
-    const { request, kv, registry, env } = fixture();
-    const observed = { activatedAt: new Date().toISOString(), repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' };
-    (registry as unknown as { activateProspectiveRenovate: (input: unknown) => Promise<unknown> })
-      .activateProspectiveRenovate = async () => ({ ok: true, ...observed, registrationId: 'registered-admin' });
-    (env as unknown as { USAGE_DB: unknown }).USAGE_DB = { prepare: () => ({ bind: () => ({ first: async () => ({
-      lifecycle_state: 'running', lifecycle_generation: 3, owner_key: 'owner-bucket', session_id: 'session0001',
-      created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(), response_revision: 0,
-      observation_sequence: 0, workspace: 'default', terminal_mode: 'terminal', editor_ready: 1, editor_ready_error: 0,
-    }) }) }) };
-    kv._store.set('user:owner@example.test', JSON.stringify({ role: 'admin' }));
-    (env as unknown as { CONTAINER: unknown }).CONTAINER = { idFromName: (value: string) => value,
-      get: () => ({ armRenovateScan: async () => ({ ok: true, activatedAt: observed.activatedAt }) }) };
-    registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { installation: { id: 'dispatcher-install',
-      revision: 1, enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) }, operator: { profile: 'dispatcher', revision: 1, policy: { capabilities: ['fetch'], resourceProfileId: null },
-        invokers: { users: [claims.email], groups: [] } },
-      release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
-      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) } });
-    const command = { installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 };
-    const response = await request('/renovate/activation', 'POST', command);
-    expect(response.status).toBe(202);
-    expect(await response.json()).toMatchObject({ activatedAt: expect.any(String), repositoryId: 424242 });
-    expect((await request('/renovate/activation', 'POST', { ...command, activatedAt: '2000-01-01T00:00:00Z' })).status)
-      .toBe(400);
-    expect((await request('/renovate/activation', 'POST', command, false)).status).toBe(403);
-    registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
-    expect((await request('/renovate/activation', 'POST', command)).status).toBe(403);
-    kv._store.set('user:owner@example.test', JSON.stringify({ role: 'user' }));
-    expect((await request('/renovate/activation', 'POST', command)).status).toBe(403);
+  it('keeps the retired explicit activation route closed even for a current administrator', async () => {
+    const f = fixture();
+    f.kv._store.set(`user:${claims.email}`, JSON.stringify({ role: 'admin' }));
+    const effects: string[] = [];
+    Object.assign(f.registry, { activateProspectiveRenovate: async () => { effects.push('legacy activation'); throw Error('Retired activation called'); } });
+    f.setGithub(async () => { effects.push('GitHub'); return Response.json({}); });
+    for (const command of [
+      { installationId: 'installation', revision: 1 },
+      { installationId: 'installation', sessionId: 'session0001', sessionGeneration: 3 },
+      { installationId: 'installation', activatedAt: '2000-01-01T00:00:00Z', repository: 'foreign/repo' },
+    ]) expect((await f.request('/renovate/activation', 'POST', command)).status).toBe(404);
+    expect((await f.request('/renovate/activation', 'POST', {}, false)).status).toBe(403);
     accessState.active = false;
-    expect((await request('/renovate/activation', 'POST', command)).status).toBe(403);
+    expect((await f.request('/renovate/activation', 'POST', {})).status).toBe(403);
+    expect(effects).toEqual([]);
   });
 
   it('REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation', async () => {
@@ -520,7 +498,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
 describe('REQ-OPERATOR-060: explicit authenticated publisher admission', () => {
   const command = { sessionId: 'session-1', sessionGeneration: 3 };
 
-  it('admits only a current admin and exact owned Activity with a CSRF-protected session command', async () => {
+  it('retains admin, owner, authentication and CSRF checks but refuses a valid retired publication command', async () => {
     const f = fixture();
     expect((await f.request('/activity-1/publish', 'POST', command)).status).toBe(403);
     expect((await f.request('/activity-1/publish', 'POST', command, false)).status).toBe(403);
@@ -532,163 +510,148 @@ describe('REQ-OPERATOR-060: explicit authenticated publisher admission', () => {
     expect((await f.request('/activity-1/publish', 'POST', command)).status).toBe(404);
     expect((await f.request('/activity-1/publish', 'POST', { ...command, repository: 'foreign/repo' })).status).toBe(400);
     const response = await f.request('/activity-1/publish', 'POST', command);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ ok: false, reason: 'application-owned' });
     expect((await f.request('/activity-1/result')).status).toBe(200);
   });
 });
 
 
-describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
-  const schema = { type: 'object', additionalProperties: false, required: ['repository'], properties: {
-    repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } };
-  it('projects only the configured repository through authorized guided preview and ignores URL overrides', async () => {
-    const f = fixture();
-    const selected = { operator: { id: 'dispatcher', profile: 'dispatcher',
-      repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      policy: { capabilities: ['fetch'] }, invokers: { users: [claims.email], groups: [] } },
-      installation: { id: 'install', enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null },
-      configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false,
-        repetitionIntervalSeconds: 900 }, privateSetting: 'DO_NOT_PROJECT' }) },
-      release: { tagName: 'v1', githubReleaseId: 17 }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher',
-        profile: 'dispatcher', intentVersion: '3', name: 'Renovate Dispatcher', inputSchema: schema }) };
-    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selected });
-    const preview = await f.request('/installations/install/preview?repository=other/repo');
-    expect(preview.status).toBe(200);
-    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true,
-      guidedMode: 'repository', configuredRepository: 'acme/updates', requiresSourceHost: false });
-    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
-      installation: { ...selected.installation, configurationJson: '{}' } } });
-    expect(await (await f.request('/installations/install/preview')).json()).toEqual({
-      name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true, guidedMode: 'repository', requiresSourceHost: false });
-    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
-      operator: { ...selected.operator, invokers: { users: [], groups: [] } } } });
-    expect((await f.request('/installations/install/preview')).status).toBe(404);
-  });
-});
-
-
-describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+describe('REQ-OPERATOR-061: generic application controls', () => {
   function activationFixture() {
     const f = fixture();
-    const selected = { installation: { id: 'dispatcher-install', revision: 2, enabled: true,
-      policy: { capabilities: ['fetch'], resourceProfileId: null }, configurationJson: JSON.stringify({ renovate: {
-        repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 900 } }) },
-      operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
-        policy: { capabilities: ['fetch'], resourceProfileId: null }, invokers: { users: [claims.email], groups: [] } },
+    const selected = { installation: { id: 'application-install', revision: 2, enabled: true,
+      policy: { capabilities: ['fetch'], resourceProfileId: null },
+      configurationJson: JSON.stringify({ automation: { enabled: true, interval: 900 } }) },
+      operator: { operatorId: 'application', revision: 1, profile: 'dispatcher',
+        invokers: { users: [claims.email], groups: [] } },
       release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
-      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
-    f.registry.resolveManagementExecution.mockImplementation(async () => ({ ok: true, value: selected }));
-    const admitted: unknown[] = [], armed: unknown[] = [], reads: Request[] = [];
-    Object.assign(f.registry, { activateProspectiveRenovate: async (input: unknown) => {
-      admitted.push(input); return { ok: true, registrationId: 'scan-configured', activatedAt: '2026-09-28T00:00:00.000Z',
-        repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' }; } });
-    const session = { lifecycle: 'running', generation: 3, available: true, readError: false };
-    Object.assign(f.env, { USAGE_DB: { prepare: () => ({ bind: (owner: string, id: string) => ({ first: async () => {
-      if (session.readError) throw Error('Temporary session lookup outage');
-      return session.available && owner === 'owner-bucket' && id === 'session0001' ? {
-        lifecycle_state: session.lifecycle, lifecycle_generation: session.generation, owner_key: owner, session_id: id,
-        created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(), response_revision: 0,
-        observation_sequence: 0, workspace: 'default', terminal_mode: 'terminal', editor_ready: 1, editor_ready_error: 0,
-      } : null;
-    } }) }) }, CONTAINER: { idFromName: (name: string) => name, get: () => ({
-      armRenovateScan: async (input: unknown) => { armed.push(input); return { ok: true }; } }) } });
-    f.kv._store.set('user:owner@example.test', JSON.stringify({ role: 'admin' }));
-    f.setGithub(async request => { reads.push(request); return Response.json({
-      id: 424242, full_name: 'acme/updates', default_branch: 'trunk' }); });
-    return { ...f, selected, session, admitted, armed, reads, command: {
-      installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 } };
+      manifestJson: JSON.stringify(manifest({ application })) };
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selected });
+    const admitted: unknown[] = [], effects: string[] = [];
+    const forbidden = (name: string): never => { effects.push(name); throw Error(`Unexpected ${name}`); };
+    const activation = { outcome: 'accepted' as 'accepted' | 'refused' | 'lost' };
+    Object.assign(f.registry, { activateApplicationSchedule: async (input: unknown) => {
+      admitted.push(input);
+      if (activation.outcome === 'lost') throw Error('Activation acknowledgement lost');
+      return activation.outcome === 'refused' ? { ok: false, reason: 'changed' }
+        : { ok: true, activatedAt: '2026-09-28T00:00:00.000Z' };
+    } });
+    Object.assign(f.env, { USAGE_DB: { prepare: () => forbidden('session lookup') },
+      CONTAINER: { idFromName: () => forbidden('container'), getByName: () => forbidden('container') } });
+    f.kv._store.set(`user:${claims.email}`, JSON.stringify({ role: 'admin' }));
+    f.setGithub(async () => forbidden('GitHub discovery'));
+    return { ...f, selected, activation, admitted, effects,
+      command: { installationId: 'application-install', revision: 2 } };
   }
-  it('REQ-OPERATOR-061 AC1/3: explicit installation revision activates with no sessions and never arms a Container', async () => {
-    const f = activationFixture(); f.session.available = false; f.session.readError = true;
-    const response = await f.request('/renovate/activation', 'POST', { installationId: 'dispatcher-install', revision: 2 });
+
+  it('activates only the declared schedule with revision and verified delegation, without a workspace or GitHub discovery', async () => {
+    const f = activationFixture();
+    const response = await f.request('/automatic/activation', 'POST', f.command);
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z', repositoryId: 424242 });
-    expect(f.admitted).toMatchObject([{ scope: 'installation', installationId: 'dispatcher-install',
-      bucket: 'owner-bucket', sessionId: '', sessionGeneration: 0,
-      expectedManagement: { installationRevision: 2, releaseId: 'release' } }]);
-    expect(f.armed).toEqual([]);
-  });
-  it('REQ-OPERATOR-061 AC3: stale explicit installation activation cannot observe protected metadata or register', async () => {
-    const f = activationFixture();
-    expect((await f.request('/renovate/activation', 'POST', { installationId: 'dispatcher-install', revision: 1 })).status).toBe(409);
-    expect(f.reads).toEqual([]); expect(f.admitted).toEqual([]); expect(f.armed).toEqual([]);
-  });
-  it.each(['missing', 'foreign-session', 'starting', 'stopping', 'unreachable', 'stopped', 'stale-generation', 'lookup-outage'] as const)(
-    'REQ-OPERATOR-061 AC1/3: %s session cannot activate, discover repository metadata or arm work', async fault => {
-      const f = activationFixture();
-      const command = { ...f.command };
-      if (fault === 'missing') f.session.available = false;
-      if (fault === 'foreign-session') command.sessionId = 'foreign001';
-      if (['starting', 'stopping', 'unreachable', 'stopped'].includes(fault)) f.session.lifecycle = fault;
-      if (fault === 'stale-generation') f.session.generation++;
-      if (fault === 'lookup-outage') f.session.readError = true;
-      expect((await f.request('/renovate/activation', 'POST', command)).status).not.toBe(202);
-      expect(f.reads).toEqual([]); expect(f.admitted).toEqual([]); expect(f.armed).toEqual([]);
-    });
-
-  it('REQ-OPERATOR-061 AC1/3: management without the independent invocation grant cannot activate', async () => {
-    const f = activationFixture();
-    f.selected.operator.invokers = { users: ['another@example.test'], groups: [] };
-    expect((await f.request('/renovate/activation', 'POST', f.command)).status).toBe(403);
-    expect(f.reads).toEqual([]); expect(f.admitted).toEqual([]); expect(f.armed).toEqual([]);
+    expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z' });
+    expect(f.admitted).toEqual([{ ...f.command, authority: { human: { ...claims, groups: [] },
+      accessJwt: 'private.access.jwt', delegation: { version: 1, routingGroups: [] } } }]);
+    expect(f.effects).toEqual([]);
   });
 
-  it.each(['revoked', 'forbidden', 'unavailable', 'malformed', 'transport-error'] as const)(
-    'REQ-OPERATOR-047: automatic activation recheck rejects %s live identity despite an email grant and admits verified no-group recovery', async fault => {
-      const f = activationFixture();
-      accessState.realIdentity = true;
+  it.each(['stale', 'unavailable', 'no-invocation-grant', 'nonadmin', 'unverified-human', 'csrf'])('rejects %s activation without registering or discovering work', async fault => {
+    const f = activationFixture();
+    if (fault === 'unavailable') f.registry.resolveManagementExecution.mockResolvedValue({ ok: false, reason: 'disabled' });
+    if (fault === 'no-invocation-grant') f.selected.operator.invokers.users = [];
+    if (fault === 'nonadmin') f.kv._store.set(`user:${claims.email}`, JSON.stringify({ role: 'user' }));
+    if (fault === 'unverified-human') accessState.active = false;
+    const response = await f.request('/automatic/activation', 'POST',
+      { ...f.command, revision: fault === 'stale' ? 1 : 2 }, fault !== 'csrf');
+    expect(response.status).toBe(['stale', 'unavailable', 'no-invocation-grant'].includes(fault) ? 409 : 403);
+    expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+  });
+
+  it.each([
+    { installationId: 'application-install', sessionId: 'session0001', sessionGeneration: 3 },
+    { installationId: 'application-install', revision: 2, sessionId: 'session0001' },
+    { installationId: 'application-install', revision: 2, activatedAt: '2000-01-01T00:00:00Z' },
+    { installationId: 'application-install', revision: 0 },
+    { installationId: '../foreign', revision: 2 },
+  ])('rejects legacy or forged automatic command %j', async command => {
+    const f = activationFixture();
+    expect((await f.request('/automatic/activation', 'POST', command)).status).toBe(400);
+    expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+  });
+
+  it.each(['missing-application', 'missing-schedule', 'off', 'invalid-interval', 'invalid-enabled'])('does not register %s scheduling', async fault => {
+    const f = activationFixture();
+    if (fault === 'missing-application') f.selected.manifestJson = JSON.stringify(manifest());
+    if (fault === 'missing-schedule') f.selected.manifestJson = JSON.stringify(manifest({ application: { controlVersion: 1 } }));
+    if (fault === 'off') f.selected.installation.configurationJson = '{}';
+    if (fault === 'invalid-interval') f.selected.installation.configurationJson = JSON.stringify({ automation: { enabled: true, interval: 0 } });
+    if (fault === 'invalid-enabled') f.selected.installation.configurationJson = JSON.stringify({ automation: { enabled: 'true', interval: 900 } });
+    expect((await f.request('/automatic/activation', 'POST', f.command)).status).toBe(403);
+    expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+  });
+
+  it.each(['revoked', 'forbidden', 'unavailable', 'malformed', 'transport-error', 'changed-session', 'foreign-subject', 'foreign-email'] as const)(
+    'REQ-OPERATOR-047: %s live identity cannot register; verified no-group recovery can', async fault => {
+      const f = activationFixture(); accessState.realIdentity = true;
       let invalid = true;
       const identity = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
         const request = new Request(input, init);
         expect(request.url).toBe(`${claims.issuer}/cdn-cgi/access/get-identity`);
         expect(request.headers.get('cookie')).toBe('CF_Authorization=private.access.jwt');
         if (invalid && fault === 'transport-error') throw Error('Identity transport unavailable');
-        if (invalid && fault === 'revoked') return new Response(null, { status: 401 });
-        if (invalid && fault === 'forbidden') return new Response(null, { status: 403 });
-        if (invalid && fault === 'unavailable') return new Response(null, { status: 503 });
-        return Response.json({ user_uuid: claims.subject, email: claims.email,
-          ...(invalid ? { groups: null } : {}) });
+        if (invalid && ['revoked', 'forbidden', 'unavailable'].includes(fault)) {
+          return new Response(null, { status: fault === 'revoked' ? 401 : fault === 'forbidden' ? 403 : 503 });
+        }
+        if (invalid && fault === 'changed-session') accessState.active = false;
+        return Response.json({ user_uuid: invalid && fault === 'foreign-subject' ? 'foreign' : claims.subject,
+          email: invalid && fault === 'foreign-email' ? 'foreign@example.test' : claims.email,
+          ...(invalid && fault === 'malformed' ? { groups: null } : {}) });
       });
       try {
-        expect((await f.request('/renovate/activation', 'POST', f.command)).status).toBe(403);
-        expect(f.admitted).toEqual([]);
-        expect(f.armed).toEqual([]);
-        expect(f.reads).toEqual([]);
-        invalid = false;
-        const response = await f.request('/renovate/activation', 'POST', f.command);
+        expect((await f.request('/automatic/activation', 'POST', f.command)).status).toBe(403);
+        expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+        invalid = false; accessState.active = true;
+        const response = await f.request('/automatic/activation', 'POST', f.command);
         expect(response.status).toBe(202);
-        expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z', repositoryId: 424242 });
-        expect(f.admitted).toEqual([expect.objectContaining({ installationId: f.command.installationId,
-          repository: { repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' } })]);
-        expect(f.armed).toEqual([expect.objectContaining({ registrationId: 'scan-configured' })]);
-      } finally { identity.mockRestore(); accessState.realIdentity = false; }
+        expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z' });
+        expect(f.admitted).toEqual([{ ...f.command, authority: { human: { ...claims, groups: [] },
+          accessJwt: 'private.access.jwt', delegation: { version: 1, routingGroups: [] } } }]);
+        expect(f.effects).toEqual([]);
+      } finally { identity.mockRestore(); }
     });
 
-  it.each(['unset', 'off', 'redirect', 'foreign-name', 'unsafe-id', 'no-branch', 'changed-selection', 'revoked-session'])
-    ('denies %s before persisting or arming a registration', async fault => {
+  it.each(['lost', 'refused'] as const)('does not manufacture activation success or retry a %s acknowledgement', async outcome => {
+    const f = activationFixture(); f.activation.outcome = outcome;
+    const response = await f.request('/automatic/activation', 'POST', f.command);
+    expect(response.status).toBe(outcome === 'lost' ? 500 : 409);
+    expect(f.admitted).toEqual([{ ...f.command, authority: { human: { ...claims, groups: [] },
+      accessJwt: 'private.access.jwt', delegation: { version: 1, routingGroups: [] } } }]);
+    expect(f.effects).toEqual([]);
+  });
+
+  it.each([{}, { request: 'owner input', repository: 'foreign/repo', automatic: false }])(
+    'passes generic manual input unchanged, including %j, without host-generated business input', async invocation => {
       const f = activationFixture();
-      if (fault === 'unset') f.selected.installation.configurationJson = '{}';
-      if (fault === 'off') f.selected.installation.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false } });
-      f.setGithub(async () => {
-        if (fault === 'changed-selection') f.selected.installation.revision++;
-        if (fault === 'revoked-session') accessState.active = false;
-        if (fault === 'redirect') return new Response(null, { status: 302, headers: { location: 'https://api.github.com/repos/other/repo' } });
-        return Response.json({ id: fault === 'unsafe-id' ? Number.MAX_SAFE_INTEGER + 1 : 424242,
-          full_name: fault === 'foreign-name' ? 'other/repo' : 'acme/updates', default_branch: fault === 'no-branch' ? '' : 'trunk' });
-      });
-      expect((await f.request('/renovate/activation', 'POST', f.command)).status).not.toBe(202);
-      expect(f.admitted).toEqual([]);
-      expect(f.armed).toEqual([]);
+      // Scheduling OFF is not a manual invocation veto.
+      f.selected.installation.configurationJson = '{}';
+      const body = { installationId: f.command.installationId, invocation };
+      const response = await f.request('', 'POST', body);
+      expect(response.status).toBe(201);
+      expect(orchestration.prepared).toEqual([body]);
+      expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
     });
-  it.each(['lost', 'refused'] as const)('cannot report activation success when schedule acknowledgement is %s', async acknowledgement => {
+
+  it('retains legacy explicit source-session authentication and CSRF denial without admitting a new application run', async () => {
     const f = activationFixture();
-    Object.assign(f.env, { CONTAINER: { idFromName: (name: string) => name,
-      get: () => ({ armRenovateScan: async () => {
-        if (acknowledgement === 'lost') throw Error('lost schedule acknowledgement');
-        return { ok: false };
-      } }) } });
-    expect((await f.request('/renovate/activation', 'POST', f.command)).status).not.toBe(202);
+    const body = { installationId: f.command.installationId, invocation: {},
+      sourceSession: { sessionId: 'session0001', sessionGeneration: 3 } };
+    expect((await f.request('', 'POST', body, false)).status).toBe(403);
+    accessState.active = false;
+    expect((await f.request('', 'POST', body)).status).toBe(403);
+    accessState.active = true;
+    expect((await f.request('', 'POST', { ...body, sourceSession: { sessionId: '../foreign', sessionGeneration: 0 } })).status).toBe(400);
+    expect(orchestration.prepared).toEqual([]);
+    expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
   });
 });
 
@@ -787,7 +750,7 @@ describe('REQ-OPERATOR-091: private original-owner administrator raw read adapte
       business.result = { report: 'collected' };
       return { ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } };
     });
-    f.activity.publishRenovateAssessment.mockImplementation(async () => { business.publicationStatus = 'published'; return { ok: true, phase: 'reserved' }; });
+    f.activity.publishRenovateAssessment.mockImplementation(async () => { business.publicationStatus = 'attempted'; return { ok: false, reason: 'application-owned' }; });
     f.registry.acknowledgeOwnedActivities.mockImplementation(async () => { business.unreadCount = 0; return { unreadCount: 0 }; });
     const before = { business: structuredClone(business), users: new Map(f.kv._store) };
     const unchanged = () => {

@@ -151,16 +151,13 @@ export const getOperatorActivityDiagnosticRecord = (activityId: string, recordId
 export const exportOperatorActivityDiagnostics = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot, signal?: AbortSignal) =>
   diagnosticRead(activityId, `/export${diagnosticCursorQuery(cursor)}`, diagnosticExportSchema, snapshot, cursor !== null, signal);
 
-const renovateActivationCommand = z.union([
-  z.strictObject({ installationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), revision: z.number().int().positive().safe() }),
-  z.strictObject({ installationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
-    sessionId: z.string().regex(/^[a-z0-9]{8,24}$/), sessionGeneration: z.number().int().positive().safe() }),
-]);
-const renovateActivationResponse = z.strictObject({ activatedAt: z.string().datetime(),
-  repositoryId: z.number().int().positive().safe() });
-/** Only explicit user activation; no assertion or cached authority enters browser state. */
-export function activateRenovateRuns(command: z.infer<typeof renovateActivationCommand>): Promise<z.infer<typeof renovateActivationResponse>> {
-  return baseFetch(new URL('/api/operator-activities/renovate/activation', window.location.origin).href,
-    { method: 'POST', body: JSON.stringify(renovateActivationCommand.parse(command)) },
-    { credentials: 'same-origin', schema: renovateActivationResponse });
+const applicationActivationCommand = z.strictObject({
+  installationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), revision: z.number().int().positive().safe(),
+});
+const applicationActivationResponse = z.strictObject({ activatedAt: z.string().datetime() });
+/** Explicit consent enables generic delivery; the application owns discovery and admission. */
+export function activateApplicationRuns(command: z.infer<typeof applicationActivationCommand>): Promise<z.infer<typeof applicationActivationResponse>> {
+  return baseFetch(new URL('/api/operator-activities/automatic/activation', window.location.origin).href,
+    { method: 'POST', body: JSON.stringify(applicationActivationCommand.parse(command)) },
+    { credentials: 'same-origin', schema: applicationActivationResponse });
 }

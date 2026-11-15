@@ -1,8 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { encryptForKV, decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
-import { resolveProspectiveRenovateRepository } from '../../operators/renovate-prospective';
-import type { Env } from '../../types';
 import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, verifyRawCapture, discoverRawCaptures, exportRawCapture, captureRawInteraction, captureRawTransaction,
   type RawCaptureBinding, type RawCaptureScope, type RawCaptureStorage, type RawCapture, type RawCaptureReceipt } from '../../operators/raw-capture-storage';
 
@@ -111,22 +109,31 @@ it('immediate parent finalization retains the refused HTTP body through its dela
     },
   }, { highWaterMark: 0 }), { status: 403 });
   try {
-    await expect(resolveProspectiveRenovateRepository({ env: {} as Env,
-      sourceTimeoutMs: 30_000, sourceResponseBytes: 1048576, deadline: Date.now() + 60_000,
-      exports: { GitHubInterceptor: () => ({ fetch: async () => response,
-        connect: () => { throw Error('No sockets'); } }) },
-      repository: 'acme/updates', human: { email: 'owner@example.test' }, bucket: 'owner',
-      current: async () => true, capture,
-    })).rejects.toThrow('Incomplete Renovate scan');
+    if (!capture.defer) throw new Error('Deferred capture producer unavailable');
+    capture.defer(async writer => {
+      const reader = response.body!.getReader();
+      let offset = 0;
+      try {
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          const start = offset;
+          writer.record('response-chunk', () => ({ offset: start, bytes: Array.from(chunk.value) }));
+          offset += chunk.value.byteLength;
+          await writer.flush?.();
+        }
+        writer.record('response-eof', () => ({ offset }));
+      } finally { reader.releaseLock(); }
+    });
     const finished = capture.finish('failed');
     gate.release?.();
     expect((await finished).status).toBe('complete');
     const archive = await read(f);
     expect(archive.status).toBe('complete');
-    const chunks = archive.records.filter(record => record.stage === 'discovery-response-chunk')
+    const chunks = archive.records.filter(record => record.stage === 'response-chunk')
       .map(record => record.value as { offset: number; bytes: number[] }).sort((a, b) => a.offset - b.offset);
     expect(Buffer.concat(chunks.map(chunk => Buffer.from(chunk.bytes)))).toEqual(Buffer.concat([prefix, tail]));
-    expect(archive.records).toContainEqual({ stage: 'discovery-response-eof',
+    expect(archive.records).toContainEqual({ stage: 'response-eof',
       value: expect.objectContaining({ offset: prefix.length + tail.length }) });
     expect([...f.objects.values()].join('')).not.toContain(CANARY);
   } finally { gate.release?.(); }

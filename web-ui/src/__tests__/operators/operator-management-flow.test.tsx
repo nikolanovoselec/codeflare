@@ -164,9 +164,13 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
       }
       if (url.pathname === '/api/sessions') return json({ sessions: [] });
       if (url.pathname.endsWith('/operator-1')) return json({ ...detail(), operator: dispatcher,
-        releases: [{ ...release, name: 'Renovate Dispatcher' }],
+        releases: [{ ...release, name: 'Synthetic Application', application: { controlVersion: 1 } }],
         installations: [{ ...installation, enabled: true, releaseId: release.id, policy: dispatcherPolicy }] });
-      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false });
+      if (url.pathname.endsWith('/preview')) return json({ name: 'Synthetic Application', version: 'v0.1.2', application: { controlVersion: 1 },
+        inputSchema: { type: 'object', required: ['repository', 'pullRequest'], properties: {
+          repository: { type: 'string', title: 'Repository' },
+          pullRequest: { type: 'integer', title: 'Pull request number', minimum: 1 },
+        } }, guidedAssessment: false, guidedMode: null, requiresSourceHost: false });
       return url.pathname === '/api/operator-activities' ? json({ items: [] }) : json({ items: [dispatcher], cursor: null });
     };
     render(() => <OperatorManagement />);
@@ -174,11 +178,11 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     expect(screen.queryByRole('combobox', { name: 'test resource profile' })).not.toBeInTheDocument();
     await openAdvanced();
     expect(await screen.findByRole('heading', { name: 'Runtime permissions' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('link', { name: /assess a pull request/i }));
-    expect(await screen.findByRole('heading', { name: 'Assess a Renovate pull request' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Run operator' }));
+    expect(await screen.findByRole('heading', { name: 'Run Synthetic Application' })).toBeInTheDocument();
     expect(window.location.search).toContain('invoke=installation-1');
     expect(screen.queryByRole('region', { name: 'Installed version' })).not.toBeInTheDocument();
-    const start = screen.getByRole('button', { name: 'Start assessment' });
+    const start = screen.getByRole('button', { name: 'Start run' });
     expect(start).toBeEnabled();
     expect(screen.queryByRole('combobox', { name: /source.*host/i })).not.toBeInTheDocument();
     expect(writes).toEqual([]);

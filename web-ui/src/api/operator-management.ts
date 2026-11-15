@@ -58,11 +58,24 @@ const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number()
   source: z.object({ kind: z.literal('github-release'), repositoryUrl: z.string(), repositoryId: z.number().int().positive(),
     credentialConfigured: z.boolean(), approvedWorkflow: z.object({ id: z.number().int().positive(), ref: z.string() }).nullable() }),
 });
+const supportedApplicationDefinitionSchema = z.strictObject({
+  controlVersion: z.literal(1),
+  configurationSchema: z.record(z.string(), z.json()).optional(),
+  githubWriteRepositoriesPath: z.string().min(2).max(512).optional(),
+  schedule: z.strictObject({ enabledPath: z.string().min(2).max(512), intervalSecondsPath: z.string().min(2).max(512) }).optional(),
+});
+export const applicationDefinitionSchema = z.preprocess(value => {
+  const marker = z.object({ controlVersion: z.number().int().positive() }).safeParse(value);
+  // Future controls are not interpreted by this client. Retain the installation
+  // and its upgrade path rather than misreporting a failed inventory request.
+  return marker.success && marker.data.controlVersion !== 1 ? undefined : value;
+}, supportedApplicationDefinitionSchema.optional());
+export type ApplicationDefinition = z.infer<typeof supportedApplicationDefinitionSchema>;
 const releaseSchema = z.object({ id, operatorId: id, githubReleaseId: z.number().int().positive(), sourceCommit: z.string(),
   manifestDigest: digest, bundleDigest: digest, interfaceVersion: z.literal(1), approved: z.boolean(),
   name: z.string().optional(), description: z.string().optional(), version: z.string().optional(), coreVersion: z.string().optional(), intentVersion: z.string().optional(),
   tagName: z.string().min(1).max(256).optional(), publishedAt: z.string().datetime().optional(),
-  requestedCapabilities: z.array(z.string()).max(32).optional() });
+  requestedCapabilities: z.array(z.string()).max(32).optional(), application: applicationDefinitionSchema.optional() });
 const installationSchema = z.object({ id, operatorId: id, name: z.string(), releaseId: id.nullable(), revision,
   enabled: z.boolean(), policy: policySchema.strip(), configuration: z.record(z.string(), z.json()).optional(),
   piReasoningOverride: z.enum(piReasoningLevels).optional() });
@@ -141,14 +154,16 @@ const installedOperatorSchema = z.strictObject({ id, operatorId: id, name: z.str
   profile: z.enum(['conductor', 'dispatcher']), canActivateAutomaticRuns: z.boolean(),
   automaticRunStatus: z.enum(['active', 'expired', 'inactive', 'unconfirmed']).optional(),
   guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), repository: z.string().max(201).nullable(),
-  automaticRuns: z.boolean().nullable(), repetitionIntervalSeconds: z.number().int().positive().safe().nullable() });
+  automaticRuns: z.boolean().nullable(), repetitionIntervalSeconds: z.number().int().positive().safe().nullable(),
+  application: applicationDefinitionSchema.nullable().optional() });
 export type InstalledOperator = z.infer<typeof installedOperatorSchema>;
 export const listOperatorInstallations = (cursor: string | null = null) => activityRequest(
   `/installations${cursor ? `?cursor=${segment(cursor)}` : ''}`,
   z.strictObject({ items: z.array(installedOperatorSchema).max(5), cursor: id.nullable() }));
 export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
-  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(), requiresSourceHost: z.boolean(),
-    guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), configuredRepository: z.string().max(201).optional() }));
+  z.object({ name: z.string(), description: z.string().optional(), version: z.string(), guidedAssessment: z.boolean(), requiresSourceHost: z.boolean(),
+    guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), configuredRepository: z.string().max(201).optional(),
+    inputSchema: z.record(z.string(), z.json()).optional(), application: applicationDefinitionSchema.nullable().optional() }));
 export const prepareInstallationActivity = (installationId: string, invocation: unknown, sourceSession?: { sessionId: string; sessionGeneration: number }) => activityRequest('',
   z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }),
   { installationId, invocation, ...(sourceSession ? { sourceSession } : {}) });

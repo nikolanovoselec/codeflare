@@ -27,6 +27,18 @@ const version = z.string().min(1).max(128);
 const capability = z.enum(['session', 'pi', 'storage', 'inference', 'fetch']);
 export const operatorCapabilityChoices = capability.options;
 
+/** Application-owned configuration metadata, never an authority grant. */
+const configurationPointer = z.string().min(2).max(512).refine(value => value.startsWith('/')
+  && value.slice(1).split('/').every(part => part.length > 0 && !/~(?![01])/u.test(part)
+    && !['__proto__', 'constructor', 'prototype'].includes(part.replace(/~1/g, '/').replace(/~0/g, '~'))));
+const applicationSchema = z.strictObject({
+  controlVersion: z.literal(1),
+  configurationSchema: z.record(z.string(), z.json()).optional(),
+  githubWriteRepositoriesPath: configurationPointer.optional(),
+  schedule: z.strictObject({ enabledPath: configurationPointer, intervalSecondsPath: configurationPointer }).optional(),
+});
+export type OperatorApplicationDefinition = z.infer<typeof applicationSchema>;
+
 const manifestSchema = z.strictObject({
   schemaVersion: z.literal(1),
   interfaceVersion: z.literal(1),
@@ -40,6 +52,7 @@ const manifestSchema = z.strictObject({
   inputSchema: z.record(z.string(), z.json()),
   /** Optional for legacy Gate 1 manifests; managed packages declare it when available. */
   outputSchema: z.record(z.string(), z.json()).optional(),
+  application: applicationSchema.optional(),
   requiredCapabilities: z.array(capability).max(5)
     .refine(values => new Set(values).size === values.length),
   artifact: z.strictObject({ path: artifactPath, sha256: z.string().regex(SHA256) }),

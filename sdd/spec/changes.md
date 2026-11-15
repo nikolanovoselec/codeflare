@@ -4,6 +4,17 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-15: Conductor documentation ownership split
+
+- Move remaining packet/lane/reviewer, history/reassessment, publication-format and operating guidance to the existing Conductor requirements and its [canonical Review guide](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md), without duplicating requirements or moving local Pi `/review` policy.
+- Narrow mixed REQ-OPERATOR-053/055/056/064/065/072/074 prose to implemented Root authority, credential isolation, claim, evidence and receipt fences; preserve fragment compatibility and qualification limits. Fixed packet/history helpers and the protected-Action compatibility publisher remain Root implementation, not claimed runtime migrations. Document the existing frozen publication-preparation API, not a new schema.
+- Correct the active delegation/activation reference to `application-schedule.ts::activateApplicationSchedule` and the Registry wrapper; `activateProspectiveRenovate` is refusal-only compatibility. No source/test changes, validation run, status upgrade, deployment or release is implied. Previous Dispatcher ownership edits remain unchanged.
+
+## 2026-11-15: Dispatcher ownership extraction (qualification pending)
+
+- Keep runtime contracts here and application policy/procedures in Dispatcher; remove duplicated operation-cost and qualification procedures, correct the generic activation endpoint and retain the inert publication response. Relocate REQ-OPERATOR-051/060/071/093 application obligations to Dispatcher with stable links; split REQ-OPERATOR-061 into generic triggers/coordination and Dispatcher-owned shared discovery/admission. REQ-OPERATOR-048/062 retain opaque delivery/receipt/authority fences, not Renovate phase or effect policy.
+- Manual and automatic triggers must use the same application workflow and immutable configuration. New configuration pointers, authenticated plan and state/CAS contracts reuse the existing runtime. Historical reservations, foreign-owner isolation, uncertain effects and Root capture obligations remain intact. Exact completed/failed settlement evidence preserves original authority and journal fences; failed data is exact-submission only, not invented success. Planning uses state/CAS without protected source calls. Existing exhaustive storage pages retain proof metadata, not a new record-count cap. One coordinated tests/code/docs batch; no separate RED rounds, qualification or release claim.
+
 ## 2026-11-15
 
 - Keep historical reconciliation on a one-way Registry-to-Activity exchange with authoritative admission/ledger results and bounded private evidence streaming. Preserve atomic retirement guards and logging non-interference; reacquire the same Activity's stub for the existing guarded fence after RPC failure ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-authorized-renovate-scan), [REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).

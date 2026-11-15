@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import OperatorManagement from '../../components/OperatorManagement';
-import type { ManagementDetail } from '../../api/operator-management';
+import type { ApplicationDefinition, ManagementDetail } from '../../api/operator-management';
 
 // The incumbent active-session facade and the owner catalog remain separate read projections.
 const activeSession = vi.hoisted(() => ({
@@ -22,7 +22,18 @@ vi.mock('../../stores/session', async () => {
   } };
 });
 
-const source = 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
+// Synthetic package contract; the historical nesting is data, not a Root convention.
+const application: ApplicationDefinition = {
+  controlVersion: 1,
+  githubWriteRepositoriesPath: '/renovate/repository',
+  schedule: { enabledPath: '/renovate/automaticRuns', intervalSecondsPath: '/renovate/repetitionIntervalSeconds' },
+  configurationSchema: { type: 'object', properties: { renovate: { type: 'object', required: ['repository'], properties: {
+    repository: { type: 'string', title: 'Repository', maxLength: 201, pattern: '^[A-Za-z0-9_-]{1,100}/[A-Za-z0-9_-]{1,100}$' },
+    automaticRuns: { type: 'boolean', title: 'Automatic runs', default: false },
+    repetitionIntervalSeconds: { type: 'integer', title: 'Repeat interval', format: 'duration-seconds', default: 3600 },
+  } } } },
+};
+const source = 'https://github.com/example/synthetic-application';
 const grants = { users: ['manager@example.test'], groups: [] };
 const policy = { capabilities: ['inference', 'fetch'], resourceProfileId: null, sourceResponseBytes: 524288 };
 const retained = { unrelated: { labels: ['keep', 'these'] }, schedules: { external: 'retained' } };
@@ -32,14 +43,14 @@ const sourceHost = { id: 'ownersession1', name: 'Existing owner Host', createdAt
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 function fixture(): ManagementDetail {
   return {
-    operator: { id: 'operator-1', name: 'Renovate Dispatcher', profile: 'dispatcher', realm: 'internal',
-      repositoryId: 1380652724, repositoryUrl: source, revision: 7, enabled: true,
+    operator: { id: 'operator-1', name: 'Synthetic Application', profile: 'dispatcher', realm: 'internal',
+      repositoryId: 7654321, repositoryUrl: source, revision: 7, enabled: true,
       managers: grants, invokers: grants, policy: { ...policy, loggingEnabled: false, operationLimit: 2048, inferenceRequestBytes: 1048576 },
-      source: { kind: 'github-release', repositoryUrl: source, repositoryId: 1380652724,
+      source: { kind: 'github-release', repositoryUrl: source, repositoryId: 7654321,
         credentialConfigured: true, approvedWorkflow: { id: 7, ref: 'refs/heads/develop' } } },
     releases: [{ id: 'release-1', operatorId: 'operator-1', githubReleaseId: 456, sourceCommit: 'a'.repeat(40),
       manifestDigest: 'b'.repeat(64), bundleDigest: 'c'.repeat(64), interfaceVersion: 1, approved: true,
-      name: 'Renovate Dispatcher', coreVersion: '1', intentVersion: '3', version: '0.1.3',
+      application, name: 'Synthetic Application', coreVersion: '1', intentVersion: '3', version: '0.1.3',
       tagName: 'v0.1.3', publishedAt: '2026-09-25T12:00:00Z' }],
     installations: [
       { id: 'installation-1', operatorId: 'operator-1', name: 'Primary', releaseId: 'release-1', revision: 4,
@@ -59,7 +70,7 @@ let hostError: boolean;
 let canInvoke: boolean;
 let automaticStatus: 'inactive' | 'active' | 'expired' | 'unconfirmed';
 let activate: (body: unknown) => Promise<Response>;
-const activationPath = '/api/operator-activities/renovate/activation';
+const activationPath = '/api/operator-activities/automatic/activation';
 const cutoff = '2026-11-11T00:00:00.000Z';
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators');
@@ -67,7 +78,7 @@ beforeEach(() => {
   state = fixture(); writes = []; reads = []; conflict = false;
   activeSession.list(undefined); activeSession.set(undefined);
   automaticStatus = 'inactive';
-  activate = async () => { automaticStatus = 'active'; return json({ activatedAt: cutoff, repositoryId: 424242 }, 202); };
+  activate = async () => { automaticStatus = 'active'; return json({ activatedAt: cutoff }, 202); };
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, window.location.origin);
     const path = url.pathname;
@@ -97,17 +108,16 @@ beforeEach(() => {
     if (path.endsWith('/operators')) return json({ items: [state.operator], cursor: null });
     if (path === '/api/sessions') return hostError ? json({ error: 'Unavailable' }, 503) : json({ sessions: hosts });
     if (path === '/api/operator-activities/installations') return json({ items: state.installations.map(item => ({
-      id: item.id, operatorId: item.operatorId, name: 'Renovate Dispatcher', installationName: item.name,
+      id: item.id, operatorId: item.operatorId, name: 'Synthetic Application', installationName: item.name,
       revision: item.revision, enabled: item.enabled, approved: state.releases[0].approved, version: 'v0.1.3',
       profile: 'dispatcher', canManage: true, canInvoke: canInvoke, canActivateAutomaticRuns: canInvoke, automaticRunStatus: automaticStatus,
-      guidedMode: 'repository', repository: (item.configuration?.renovate as any)?.repository ?? null,
+      application, guidedMode: null, repository: (item.configuration?.renovate as any)?.repository ?? null,
       automaticRuns: (item.configuration?.renovate as any)?.automaticRuns ?? false,
       repetitionIntervalSeconds: (item.configuration?.renovate as any)?.repetitionIntervalSeconds ?? 3600,
     })), cursor: null });
-    if (path.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.3', guidedAssessment: true,
-      guidedMode: 'repository', requiresSourceHost: state.operator.policy.capabilities.includes('inference')
-        && state.installations[0].policy.capabilities.includes('inference'), configuredRepository: state.installations[0].configuration?.renovate
-        && (state.installations[0].configuration.renovate as { repository: string }).repository });
+    if (path.endsWith('/preview')) return json({ name: 'Synthetic Application', version: 'v0.1.3',
+      application, inputSchema: { type: 'object', properties: {} }, description: 'Runs with the saved application configuration.',
+      guidedAssessment: false, guidedMode: null, requiresSourceHost: false });
     if (path === '/api/operator-activities') return json({ items: [] });
     return json({ error: 'Not found' }, 404);
   }));
@@ -116,7 +126,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 async function open(isAdmin = false) {
   window.history.replaceState({}, '', '/operators');
   render(() => <OperatorManagement isAdmin={isAdmin} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Manager' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage Synthetic Application' }));
   const installed = await screen.findByRole('region', { name: 'Installed version' });
   const configuration = await within(installed).findByRole('combobox', { name: 'Installed configuration' });
   if (!(configuration as HTMLSelectElement).value) {
@@ -127,7 +137,7 @@ async function open(isAdmin = false) {
 async function settings() {
   return screen.findByRole('group', { name: 'Run settings' });
 }
-function repository(group: HTMLElement) { return within(group).getByRole('textbox', { name: 'Repository' }); }
+function repository(group: HTMLElement) { return within(group).getByRole('textbox', { name: 'Repository' }) as HTMLInputElement; }
 function interval(group: HTMLElement) { return within(group).getByRole('spinbutton', { name: 'Repeat interval' }); }
 function automatic(_group?: HTMLElement) { return screen.getByRole('checkbox', { name: 'Automatic runs' }); }
 function save() { return screen.getByRole('button', { name: /Save run settings/i }); }
@@ -136,8 +146,8 @@ function setRunSettings(repository: string, automaticRuns: boolean, repetitionIn
   state.installations[0].configuration = { ...retained, renovate: { repository, automaticRuns, repetitionIntervalSeconds } };
 }
 
-describe('configured Renovate run settings', () => {
-  it.each(['3', '4'])('REQ-OPERATOR-061: intent %s exposes the saved repository and Save action without a read mutation', async intentVersion => {
+describe('application-owned run settings', () => {
+  it.each(['3', '4'])('REQ-OPERATOR-061: intent %s does not override metadata exposing the saved repository and Save action without a read mutation', async intentVersion => {
     state.releases[0].intentVersion = intentVersion;
     setRunSettings('acme/saved-project', false, 3600);
     const installed = await open();
@@ -149,7 +159,7 @@ describe('configured Renovate run settings', () => {
     expect(writes).toEqual([]);
   });
 
-  it('REQ-OPERATOR-061: configured Renovate run settings default to an unset required repository, automatic off and 3600 seconds without a read mutation', async () => {
+  it('REQ-OPERATOR-061: application-owned run settings default to an unset required repository, automatic off and 3600 seconds without a read mutation', async () => {
     await open();
     const group = await settings();
     expect(repository(group)).toHaveValue('');
@@ -160,7 +170,8 @@ describe('configured Renovate run settings', () => {
     expect(group).not.toHaveTextContent(/1 hour/i);
     expect(automatic()).not.toBeChecked();
     expect(within(group).getByText(/Saving run settings disables.*does not start a run/i)).toBeVisible();
-    expect(save()).toBeDisabled();
+    expect(repository(group).checkValidity()).toBe(false);
+    submit();
     expect(writes).toEqual([]);
     expect(state.installations[0].configuration).toEqual(retained);
   });
@@ -199,7 +210,7 @@ describe('configured Renovate run settings', () => {
     expect(state.installations[0].enabled).toBe(false);
   });
 
-  it.each(['3', '4'])('REQ-OPERATOR-061: intent %s run settings save the public wire contract, reload retained values and isolate other installations until explicit re-enable', async intentVersion => {
+  it.each(['3', '4'])('REQ-OPERATOR-061: intent %s metadata-backed run settings save the public wire contract, reload retained values and isolate other installations until explicit re-enable', async intentVersion => {
     state.releases[0].intentVersion = intentVersion;
     const before = structuredClone(state);
     await open();
@@ -234,7 +245,7 @@ describe('configured Renovate run settings', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-1' } });
   });
 
-  it('REQ-OPERATOR-061: configured Renovate run settings retain the interval when automatic runs are switched off and leave manual runs available', async () => {
+  it('REQ-OPERATOR-061: application-owned run settings retain the interval when automatic runs are switched off and leave manual runs available', async () => {
     setRunSettings('acme/manual', true, 1800);
     await open();
     const group = await settings();
@@ -258,15 +269,13 @@ describe('configured Renovate run settings', () => {
     const run = within(installed).getByRole('link', { name: /assess|run/i });
     expect(new URL(run.getAttribute('href')!, window.location.origin).searchParams.get('repository')).toBeNull();
     fireEvent.click(run);
-    expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveValue('acme/manual');
-    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
-    const source = await screen.findByRole('combobox', { name: /source.*host/i });
-    const option = await within(source).findByRole('option', { name: /Existing owner Host/ });
-    fireEvent.change(source, { target: { value: (option as HTMLOptionElement).value } });
-    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Start run' })).toBeEnabled();
+    expect(screen.queryByRole('textbox', { name: 'Repository' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /source.*host/i })).not.toBeInTheDocument();
+    expect(reads).not.toContain('/api/sessions');
   });
 
-  it('REQ-OPERATOR-061: configured Renovate run settings switching automatic runs back on restores the saved interval rather than resetting it', async () => {
+  it('REQ-OPERATOR-061: application-owned run settings switching automatic runs back on restores the saved interval rather than resetting it', async () => {
     setRunSettings('acme/resume', false, 7200);
     await open();
     const group = await settings();
@@ -283,7 +292,7 @@ describe('configured Renovate run settings', () => {
     expect(interval(await settings())).toBeEnabled();
   });
 
-  it('REQ-OPERATOR-061: configured Renovate run settings reset only the repeat interval to 3600 and preserve restrictions and unrelated schedules', async () => {
+  it('REQ-OPERATOR-061: application-owned run settings reset only the repeat interval to 3600 and preserve restrictions and unrelated schedules', async () => {
     setRunSettings('acme/reset', true, 7200);
     const other = structuredClone(state.installations[1]);
     await open();
@@ -300,23 +309,24 @@ describe('configured Renovate run settings', () => {
   });
 
   it.each(['', ' ', 'owner', 'https://github.com/owner/repo', 'owner/repo/extra', '../repo', 'owner/..', 'owner/%2Frepo', 'a'.repeat(198) + '/repo'])(
-    'REQ-OPERATOR-061: configured Renovate run settings reject invalid repository %j even with automatic runs off', async invalid => {
+    'REQ-OPERATOR-061: declared configuration schema rejects invalid repository %j even with automatic runs off', async invalid => {
       setRunSettings('acme/valid', false, 3600);
       const before = structuredClone(state.installations);
       await open();
       const group = await settings();
       fireEvent.input(repository(group), { target: { value: invalid } });
-      expect(save()).toBeDisabled();
+      expect(repository(group).checkValidity()).toBe(false);
       submit();
       expect(writes).toEqual([]);
       expect(state.installations).toEqual(before);
     });
 
   it.each(['', '0', '-1', '1.5', '9007199254740992'])(
-    'REQ-OPERATOR-061: configured Renovate run settings reject invalid enabled interval %j without mutation', async invalid => {
+    'REQ-OPERATOR-061: application-owned run settings reject invalid enabled interval %j without mutation', async invalid => {
       setRunSettings('acme/valid', true, 3600);
       const before = structuredClone(state.installations);
       await open();
+      fireEvent.change(within(await settings()).getByRole('combobox', { name: 'Interval unit' }), { target: { value: 'seconds' } });
       fireEvent.input(interval(await settings()), { target: { value: invalid } });
       expect(save()).toBeDisabled();
       submit();
@@ -324,10 +334,11 @@ describe('configured Renovate run settings', () => {
       expect(state.installations).toEqual(before);
     });
 
-  it('REQ-OPERATOR-061: configured Renovate run settings restriction-only saves retain the configured repository, toggle and interval', async () => {
+  it('REQ-OPERATOR-061: application-owned run settings restriction-only saves retain the configured repository, toggle and interval', async () => {
     setRunSettings('acme/restricted', false, 7200);
     const configuration = structuredClone(state.installations[0].configuration);
     await open(); await settings();
+    fireEvent.click(screen.getByText('Advanced settings', { selector: 'summary' }));
     const restrictions = screen.getByRole('group', { name: 'Installation restrictions' });
     fireEvent.click(within(restrictions).getByRole('checkbox', { name: /Inference/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for Primary' }));
@@ -340,7 +351,7 @@ describe('configured Renovate run settings', () => {
     expect(interval(await settings())).toHaveValue(2);
   });
 
-  it('REQ-OPERATOR-061: configured Renovate run settings reconcile stale revisions before a deliberate save at the refreshed revision', async () => {
+  it('REQ-OPERATOR-061: application-owned run settings reconcile stale revisions before a deliberate save at the refreshed revision', async () => {
     setRunSettings('acme/original', false, 3600);
     await open();
     fireEvent.input(repository(await settings()), { target: { value: 'acme/stale-draft' } });
@@ -362,7 +373,7 @@ describe('configured Renovate run settings', () => {
       revision: 8, policy, configuration: { ...retained, renovate: { repository: 'acme/reviewed', automaticRuns: true, repetitionIntervalSeconds: 7200 } } } });
   });
 
-  it('REQ-OPERATOR-061: configured Renovate run settings save only the explicitly selected secondary installation at its own revision', async () => {
+  it('REQ-OPERATOR-061: application-owned run settings save only the explicitly selected secondary installation at its own revision', async () => {
     const primary = structuredClone(state.installations[0]);
     await open();
     fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
@@ -381,17 +392,28 @@ describe('configured Renovate run settings', () => {
   });
 
   it.each(['legacy', 'third-party', 'wrong-identity', 'unsupported-intent'])(
-    'REQ-OPERATOR-061: configured Renovate run settings are not offered for %s packages', async kind => {
+    'application metadata, not %s identity or intent, exposes run settings', async kind => {
       if (kind === 'legacy') state.releases[0].intentVersion = '2';
       if (kind === 'unsupported-intent') state.releases[0].intentVersion = '99';
       if (kind === 'third-party') state.operator.repositoryUrl = 'https://github.com/acme/dispatcher';
       if (kind === 'wrong-identity') state.operator.repositoryId = 123;
-      render(() => <OperatorManagement />);
-      fireEvent.click(await screen.findByRole('button', { name: /Manage Renovate/ }));
-      await screen.findByRole('region', { name: 'Installed version' });
-      expect(screen.queryByRole('group', { name: 'Run settings' })).not.toBeInTheDocument();
+      await open();
+      expect(repository(await settings())).toBeRequired();
       expect(writes).toEqual([]);
     });
+
+  it('does not infer application controls from a recognized historical package identity', async () => {
+    state.operator.name = 'Renovate Dispatcher';
+    state.operator.repositoryUrl = 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
+    state.operator.repositoryId = 1380652724;
+    delete state.releases[0].application;
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Renovate Dispatcher' }));
+    await screen.findByRole('region', { name: 'Installed version' });
+    expect(screen.queryByRole('group', { name: 'Run settings' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Run operator' })).not.toBeInTheDocument();
+    expect(writes).toEqual([]);
+  });
 });
 
 
@@ -454,7 +476,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit installation Activate', () => {
     ]);
     expect(state.installations[0].enabled).toBe(false);
   });
-  it.each([{}, { activatedAt: 'invalid', repositoryId: 424242 }, { activatedAt: cutoff, repositoryId: 424242, accessJwt: 'private' }])(
+  it.each([{}, { activatedAt: 'invalid' }, { activatedAt: cutoff, accessJwt: 'private' }])(
     'unknown activation response %j is fenced until explicit refresh, never replayed', async response => {
       activate = async () => json(response, 202); setRunSettings('acme/automation', true, 900);
       await open(true); await waitFor(() => expect(activateButton()).toBeEnabled()); fireEvent.click(activateButton());
@@ -471,7 +493,7 @@ describe('REQ-OPERATOR-061 AC1/3/5: explicit installation Activate', () => {
     await waitFor(() => expect(writes.filter(write => write.path === activationPath)).toHaveLength(1));
     expect(activateButton()).toBeDisabled(); fireEvent.click(activateButton());
     fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
-    finish(json({ activatedAt: cutoff, repositoryId: 424242 }, 202));
+    finish(json({ activatedAt: cutoff }, 202));
     await waitFor(() => expect(screen.queryByText(/Automatic runs activated/i)).toBeNull());
     expect(writes.filter(write => write.path === activationPath)).toHaveLength(1);
   });
@@ -521,7 +543,7 @@ describe('Task101 Administration automatic-off parity', () => {
     expect(writes.map(write => write.path)).toEqual(['/api/operator-management/installations/installation-1/configure']);
   });
 
-  it.each([[900, 900, 15, 'minutes'], [9007199254740991, 3600, 1, 'hours']] as const)(
+  it.each([[900, 900, 15, 'minutes'], [86400, 86400, 24, 'hours']] as const)(
     'REQ-OPERATOR-209 AC2/3: invalid draft switched off recovers saved %i as %i seconds without enabling or starting', async (saved, recovered, amount, units) => {
       setRunSettings('acme/automation', true, saved); await open();
       const group = await settings();

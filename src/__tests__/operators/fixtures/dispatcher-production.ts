@@ -239,6 +239,15 @@ export async function fixture(test: (f: {
   nativeInference?: boolean; nativeProviderDefault?: boolean; managedProviderDefault?: boolean;
   ownerTransport?: (request: Request) => Promise<Response | undefined>;
   normalProfileTransport?: (request: Request) => Promise<Response | undefined>;
+  applicationPlan?: (input: Record<string, unknown>) => unknown | Promise<unknown>;
+  applicationConfiguration?: Record<string, unknown>;
+  applicationInput?: Record<string, unknown>;
+  applicationId?: string;
+  applicationWorkflow?: boolean;
+  applicationWriteRepositoriesPath?: string;
+  applicationRepositoryId?: number;
+  principal?: { subject: string; email: string };
+  registryAdapter?: (registry: object) => object;
   realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean;
   preserveGlobalMocks?: boolean } = {}) {
   callerSessionCurrent = true;
@@ -251,9 +260,9 @@ export async function fixture(test: (f: {
     ['/owner-bucket/.pi/agent/models.json', { providers: {} }],
   ] : []);
   const configuredTarget = options.configuredTarget ?? { repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main' };
-  const fixtureInvocation = options.prospective ? { repository: configuredTarget.repository,
+  const fixtureInvocation = options.applicationInput ?? (options.prospective ? { repository: configuredTarget.repository,
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
-    : options.repositoryOnly ? { repository: 'another/service' } : invocation;
+    : options.repositoryOnly ? { repository: 'another/service' } : invocation);
   const sdkProvenance = options.sdkDiagnostics ? await syntheticSdkProvenance() : null;
   const baseBundle: DispatcherBundle = options.runtimeVersion === '2.2.2' || options.sdkDiagnostics ? { ...bundle,
     versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1' } } : bundle;
@@ -270,7 +279,7 @@ export async function fixture(test: (f: {
     const artifactDigest = await digest(fixtureBytes);
     const now = Date.now();
     const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
-    const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
+    const human = { subject: options.principal?.subject ?? 'owner', email: options.principal?.email ?? 'owner@example.test', issuer: 'https://access.example.test',
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt,
       ...(options.delegated ? { groups: [] } : {}) };
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
@@ -279,16 +288,23 @@ export async function fixture(test: (f: {
         : options.normalHosting || options.managedProviderDefault ? { inference: { allowedSources: ['managed'], routeIds: ['approved'], defaultRouteId: 'approved',
           reasoningLevels: ['off', 'low'], defaultReasoningLevel: options.managedProviderDefault ? null : 'off', inheritUserDefaults: false } } : {}),
       ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
-    const fixtureOperatorId = options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator';
+    const fixtureOperatorId = options.applicationId ?? (options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator');
+    const applicationWorkflow = options.applicationWorkflow || !!options.applicationConfiguration || !!options.applicationPlan;
+    const fixtureInstallationId = options.applicationId ? `${fixtureOperatorId}-installation` : 'installation';
+    const fixtureReleaseId = options.applicationId ? `${fixtureOperatorId}-release` : 'release';
     let inferenceAttempts = 0;
-    const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
+    const selection = { controlsRevision: 1, installation: { id: fixtureInstallationId, operatorId: fixtureOperatorId, revision: 1,
       enabled: true, ...(options.nativeInference && !options.nativeProviderDefault ? { piReasoningOverride: 'low' } : {}),
       policy: options.installationSourceResponseBytes === undefined ? policy
         : { ...policy, sourceResponseBytes: options.installationSourceResponseBytes },
-      configurationJson: options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: 'release' },
-    operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
+      configurationJson: options.applicationConfiguration ? JSON.stringify(options.applicationConfiguration)
+        : options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: fixtureReleaseId },
+    operator: { id: fixtureOperatorId, operatorId: fixtureOperatorId,
+      repositoryId: options.applicationRepositoryId ?? 1380652724,
+      profile: 'dispatcher', revision: 1,
+      invokers: { users: applicationWorkflow ? ['owner@example.test', 'foreign@example.test'] : [human.email], groups: [] },
       policy: { ...policy, ...options.capacityPolicy, ...(options.inferenceMessageLimit === undefined ? {} : { inferenceMessageLimit: options.inferenceMessageLimit }), ...(options.inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit: options.inferenceAttemptLimit }), ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
-    release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
+    release: { id: fixtureReleaseId, operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
       ...(options.normalHosting ? { manifestDigest: 'd'.repeat(64), provenance: { compilerCommit: normalDeployment.compilerCommit } } : {}),
       ...(options.prospective || options.intent4 ? { intentVersion: options.intent4 ? '4' : options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
     manifestJson: options.prospective || options.intent4 ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
@@ -299,8 +315,15 @@ export async function fixture(test: (f: {
         properties: { repository: { type: 'string', pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' },
           ...(options.legacyProspective ? { pullRequest: { type: 'integer', minimum: 1 } } : {}) } },
       requiredCapabilities: ['inference', 'fetch'], artifact: { path: '/operator-bundle.json', sha256: artifactDigest } }) : '{}' };
-    const proof = { activityId, installationId: 'installation', ...configuredTarget,
-      controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
+    if (applicationWorkflow) selection.manifestJson = JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
+      id: fixtureOperatorId, name: 'Configured application', description: 'Generic application fixture',
+      coreVersion: '1', intentVersion: '1', profile: 'dispatcher', inputSchema: { type: 'object' },
+      application: { controlVersion: 1,
+        ...(options.applicationWriteRepositoriesPath ? { githubWriteRepositoriesPath: options.applicationWriteRepositoriesPath } : {}) },
+      requiredCapabilities: ['inference', 'fetch'],
+      artifact: { path: '/operator-bundle.json', sha256: artifactDigest } });
+    const proof = { activityId, installationId: fixtureInstallationId, ...configuredTarget,
+      controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: fixtureReleaseId, bundleDigest: artifactDigest,
       pullRequest: 17, head: 'b'.repeat(40), createdAt: new Date(now - 86_400_000).toISOString(),
       activatedAt: new Date(now - 2 * 86_400_000).toISOString(), ownerKey: await operatorOwnerKey(human),
       actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: options.delegated ? '' : 'originalsession',
@@ -312,7 +335,7 @@ export async function fixture(test: (f: {
     let currentRegistration: CurrentProspectiveRegistration | null = { ...(options.delegated ? { scope: 'installation' as const, delegation: { version: 1 as const, routingGroups: [] } } : {}), registrationId: proof.actor.registrationId,
       installationId: proof.installationId, activatedAt: proof.activatedAt, bucket: proof.actor.bucket,
       sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration, human, accessJwt: 'private.jwt',
-      ...configuredTarget, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
+      ...configuredTarget, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: fixtureReleaseId, bundleDigest: artifactDigest,
       repetitionIntervalSeconds: 900 } as unknown as CurrentProspectiveRegistration;
     let targetPatch: Record<string, unknown> = {};
     let afterTargetRead: (() => void | Promise<void>) | undefined;
@@ -608,10 +631,14 @@ export async function fixture(test: (f: {
     const normalTransport = options.normalHosting ? createNormalDispatcherTransport({
       profile: { source: options.nativeInference ? 'pi-native' : 'managed', ...normalIdentity },
       profileTransport: options.normalProfileTransport,
+      dispatchTransport: async () => admissionFault ? admissionFault() : undefined,
+      plan: options.applicationPlan ?? (applicationWorkflow ? body => body.checkpoint === null
+        ? { kind: 'dispatch', checkpoint: { active: true }, context: {}, message: { kind: 'user', body: 'Generic fixture invocation' } }
+        : { kind: 'complete', checkpoint: body.checkpoint, result: { completed: true } } : undefined),
     }) : undefined;
-    let connectionRecord: Record<string, unknown> = { installationId: 'installation', releaseId: 'release', connectionRevision: 1,
+    let connectionRecord: Record<string, unknown> = { installationId: fixtureInstallationId, releaseId: fixtureReleaseId, connectionRevision: 1,
       ...normalDeployment, manifestDigest: 'd'.repeat(64), bundleDigest: artifactDigest,
-      connectionSecretCiphertext: await sealOperatorSecret(connectionSecret, encryption, { purpose: 'connection', recordId: 'installation' }) };
+      connectionSecretCiphertext: await sealOperatorSecret(connectionSecret, encryption, { purpose: 'connection', recordId: fixtureInstallationId }) };
     if (normalTransport) vi.stubGlobal('fetch', normalTransport.fetcher);
     const originalAbortConnection = structuredClone(connectionRecord);
     const registry = { getManagementBundle: async () => {
@@ -621,9 +648,9 @@ export async function fixture(test: (f: {
     },
       // Registry is the platform authority seam, not a mocked control implementation.
       getManagementDispatcherConnection: async (installationId: string) =>
-        options.normalHosting && installationId === 'installation' ? structuredClone(connectionRecord) : null,
+        options.normalHosting && installationId === fixtureInstallationId ? structuredClone(connectionRecord) : null,
       getManagementDispatcherAbortConnection: async (installationId: string, revision: number) =>
-        options.normalHosting && installationId === 'installation' && revision === 1 ? structuredClone(originalAbortConnection) : null,
+        options.normalHosting && installationId === fixtureInstallationId && revision === 1 ? structuredClone(originalAbortConnection) : null,
       resolveManagementExecution: async () => {
         const action = afterRegistryResolve; afterRegistryResolve = undefined;
         await action?.();
@@ -676,7 +703,8 @@ export async function fixture(test: (f: {
         R2_ACCOUNT_ID: 'synthetic-r2-account', R2_ENDPOINT: 'https://r2.example.test',
         KV: { get: async (key: string) => key === 'setup:strict_egress' ? 'active' : null },
         EGRESS: { fetch: nativeTransport } } : {}),
-      OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
+      OPERATOR_REGISTRY: { getByName: () => options.registryAdapter ? options.registryAdapter(registry) : registry },
+      OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
       LOADER: { get: (_key: string, factory: () => Promise<{ env: Record<string, unknown>; globalOutbound: Fetcher | null; tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
         getDurableObjectClass: () => {
           const code = factory();
@@ -693,12 +721,13 @@ export async function fixture(test: (f: {
     await drainBackground();
     const invocationJson = JSON.stringify(fixtureInvocation);
     const execution = await createOperatorExecutionContext({ activityId, operatorId: fixtureOperatorId, artifactDigest,
-      policyDigest: await digest(JSON.stringify(selection.installation.policy)), human, accessJwt: 'private.jwt' }, encryption);
-    const preparation = { activityId, operatorId: fixtureOperatorId, installationId: 'installation',
+      policyDigest: await digest(JSON.stringify(selection.installation.policy)), human, accessJwt: 'private.jwt',
+      ...(applicationWorkflow && options.delegated ? { delegation: { version: 1 as const, routingGroups: [] } } : {}) }, encryption);
+    const preparation = { activityId, operatorId: fixtureOperatorId, installationId: fixtureInstallationId,
       intentDigest: await createOperatorIntentDigest(fixtureOperatorId, activityId, invocationJson),
       expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
       deadline: expiresAt * 1000, startExpiresAt: expiresAt * 1000, startVerifier: await digest('s'.repeat(43)) };
-    expect(await (options.prospective
+    expect(await (options.prospective && !applicationWorkflow
       ? activity.prepareAuthorized(preparation, execution, invocationJson, undefined, activityId)
       : activity.prepareAuthorized(preparation, execution, invocationJson))).toEqual({ ok: true, phase: 'prepared' });
     if (options.normalHosting) expect(await activity.bindDispatcherOwnerSource({ bucket: 'owner-bucket',

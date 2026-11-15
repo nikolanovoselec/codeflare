@@ -1,12 +1,10 @@
-import { configuredRenovateInvocation, prospectiveRenovatePackageSupported } from './renovate-run-settings';
 import { z } from 'zod';
 import { captureError, type Boundary, type ReasonCode } from './dispatcher-diagnostics-wire';
 import type { Env } from '../types';
-import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError, ValidationError } from '../lib/error-types';
 import { canInvokeOperator, loadEnterpriseRouteConfig, requireOperatorHumanContext,
   resolveBucketName, resolveSessionAccessGroup } from '../lib/access';
-import { createOperatorExecutionContext, openOperatorExecutionAccess } from './execution-context';
+import { createOperatorExecutionContext, openOperatorExecutionAccess, type OperatorExecutionAuthority } from './execution-context';
 import { openOperatorSecret } from './protected-secrets';
 import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
 import { fetchOperatorBundle } from './distribution-client';
@@ -59,9 +57,7 @@ export interface PreparedOperatorActivity {
 }
 
 /** Request-attached preparation only; it creates no scheduler or child session. */
-export async function prepareOperatorActivity(input: unknown, authority: {
-  human: VerifiedHumanAccessClaims; accessJwt: string;
-}, env: Env, parentReservation?: { activityId: string; boundary?: BoundaryActivityBinding; prospectiveAdmissionId?: string; expectedManagement?: {
+export async function prepareOperatorActivity(input: unknown, authority: OperatorExecutionAuthority, env: Env, parentReservation?: { activityId: string; boundary?: BoundaryActivityBinding; prospectiveAdmissionId?: string; expectedManagement?: {
   controlsRevision: number; installationRevision: number; operatorRevision: number;
   releaseId: string; bundleDigest: string;
 } }): Promise<PreparedOperatorActivity> {
@@ -72,7 +68,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   }
   // Only the parent passes a Registry-reserved ID. The caller's invocation cannot choose it.
   const activityId = parentReservation?.activityId ?? crypto.randomUUID();
-  let bounded = boundedInvocation(parsed.data.invocation);
+  const bounded = boundedInvocation(parsed.data.invocation);
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const installationId = 'installationId' in parsed.data ? parsed.data.installationId : null;
   const requestedOperatorId = 'operatorId' in parsed.data ? parsed.data.operatorId : null;
@@ -103,9 +99,6 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
   if (operatorId === 'codeflare-gate1-fixture') {
     throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
-  }
-  if (managementSelection?.operator.profile === 'dispatcher' && prospectiveRenovatePackageSupported(managementSelection.manifestJson)) {
-    bounded = configuredRenovateInvocation(managementSelection.installation.configurationJson, bounded);
   }
   const usesConsumerContract = managementSelection?.operator.profile === 'conductor';
   const deadline = authority.human.expiresAt * 1000;
@@ -195,7 +188,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const invocationJson = JSON.stringify(invocation);
   const intentDigest = await createOperatorIntentDigest(operatorId, activityId, invocationJson);
   const executionContext = await createOperatorExecutionContext({ activityId, operatorId,
-    artifactDigest, policyDigest, human: authority.human, accessJwt: authority.accessJwt }, env);
+    artifactDigest, policyDigest, ...authority }, env);
   const intent = managementSelection ? {
     operatorId, installationId: installationId!, activityId, intentDigest,
     expectedRevision: managementSelection.operator.revision,

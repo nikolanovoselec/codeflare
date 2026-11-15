@@ -19,6 +19,15 @@ vi.mock('../../lib/access', async original => ({
 const grant = (users: string[] = []) => ({ users, groups: [] as Array<{ issuer: string; id: string }> });
 const schema = { type: 'object', additionalProperties: false, required: ['repository'], properties: {
   repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } };
+const application = { controlVersion: 1, configurationSchema: { type: 'object', properties: {
+  renovate: { type: 'object', properties: {
+    repository: { type: 'string' }, automaticRuns: { type: 'boolean', default: false },
+    repetitionIntervalSeconds: { type: 'integer', default: 3600 },
+  } },
+} }, schedule: { enabledPath: '/renovate/automaticRuns', intervalSecondsPath: '/renovate/repetitionIntervalSeconds' } };
+const manifest = { schemaVersion: 1, interfaceVersion: 1, id: 'renovate-dispatcher', profile: 'dispatcher',
+  name: 'Renovate Dispatcher', description: 'Package-owned application', coreVersion: '1', intentVersion: '4',
+  inputSchema: schema, requiredCapabilities: ['fetch'], artifact: { path: '/bundle.json', sha256: 'a'.repeat(64) }, application };
 function fixture() {
   const operator = { id: 'visible-operator', profile: 'dispatcher', realm: 'internal', enabled: true, revision: 1,
     repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher', repositoryId: 1380652724,
@@ -32,13 +41,13 @@ function fixture() {
     bundleDigest: 'a'.repeat(64), requestedCapabilities: ['fetch'] };
   const controls = { revision: 1, managers: grant(), ceiling: { capabilities: ['fetch'], resourceProfileIds: [] } };
   const catalog = { items: [operator, hidden], cursor: null as string | null };
-  const manifests = { value: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', name: 'Renovate Dispatcher', intentVersion: '4', inputSchema: schema }) };
+  const manifests = { value: JSON.stringify(manifest) };
   const resolved = { operator, installation: installed, release, controlsRevision: 1 };
   const effects: string[] = [];
   const forbiddenEffect = (name: string) => { effects.push(name); throw new Error(`Installed read attempted ${name}`); };
   const registry = {
-    prospectiveRenovateStatus: async () => 'inactive',
-    activateProspectiveRenovate: async () => forbiddenEffect('activation'),
+    applicationScheduleStatus: async () => 'inactive',
+    activateApplicationSchedule: async () => forbiddenEffect('activation'),
     listManagementOperators: async ({ limit }: { limit: number }) => ({ ...catalog, items: catalog.items.slice(0, limit) }),
     listManagementInstallationPage: async () => ({ items: [{ ...installed },
       { ...installed, operatorId: hidden.id, id: 'PRIVATE_INSTALL' }], cursor: catalog.cursor }),
@@ -54,7 +63,7 @@ function fixture() {
       ? { ok: true, value: { ...resolved, manifestJson: manifests.value } }
       : { ok: false, reason: 'disabled' },
     resolveManagementConfiguration: async (id: string) => id === installed.id && release.approved
-      ? { ok: true, value: { ...resolved, operator: { ...resolved.operator, enabled: true }, manifestJson: manifests.value } }
+      ? { ok: true, value: { ...resolved, operator: { ...resolved.operator }, manifestJson: manifests.value } }
       : { ok: false, reason: 'artifact-unapproved' },
   };
   const env = { ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY: { getByName: () => registry },
@@ -83,7 +92,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     expect(value).toMatchObject({ items: [{ id: 'visible-install', operatorId: 'visible-operator',
       name: 'Renovate Dispatcher', installationName: 'Updates', version: 'v0.1.27', enabled: true, approved: true,
       canInvoke: true, canManage: false, profile: 'dispatcher', canActivateAutomaticRuns: false,
-      guidedMode: 'repository', repository: 'acme/updates', automaticRuns: false }], cursor: null });
+      guidedMode: null, repository: null, automaticRuns: false }], cursor: null });
     const bytes = JSON.stringify(value);
     for (const secret of ['PRIVATE_CONFIGURATION', 'PRIVATE_ACCESS_JWT', 'PRIVATE_OPERATOR', 'PRIVATE_INSTALL']) expect(bytes).not.toContain(secret);
     expect(value).not.toHaveProperty('grants');
@@ -121,8 +130,8 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
 
   it('does not claim disabled or unapproved installations are invocable, and never borrows another release pin', async () => {
     const f = fixture(); f.installed.enabled = false;
-    expect(await (await f.request()).json()).toMatchObject({ items: [{ enabled: false, guidedMode: 'repository',
-      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 3600 }] });
+    expect(await (await f.request()).json()).toMatchObject({ items: [{ enabled: false, guidedMode: null,
+      repository: null, automaticRuns: false, repetitionIntervalSeconds: 3600 }] });
     expect((await f.request('/visible-install/preview')).status).toBe(404);
     f.installed.enabled = true; f.release.approved = false;
     expect(await (await f.request()).json()).toMatchObject({ items: [{ approved: false, guidedMode: null }] });
@@ -135,7 +144,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     f.operator.invokers = grant(); f.operator.managers = grant([identity.email]); f.controls.managers = grant([identity.email]);
     const response = await f.request(); expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ items: [{ id: f.installed.id, revision: 7, enabled: false,
-      canInvoke: false, canManage: true, guidedMode: 'repository', automaticRuns: false, repetitionIntervalSeconds: 3600 }] });
+      canInvoke: false, canManage: true, guidedMode: null, automaticRuns: false, repetitionIntervalSeconds: 3600 }] });
     expect((await f.request('/visible-install/preview')).status).toBe(404);
   });
 
@@ -151,8 +160,8 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     expect((await f.request('?cursor=PRIVATE_INSTALL')).status).toBe(404);
   });
 
-  it('labels unsupported package scheduling instead of inventing a generic launcher', async () => {
-    const f = fixture(); f.manifests.value = JSON.stringify({ name: 'Third-party package', inputSchema: { type: 'string' } });
+  it('reports no scheduling when package metadata does not declare it', async () => {
+    const f = fixture(); f.manifests.value = JSON.stringify({ ...manifest, application: undefined, name: 'Third-party package', inputSchema: { type: 'string' } });
     expect(await (await f.request()).json()).toMatchObject({ items: [{ guidedMode: null, automaticRuns: null }] });
   });
 
@@ -178,7 +187,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
       expect(value.items.find(item => item.id === f.installed.id)).toEqual({ id: f.installed.id, operatorId: f.operator.id, profile: 'dispatcher',
         name: 'Renovate Dispatcher', installationName: 'Updates', version: 'v0.1.27', revision: 7,
         enabled: true, approved: true, canInvoke: true, canManage: true, canActivateAutomaticRuns: true, automaticRunStatus: 'inactive',
-        guidedMode: 'repository', repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3719 });
+        guidedMode: null, repository: null, application, automaticRuns: true, repetitionIntervalSeconds: 3719 });
       for (const secret of ['PRIVATE_CONFIGURATION', 'PRIVATE_ACCESS_JWT']) expect(JSON.stringify(value)).not.toContain(secret);
     }
     // These are externally significant forbidden effects, not invocation-count assertions.
@@ -194,12 +203,12 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     const response = await f.request(); expect(response.status).toBe(200);
     const value = await response.json() as { items: Array<Record<string, unknown>> };
     expect(value.items.find(item => item.id === f.installed.id)).toMatchObject({ profile: 'dispatcher',
-      canActivateAutomaticRuns: true, guidedMode: null, repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3600 });
+      canActivateAutomaticRuns: true, guidedMode: null, repository: null, automaticRuns: true, repetitionIntervalSeconds: 3600 });
     expect(f.effects).toEqual([]);
   });
 
   it.each(['nonadmin', 'manager-only', 'admin-without-invoke', 'unapproved',
-    'unsupported', 'conductor', 'automatic-off', 'missing-settings', 'invalid-settings', 'invalid-json', 'invalid-automatic', 'invalid-repository', 'resource-profile',
+    'unsupported', 'disabled-operator', 'automatic-off', 'missing-settings', 'invalid-settings', 'invalid-automatic',
     'missing-pin', 'resolved-release', 'resolved-revision', 'resolved-operator', 'resolved-installation',
     'resolved-operator-revision', 'resolved-controls', 'resolved-configuration', 'resolved-digest']) (
     'REQ-OPERATOR-209 AC5: automatic activation eligibility is false for %s', async fault => {
@@ -212,15 +221,12 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
       }
       if (fault === 'admin-without-invoke') f.operator.invokers = grant();
       if (fault === 'unapproved') f.release.approved = false;
-      if (fault === 'unsupported') f.manifests.value = JSON.stringify({ ...JSON.parse(f.manifests.value), intentVersion: '2' });
-      if (fault === 'conductor') f.operator.profile = 'conductor';
+      if (fault === 'unsupported') f.manifests.value = JSON.stringify({ ...manifest, application: undefined });
+      if (fault === 'disabled-operator') f.operator.enabled = false;
       if (fault === 'automatic-off') f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false } });
       if (fault === 'missing-settings') f.installed.configurationJson = '{}';
       if (fault === 'invalid-settings') f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 0 } });
-      if (fault === 'invalid-json') f.installed.configurationJson = '{';
       if (fault === 'invalid-automatic') f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: 'true' } });
-      if (fault === 'invalid-repository') f.installed.configurationJson = JSON.stringify({ renovate: { repository: '../updates', automaticRuns: true } });
-      if (fault === 'resource-profile') f.installed.policy.resourceProfileId = 'resource-1';
       if (fault === 'missing-pin') f.installed.releaseId = 'missing-release';
       if (fault === 'resolved-release') f.resolved.release = { ...f.release, id: 'other-release' };
       if (fault === 'resolved-revision') f.resolved.installation = { ...f.installed, revision: 8 };
@@ -237,18 +243,38 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     });
 
   it('REQ-OPERATOR-061 AC1: a disabled approved installation retains advisory eligibility for explicit automatic activation, never implicit scheduling', async () => {
-    const f = fixture(); identity.role = 'admin'; f.installed.enabled = false; f.operator.enabled = false;
+    const f = fixture(); identity.role = 'admin'; f.installed.enabled = false;
     f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true } });
     const response = await f.request();
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ items: expect.arrayContaining([
       expect.objectContaining({ id: f.installed.id, enabled: false, canActivateAutomaticRuns: true,
-        automaticRunStatus: 'inactive', repository: 'acme/updates', automaticRuns: true }),
+        automaticRunStatus: 'inactive', repository: null, automaticRuns: true }),
     ]) });
     // Advisory eligibility does not authorize even the execution preview.
     expect((await f.request(`/${f.installed.id}/preview`)).status).toBe(404);
     expect(f.effects).toEqual([]);
   });
+  it.each(['profile', 'repository', 'resource-profile'])('does not infer schedule eligibility from %s instead of declared metadata', async field => {
+    // Advisory scheduling metadata is not runtime capability admission.
+    const f = fixture(); identity.role = 'admin';
+    f.installed.configurationJson = JSON.stringify({ renovate: { repository: '../not-host-validated', automaticRuns: true } });
+    if (field === 'profile') f.operator.profile = 'conductor';
+    if (field === 'resource-profile') f.installed.policy.resourceProfileId = 'resource-1';
+    expect(await (await f.request()).json()).toMatchObject({ items: expect.arrayContaining([
+      expect.objectContaining({ id: f.installed.id, canActivateAutomaticRuns: true, repository: null, application }),
+    ]) });
+    expect(f.effects).toEqual([]);
+  });
+
+  it('fails closed on corrupt saved configuration without exposing it or starting work', async () => {
+    const f = fixture(); identity.role = 'admin'; f.installed.configurationJson = '{PRIVATE_CONFIGURATION';
+    const response = await f.request();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'Internal error' });
+    expect(f.effects).toEqual([]);
+  });
+
   it('retains enterprise and authenticated-human gates for installed reads', async () => {
     const f = fixture();
     expect((await f.request('', f.env, false)).status).toBe(401);

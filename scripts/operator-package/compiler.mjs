@@ -102,9 +102,33 @@ async function buildBundle(raw) {
   return { bundle, dispatcher: false };
 }
 
+function applicationMetadata(value) {
+  const application = object(value, 'manifest.application');
+  exactKeys(application, ['controlVersion', 'configurationSchema', 'githubWriteRepositoriesPath', 'schedule'], 'manifest.application');
+  if (application.controlVersion !== 1) fail('application control version is incompatible');
+  if (application.configurationSchema !== undefined) object(application.configurationSchema, 'application configuration schema');
+  const validPointer = path => typeof path === 'string' && path.length >= 2 && path.length <= 512 && path.startsWith('/')
+    && path.slice(1).split('/').every(part => part && !/~(?![01])/u.test(part)
+      && !['__proto__', 'constructor', 'prototype'].includes(part.replace(/~1/g, '/').replace(/~0/g, '~')));
+  if (application.githubWriteRepositoriesPath !== undefined && !validPointer(application.githubWriteRepositoriesPath)) {
+    fail('application repository path is invalid');
+  }
+  if (application.schedule !== undefined) {
+    const schedule = object(application.schedule, 'application schedule');
+    exactKeys(schedule, ['enabledPath', 'intervalSecondsPath'], 'application schedule');
+    for (const name of ['enabledPath', 'intervalSecondsPath']) {
+      const path = schedule[name];
+      if (!validPointer(path)) {
+        fail('application schedule path is invalid');
+      }
+    }
+  }
+  return application;
+}
+
 function buildManifest(raw, bundleDigest, dispatcher) {
   const manifest = { ...object(raw, 'manifest'), artifact: { path: '/operator-bundle.json', sha256: bundleDigest } };
-  exactKeys(manifest, ['schemaVersion', 'interfaceVersion', 'id', 'name', 'description', 'coreVersion', 'intentVersion', 'profile', 'inputSchema', 'outputSchema', 'requiredCapabilities', 'artifact'], 'manifest');
+  exactKeys(manifest, ['schemaVersion', 'interfaceVersion', 'id', 'name', 'description', 'coreVersion', 'intentVersion', 'profile', 'inputSchema', 'outputSchema', 'application', 'requiredCapabilities', 'artifact'], 'manifest');
   if (manifest.schemaVersion !== 1 || manifest.interfaceVersion !== 1 || !ID.test(manifest.id || '')) fail('manifest identity is invalid');
   string(manifest.name, 'manifest.name', 1, 256); string(manifest.description, 'manifest.description', 0, 4096);
   string(manifest.coreVersion, 'manifest.coreVersion', 1, 128); string(manifest.intentVersion, 'manifest.intentVersion', 1, 128);
@@ -112,6 +136,7 @@ function buildManifest(raw, bundleDigest, dispatcher) {
   if (dispatcher && manifest.profile !== 'dispatcher') fail('Dispatcher bundle requires the dispatcher profile');
   object(manifest.inputSchema, 'manifest.inputSchema');
   if (manifest.outputSchema !== undefined) object(manifest.outputSchema, 'manifest.outputSchema');
+  if (manifest.application !== undefined) applicationMetadata(manifest.application);
   if (!Array.isArray(manifest.requiredCapabilities) || manifest.requiredCapabilities.length > 5
     || new Set(manifest.requiredCapabilities).size !== manifest.requiredCapabilities.length
     || manifest.requiredCapabilities.some(value => !CAPABILITIES.has(value))) fail('manifest capabilities are invalid');

@@ -67,8 +67,13 @@ const providerId = 'openai';
 const logical = { provider: providerId, model: 'gpt-4o-mini', api: 'openai-responses', reasoningLevel: 'low' };
 const oldOAuth = { type: 'oauth', access: `${canary}_old_access`, refresh: `${canary}_old_refresh`, expires: Date.now() + 3_600_000, clientId: 'owner-issued-client', scopes: ['chatgpt.tokens.use.direct'] };
 const other = { type: 'api_key', key: `${canary}_other_provider`, env: { PROJECT: 'unchanged' } };
-const callback = (f: DispatcherFixture, path: string, body: unknown, headers?: Record<string, string>) =>
-  f.installationCapability.fetch(normalCallback(f.activityId, path, body, headers));
+const callback = (f: DispatcherFixture, path: string, body: unknown, headers?: Record<string, string>) => {
+  const plan = f.normalTransport?.requests.filter(request => request.path === '/control/plan').at(-1);
+  const delivery = plan?.body.delivery as { token: string } | undefined;
+  return f.installationCapability.fetch(normalCallback(f.activityId, path, body, {
+    ...(delivery ? { 'x-codeflare-dispatcher-delivery': delivery.token } : {}), ...headers,
+  }));
+};
 const config = (f: DispatcherFixture) => callback(f, 'pi/config', { operation: 'read' });
 const gateway = (f: DispatcherFixture) => callback(f, 'gateway', { operation: 'read' });
 // Public SDK TranscriptContext wire: the non-serializable SDK brand is not an HTTP field.
@@ -263,8 +268,8 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       }
       cleanups.reverse().forEach(cleanup => cleanup());
     }
-  }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors,
-    ...(limits.delegated ? { prospective: true } : {}), ...limits });
+  }, { normalHosting: true, applicationWorkflow: true, repositoryOnly: true, recovery: true,
+    nativeInference: native, realInterceptors, ...limits });
 }
 async function admitted(f: DispatcherFixture) {
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
@@ -1957,12 +1962,12 @@ describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: delegated normal SDK service
     expect(store.escapedReads).toEqual([]);
     expect(f.ownerPortRequests).toEqual([]);
   }, native, !native, { delegated: true }));
-  it.each(['installation', 'grant', 'registration', 'expiry'] as const)(
+  it.each(['installation', 'grant', 'role', 'expiry'] as const)(
     'delegated normal SDK still denies current local %s after logout', fault => lane(async f => {
       await admitted(f); f.revokeSession();
       if (fault === 'installation') f.revoke();
       if (fault === 'grant') f.revokeGrant();
-      if (fault === 'registration') f.changeRegistration(null);
+      if (fault === 'role') f.environment.KV = { get: async () => '{"role":"user"}' } as unknown as KVNamespace;
       if (fault === 'expiry') f.expire();
       await denied(await config(f)); await denied(await modelAdmission(f));
     }, true, false, { delegated: true }));

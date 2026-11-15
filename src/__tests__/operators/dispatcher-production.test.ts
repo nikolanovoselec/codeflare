@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, type FixtureDiagnosticIndex, bundle, bytes, changedCompose, collectedRawValues, composeBlob, composeRead, denyDiagnosticWrites, diagnosticIndexKey, diagnosticJson, diagnosticReport, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, dozzleFiles, encodeSdkHeader, fixture, genericWire, guideBlobSha, guideExcerpt, guideRead, importRuntime, invalidPreparationRefusal, invocation, maximalDiagnosticEvent, preparationFailures, prospectiveBase, prospectiveComment, prospectiveMerge, prospectiveRepo, read, releaseRead, remoteMutations, retainedFence, runtimeEnvelope, seedDiagnosticSnapshot, sourceRead, start, startProspective, syntheticFramePaths, withCollectedLargeLogs } from './fixtures/dispatcher-production';
+import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, type FixtureDiagnosticIndex, bundle, bytes, changedCompose, collectedRawValues, composeBlob, composeRead, denyDiagnosticWrites, diagnosticIndexKey, diagnosticJson, diagnosticReport, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, dozzleFiles, encodeSdkHeader, fixture, genericWire, guideBlobSha, guideExcerpt, guideRead, importRuntime, invalidPreparationRefusal, invocation, maximalDiagnosticEvent, preparationFailures, read, releaseRead, remoteMutations, retainedFence, runtimeEnvelope, seedDiagnosticSnapshot, sourceRead, start, syntheticFramePaths, withCollectedLargeLogs } from './fixtures/dispatcher-production';
 import { describe, expect, it, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Agent } from 'agents';
@@ -8,6 +8,7 @@ import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
 import { authorizeDispatcherPlan, dispatcherRoutingGroups, parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
 import { captureError } from '../../operators/dispatcher-diagnostics-wire';
+import { openOperatorSecret, sealOperatorSecret } from '../../operators/protected-secrets';
 import { setLogLevel } from '../../lib/logger';
 import * as access from '../../lib/access';
 import { pendingRecipient, within } from '../helpers/pending-recipient';
@@ -3831,402 +3832,380 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
   }, { repositoryOnly: true, sourceResponseBytes: 131072, capacityPolicy: { assessmentBytes: 65536 } }));
 });
 
-describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent authority', () => {
-  it.each([false, true])('reauthorizes a stored settled assessment at public collection; prospective actor revoked=%s', revoked => fixture(async f => {
-    await start(f);
-    const assessment = { repository: prospectiveRepo, results: [{ pullRequest: 17, headSha: f.proof.head,
-      decision: 'DO_NOT_MERGE', comment: 'Evidence does not justify merging', outcome: 'NOT_MERGED' }] };
-    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
-    f.settle();
+// Ownership migration from the retired prospective parent controller:
+// - OPERATOR_ADMITTED_TARGET, proof/actor/registration pins, creation cutoff and
+//   target eligibility now belong to the Dispatcher SDK application. See
+//   codeflare-operator-dispatcher/test/renovate/legacy-admission-parity.test.ts
+//   (renovate-admission) and renovate-discovery.test.ts (identity/cutoff/paging).
+// - Comment limits/body policy, PR/head/base preflight, merge CAS and positive
+//   publisher/readback interpretation belong to test/renovate/github-effects.test.ts.
+//   Root's generic transport does not validate those domain semantics.
+// - Registration session/bucket/delegation fields no longer authorize execution.
+//   Current runtime authority below is the sealed execution context plus live
+//   invoker/revision/deadline/role checks, not the historical registration.
+const applicationRepository = 'another/service';
+const applicationBase = `https://api.github.com/repos/${applicationRepository}`;
+const applicationOptions = { applicationWorkflow: true, normalHosting: true, repositoryOnly: true,
+  applicationConfiguration: { repository: applicationRepository }, applicationWriteRepositoriesPath: '/repository' };
+const applicationComment = (operationId = 'application-comment', base = applicationBase) => ({ operationId,
+  method: 'POST', url: `${base}/issues/17/comments`, body: JSON.stringify({ body: 'Original application write' }) });
+const applicationDelivery = (f: DispatcherFixture) => {
+  const plan = f.normalTransport!.requests.filter(request => request.path === '/control/plan').at(-1)!.body;
+  const delivery = plan.delivery as { token: string };
+  return delivery.token;
+};
+const applicationWire = (f: DispatcherFixture, path: string, body: unknown) => {
+  const request = genericWire(path, body);
+  request.headers.set('x-codeflare-dispatcher-delivery', applicationDelivery(f));
+  return request;
+};
+const applicationInference = (f: DispatcherFixture, operationId: string) => applicationWire(f, 'inference', {
+  operationId, context: { messages: [{ role: 'user', content: 'Bounded application task' }] }, options: {},
+});
+const startApplication = async (f: DispatcherFixture) => {
+  expect(await start(f)).toMatchObject({ ok: true });
+  expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+  expect(f.normalTransport!.admissions.size).toBe(1);
+};
+// Deliberately corrupt trusted persisted metadata, not public request fields.
+// Re-encryption preserves the real protection boundary so malformed delegation
+// is refused by the runtime parser rather than an unrelated authentication tag.
+const replaceApplicationDelegation = async (f: DispatcherFixture, delegation: unknown) => {
+  const plan = (await f.activity.getRuntimePlan())!;
+  const context = plan.executionContext;
+  const binding = { purpose: 'human-access' as const, recordId: context.activityId };
+  const payload = JSON.parse(await openOperatorSecret(context.protectedAccessCiphertext, f.environment, binding));
+  const protectedAccessCiphertext = await sealOperatorSecret(JSON.stringify({ ...payload, delegation }), f.environment, binding);
+  await f.mutateEvidence(async storage => {
+    const admission = (await storage.get<Record<string, unknown>>('admission'))!;
+    await storage.put('admission', { ...admission, executionContext: { ...context, protectedAccessCiphertext } });
+  });
+};
+
+describe('REQ-OPERATOR-047/048/061/062/071: registered application parent authority', () => {
+  it.each([false, true])('reauthorizes a settled application before final completion after reconstruction; invoker revoked=%s', revoked => fixture(async f => {
+    await startApplication(f);
+    const submitted = [...f.normalTransport!.admissions.values()];
+    f.normalTransport!.settle('completed', [{ name: 'application-result', data: { completed: true } }]);
+    // Revoke during the awaited SDK observation, before Root accepts a final decision.
+    if (revoked) f.normalTransport!.afterNextRead(() => f.revokeGrant());
+    f.restart();
     await f.activity.reconcileDispatcherLease();
-    // Real settlement persists the assessment but the targeted legacy drive still awaits public collection.
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',
-      collectionStatus: 'unavailable', result: null });
-    const submitted = await Promise.all(f.childSubmissions.map(async request => ({ method: request.method,
-      url: request.url, body: await request.clone().text() })));
-    expect(submitted.length).toBeGreaterThan(0);
-    f.sent.splice(0);
-    if (revoked) f.changeRegistration(null);
-    const restarted = f.restart();
     if (revoked) {
-      expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-      expect(await restarted.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting',
-        collectionStatus: 'unavailable', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
     } else {
-      // Same settled fixture, current authority: collection really can expose this immutable result.
-      expect(await restarted.collectBrowserResult()).toMatchObject({ ok: true, detail: {
-        executionStatus: 'completed', collectionStatus: 'consumed', result: assessment } });
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+        executionStatus: 'completed', collectionStatus: 'consumed', result: { completed: true } } });
     }
-    expect(await Promise.all(f.childSubmissions.map(async request => ({ method: request.method,
-      url: request.url, body: await request.clone().text() })))).toEqual(submitted);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(submitted);
     expect(f.sent).toEqual([]);
-  }, { prospective: true, legacyProspective: true }));
+  }, applicationOptions));
 
-  it('authorizes repository-only work and projects one closed nonsecret target into the actual Loader, identically after reconstruction', () => fixture(async f => {
-    await startProspective(f);
-    expect(f.input).toEqual({ repository: prospectiveRepo });
-    const loaded = await f.loaderEnv();
-    expect(typeof loaded.OPERATOR_ADMITTED_TARGET).toBe('string');
-    // Intent-3 Loader wire is an intentional closed metadata contract, not public input or a grant.
-    expect(JSON.parse(loaded.OPERATOR_ADMITTED_TARGET as string)).toEqual(f.admittedTarget);
-    const loadedKeys = Object.keys(loaded).sort();
-    expect(loadedKeys).toEqual(['GITHUB_API_ORIGIN', 'OPERATOR', 'OPERATOR_ADMITTED_TARGET', 'OPERATOR_SOURCE_RESPONSE_BYTES', 'OPERATOR_SUBMISSION_ATTEMPT_LIMIT']);
-    expect(loaded.OPERATOR_ADMITTED_TARGET).not.toContain('private.jwt');
-    const restarted = f.restart();
-    expect((await f.capability.fetch(genericWire('source', { operationId: 'reconstructed-read',
-      url: `${prospectiveBase}/pulls/17` }))).status).toBe(200);
-    await restarted.reconcileDispatcherLease();
-    expect((await f.loaderEnv()).OPERATOR_ADMITTED_TARGET).toBe(loaded.OPERATOR_ADMITTED_TARGET);
+  it('passes saved configuration to the actual application and survives reconstruction without retired registration authority', () => fixture(async f => {
+    await startApplication(f);
+    const firstPlan = f.normalTransport!.requests.find(request => request.path === '/control/plan')!.body;
+    expect(firstPlan).toMatchObject({ checkpoint: null, initialData: {
+      input: f.input, configuration: { repository: applicationRepository } } });
+    expect(JSON.stringify(firstPlan)).not.toContain('private.jwt');
+    const submitted = [...f.normalTransport!.admissions.values()];
+    f.changeProof(null); f.changeRegistration(null);
+    f.restart();
+    expect((await f.capability.fetch(applicationWire(f, 'source', {
+      operationId: 'reconstructed-read', url: `${applicationBase}/pulls/17` }))).status).toBe(200);
+    await f.activity.reconcileDispatcherLease();
+    expect([...f.normalTransport!.admissions.values()]).toEqual(submitted);
     expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
+  }, applicationOptions));
 
-  it.each([1, 2])('REQ-OPERATOR-047: admitted-target comment UTF-16 limit %i admits a complete judgment or denies before effect', targetCommentChars => fixture(async f => {
-    await startProspective(f);
-    const body = JSON.stringify({ body: '🙂' });
-    const response = await f.capability.fetch(genericWire('source', { ...prospectiveComment('comment-text-bound'), body }));
-    expect(response.status).toBe(targetCommentChars === 1 ? 403 : 200);
-    if (response.ok) {
-      const envelope = await response.json() as { status: number; body: string };
-      expect(envelope.status).toBe(201);
-      expect(JSON.parse(envelope.body)).toMatchObject({ body: '🙂' });
-    } else expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true, capacityPolicy: { targetCommentChars } }));
-
-  it('accepts canonical GitHub second-resolution creation time without weakening the immutable cutoff', () => fixture(async f => {
-    const createdAt = f.proof.createdAt.replace(/\.\d{3}Z$/, 'Z');
-    f.changeProof({ createdAt }); f.changeTarget({ created_at: createdAt });
-    await startProspective(f);
-    expect(JSON.parse((await f.loaderEnv()).OPERATOR_ADMITTED_TARGET as string))
-      .toEqual({ ...f.admittedTarget, createdAt });
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(200);
-    expect(remoteMutations(f).map(request => request.url)).toEqual([`${prospectiveBase}/issues/17/comments`]);
-  }, { prospective: true }));
-
-  it.each([
-    ['missing proof', null], ['foreign Activity', { activityId: 'foreign-activity' }],
-    ['foreign installation', { installationId: 'foreign-installation' }], ['foreign owner', { ownerKey: 'f'.repeat(64) }],
-    ['foreign repository ID', { repositoryId: 1 }], ['missing PR', { pullRequest: undefined }],
-    ['nonpositive PR', { pullRequest: 0 }], ['unsafe PR', { pullRequest: Number.MAX_SAFE_INTEGER + 1 }],
-    ['malformed head', { head: 'expected-head' }], ['uppercase head', { head: 'B'.repeat(40) }],
-    ['invalid creation date', { createdAt: 'not-a-date' }], ['invalid cutoff', { activatedAt: 'not-a-date' }],
-    ['future creation date', { createdAt: '2099-01-01T00:00:00Z' }],
-    ['cutoff differs from original registration', { activatedAt: '2000-01-01T00:00:00Z' }],
-  ] as Array<[string, Record<string, unknown> | null]>)('denies %s rather than treating proof as optional', (_name, patch) => fixture(async f => {
-    await startProspective(f);
-    f.changeProof(patch);
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
-    expect((await f.capability.fetch(genericWire('inference', { operationId: 'invalid-proof-inference',
-      input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(403);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it.each(['pre-cutoff', 'equal-cutoff', 'foreign subject', 'foreign issuer', 'foreign email', 'foreign audience'])('denies %s proof coordinates', name => fixture(async f => {
-    await startProspective(f);
-    if (name === 'pre-cutoff' || name === 'equal-cutoff') f.changeProof({ createdAt: name === 'equal-cutoff'
-      ? f.proof.activatedAt : new Date(Date.parse(f.proof.activatedAt) - 1).toISOString() });
-    else f.changeProof({ actor: { ...f.proof.actor, ...(name === 'foreign subject' ? { subject: 'other-human' }
-      : name === 'foreign issuer' ? { issuer: 'https://other.example.test' }
-        : name === 'foreign email' ? { email: 'other@example.test' } : { audiences: ['other-audience'] }) } });
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it.each([
-    { pullRequest: 18 }, { createdAfter: '2000-01-01T00:00:00.000Z' }, { actor: 'other-human' },
-    { OPERATOR_ADMITTED_TARGET: { repository: prospectiveRepo, pullRequest: 18, headSha: 'c'.repeat(40) } },
-  ])('does not accept public target/cutoff/principal metadata as prospective authority %j', inputExtra => fixture(async f => {
-    await start(f);
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true, inputExtra }));
-
-  it('admits only canonical comment and merge wires at the configured API, preserving expected-head CAS and parent identity', () => fixture(async f => {
-    await start(f);
-    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-    const base = `https://github.enterprise.test/repos/${prospectiveRepo}`;
-    for (const mutation of [prospectiveComment('comment', base), prospectiveMerge('merge', base)]) {
-      const response = await f.capability.fetch(genericWire('source', mutation));
+  it('forwards configured-repository POST and PUT bytes at the configured API without domain preflight or caller credentials', () => fixture(async f => {
+    await startApplication(f);
+    const base = `https://github.enterprise.test/repos/${applicationRepository}`;
+    // Neither endpoint names nor PR numbers are a Root grant. These generic
+    // fixture endpoints retain the request bytes without simulating SDK policy.
+    const mutations = [{ ...applicationComment('comment', base), url: `${base}/issues/18/comments` },
+      { operationId: 'merge', method: 'PUT', url: `${base}/pulls/18/merge`,
+        body: JSON.stringify({ sha: 'b'.repeat(40), merge_method: 'merge' }) }];
+    for (const mutation of mutations) {
+      const response = await f.capability.fetch(applicationWire(f, 'source', mutation));
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ url: mutation.url, status: mutation.method === 'POST' ? 201 : 200 });
+      expect(await response.json()).toMatchObject({ url: mutation.url, status: 200 });
     }
     const writes = remoteMutations(f);
-    expect(writes.map(request => ({ method: request.method, url: request.url }))).toEqual([
-      { method: 'POST', url: `${base}/issues/17/comments` }, { method: 'PUT', url: `${base}/pulls/17/merge` },
-    ]);
-    expect(await writes[0].clone().json()).toEqual({ body: 'Exact admitted judgment' });
-    expect(await writes[1].clone().json()).toEqual({ sha: f.proof.head, merge_method: 'merge' });
+    expect(writes.map(request => ({ method: request.method, url: request.url }))).toEqual(
+      mutations.map(({ method, url }) => ({ method, url })));
+    expect(await Promise.all(writes.map(request => request.clone().text()))).toEqual(mutations.map(value => value.body));
     expect(writes.every(request => !request.headers.has('authorization') && !request.headers.has('cookie')
       && request.redirect === 'manual')).toBe(true);
-    expect(f.sent.some(request => request.method === 'GET' && request.url === `${base}/pulls/17`)).toBe(true);
-    expect(f.sent.some(request => request.method === 'GET' && request.url === base)).toBe(true);
-  }, { prospective: true, githubApiHost: 'github.enterprise.test' }));
+    expect(f.sent.filter(request => request.method === 'GET')).toEqual([]);
+  }, { ...applicationOptions, githubApiHost: 'github.enterprise.test', receiptFixture: true }));
 
   it.each([
-    ['foreign PR', 'POST', `${prospectiveBase}/issues/18/comments`],
     ['foreign repository', 'POST', 'https://api.github.com/repos/other/project/issues/17/comments'],
-    ['foreign endpoint', 'POST', `${prospectiveBase}/pulls/17/reviews`],
-    ['issue edit', 'PUT', `${prospectiveBase}/issues/17`],
-    ['workflow dispatch', 'POST', `${prospectiveBase}/actions/workflows/1/dispatches`],
-    ['wrong method', 'PUT', `${prospectiveBase}/issues/17/comments`],
-    ['wrong merge method', 'POST', `${prospectiveBase}/pulls/17/merge`],
-    ['public host alias', 'POST', `https://github.com/repos/${prospectiveRepo}/issues/17/comments`],
-    ['lookalike host', 'POST', `https://api.github.com.evil.test/repos/${prospectiveRepo}/issues/17/comments`],
-    ['query', 'POST', `${prospectiveBase}/issues/17/comments?target=18`],
-    ['empty query delimiter', 'POST', `${prospectiveBase}/issues/17/comments?`],
-    ['encoded PR', 'POST', `${prospectiveBase}/issues/%31%37/comments`],
-    ['encoded slash', 'POST', `${prospectiveBase}/issues%2f17/comments`],
-    ['encoded repo', 'POST', 'https://api.github.com/repos/nikolanovoselec/%6bomodo/issues/17/comments'],
-    ['traversal alias', 'POST', `${prospectiveBase}/pulls/../issues/17/comments`],
-    ['duplicate slash', 'POST', `${prospectiveBase}//issues/17/comments`],
-    ['trailing slash', 'POST', `${prospectiveBase}/issues/17/comments/`],
-  ])('rejects raw source %s before remote mutation', (_name, method, url) => fixture(async f => {
-    await startProspective(f);
-    expect((await f.capability.fetch(genericWire('source', { ...prospectiveComment(), method, url }))).status).toBe(403);
+    ['repository prefix', 'POST', `${applicationBase}-other/issues/17/comments`],
+    ['public host alias', 'POST', `https://github.com/repos/${applicationRepository}/issues/17/comments`],
+    ['unconfigured API', 'POST', `https://github.enterprise.test/repos/${applicationRepository}/issues/17/comments`],
+    ['lookalike host', 'POST', `https://api.github.com.evil.test/repos/${applicationRepository}/issues/17/comments`],
+    ['query', 'POST', `${applicationBase}/issues/17/comments?target=18`],
+    ['encoded repository', 'POST', 'https://api.github.com/repos/another/%73ervice/issues/17/comments'],
+    ['repository traversal', 'POST', `${applicationBase}/../../other/project/issues/17/comments`],
+    ['credentials', 'POST', `https://other:secret@api.github.com/repos/${applicationRepository}/issues/17/comments`],
+    ['fragment', 'POST', `${applicationBase}/issues/17/comments#foreign`],
+    ['unsupported PATCH', 'PATCH', `${applicationBase}/issues/17`],
+    ['unsupported DELETE', 'DELETE', `${applicationBase}/issues/17`],
+  ])('rejects generic source %s before remote mutation and keeps the valid write usable', (_name, method, url) => fixture(async f => {
+    await startApplication(f);
+    const denied = await f.capability.fetch(applicationWire(f, 'source', { ...applicationComment('refused'), method, url }));
+    expect(denied.status).toBe(403);
     expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
+    expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment('valid')))).status).toBe(200);
+    expect(remoteMutations(f).map(request => request.url)).toEqual([applicationComment().url]);
+  }, applicationOptions));
 
-  it.each([
-    ['comment invalid JSON', false, '{'], ['comment empty', false, '{"body":""}'],
-    ['comment blank', false, '{"body":"  "}'], ['comment nonstring', false, '{"body":42}'],
-    ['comment extra selector', false, '{"body":"judgment","pullRequest":18}'],
-    ['comment list', false, '[{"body":"judgment"}]'],
-    ['merge wrong SHA', true, JSON.stringify({ sha: 'c'.repeat(40), merge_method: 'merge' })],
-    ['merge missing SHA', true, '{"merge_method":"merge"}'],
-    ['merge missing method', true, JSON.stringify({ sha: 'b'.repeat(40) })],
-    ['merge unsupported method', true, JSON.stringify({ sha: 'b'.repeat(40), merge_method: 'squash' })],
-    ['merge extra selector', true, JSON.stringify({ sha: 'b'.repeat(40), merge_method: 'merge', pullRequest: 18 })],
-  ] as Array<[string, boolean, string]>)('rejects %s at the prospective wire boundary', (_name, merge, body) => fixture(async f => {
-    await startProspective(f);
-    expect((await f.capability.fetch(genericWire('source', { ...(merge ? prospectiveMerge() : prospectiveComment()), body }))).status).toBe(403);
+  it('keeps reads independent of the write repository and does not treat input as a repository grant', () => fixture(async f => {
+    await startApplication(f);
+    const foreign = 'https://api.github.com/repos/other/project';
+    expect((await f.capability.fetch(applicationWire(f, 'source', { operationId: 'foreign-read', url: foreign }))).status).toBe(200);
+    expect((await f.capability.fetch(applicationWire(f, 'source', {
+      ...applicationComment('foreign-write'), url: `${foreign}/issues/17/comments` }))).status).toBe(403);
     expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
+    expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment('configured-write')))).status).toBe(200);
+  }, { ...applicationOptions, applicationInput: { repository: 'other/project', createdAfter: '2000-01-01', actor: 'other-human',
+    OPERATOR_ADMITTED_TARGET: { repository: 'other/project', pullRequest: 18, headSha: 'c'.repeat(40) } } }));
 
-  it('does not let standard Loader outbound or schema-valid legacy effects/discovery escape the source fence', () => fixture(async f => {
-    // Typed effects have an independent current-admin gate before the prospective endpoint guard.
-    // Supply that valid external role port, not a bypass of Activity or the operation under test.
-    f.environment.KV = { get: async (key: string) => key === 'user:owner@example.test'
-      ? '{"role":"admin"}' : null } as unknown as KVNamespace;
-    await startProspective(f);
-    // Admission's canonical source read above is the positive control. Observe only subsequent remote I/O.
-    f.sent.splice(0);
-    const outbound = await f.loaderOutbound();
-    if (!outbound) throw new Error('Repository Loader outbound missing');
-    const response = await outbound.fetch(new Request(`${prospectiveBase}/issues/18/comments`, { method: 'POST',
-      headers: { 'x-codeflare-operator-operation-id': 'outbound-bypass', 'content-type': 'application/json' }, body: '{"body":"foreign"}' }));
-    expect(response.status).toBe(403);
-    const legacyWires = [
-      { path: 'github/comment', body: { operationId: 'typed-comment', target: { pullRequest: 17, headSha: f.proof.head },
-        decision: 'DO_NOT_MERGE', comment: 'Judgment' } },
-      { path: 'github/merge', body: { operationId: 'typed-merge', target: { pullRequest: 17, headSha: f.proof.head },
-        decision: 'MERGE', comment: 'Judgment' } },
-      { path: 'github/read', body: { operationId: 'typed-discovery', resource: 'open-pull-requests' } },
-    ];
-    for (const { path, body } of legacyWires) {
-      const request = genericWire(path, body);
-      // Valid legacy transport is the contract: a parse rejection is not evidence of the prospective guard.
-      expect((await parseDispatcherOperation(request.clone())).body).toEqual(body);
+  it('requires an explicit saved write-repository selector while retaining authorized research', () => fixture(async f => {
+    await startApplication(f);
+    expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment()))).status).toBe(403);
+    expect(remoteMutations(f)).toEqual([]);
+    expect((await f.capability.fetch(applicationWire(f, 'source', {
+      operationId: 'read-only', url: applicationBase }))).status).toBe(200);
+  }, { ...applicationOptions, applicationWriteRepositoriesPath: undefined }));
+
+  it('applies the same repository fence to standard outbound and refuses retired typed effects/discovery', () => fixture(async f => {
+    await startApplication(f);
+    const headers = { 'x-codeflare-operator-operation-id': 'outbound',
+      'x-codeflare-dispatcher-delivery': applicationDelivery(f), 'content-type': 'application/json' };
+    expect((await f.capability.fetch(new Request('https://api.github.com/repos/other/project/issues/17/comments', {
+      method: 'POST', headers, body: '{"body":"foreign"}' }))).status).toBe(403);
+    for (const [path, body] of [
+      ['github/comment', { operationId: 'typed-comment', target: { pullRequest: 17, headSha: 'b'.repeat(40) },
+        decision: 'DO_NOT_MERGE', comment: 'Judgment' }],
+      ['github/merge', { operationId: 'typed-merge', target: { pullRequest: 17, headSha: 'b'.repeat(40) },
+        decision: 'MERGE', comment: 'Judgment' }],
+      ['github/read', { operationId: 'typed-discovery', resource: 'open-pull-requests' }],
+    ] as const) {
+      const request = applicationWire(f, path, body);
+      await expect(parseDispatcherOperation(request.clone())).rejects.toThrow('Dispatcher route denied');
       const denied = await f.capability.fetch(request);
       expect(denied.status).toBe(403);
       expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
       expect(f.sent).toEqual([]);
     }
-    // If legacy targeted reads remain available, they cannot adopt another PR/head.
-    expect((await f.capability.fetch(read('typed-foreign', { target: { pullRequest: 18, headSha: f.proof.head } }))).status).toBe(403);
-    expect(f.sent).toEqual([]);
-    // The installation/claim remains usable through the admitted canonical source endpoint.
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment('after-legacy-denial')))).status).toBe(200);
-    const writes = remoteMutations(f);
-    expect(writes.map(request => ({ method: request.method, url: request.url }))).toEqual([
-      { method: 'POST', url: `${prospectiveBase}/issues/17/comments` },
-    ]);
-    expect(await writes[0].clone().json()).toEqual({ body: 'Exact admitted judgment' });
-  }, { prospective: true }));
+    const valid = await f.capability.fetch(new Request(applicationComment().url, {
+      method: 'POST', headers: { ...headers, 'x-codeflare-operator-operation-id': 'outbound-valid' },
+      body: applicationComment().body }));
+    expect(valid.status).toBe(201);
+    expect(await valid.json()).toMatchObject({ body: 'Original application write' });
+    expect(remoteMutations(f).map(request => request.url)).toEqual([applicationComment().url]);
+  }, applicationOptions));
 
-  it.each(([
-    ['changed head', { head: { sha: 'c'.repeat(40) } }], ['wrong PR', { number: 18 }],
-    ['changed date', { created_at: '2099-01-01T00:00:00.000Z' }],
-    ['changed base', { base: { ref: 'develop', sha: 'a'.repeat(40), repo: { id: 973175879, full_name: prospectiveRepo } } }],
-    ['foreign base repo', { base: { ref: 'main', sha: 'a'.repeat(40), repo: { id: 1, full_name: 'other/repo' } } }],
-    ['foreign authenticated repo ID', { repository: { id: 1, full_name: prospectiveRepo } }],
-    ['closed target', { state: 'closed' }], ['draft target', { draft: true }],
-  ] as Array<[string, Record<string, unknown>]>).flatMap(([name, patch]) =>
-    ['comment', 'merge'].map(phase => ({ name, patch, phase }))))('fresh authenticated preflight denies $phase for $name', ({ patch, phase }) => fixture(async f => {
-    await startProspective(f);
-    f.changeTarget(patch);
-    const response = await f.capability.fetch(genericWire('source', phase === 'merge' ? prospectiveMerge() : prospectiveComment()));
-    expect(response.ok).toBe(false);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it.each(['unavailable', 'incomplete'])('denies a new write when target authority reads are %s', name => fixture(async f => {
-    await startProspective(f);
-    if (name === 'unavailable') f.throwTransport(); else f.emptyResponse();
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).ok).toBe(false);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it.each(['grant', 'session', 'registration', 'cancel'])('rechecks %s loss after awaited preflight before forwarding', name => fixture(async f => {
-    await startProspective(f);
-    f.afterTargetRead(async () => {
-      if (name === 'grant') f.revokeGrant();
-      else if (name === 'session') f.revokeSession();
-      else if (name === 'registration') f.changeRegistration(null);
-      else await f.activity.cancelDrive();
-    });
-    expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).ok).toBe(false);
-    expect(f.sent.some(request => request.method === 'GET' && request.url === `${prospectiveBase}/pulls/17`)).toBe(true);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it.each(['session', 'grant', 'installation', 'expiry', 'actor', 'bucket', 'session-id', 'session-generation', 'registration-installation', 'registration-loss', 'stale-capability'])('fences warmed and reconstructed protected work on %s loss', name => fixture(async f => {
-    await startProspective(f);
-    if (name === 'session') f.revokeSession();
-    else if (name === 'grant') f.revokeGrant();
-    else if (name === 'installation') f.revoke();
-    else if (name === 'expiry') f.expire();
-    else if (name === 'actor') f.changeRegistration({ human: { subject: 'another-current-admin', email: 'owner@example.test',
-      issuer: f.proof.actor.issuer, audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 1,
-      expiresAt: Math.floor(Date.now() / 1000) + 300 } });
-    else if (name === 'bucket') f.changeRegistration({ bucket: 'other-bucket' });
-    else if (name === 'session-id') f.changeRegistration({ sessionId: 'replacement-session' });
-    else if (name === 'session-generation') f.changeRegistration({ sessionGeneration: 4 });
-    else if (name === 'registration-installation') f.changeRegistration({ installationId: 'other-installation' });
-    else if (name === 'registration-loss') f.changeRegistration(null);
-    const capability = name === 'stale-capability' ? f.staleCapability : f.capability;
-    for (const reconstruct of [false, true]) {
-      if (reconstruct) f.restart();
-      expect((await capability.fetch(genericWire('source', prospectiveComment(`fenced-write-${reconstruct}`)))).status).toBe(403);
-      expect((await capability.fetch(genericWire('source', { operationId: `fenced-read-${reconstruct}`, url: `${prospectiveBase}/pulls/17` }))).status).toBe(403);
-      expect((await capability.fetch(genericWire('inference', { operationId: `fenced-inference-${reconstruct}`,
-        input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(403);
-    }
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
-
-  it('returns identical completed bytes after target moves/closes and reconstruction; changed semantics still conflict', () => fixture(async f => {
-    await startProspective(f);
-    const mutation = prospectiveComment();
-    const first = await f.capability.fetch(genericWire('source', mutation));
-    expect(first.status).toBe(200);
-    const original = await first.text();
-    f.changeTarget({ state: 'closed', head: { sha: 'c'.repeat(40) } });
-    f.restart();
-    // No new-write preflight may displace a previously completed operation's original receipt.
-    f.throwTransport();
-    const retry = await f.capability.fetch(genericWire('source', mutation));
-    expect(retry.status).toBe(200);
-    expect(await retry.text()).toBe(original);
-    expect((await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed"}' }))).status).toBe(409);
-    expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
-  }, { prospective: true }));
-
-  it.each([false, true])('preserves unknown writes without replay, allows closed/moved target readback, and seals only same-generation receipt references (delegated=%s)', delegated => fixture(async f => {
-    await startProspective(f);
-    const mutation = prospectiveComment('unknown-admitted-comment');
-    f.loseResponse();
-    expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-    f.restoreTransport();
-    if (delegated) f.revokeSession();
-    f.changeTarget({ state: 'closed', head: { sha: 'c'.repeat(40) } });
-    f.restart();
-    f.throwTransport();
-    expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-    expect((await f.capability.fetch(genericWire('source', { ...mutation, body: '{"body":"changed"}' }))).status).toBe(409);
-    f.restoreTransport();
-    const readback = { operationId: 'admitted-positive-readback', url: mutation.url };
-    const observed = await f.capability.fetch(genericWire('source', readback));
-    expect(observed.status).toBe(200);
-    expect(JSON.parse((await observed.json() as { body: string }).body)).toEqual([
-      { id: 91, body: 'Exact admitted judgment', user: { id: 42 } },
-    ]);
-    const original = await (await f.capability.fetch(genericWire('receipt', { operationId: mutation.operationId }))).json() as { requestDigest: string };
-    const reference = await (await f.capability.fetch(genericWire('receipt', { operationId: readback.operationId }))).json() as {
-      operationId: string; requestDigest: string; responseDigest: string };
-    const resolution = { operationId: mutation.operationId, requestDigest: original.requestDigest,
-      readbacks: [{ operationId: reference.operationId, requestDigest: reference.requestDigest, responseDigest: reference.responseDigest }] };
-    expect((await f.staleCapability.fetch(genericWire('resolve', resolution))).status).toBe(403);
-    expect(await (await f.capability.fetch(genericWire('resolve', { ...resolution,
-      readbacks: [{ ...resolution.readbacks[0], responseDigest: 'f'.repeat(64) }] }))).json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
-    expect(await (await f.capability.fetch(genericWire('resolve', resolution))).json()).toEqual({ resolved: true,
-      operationId: mutation.operationId, requestDigest: original.requestDigest });
-    expect(await (await f.capability.fetch(genericWire('source', mutation))).json()).toEqual({ resolved: true,
-      operationId: mutation.operationId, requestDigest: original.requestDigest });
-    expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
-  }, { prospective: true, delegated }));
-});
-
-
-describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: explicit automatic delegation', () => {
-  it.each(['grant', 'registration', 'cancel'] as const)(
-    'current local %s loss during awaited delegated mutation preflight prevents the effect', fault => fixture(async f => {
-      await startProspective(f); f.revokeSession();
-      f.afterTargetRead(async () => {
-        if (fault === 'grant') f.revokeGrant();
-        else if (fault === 'registration') f.changeRegistration(null);
-        else await f.activity.cancelDrive();
-      });
-      expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).ok).toBe(false);
-      expect(remoteMutations(f)).toEqual([]);
-    }, { prospective: true, delegated: true }));
-
-  it('retains protected source, receipt, effects and inference after external logout and reconstruction', () => fixture(async f => {
-    await startProspective(f);
-    f.revokeSession();
-    for (const reload of [false, true]) {
-      if (reload) f.restart();
-      const id = `delegated-source-${reload}`;
-      expect((await f.capability.fetch(genericWire('source', { operationId: id, url: `${prospectiveBase}/pulls/17` }))).status).toBe(200);
-      expect((await f.capability.fetch(genericWire('receipt', { operationId: id }))).status).toBe(200);
-      expect((await f.capability.fetch(genericWire('source', prospectiveComment(`delegated-comment-${reload}`)))).status).toBe(200);
-      expect((await f.capability.fetch(genericWire('inference', { operationId: `delegated-inference-${reload}`,
-        input: { messages: [{ role: 'user', content: 'assess' }] } }))).status).toBe(200);
-    }
-    expect(remoteMutations(f).map(request => ({ method: request.method, url: request.url }))).toEqual([
-      { method: 'POST', url: `${prospectiveBase}/issues/17/comments` },
-      { method: 'POST', url: 'https://api.openai.com/v1/chat/completions' },
-      { method: 'POST', url: `${prospectiveBase}/issues/17/comments` },
-      { method: 'POST', url: 'https://api.openai.com/v1/chat/completions' },
-    ]);
-  }, { prospective: true, delegated: true, recovery: true,
-    inferenceBody: 'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n' }));
-  it.each(['grant', 'installation', 'registration', 'expiry', 'cancel'] as const)(
-    'fresh local %s loss still fences delegated work after logout', fault => fixture(async f => {
-      await startProspective(f); f.revokeSession();
+  it.each(['session', 'grant', 'installation', 'installation-revision', 'release', 'expiry', 'cancel', 'stale-capability'] as const)(
+    'fences warmed and reconstructed reads writes receipts and inference on current %s loss', fault => fixture(async f => {
+      await startApplication(f);
+      const read = { operationId: 'authorized-read', url: applicationBase };
+      expect((await f.capability.fetch(applicationWire(f, 'source', read))).status).toBe(200);
+      expect((await f.capability.fetch(applicationInference(f, 'authorized-inference'))).status).toBe(200);
+      if (fault === 'session') f.revokeSession();
       if (fault === 'grant') f.revokeGrant();
       if (fault === 'installation') f.revoke();
-      if (fault === 'registration') f.changeRegistration(null);
+      if (fault === 'installation-revision') f.changeInferenceAuthority('installation');
+      if (fault === 'release') f.changeInferenceAuthority('digest');
       if (fault === 'expiry') f.expire();
       if (fault === 'cancel') await f.activity.cancelDrive();
-      f.restart();
-      expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
-      expect(remoteMutations(f)).toEqual([]);
-    }, { prospective: true, delegated: true }));
-  it.each([{ version: 2, routingGroups: [] }, { version: 1 }, null, { version: 1, routingGroups: 'all' }])(
-    'present invalid trusted delegation metadata denies rather than falling back: %j', delegation => fixture(async f => {
-      await startProspective(f);
-      f.changeRegistration(JSON.parse(JSON.stringify({ delegation })));
-      expect((await f.capability.fetch(genericWire('source', prospectiveComment()))).status).toBe(403);
-      expect(remoteMutations(f)).toEqual([]);
-    }, { prospective: true, delegated: true }));
-  it('client delegation flags cannot upgrade live-bound work', () => fixture(async f => {
-    await start(f); f.revokeSession();
-    expect((await f.capability.fetch(genericWire('source', { ...prospectiveComment(),
-      delegated: true, delegation: { version: 1, routingGroups: [] } }))).status).toBe(403);
-    expect(remoteMutations(f)).toEqual([]);
-  }, { prospective: true }));
+      const capability = fault === 'stale-capability' ? f.staleCapability : f.capability;
+      const before = [...f.sent];
+      const ownerRequests = [...f.ownerPortRequests];
+      for (const reload of [false, true]) {
+        if (reload) f.restart();
+        for (const request of [applicationWire(f, 'source', applicationComment(`fenced-write-${reload}`)),
+          applicationWire(f, 'source', read), applicationWire(f, 'receipt', { operationId: read.operationId }),
+          applicationInference(f, `fenced-inference-${reload}`)]) {
+          expect((await capability.fetch(request)).status).toBe(403);
+        }
+      }
+      expect(f.sent).toEqual(before);
+      expect(f.ownerPortRequests).toEqual(ownerRequests);
+    }, applicationOptions));
+
+  it.each(['grant', 'session', 'revision', 'cancel'] as const)(
+    'rechecks %s lost while reading the request body before forwarding', fault => fixture(async f => {
+      await startApplication(f);
+      let changed = false;
+      const request = new Request('https://operator.internal/v1/dispatcher/source', { method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-codeflare-dispatcher-delivery': applicationDelivery(f) },
+        body: new ReadableStream<Uint8Array>({ async pull(controller) {
+          changed = true;
+          if (fault === 'grant') f.revokeGrant();
+          if (fault === 'session') f.revokeSession();
+          if (fault === 'revision') f.changeInferenceAuthority('installation');
+          if (fault === 'cancel') await f.activity.cancelDrive();
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(applicationComment()))); controller.close();
+        } }, { highWaterMark: 0 }) });
+      expect((await f.capability.fetch(request)).status).toBe(403);
+      expect(changed).toBe(true);
+      expect(f.sent).toEqual([]);
+    }, applicationOptions));
+
+  it('returns identical completed bytes after reconstruction and upstream change; changed arguments still conflict', () => fixture(async f => {
+    await startApplication(f);
+    const mutation = applicationComment();
+    const first = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(first.status).toBe(200);
+    const original = await first.text();
+    f.genericReadback([{ id: 999, body: 'Changed remote content', user: { id: 42 } }]);
+    f.restart(); f.throwTransport();
+    const retry = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(retry.status).toBe(200);
+    expect(await retry.text()).toBe(original);
+    const conflict = await f.capability.fetch(applicationWire(f, 'source', { ...mutation, body: '{"body":"changed"}' }));
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
+    expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
+  }, applicationOptions));
+
+  it.each([false, true])('preserves unknown writes without replay and resolves only with same-generation receipt references (delegated=%s)', delegated => fixture(async f => {
+    await startApplication(f);
+    const mutation = applicationComment('unknown-original');
+    f.loseResponse();
+    const first = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(first.status).toBe(409);
+    expect(await first.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    f.restoreTransport();
+    if (delegated) f.revokeSession();
+    f.restart(); f.throwTransport();
+    const retry = await f.capability.fetch(applicationWire(f, 'source', mutation));
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    expect((await f.capability.fetch(applicationWire(f, 'source', { ...mutation, body: '{"body":"changed"}' }))).status).toBe(409);
+    f.restoreTransport();
+    const readback = { operationId: 'positive-readback', url: mutation.url };
+    const observed = await f.capability.fetch(applicationWire(f, 'source', readback));
+    expect(observed.status).toBe(200);
+    expect(JSON.parse((await observed.json() as { body: string }).body)).toEqual([
+      { id: 91, body: 'Original application write', user: { id: 42 } },
+    ]);
+    const originalResponse = await f.capability.fetch(applicationWire(f, 'receipt', { operationId: mutation.operationId }));
+    expect(originalResponse.status).toBe(200);
+    const original = await originalResponse.json() as { requestDigest: string };
+    const referenceResponse = await f.capability.fetch(applicationWire(f, 'receipt', { operationId: readback.operationId }));
+    expect(referenceResponse.status).toBe(200);
+    const reference = await referenceResponse.json() as { operationId: string; requestDigest: string; responseDigest: string };
+    const resolution = { operationId: mutation.operationId, requestDigest: original.requestDigest,
+      readbacks: [{ operationId: reference.operationId, requestDigest: reference.requestDigest, responseDigest: reference.responseDigest }] };
+    expect((await f.staleCapability.fetch(applicationWire(f, 'resolve', resolution))).status).toBe(403);
+    const forged = await f.capability.fetch(applicationWire(f, 'resolve', { ...resolution,
+      readbacks: [{ ...resolution.readbacks[0], responseDigest: 'f'.repeat(64) }] }));
+    expect(forged.status).toBe(409);
+    expect(await forged.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    const expected = { resolved: true, operationId: mutation.operationId, requestDigest: original.requestDigest };
+    for (const reload of [false, true]) {
+      if (reload) f.restart();
+      const resolved = await f.capability.fetch(applicationWire(f, 'resolve', resolution));
+      expect(resolved.status).toBe(200);
+      expect(await resolved.json()).toEqual(expected);
+      const cached = await f.capability.fetch(applicationWire(f, 'source', mutation));
+      expect(cached.status).toBe(200);
+      expect(await cached.json()).toEqual(expected);
+    }
+    expect(remoteMutations(f).map(request => request.url)).toEqual([mutation.url]);
+  }, { ...applicationOptions, delegated, recovery: true }));
 });
 
+describe('REQ-OPERATOR-047 AC3/7 /048 AC5 /061 AC3: sealed application delegation', () => {
+  it('retains protected source receipts and writes after external logout and reconstruction', () => fixture(async f => {
+    await startApplication(f); f.revokeSession();
+    for (const reload of [false, true]) {
+      if (reload) f.restart();
+      const operationId = `delegated-source-${reload}`;
+      expect((await f.capability.fetch(applicationWire(f, 'source', { operationId, url: applicationBase }))).status).toBe(200);
+      expect((await f.capability.fetch(applicationWire(f, 'receipt', { operationId }))).status).toBe(200);
+      expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment(`delegated-write-${reload}`)))).status).toBe(200);
+    }
+    expect(remoteMutations(f).map(request => request.url)).toEqual([applicationComment().url, applicationComment().url]);
+    // Installed-SDK inference after logout is covered by dispatcher-r2-services.test.ts
+    // (delegated normal SDK services), not the legacy live-owner inference bridge.
+  }, { ...applicationOptions, delegated: true }));
+
+  it.each(['role', 'grant', 'installation', 'revision', 'expiry', 'cancel'] as const)(
+    'fresh current %s loss fences delegated work after logout, including cached receipts', fault => fixture(async f => {
+      await startApplication(f);
+      const read = { operationId: 'delegated-original', url: applicationBase };
+      expect((await f.capability.fetch(applicationWire(f, 'source', read))).status).toBe(200);
+      expect((await f.capability.fetch(applicationInference(f, 'delegated-live-inference'))).status).toBe(200);
+      f.revokeSession();
+      if (fault === 'role') f.environment.KV = { get: async () => '{"role":"user"}' } as unknown as KVNamespace;
+      if (fault === 'grant') f.revokeGrant();
+      if (fault === 'installation') f.revoke();
+      if (fault === 'revision') f.changeInferenceAuthority('installation');
+      if (fault === 'expiry') f.expire();
+      if (fault === 'cancel') await f.activity.cancelDrive();
+      const before = [...f.sent];
+      const ownerRequests = [...f.ownerPortRequests];
+      for (const reload of [false, true]) {
+        if (reload) f.restart();
+        for (const request of [applicationWire(f, 'source', applicationComment()), applicationWire(f, 'source', read),
+          applicationWire(f, 'receipt', { operationId: read.operationId }), applicationInference(f, 'delegated-inference')]) {
+          expect((await f.capability.fetch(request)).status).toBe(403);
+        }
+      }
+      expect(f.sent).toEqual(before);
+      expect(f.ownerPortRequests).toEqual(ownerRequests);
+    }, { ...applicationOptions, delegated: true }));
+
+  it.each(['role', 'grant', 'cancel'] as const)(
+    'current local %s loss during an awaited delegated request prevents forwarding', fault => fixture(async f => {
+      await startApplication(f); f.revokeSession();
+      const request = new Request('https://operator.internal/v1/dispatcher/source', { method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-codeflare-dispatcher-delivery': applicationDelivery(f) },
+        body: new ReadableStream<Uint8Array>({ async pull(controller) {
+          if (fault === 'role') f.environment.KV = { get: async () => '{"role":"user"}' } as unknown as KVNamespace;
+          if (fault === 'grant') f.revokeGrant();
+          if (fault === 'cancel') await f.activity.cancelDrive();
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(applicationComment()))); controller.close();
+        } }, { highWaterMark: 0 }) });
+      expect((await f.capability.fetch(request)).status).toBe(403);
+      expect(f.sent).toEqual([]);
+    }, { ...applicationOptions, delegated: true }));
+
+  it.each([{ version: 2, routingGroups: [] }, { version: 1 }, null, { version: 1, routingGroups: 'all' }])(
+    'malformed sealed delegation denies rather than falling back to live authority: %j', delegation => fixture(async f => {
+      await startApplication(f);
+      await replaceApplicationDelegation(f, delegation);
+      for (const reload of [false, true]) {
+        if (reload) f.restart();
+        expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment()))).status).toBe(403);
+      }
+      expect(remoteMutations(f)).toEqual([]);
+    }, { ...applicationOptions, delegated: true }));
+
+  it('client delegation flags cannot upgrade live-bound work', () => fixture(async f => {
+    await startApplication(f); f.revokeSession();
+    expect((await f.capability.fetch(applicationWire(f, 'source', { ...applicationComment(),
+      delegated: true, delegation: { version: 1, routingGroups: [] } }))).status).toBe(403);
+    expect(remoteMutations(f)).toEqual([]);
+  }, applicationOptions));
+});
 
 describe('REQ-OPERATOR-047 AC7 /061 AC3: current delegated routing restrictions', () => {
-  it('intersects captured routing labels with current configured groups in current order; never adds a new membership', () => fixture(async f => {
-    f.changeRegistration({ delegation: { version: 1, routingGroups: ['old', 'second', 'first'] } });
+  it('intersects sealed routing labels with current configured groups in current order; never adds a new membership', () => fixture(async f => {
+    await replaceApplicationDelegation(f, { version: 1, routingGroups: ['old', 'second', 'first'] });
     let configured = 'first,second,new';
-    f.environment.KV = { get: async () => configured } as unknown as KVNamespace;
+    f.environment.KV = { get: async (key: string) => key === 'user:owner@example.test' ? '{"role":"admin"}' : configured } as unknown as KVNamespace;
     const plan = (await f.activity.getRuntimePlan())!;
     f.revokeSession();
     expect(await dispatcherRoutingGroups(await authorizeDispatcherPlan(plan, f.environment), f.environment)).toEqual(['first', 'second']);
     configured = 'new';
     expect(await dispatcherRoutingGroups(await authorizeDispatcherPlan(plan, f.environment), f.environment)).toEqual([]);
-  }, { prospective: true, delegated: true }));
+  }, { ...applicationOptions, delegated: true }));
 });

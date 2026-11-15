@@ -6,8 +6,6 @@
  * Public projections explicitly exclude ciphertext. This object is never a child Worker binding.
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
-import { consumeProspectiveReconciliation, finishProspectiveReconciliationCapture, type ProspectiveReconciliationAuthority, type ProspectiveRetirement } from './prospective-reconciliation';
-import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, openOperatorSecret, sealOperatorSecret } from './protected-secrets';
 import { parseOperatorManifest, parseDispatcherBundle, validateOperatorEndpoint, type OperatorManifest } from './distribution';
@@ -25,32 +23,26 @@ import { dispatcherCapacities, dispatcherCapacityKeys, pickDispatcherCapacities,
 import { dispatcherCapacityPolicySchema } from './dispatcher-capacity-schema';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
+import type { OperatorExecutionAuthority } from './execution-context';
 import { z } from 'zod';
-import { SETUP_KEYS } from '../lib/kv-keys';
-import { canInvokeOperator, observeOperatorAccessIdentity, parseAccessGroups } from '../lib/access';
-import { listProspectiveRenovatePrs } from './renovate-prospective';
-import { createRawCapture, createOwnerRawCaptureStorage, captureRawInteraction, captureRawTransaction, type RawCapture, type RawCaptureBinding, type RawCaptureReceipt } from './raw-capture-storage';
-import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from './orchestrator';
-import { captureError, hashDiagnostic, activityRpcReceiverDigest } from './dispatcher-diagnostics-wire';
-import type { FailureObservation } from './dispatcher-diagnostics-store';
-import { D1SessionRepository } from '../lib/session-repository';
+import { ApplicationStateStore, ApplicationStateError, type ApplicationStateBinding, type ApplicationStateRequest } from './application-state';
+import { hasApplicationWorkflow, type RuntimeApplicationStateBinding, type ApplicationExecutionAuthority,
+  type ApplicationExecutionRequest } from './application-workflow';
+import { activateApplicationSchedule as activateSchedule, applicationScheduleStatus as scheduleStatus, runApplicationSchedules } from './application-schedule';
+import { canInvokeOperator, resolveBucketName } from '../lib/access';
+import { createRawCapture, createOwnerRawCaptureStorage, captureRawInteraction, type RawCapture, type RawCaptureBinding, type RawCaptureReceipt } from './raw-capture-storage';
+import { captureError, hashDiagnostic } from './dispatcher-diagnostics-wire';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
-import { createOperatorExecutionContext, openOperatorExecutionAccess,
-  type OperatorExecutionContext } from './execution-context';
+import type { OperatorExecutionContext } from './execution-context';
 import { operatorOwnerKey } from './browser-activity';
 import type { Env } from '../types';
 import { requireOwnerRawReader, parseOwnerRawReadRequest, readOwnerRawCapturePage, ownerRawReadUnavailable,
   type OwnerRawReadCredential, type OwnerRawReadRequest } from './raw-capture-read';
 
-import { parseRenovateRunSettings, renovateRepositoryIdentity, prospectiveRenovatePackageSupported,
-  type RenovateRunSettings, type RenovateRepositoryIdentity } from './renovate-run-settings';
-export { prospectiveRenovatePackageSupported } from './renovate-run-settings';
-import { prospectiveRenovateRetryProof,
-  type ProspectiveRenovateRetryProof,
-  type RetainedRenovateRetryTarget } from './renovate-retry-proof';
+/** Historical record shapes only; application policy and decoding live in the package. */
+type LegacyRepositoryIdentity = { repository: string; repositoryId: number; baseBranch: string };
+type LegacyRetryTarget = { repositoryId: number; pullRequest: number; head: string; createdAt: string };
 const scanId = /^[A-Za-z0-9_-]{1,128}$/;
-const sha = /^[0-9a-f]{40}$/;
-const scanSession = /^[a-z0-9]{8,24}$/;
 const workingActivity = (status: OperatorBrowserSummary['executionStatus']): boolean =>
   status === 'queued' || status === 'running' || status === 'waiting'
   || status === 'cancel-requested' || status === 'unknown';
@@ -144,6 +136,7 @@ export interface ManagementRelease {
   tagName?: string; publishedAt?: string;
   /** Verified manifest metadata projected for display, never persisted into the immutable release identity. */
   name?: string; description?: string;
+  application?: OperatorManifest['application'];
   assets: Array<{ id: number; name: string; digest: string }>;
   provenance: { compilerCommit?: string; workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
 }
@@ -193,61 +186,22 @@ export interface ManagementAdmissionReceipt extends ManagementAdmissionRequest {
 /** Compatibility metadata only; the selected immutable release remains the code authority. */
 
 
-/** GitHub UTC seconds and parent UTC milliseconds denote the same canonical instant. */
-export function prospectiveRenovateTimestamp(value: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return null;
-  const time = Date.parse(value);
-  const milliseconds = value.length === 20 ? `${value.slice(0, -1)}.000Z` : value;
-  return Number.isFinite(time) && new Date(time).toISOString() === milliseconds ? time : null;
-}
-
 interface ProspectiveSelectionPin {
   controlsRevision: number; installationRevision: number; operatorRevision: number; releaseId: string; bundleDigest: string;
 }
-interface ProspectiveActivation extends RenovateRepositoryIdentity { installationId: string; activatedAt: string }
 export const dispatcherDelegationSchema = z.strictObject({ version: z.literal(1),
   routingGroups: z.array(z.string().min(1).max(256)).max(1024) });
 export type DispatcherDelegation = z.infer<typeof dispatcherDelegationSchema>;
-interface ProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
+interface ProspectiveRegistration extends LegacyRepositoryIdentity, ProspectiveSelectionPin {
   scope?: 'installation'; nextObservationAt?: number; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; ownerKey: string; bucket: string; sessionId: string;
   sessionGeneration: number; revision: number; context: OperatorExecutionContext; repetitionIntervalSeconds: number;
 }
-export interface ProspectiveAdmission extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
+export interface ProspectiveAdmission extends LegacyRepositoryIdentity, ProspectiveSelectionPin {
   activityId: string; installationId: string; admittedAt?: number; attempt?: number; previousActivityId?: string;
   pullRequest: number; head: string; createdAt: string; activatedAt: string; ownerKey: string;
   actor: { registrationId: string; bucket: string; sessionId: string; sessionGeneration: number;
     subject: string; issuer: string; email: string; audiences: readonly string[] };
-}
-const persistedProspectiveIdentity = z.object({ activityId: z.string().regex(scanId), installationId: z.string().regex(scanId),
-  repositoryId: z.number().int().positive().safe(), pullRequest: z.number().int().positive().safe(), head: z.string().regex(sha),
-  createdAt: z.string(), activatedAt: z.string(), ownerKey: z.string().regex(/^[0-9a-f]{64}$/),
-  actor: z.object({ registrationId: z.string().regex(scanId), bucket: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
-    sessionId: z.string(), sessionGeneration: z.number().int().nonnegative().safe(),
-    subject: z.string().min(1), issuer: z.string().min(1), email: z.string().min(1), audiences: z.array(z.string().min(1)).min(1) }),
-});
-const persistedProspectivePins = z.object({ ...renovateRepositoryIdentity.shape,
-  controlsRevision: z.number().int().nonnegative().safe(), installationRevision: z.number().int().positive().safe(),
-  operatorRevision: z.number().int().positive().safe(), releaseId: z.string().regex(scanId),
-  bundleDigest: z.string().regex(/^[0-9a-f]{64}$/),
-});
-/** The two source-proven persisted layouts; absence is not permission to fill partial pins. */
-export function prospectiveAdmissionLayout(value: ProspectiveAdmission): 'legacy' | 'pinned' | null {
-  if (!persistedProspectiveIdentity.safeParse(value).success) return null;
-  const created = prospectiveRenovateTimestamp(value.createdAt), cutoff = prospectiveRenovateTimestamp(value.activatedAt);
-  if (created === null || cutoff === null || created <= cutoff
-    || !(value.actor.sessionId === '' && value.actor.sessionGeneration === 0
-      || scanSession.test(value.actor.sessionId) && value.actor.sessionGeneration > 0)
-    || Object.hasOwn(value, 'admittedAt') && (!Number.isSafeInteger(value.admittedAt) || value.admittedAt! <= 0)
-    || Object.hasOwn(value, 'attempt') && (!Number.isSafeInteger(value.attempt) || value.attempt! < 1)
-    || Object.hasOwn(value, 'previousActivityId') && (typeof value.previousActivityId !== 'string' || !scanId.test(value.previousActivityId))) return null;
-  const pinKeys = ['repository', 'baseBranch', 'controlsRevision', 'installationRevision', 'operatorRevision', 'releaseId', 'bundleDigest'];
-  if (pinKeys.every(key => !Object.hasOwn(value, key))) {
-    // 2160810c used this fixed numeric repository, session authority and no reservation timestamp.
-    return value.repositoryId === 973175879 && scanSession.test(value.actor.sessionId)
-      && !['admittedAt', 'attempt', 'previousActivityId'].some(key => Object.hasOwn(value, key)) ? 'legacy' : null;
-  }
-  return persistedProspectivePins.safeParse(value).success ? 'pinned' : null;
 }
 /** Root-only data carrier: retention provenance, never execution or renewal authority. */
 export interface ProspectiveObservationCapture {
@@ -256,7 +210,7 @@ export interface ProspectiveObservationCapture {
   parentCaptureId?: string;
   loggingEnabled?: boolean;
 }
-export interface CurrentProspectiveRegistration extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
+export interface CurrentProspectiveRegistration extends LegacyRepositoryIdentity, ProspectiveSelectionPin {
   scope?: 'installation'; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; activatedAt: string; bucket: string;
   sessionId: string; sessionGeneration: number; human: VerifiedHumanAccessClaims; accessJwt: string; repetitionIntervalSeconds: number;
@@ -268,32 +222,6 @@ export interface CurrentProspectiveRegistration extends RenovateRepositoryIdenti
 export type ProspectiveRegistrationObservation =
   | { status: 'current'; registration: CurrentProspectiveRegistration }
   | { status: 'unavailable' } | { status: 'denied' };
-type ProspectiveAuthorityObservation =
-  | { status: 'current'; authority: { human: VerifiedHumanAccessClaims; accessJwt: string }; loggingEnabled: boolean;
-    sourceTimeoutMs: number; sourceResponseBytes: number; routingGroups?: string[] }
-  | { status: 'unavailable' } | { status: 'denied' };
-interface ProspectiveObservationDiagnostic {
-  outcome: 'authority-denied' | 'authority-unavailable' | 'claim-lost' | 'binding-unavailable'
-    | 'discovery-failure' | 'observed' | 'stale-authority' | 'observation-failure' | 'handoff-failure';
-  stage: 'authority' | 'claim' | 'binding' | 'discovery' | 'reservation' | 'handoff';
-  candidates: number; reservationDenied: number; retainedOtherRegistration: number;
-  /** An existing reservation is not proof of a safe retry or a quarantined Activity. */
-  retainedExisting: number; handoffAttempts: number;
-  error?: ReturnType<typeof captureError>;
-  failureStage?: 'authority' | 'plan' | 'preparation' | 'detail' | 'binding' | 'drive';
-  admissionDigest?: string;
-  receiverDigest?: string;
-}
-class ProspectiveDependencyUnavailable extends Error {}
-/** Only failures of dependency I/O, never malformed data or denied selections. */
-async function observeDependency<T>(read: () => Promise<T>): Promise<T> {
-  try { return await read(); } catch (error) {
-    if (error instanceof ValidationError || error instanceof SyntaxError || error instanceof TypeError
-      || error instanceof RangeError || error instanceof ReferenceError
-      || error instanceof Error && ['ForbiddenError', 'ZodError'].includes(error.name)) throw error;
-    throw new ProspectiveDependencyUnavailable();
-  }
-}
 export interface ManagementCatalogQuery {
   email: string; issuer: string; groups: string[]; platformAdmin: boolean; limit: number; cursor: string | null;
   profile?: string; realm?: string; state?: string; search?: string;
@@ -1237,9 +1165,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     this.managementSchema();
     return this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE operator_id=? ORDER BY id LIMIT 100', operatorId)
       .toArray().map(row => {
-        const manifest = JSON.parse(row.manifest) as { name?: unknown; description?: unknown };
+        const manifest = JSON.parse(row.manifest) as { name?: unknown; description?: unknown; application?: OperatorManifest['application'] };
         if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
-        return { ...JSON.parse(row.data) as ManagementRelease, name: manifest.name, description: manifest.description };
+        return { ...JSON.parse(row.data) as ManagementRelease, name: manifest.name, description: manifest.description,
+          ...(manifest.application ? { application: manifest.application } : {}) };
       });
   }
 
@@ -1292,12 +1221,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     return { ...installation, configurationJson: JSON.stringify(configuration) };
   }
 
-  private managementConfiguration(input: string, renovate = false): string {
+  private managementConfiguration(input: string): string {
     if (new TextEncoder().encode(input).byteLength > 64 * 1024) throw new ValidationError('Installation configuration exceeds the size limit');
     try {
       const parsed = JSON.parse(input) as unknown;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
-      if (renovate) parseRenovateRunSettings(input);
       return JSON.stringify(parsed);
     } catch { throw new ValidationError('Invalid installation configuration'); }
   }
@@ -1402,7 +1330,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (piReasoningOverride !== undefined && (state!.profile === 'dispatcher' || !isPiReasoningLevel(piReasoningOverride))) throw new ValidationError('Invalid Pi reasoning override');
       const value: ManagementInstallation = { id: crypto.randomUUID(), operatorId, name, releaseId: null, revision: 1,
         ...(piReasoningOverride !== undefined && { piReasoningOverride }),
-        enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), approvedSourceRevision: null };
+        enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson), approvedSourceRevision: null };
       this.saveInstallation(value);
       return { ok: true, value };
     });
@@ -1587,7 +1515,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (!this.restrictivePolicy(policy, operatorPolicy)) throw new ValidationError('Installation exceeds operator policy');
       if (input.piReasoningOverride !== undefined && (state!.profile === 'dispatcher' || !isPiReasoningLevel(input.piReasoningOverride))) throw new ValidationError('Invalid Pi reasoning override');
       const { piReasoningOverride: _previous, ...inherited } = installation;
-      const value: ManagementInstallation = { ...inherited, ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }), policy, configurationJson: this.managementConfiguration(input.configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), revision: installation.revision + 1, enabled: false };
+      const value: ManagementInstallation = { ...inherited, ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }), policy, configurationJson: this.managementConfiguration(input.configurationJson), revision: installation.revision + 1, enabled: false };
       if (JSON.stringify(operatorPolicy) !== JSON.stringify(state!.policy)) {
         const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', installation.operatorId).toArray();
         for (const row of rows) {
@@ -1761,6 +1689,168 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     }); } finally { try { await archive?.finish('complete'); } catch { /* Preserve immutable ledger read. */ } }
   }
 
+  /** Current local management/ledger proof. No callback to the waiting Activity. */
+  private applicationStateCurrent(binding: RuntimeApplicationStateBinding): boolean {
+    if (binding.principal !== 'operator' || binding.sourceId !== String(binding.sourceRepositoryId)
+      || !Number.isSafeInteger(binding.generation) || binding.generation < 1
+      || !binding.deliveryToken || binding.deadline <= Date.now()
+      || binding.human.expiresAt * 1000 < binding.deadline) return false;
+    const selected = this.managementExecution(binding.installationId);
+    if (!selected.ok) return false;
+    const { installation, operator, release, controlsRevision, manifestJson } = selected.value;
+    if (!hasApplicationWorkflow(manifestJson) || operator.id !== binding.operatorId
+      || operator.repositoryId !== binding.sourceRepositoryId || operator.revision !== binding.operatorRevision
+      || installation.revision !== binding.installationRevision || release.id !== binding.releaseId
+      || release.bundleDigest !== binding.bundleDigest || controlsRevision !== binding.controlsRevision
+      || !canInvokeOperator(binding.human, operator)) return false;
+    const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions WHERE activity_id=?', binding.activityId).toArray()[0];
+    if (!row) return false;
+    const original = JSON.parse(row.data) as ManagementAdmissionReceipt;
+    return original.installationId === binding.installationId && original.intentDigest === binding.intentDigest
+      && Math.floor(original.deadline / 1000) * 1000 === binding.deadline
+      && original.expectedInstallationRevision === binding.installationRevision
+      && original.expectedOperatorRevision === binding.operatorRevision
+      && original.expectedControlsRevision === binding.controlsRevision;
+  }
+
+  /** Opaque application state shares the existing Registry, not a new authority service. */
+  async applyApplicationState(binding: RuntimeApplicationStateBinding, request: ApplicationStateRequest) {
+    try {
+      this.managementSchema();
+      const keys = request.operation === 'read' ? request.keys : request.expected.map(entry => entry.key);
+      let legacyOwnerBucket: string | undefined;
+      if (keys.some(key => key.startsWith('renovate:head:'))) {
+        if (binding.ownerKey !== await operatorOwnerKey(binding.human) || !this.applicationStateCurrent(binding)) {
+          throw new ApplicationStateError('denied');
+        }
+        // Resolve through the existing collision-safe owner service, outside
+        // storage transactions and without calling the waiting Activity back.
+        legacyOwnerBucket = await resolveBucketName(this.env as Env, binding.human.email);
+      }
+      const base: ApplicationStateBinding = { sourceId: binding.sourceId, installationId: binding.installationId,
+        ownerKey: binding.ownerKey, activityId: binding.activityId, generation: binding.generation, deadline: binding.deadline };
+      const store = new ApplicationStateStore(this.ctx.storage, base, {
+        authorize: async () => {
+          if (binding.ownerKey !== await operatorOwnerKey(binding.human) || !this.applicationStateCurrent(binding)) return false;
+          if (binding.delegation) {
+            const raw = await (this.env as Env).KV.get(`user:${binding.human.email.trim().toLowerCase()}`);
+            const user: unknown = raw ? JSON.parse(raw) : null;
+            if (!user || typeof user !== 'object' || !('role' in user) || user.role !== 'admin') return false;
+          }
+          return true;
+        },
+        validateSnapshot: async tx => {
+          if (!this.applicationStateCurrent(binding)) return false;
+          const summary = await tx.get<OperatorBrowserSummary>(`owner-activity:${binding.ownerKey}:${binding.activityId}`);
+          return !!summary && summary.operatorId === binding.operatorId
+            && ['queued', 'running'].includes(summary.executionStatus);
+        },
+        resolveLegacy: key => {
+          // Historical format alias only. Application code interprets the payload;
+          // ownership and source membership are checked before exposing any bytes.
+          if (!key.startsWith('renovate:head:')) return null;
+          const suffix = key.slice('renovate:head:'.length);
+          if (!/^[1-9][0-9]*:[1-9][0-9]*:[a-f0-9]{40,64}$/.test(suffix)) return null;
+          return { storageKey: `renovate-admission:${suffix}`, validate: value => {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return 'unavailable';
+            const record = value as Record<string, unknown>;
+            if (typeof record.ownerKey !== 'string' || typeof record.installationId !== 'string'
+              || typeof record.activityId !== 'string') return 'unavailable';
+            if (record.ownerKey !== binding.ownerKey) return 'conflict';
+            const installation = this.managementInstallation(record.installationId);
+            const operator = installation && this.managementState(installation.operatorId);
+            if (!operator || operator.repositoryId !== binding.sourceRepositoryId) return 'conflict';
+            if (`${record.repositoryId}:${record.pullRequest}:${record.head}` !== suffix) return 'unavailable';
+            const actor = record.actor;
+            if (!actor || typeof actor !== 'object' || Array.isArray(actor)) return 'unavailable';
+            const identity = actor as Record<string, unknown>;
+            if (identity.bucket !== legacyOwnerBucket
+              || identity.subject !== binding.human.subject || identity.issuer !== binding.human.issuer
+              || typeof identity.email !== 'string' || identity.email.toLowerCase() !== binding.human.email.toLowerCase()
+              || !Array.isArray(identity.audiences) || !identity.audiences.every(item => typeof item === 'string')
+              || JSON.stringify([...identity.audiences].sort()) !== JSON.stringify([...binding.human.audiences].sort())) return 'unavailable';
+            return 'owned';
+          } };
+        },
+      });
+      return request.operation === 'read' ? { entries: await store.read(request.keys) }
+        : await store.compareExchange({ expected: request.expected, writes: request.writes });
+    } catch (error) {
+      const failure = error instanceof ApplicationStateError ? error : new ApplicationStateError('unavailable');
+      return { error: { status: failure.status, code: `application-state-${failure.code}` } };
+    }
+  }
+
+  /** Read/fence an original owned execution, never wake or observe an old SDK job. */
+  async applyApplicationExecution(binding: RuntimeApplicationStateBinding, request: ApplicationExecutionRequest) {
+    const unavailable = () => ({ status: 'unavailable' as const, activityId: request.activityId });
+    try {
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(request.activityId) || request.activityId === binding.activityId
+        || !/^[a-f0-9]{64}$/.test(request.version)) return unavailable();
+      const readCurrent = async () => {
+        const read = await this.applyApplicationState(binding, { operation: 'read', keys: [request.key] });
+        if (!('entries' in read)) return null;
+        const entry = read.entries[0];
+        return entry?.status === 'value' && entry.version === request.version ? entry : null;
+      };
+      const entry = await readCurrent();
+      if (!entry) return { status: 'conflict' as const, activityId: request.activityId };
+      const value = entry.value;
+      if (!value || typeof value !== 'object' || Array.isArray(value) || value.activityId !== request.activityId) return unavailable();
+      const ledger = await this.getManagementAdmission(request.activityId);
+      let legacy: Record<string, unknown> | undefined;
+      if (request.key.startsWith('renovate:head:')) {
+        const key = `renovate-admission:${request.key.slice('renovate:head:'.length)}`;
+        const original = await this.ctx.storage.get<Record<string, unknown>>(key);
+        if (original && JSON.stringify(original) === JSON.stringify(value)) legacy = original;
+      }
+      // Only a verified immutable legacy record may prove a never-admitted ID.
+      // An application-written activityId is not authority over an absent Activity.
+      if (!ledger && !legacy) return unavailable();
+      const installationId = ledger?.installationId ?? legacy?.installationId;
+      if (typeof installationId !== 'string' || request.operation === 'retire' && installationId !== binding.installationId) return unavailable();
+      const installation = this.managementInstallation(installationId);
+      const operator = ledger?.selection.operator ?? (installation && this.managementState(installation.operatorId));
+      if (!installation || !operator || operator.repositoryId !== binding.sourceRepositoryId) return unavailable();
+      const pins = ledger ? {
+        operatorRevision: ledger.expectedOperatorRevision, installationRevision: ledger.expectedInstallationRevision,
+        controlsRevision: ledger.expectedControlsRevision, releaseId: ledger.selection.release.id,
+        bundleDigest: ledger.selection.release.bundleDigest,
+      } : null;
+      const legacyPins = !pins && legacy ? z.object({ operatorRevision: z.number().int().positive(),
+        installationRevision: z.number().int().positive(), controlsRevision: z.number().int().nonnegative(),
+        releaseId: z.string().regex(scanId), bundleDigest: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(legacy) : null;
+      const authority: ApplicationExecutionAuthority = { version: 1, current: binding,
+        original: { activityId: request.activityId, installationId, operatorId: operator.id,
+          sourceRepositoryId: operator.repositoryId, ownerKey: binding.ownerKey,
+          owner: { subject: binding.human.subject, email: binding.human.email, issuer: binding.human.issuer,
+            audiences: [...binding.human.audiences] }, binding: legacy ? 'legacy' : 'activity',
+          pins: pins ?? (legacyPins?.success ? legacyPins.data : null) },
+        ledger: { ok: true, receipt: ledger } };
+      // Only the current immutable admission may enable observation. This flag
+      // is not original policy and never grants execution or historical capture.
+      try {
+        const current = await this.getManagementAdmission(binding.activityId);
+        const logging = current?.selection.operator.policy.loggingEnabled;
+        authority.observationLoggingEnabled = !!current && (logging === undefined || logging === true);
+      } catch { /* Unproven observation policy withholds capture, not execution facts. */ }
+      const activity = (this.env as Env).OPERATOR_ACTIVITY?.getByName(request.activityId);
+      if (!activity) return unavailable();
+      const facts = await activity.readApplicationExecutionFacts(authority);
+      if (!await readCurrent()) return { status: 'conflict' as const, activityId: request.activityId };
+      if (request.operation === 'read') {
+        if (facts.status === 'never-started') return { status: 'value' as const, activityId: request.activityId, terminal: null };
+        if (facts.status !== 'value') return unavailable();
+        const { status: _status, activityId: _activityId, ...terminal } = facts;
+        return { status: 'value' as const, activityId: request.activityId, terminal };
+      }
+      if (facts.status !== 'never-started') return { status: 'held' as const, activityId: request.activityId };
+      const result = await activity.retireApplicationExecution({ ...authority, proofVersion: facts.proofVersion });
+      if (!await readCurrent()) return { status: 'conflict' as const, activityId: request.activityId };
+      return { status: result.status, activityId: request.activityId };
+    } catch { return unavailable(); }
+  }
+
   /** Parent-only pinned bytes; never exposed through management/user storage APIs or refreshed from latest. */
   async getManagementBundle(digest: string): Promise<Uint8Array | null> {
     if (!/^[0-9a-f]{64}$/.test(digest)) return null;
@@ -1915,226 +2005,22 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       unreadCount: Math.max(0, latestSequence - lastRead), latestSequence };
   }
 
-  private async observeProspectiveAuthority(registration: ProspectiveRegistration, captureRoutingGroups = false,
-    trace?: { observation?: ProspectiveObservationCapture; capture?: RawCapture }): Promise<ProspectiveAuthorityObservation> {
-    trace?.capture?.record('registry-authority-request', () => ({ registration, captureRoutingGroups }));
-    const result = await (async (): Promise<ProspectiveAuthorityObservation> => {
-    const app = this.env as Env;
-    const expiresAt = registration.context?.expiresAt;
-    if (registration.scope === 'installation' && !registration.nextObservationAt
-      || !Number.isSafeInteger(expiresAt) || expiresAt * 1000 <= Date.now()
-      || !app.USAGE_DB || !app.KV) return { status: 'denied' };
-    try {
-      // Presence is intentional: corrupt/unsupported metadata cannot downgrade to live authority.
-      const delegation = Object.hasOwn(registration, 'delegation')
-        ? dispatcherDelegationSchema.parse(registration.delegation) : undefined;
-      if (delegation && (registration.scope !== 'installation' || registration.sessionId !== ''
-        || registration.sessionGeneration !== 0)) return { status: 'denied' };
-      const authority = await captureRawInteraction(trace?.capture, 'registry-authority-open', () => registration.context,
-        () => openOperatorExecutionAccess(registration.context, this.env));
-      if (delegation && !Array.isArray(authority.human.groups)) return { status: 'denied' };
-      const [session, rawUser, selected] = await Promise.all([
-        registration.scope === 'installation' ? Promise.resolve(null)
-          : observeDependency(() => captureRawInteraction(trace?.capture, 'registry-authority-session',
-            () => ({ bucket: registration.bucket, sessionId: registration.sessionId }),
-            () => new D1SessionRepository(app.USAGE_DB!).getSession(registration.bucket, registration.sessionId))),
-        observeDependency(() => captureRawInteraction(trace?.capture, 'registry-authority-initial-user',
-          () => `user:${authority.human.email.toLowerCase()}`, () => app.KV!.get(`user:${authority.human.email.toLowerCase()}`))),
-        observeDependency(() => captureRawInteraction(trace?.capture, 'registry-authority-initial-selection',
-          () => registration.installationId, () => this.resolveManagementExecution(registration.installationId))),
-      ]);
-      if (trace) {
-        if (trace.observation && trace.observation.loggingEnabled === undefined && selected.ok) {
-          trace.observation.loggingEnabled = selected.value.operator.policy.loggingEnabled !== false;
-          trace.capture ??= this.prospectiveObservationCapture(trace.observation);
-          trace.capture?.record('registry-registration-request', () => ({ registrationId: registration.registrationId }));
-          trace.capture?.record('registry-authority-request', () => ({ registration, captureRoutingGroups }));
-          trace.capture?.record('registry-authority-open-response', () => authority);
-        }
-        trace.capture?.record('registry-authority-initial-response', () => ({ session, rawUser, selected }));
-      }
-      const user: unknown = rawUser ? JSON.parse(rawUser) : null;
-      if (!user || typeof user !== 'object' || (user as { role?: unknown }).role !== 'admin'
-        || registration.scope !== 'installation' && (session?.lifecycleState !== 'running' || session.lifecycleGeneration !== registration.sessionGeneration)
-        || !selected.ok || selected.value.operator.profile !== 'dispatcher'
-        || selected.value.controlsRevision !== registration.controlsRevision
-        || selected.value.installation.revision !== registration.installationRevision
-        || selected.value.operator.revision !== registration.operatorRevision
-        || selected.value.release.id !== registration.releaseId
-        || selected.value.release.bundleDigest !== registration.bundleDigest
-        || selected.value.installation.policy.resourceProfileId !== null
-        || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return { status: 'denied' };
-      const configured = parseRenovateRunSettings(selected.value.installation.configurationJson);
-      if (!configured?.automaticRuns || configured.repository !== registration.repository
-        || configured.repetitionIntervalSeconds !== registration.repetitionIntervalSeconds
-        || !renovateRepositoryIdentity.safeParse({ repository: registration.repository,
-          repositoryId: registration.repositoryId, baseBranch: registration.baseBranch }).success) return { status: 'denied' };
-      // Issuance is live even for installation scope; only persisted server-issued grants skip Access.
-      const configuredGroups = captureRoutingGroups
-        ? parseAccessGroups(await observeDependency(() => captureRawInteraction(trace?.capture, 'registry-authority-routing-groups',
-          () => SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, () => app.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP)))) : undefined;
-      const refreshed = delegation ? { status: 'current' as const, groups: authority.human.groups!, routingGroups: delegation.routingGroups }
-        : await captureRawInteraction(trace?.capture, 'registry-authority-identity', () => ({ authority, configuredGroups }),
-          () => observeOperatorAccessIdentity(authority.human, authority.accessJwt, configuredGroups));
-      trace?.capture?.record('registry-authority-configured', () => ({ configured, configuredGroups, delegation, refreshed }));
-      if (refreshed.status !== 'current') return refreshed;
-      const human = { ...authority.human, groups: refreshed.groups };
-      const finalUser = await captureRawInteraction(trace?.capture, 'registry-authority-user', () => `user:${authority.human.email.toLowerCase()}`,
-        () => observeDependency(() => app.KV!.get(`user:${authority.human.email.toLowerCase()}`)));
-      if (!finalUser || (JSON.parse(finalUser) as { role?: string }).role !== 'admin'
-        || registration.ownerKey !== await operatorOwnerKey(human)) return { status: 'denied' };
-      const final = await captureRawInteraction(trace?.capture, 'registry-authority-selection', () => registration.installationId,
-        () => observeDependency(() => this.resolveManagementExecution(registration.installationId)));
-      if (!final.ok || final.value.controlsRevision !== registration.controlsRevision
-        || final.value.installation.revision !== registration.installationRevision
-        || final.value.operator.revision !== registration.operatorRevision
-        || final.value.release.id !== registration.releaseId
-        || final.value.release.bundleDigest !== registration.bundleDigest) return { status: 'denied' };
-      return expiresAt * 1000 > Date.now() && canInvokeOperator(human, final.value.operator)
-        ? { status: 'current', authority: { human, accessJwt: authority.accessJwt },
-          loggingEnabled: final.value.operator.policy.loggingEnabled !== false,
-          sourceTimeoutMs: dispatcherCapacities(final.value.operator.policy).sourceTimeoutMs,
-          sourceResponseBytes: effectiveSourceResponseBytes(final.value.installation.policy),
-          ...(captureRoutingGroups ? { routingGroups: refreshed.routingGroups } : {}) }
-        : { status: 'denied' };
-    } catch (error) {
-      trace?.capture?.record('registry-authority-error', () => error);
-      return { status: expiresAt * 1000 > Date.now()
-        && error instanceof ProspectiveDependencyUnavailable ? 'unavailable' : 'denied' };
-    }
-    })();
-    trace?.capture?.record('registry-authority-response', () => result);
-    try { await trace?.capture?.flush?.(); } catch { /* Preserve authority observation. */ }
-    return result;
+  private applicationScheduleContext(): Parameters<typeof runApplicationSchedules>[0] {
+    return { storage: this.ctx.storage, env: this.env as Env,
+      resolve: installationId => this.resolveManagementExecution(installationId),
+      waitUntil: work => this.ctx.waitUntil(work), runtimeContext: this.ctx };
   }
 
-
-  /** Local revision/configuration check only; never network I/O inside storage transactions. */
-  private async prospectiveSelectionCurrent(record: ProspectiveRegistration, capture?: RawCapture): Promise<boolean> {
-    const selected = await captureRawInteraction(capture, 'registry-selection-current', () => record,
-      () => this.resolveManagementExecution(record.installationId));
-    if (!selected.ok || record.context.expiresAt * 1000 <= Date.now()) return false;
-    const value = selected.value;
-    const settings = parseRenovateRunSettings(value.installation.configurationJson);
-    return value.controlsRevision === record.controlsRevision && value.installation.revision === record.installationRevision
-      && value.operator.revision === record.operatorRevision && value.release.id === record.releaseId
-      && value.release.bundleDigest === record.bundleDigest && settings?.automaticRuns === true
-      && settings.repository === record.repository && settings.repetitionIntervalSeconds === record.repetitionIntervalSeconds;
+  async activateApplicationSchedule(input: { installationId: string; revision: number; authority: OperatorExecutionAuthority }) {
+    return activateSchedule(this.applicationScheduleContext(), input);
   }
 
-  /** Safe owner projection, not a replacement for current authorization at each protected operation. */
-  async prospectiveRenovateStatus(installationId: string, ownerKey: string): Promise<'active' | 'expired' | 'inactive' | 'unconfirmed'> {
-    const records = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-    let expired = false, unavailable = false;
-    for (const record of records.values()) {
-      if (record.installationId !== installationId || record.ownerKey !== ownerKey || record.scope !== 'installation') continue;
-      if (record.context.expiresAt * 1000 <= Date.now()) { expired = true; continue; }
-      const observed = await this.observeProspectiveRenovateRegistration(record.registrationId);
-      if (observed.status === 'current' && record.nextObservationAt && await this.ctx.storage.getAlarm() !== null) return 'active';
-      if (observed.status === 'unavailable' || observed.status === 'current') unavailable = true;
-    }
-    return unavailable ? 'unconfirmed' : expired ? 'expired' : 'inactive';
+  async applicationScheduleStatus(installationId: string, ownerKey: string) {
+    return scheduleStatus(this.applicationScheduleContext(), installationId, ownerKey);
   }
 
-  /** Bounded parent observation, independent of user sessions and of Flue's own execution persistence. */
   async alarm(): Promise<void> {
-    const records = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-    if (records.size > 32) return; // Corrupt/legacy over-limit state is not autonomous authority.
-    const captures: Array<{ capture: RawCapture; ownerKey: string }> = [];
-    try {
-    for (const record of records.values()) {
-      if (record.scope !== 'installation' || !record.nextObservationAt) continue;
-      if (record.nextObservationAt > Date.now()) continue;
-      const diagnostic: ProspectiveObservationDiagnostic = { outcome: 'observation-failure', stage: 'authority',
-        candidates: 0, reservationDenied: 0, retainedOtherRegistration: 0, retainedExisting: 0, handoffAttempts: 0 };
-      let failure: unknown;
-      let observation: ProspectiveObservationCapture | undefined;
-      try {
-        const captureId = crypto.randomUUID();
-        observation = { registrationId: record.registrationId,
-          binding: { ownerKey: record.ownerKey, installationId: record.installationId, releaseId: record.releaseId,
-            captureId, scope: { kind: 'observation', observationId: captureId } } };
-      } catch { /* Optional correlation setup cannot change an alarm. */ }
-      let capture: RawCapture | undefined;
-      try {
-        const observed = await this.observeProspectiveRenovateRegistration(record.registrationId, observation);
-        if (observation && observation.loggingEnabled === undefined && observed.status === 'current') {
-          observation.loggingEnabled = observed.registration.loggingEnabled === true;
-        }
-        capture = this.prospectiveObservationCapture(observation);
-        capture?.record('registry-alarm-input', () => [...records].filter(([, value]) => value.ownerKey === record.ownerKey));
-        capture?.record('registry-alarm-authority-response', () => observed);
-        if (observed.status === 'denied') {
-          diagnostic.outcome = 'authority-denied';
-          await this.retireProspectiveObservation(record, capture); continue;
-        }
-        diagnostic.stage = 'claim';
-        // Advance before I/O: delivery retries cannot turn lost execution acknowledgements into replay.
-        const next = Math.min(Date.now() + record.repetitionIntervalSeconds * 1000, record.context.expiresAt * 1000);
-        const claimed = await captureRawInteraction(capture, 'registry-alarm-claim', () => ({ record, next }),
-          () => captureRawTransaction(capture, capture => this.ctx.storage.transaction(async tx => {
-          const latest = await captureRawInteraction(capture, 'registry-alarm-latest', () => record.registrationId,
-            () => tx.get<ProspectiveRegistration>(`renovate-registration:${record.registrationId}`));
-          if (latest?.revision !== record.revision || latest.nextObservationAt !== record.nextObservationAt) return false;
-          await captureRawInteraction(capture, 'registry-alarm-write', () => ({ key: `renovate-registration:${record.registrationId}`, value: { ...latest, nextObservationAt: next } }),
-            () => tx.put(`renovate-registration:${record.registrationId}`, { ...latest, nextObservationAt: next }));
-          return true;
-        })));
-        if (!claimed || observed.status !== 'current') {
-          diagnostic.outcome = !claimed ? 'claim-lost' : 'authority-unavailable'; continue;
-        }
-        try { await this.observeProspectiveWork(observed.registration, diagnostic, observation); }
-        catch (error) {
-          failure = error;
-          // The callee updates this stage across its awaits; retain its declared union here.
-          diagnostic.outcome = (diagnostic.stage as ProspectiveObservationDiagnostic['stage']) === 'discovery'
-            ? 'discovery-failure' : 'observation-failure';
-          /* Incomplete observation supplies no work authority; retry only at the saved interval. */
-        }
-      } catch (error) {
-        failure = error; throw error;
-      } finally {
-        capture?.record('registry-alarm-response', () => ({ diagnostic, failure }));
-        if (capture) captures.push({ capture, ownerKey: record.ownerKey });
-        // Diagnostics cannot replace a response, exception or saved scheduling decision.
-        try {
-          createLogger('operator-registry').info('Prospective Renovate observation', {
-            context: 'registry-alarm', observationDigest: hashDiagnostic(JSON.stringify([
-              'registry-alarm:prospective-observation:v1', record.registrationId, record.revision, record.nextObservationAt,
-            ])), ...diagnostic, ...(failure === undefined || diagnostic.error !== undefined ? {} : { error: captureError(failure) }),
-          });
-        } catch { /* Best-effort parent-owned metadata only. */ }
-      }
-    }
-    const scheduled = await this.ctx.storage.transaction(async tx => {
-      const remaining = await tx.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-      const next = [...remaining.values()].filter(record => record.scope === 'installation' && record.nextObservationAt
-        && record.context.expiresAt * 1000 > Date.now()).map(record => record.nextObservationAt!);
-      // Include a concurrent explicit activation's due time, never overwrite it with a later observation.
-      const alarm = next.length ? Math.max(Date.now() + 1, Math.min(...next)) : null;
-      if (alarm !== null) await tx.setAlarm(alarm);
-      else await tx.deleteAlarm();
-      return { remaining, alarm };
-    });
-    for (const { capture, ownerKey } of captures) {
-      capture.record('registry-alarm-schedule-state', () => [...scheduled.remaining].filter(([, record]) => record.ownerKey === ownerKey));
-      capture.record('registry-alarm-schedule-write', () => ({ alarm: scheduled.alarm }));
-    }
-    } catch (error) {
-      for (const { capture } of captures) capture.record('registry-alarm-error', () => error);
-      throw error;
-    } finally {
-      for (const { capture } of captures) try { await capture.finish('complete'); } catch { /* Preserve alarm outcome. */ }
-    }
-  }
-
-  private async retireProspectiveObservation(record: ProspectiveRegistration, capture?: RawCapture): Promise<void> {
-    await captureRawTransaction(capture, capture => this.ctx.storage.transaction(async tx => {
-      const key = `renovate-registration:${record.registrationId}`;
-      const latest = await captureRawInteraction(capture, 'registry-alarm-retire-read', () => key, () => tx.get<ProspectiveRegistration>(key));
-      if (latest?.revision === record.revision) await captureRawInteraction(capture, 'registry-alarm-retire-write',
-        () => ({ key, value: { ...latest, nextObservationAt: undefined } }), () => tx.put(key, { ...latest, nextObservationAt: undefined }));
-    }));
+    await runApplicationSchedules(this.applicationScheduleContext());
   }
 
   private prospectiveObservationCapture(observation?: ProspectiveObservationCapture): (RawCapture & { binding: RawCaptureBinding }) | undefined {
@@ -2195,650 +2081,21 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     return input.failed ? { ...receipt, status: 'incomplete' } : receipt;
   }
 
-  private async observeProspectiveWork(initial: CurrentProspectiveRegistration, diagnostic: ProspectiveObservationDiagnostic,
-    observation?: ProspectiveObservationCapture): Promise<void> {
-    const app = this.env as Env;
-    const exports = (this.ctx as unknown as { exports?: Record<string,
-      (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
-    diagnostic.stage = 'binding';
-    if (!exports || !app.OPERATOR_ACTIVITY) { diagnostic.outcome = 'binding-unavailable'; return; }
-    diagnostic.stage = 'discovery';
-    let capture: RawCapture | undefined;
-    if (initial.loggingEnabled === true) try {
-      const captureId = observation?.binding.captureId ?? crypto.randomUUID();
-      const ownerKey = await operatorOwnerKey(initial.human);
-      observation ??= { registrationId: initial.registrationId, loggingEnabled: true,
-        binding: { ownerKey, installationId: initial.installationId, releaseId: initial.releaseId,
-          captureId, scope: { kind: 'observation', observationId: captureId } } };
-      observation.loggingEnabled ??= true;
-      capture = createRawCapture({ enabled: true, binding: observation.binding,
-        storage: () => createOwnerRawCaptureStorage(app, this.ctx.storage, async () => {
-          // Retaining already observed evidence grants no new execution or human authority.
-          const owned = await this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${initial.registrationId}`);
-          if (!owned || owned.ownerKey !== ownerKey || owned.bucket !== initial.bucket
-            || owned.installationId !== initial.installationId || owned.releaseId !== initial.releaseId
-            || owned.bundleDigest !== initial.bundleDigest || owned.operatorRevision !== initial.operatorRevision) {
-            throw Error('Raw capture owner changed');
-          }
-        }), schedule: work => this.ctx.waitUntil(work) });
-      capture.record('discovery-observation', () => initial);
-    } catch { /* Capture setup cannot change authorized observation. */ }
-    const observe = (stage: string, value: () => unknown) => {
-      try { capture?.record(stage, value); } catch { /* Preserve the original observation and handoff. */ }
-    };
-    const invoke = async <T>(boundary: string, request: unknown, work: () => Promise<T>): Promise<T> => {
-      observe(`${boundary}-request`, () => request);
-      try {
-        try { await capture?.flush?.(); } catch { /* Keep the original interaction. */ }
-        const result = await work();
-        observe(`${boundary}-response`, () => {
-          if (boundary === 'prospective-reservation') {
-            const reserved = result as Awaited<ReturnType<OperatorRegistry['reserveProspectiveRenovateActivity']>>;
-            // The inner Registry boundary retains full same-owner history. An outer caller
-            // cannot attribute another registration's private actor without that proof.
-            if (reserved.ok && reserved.actor.registrationId !== initial.registrationId) return { retainedOtherRegistration: true };
-          }
-          return result;
-        });
-        try { await capture?.flush?.(); } catch { /* Keep the original result. */ }
-        return result;
-      } catch (error) { observe(`${boundary}-error`, () => error); throw error; }
-    };
-    const current = () => invoke('prospective-current', { registrationId: initial.registrationId },
-      () => this.currentProspectiveRenovateRegistration(initial.registrationId, observation));
-    const inFlight: Promise<unknown>[] = [];
-    let terminal: 'complete' | 'failed' = 'failed';
-    let backgroundFailed = false;
-    let candidates: Awaited<ReturnType<typeof listProspectiveRenovatePrs>>;
-    try {
-      const retainedRetryTargets = await invoke('prospective-retained-history', { registrationId: initial.registrationId },
-        () => this.retainedProspectiveRenovateRetryTargets(initial.registrationId, observation));
-      candidates = await listProspectiveRenovatePrs({ env: app, exports, registration: initial,
-        retainedRetryTargets, capture, current: async () => !!await current() });
-      diagnostic.candidates = candidates.length;
-      diagnostic.outcome = 'observed';
-      for (const candidate of candidates) {
-        diagnostic.stage = 'reservation';
-        if (!await current()) { diagnostic.outcome = 'stale-authority'; return; }
-        const activityId = `scan-${crypto.randomUUID()}`;
-        const reservation = { ...candidate, registrationId: initial.registrationId, activityId };
-        const reserved = await invoke('prospective-reservation', reservation, () => this.reserveProspectiveRenovateActivity(reservation, observation));
-        if (!reserved.ok) { diagnostic.reservationDenied++; continue; }
-        if (reserved.actor.registrationId !== initial.registrationId) { diagnostic.retainedOtherRegistration++; continue; }
-        if (reserved.activityId !== activityId) diagnostic.retainedExisting++;
-        diagnostic.stage = 'handoff';
-        const activity = app.OPERATOR_ACTIVITY.getByName(reserved.activityId);
-        let stage: NonNullable<ProspectiveObservationDiagnostic['failureStage']> = 'authority';
-        let admissionDigest: string | undefined;
-        let receiverDigest: string | undefined;
-        try {
-          if (scanId.test(reserved.activityId)) admissionDigest = hashDiagnostic(JSON.stringify([
-            'prospective-renovate-admission:v1', reserved.activityId,
-          ]));
-          receiverDigest = activityRpcReceiverDigest(activity.id);
-        } catch { /* Correlation is best-effort, never admission authority. */ }
-        const fenceHandoff = async (failure: FailureObservation) => {
-          try {
-            // The Activity atomically refuses this fence once any drive has begun, including a concurrent winner.
-            await invoke('prospective-fence', { activityId: reserved.activityId, failure },
-              () => app.OPERATOR_ACTIVITY!.getByName(reserved.activityId).fenceRuntimeFailure(undefined, failure, { onlyBeforeDrive: true }));
-          } catch (error) {
-            try {
-              createLogger('operator-registry').warn('Prospective Renovate handoff fence unavailable', {
-                stage, category: 'fence-unavailable', admissionDigest,
-                ...(receiverDigest ? { receiverDigest } : {}), error: captureError(error),
-              });
-            } catch { /* A secondary fence/logging failure cannot replace the original handoff outcome. */ }
-          }
-        };
-        const handoffCurrent = async () => {
-          stage = 'authority';
-          const observed = await invoke('prospective-authority', { registrationId: initial.registrationId },
-            () => this.observeProspectiveRenovateRegistration(initial.registrationId, observation));
-          if (observed.status === 'current') return observed.registration;
-          diagnostic.outcome = 'stale-authority';
-          await fenceHandoff({ boundary: 'admission',
-            code: observed.status === 'denied' ? 'authority-denied' : 'platform-evidence-required' });
-          return null;
-        };
-        try {
-          const winner = await handoffCurrent(); if (!winner) return;
-          stage = 'plan';
-          let plan = await invoke('prospective-plan', { activityId: reserved.activityId }, () => activity.getRuntimePlan());
-          // Unknown/prepared outcomes belong to the original Activity; never prepare a replacement.
-          if (!plan && !await invoke('prospective-detail', { activityId: reserved.activityId }, () => activity.getBrowserDetail())) {
-            stage = 'preparation';
-            observe('prospective-preparation-request', () => ({ activityId: reserved.activityId, winner }));
-            const prepared = await prepareOperatorActivity({ installationId: initial.installationId,
-              invocation: { repository: winner.repository } }, { human: winner.human, accessJwt: winner.accessJwt }, app,
-            { activityId: reserved.activityId, prospectiveAdmissionId: reserved.activityId,
-              expectedManagement: { controlsRevision: winner.controlsRevision,
-              installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
-              releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
-            if (!await handoffCurrent()) return;
-            observe('prospective-preparation-response', () => prepared);
-            try { await invoke<Awaited<ReturnType<typeof activity.start>>>('prospective-start', { activityId: reserved.activityId, capability: prepared.startCapability },
-              () => activity.start(prepared.startCapability)); } catch { /* Read the same Activity below. */ }
-            stage = 'plan';
-            plan = await invoke('prospective-plan', { activityId: reserved.activityId }, () => activity.getRuntimePlan());
-          }
-          if (!plan || plan.activityId !== reserved.activityId) {
-            await fenceHandoff({ boundary: 'construction', code: 'startup-failed' }); continue;
-          }
-          if (!await handoffCurrent()) continue;
-          stage = 'detail';
-          let detail = await invoke('prospective-detail', { activityId: reserved.activityId },
-            () => activity.getBrowserDetail()) as { executionStatus: string } | null;
-          if (detail?.executionStatus === 'waiting') {
-            await invoke('prospective-collection', { activityId: reserved.activityId }, () => activity.collectBrowserResult());
-            detail = await invoke('prospective-detail', { activityId: reserved.activityId },
-              () => activity.getBrowserDetail()) as { executionStatus: string } | null;
-          }
-          if (!detail) {
-            await fenceHandoff({ boundary: 'construction', code: 'startup-failed' }); continue;
-          }
-          if (detail.executionStatus === 'queued' && await handoffCurrent()) {
-            stage = 'binding';
-            const bindCapability = bindOperatorRuntimeCapability(this.ctx);
-            stage = 'drive';
-            // Count the handoff attempt, not background SDK admission or completion.
-            diagnostic.handoffAttempts++;
-            const work = invoke('prospective-drive', { activityId: reserved.activityId },
-              () => runOperatorActivity(reserved.activityId, app, bindCapability)).then(
-              // A null runtime plan is also a refused handoff. A begun drive makes this fence a no-op.
-              () => fenceHandoff({ boundary: 'construction', code: 'startup-failed' }),
-              error => { backgroundFailed = true; terminal = 'failed'; return fenceHandoff({ boundary: 'construction', code: 'startup-failed',
-                error: captureError(error), origin: 'catching' }); },
-            );
-            inFlight.push(work);
-            this.ctx.waitUntil(work);
-          }
-        } catch (error) {
-          observe('prospective-handoff-error', () => ({ activityId: reserved.activityId, stage, error }));
-          const captured = captureError(error);
-          diagnostic.outcome = 'handoff-failure';
-          if (diagnostic.error === undefined) {
-            diagnostic.error = captured;
-            diagnostic.failureStage = stage;
-            diagnostic.admissionDigest = admissionDigest;
-            if (receiverDigest) diagnostic.receiverDigest = receiverDigest;
-          }
-          await fenceHandoff({ boundary: stage === 'authority' ? 'admission' : 'construction',
-            code: stage === 'authority' ? 'platform-evidence-required' : 'startup-failed',
-            error: captured, origin: 'catching' });
-        }
-      }
-      terminal = diagnostic.outcome === 'observed' && !backgroundFailed ? 'complete' : 'failed';
-    } catch (error) {
-      observe('prospective-observation-error', () => error);
-      throw error;
-    } finally {
-      if (capture) try {
-        const archive = capture;
-        this.ctx.waitUntil(Promise.allSettled(inFlight).then(() => archive.finish(terminal)).then(receipt => {
-          try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-receipt', data: receipt })); }
-          catch { /* A receipt is not execution or persistence authority. */ }
-        }).catch(() => {}));
-      } catch { /* Persistence lifetime cannot replace the original observation. */ }
-    }
+  /** Legacy RPC compatibility is refusal-only. Application policy now runs in its package. */
+  async activateProspectiveRenovate(_input: unknown): Promise<
+    { ok: true; activatedAt: string; registrationId: string } | { ok: false; reason: string }> {
+    return { ok: false, reason: 'application-upgrade-required' };
   }
-
-  private async prospectiveAuthority(registration: ProspectiveRegistration, capture?: RawCapture): Promise<{
-    human: VerifiedHumanAccessClaims; accessJwt: string;
-  } | null> {
-    const observed = await this.observeProspectiveAuthority(registration, false, { capture });
-    return observed.status === 'current' ? observed.authority : null;
+  async prospectiveRenovateStatus(_installationId: string, _ownerKey: string): Promise<'inactive'> { return 'inactive'; }
+  async observeProspectiveRenovateRegistration(_registrationId: string, _observation?: ProspectiveObservationCapture): Promise<ProspectiveRegistrationObservation> {
+    return { status: 'denied' };
   }
-
-
-  async activateProspectiveRenovate(input: { installationId: string; bucket: string; sessionId: string;
-    sessionGeneration: number; scope?: 'installation'; human: VerifiedHumanAccessClaims; accessJwt: string;
-    repository: RenovateRepositoryIdentity; expectedManagement?: ProspectiveSelectionPin }): Promise<
-      { ok: true; activatedAt: string; registrationId: string } & RenovateRepositoryIdentity
-      | { ok: false; reason: string }> {
-    const app = this.env as Env;
-    const target = renovateRepositoryIdentity.safeParse(input.repository);
-    if (!target.success || !scanId.test(input.installationId) || !/^[A-Za-z0-9._-]{1,128}$/.test(input.bucket)
-      || (input.scope === 'installation' ? input.sessionId !== '' || input.sessionGeneration !== 0
-        : !scanSession.test(input.sessionId) || !Number.isSafeInteger(input.sessionGeneration) || input.sessionGeneration < 1)
-      || !app.USAGE_DB || !app.KV
-      || input.human.expiresAt * 1000 <= Date.now()) return { ok: false, reason: 'not-authorized' };
-    if (input.scope !== 'installation' && await this.ctx.storage.get(`renovate-installation-scope:${input.installationId}`)) {
-      return { ok: false, reason: 'explicit-installation-activation-required' };
-    }
-    const selected = await this.resolveManagementExecution(input.installationId);
-    if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
-      || selected.value.installation.policy.resourceProfileId !== null
-      || !prospectiveRenovatePackageSupported(selected.value.manifestJson)) return { ok: false, reason: 'installation-unavailable' };
-    let configured: RenovateRunSettings | null;
-    try { configured = parseRenovateRunSettings(selected.value.installation.configurationJson); }
-    catch { return { ok: false, reason: 'configuration-unavailable' }; }
-    if (!configured?.automaticRuns || configured.repository !== target.data.repository) return { ok: false, reason: 'configuration-unavailable' };
-    const pins: ProspectiveSelectionPin = { controlsRevision: selected.value.controlsRevision,
-      installationRevision: selected.value.installation.revision, operatorRevision: selected.value.operator.revision,
-      releaseId: selected.value.release.id, bundleDigest: selected.value.release.bundleDigest };
-    if (input.expectedManagement && Object.entries(pins).some(([key, value]) =>
-      value !== input.expectedManagement![key as keyof ProspectiveSelectionPin])) return { ok: false, reason: 'stale-selection' };
-    const ownerKey = await operatorOwnerKey(input.human);
-    const rawId = JSON.stringify([ownerKey, input.bucket, input.sessionId, input.sessionGeneration,
-      input.installationId, pins, target.data, configured.repetitionIntervalSeconds, input.accessJwt, input.scope, input.human.expiresAt]);
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawId)));
-    let registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
-    const provisional: ProspectiveRegistration = { registrationId, installationId: input.installationId,
-      ...target.data, ...pins, repetitionIntervalSeconds: configured.repetitionIntervalSeconds,
-      ownerKey, bucket: input.bucket, sessionId: input.sessionId, sessionGeneration: input.sessionGeneration,
-      ...(input.scope === 'installation' ? { scope: input.scope, nextObservationAt: Math.min(Date.now() + 1000, input.human.expiresAt * 1000) } : {}),
-      revision: 0, context: await createOperatorExecutionContext({ activityId: registrationId,
-        operatorId: selected.value.operator.operatorId, artifactDigest: pins.bundleDigest,
-        policyDigest: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
-          new TextEncoder().encode(JSON.stringify(selected.value.installation.policy)))))
-          .map(byte => byte.toString(16).padStart(2, '0')).join(''),
-        human: input.human, accessJwt: input.accessJwt }, this.env) };
-    if ((await this.observeProspectiveAuthority(provisional, input.scope === 'installation')).status !== 'current') {
-      return { ok: false, reason: 'not-authorized' };
-    }
-    const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-    const inactive: Array<{ key: string; revision: number }> = [];
-    for (const [key, record] of registrations) {
-      if (record.context.expiresAt * 1000 <= Date.now()
-        || input.scope === 'installation' && record.installationId === input.installationId
-          && (record.scope !== 'installation' || record.ownerKey === ownerKey && record.registrationId !== registrationId)) {
-        inactive.push({ key, revision: record.revision }); continue;
-      }
-      if (record.scope === 'installation') continue;
-      try {
-        const session = await new D1SessionRepository(app.USAGE_DB).getSession(record.bucket, record.sessionId);
-        if (session && (session.lifecycleGeneration !== record.sessionGeneration
-          || session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping')) inactive.push({ key, revision: record.revision });
-      } catch { /* Unavailable lifecycle is not proof of retirement. */ }
-    }
-    const verified = await this.observeProspectiveAuthority(provisional, input.scope === 'installation');
-    if (verified.status !== 'current') return { ok: false, reason: 'stale-selection' };
-    if (input.scope === 'installation') {
-      const delegation = dispatcherDelegationSchema.safeParse({ version: 1, routingGroups: verified.routingGroups });
-      if (!delegation.success) return { ok: false, reason: 'not-authorized' };
-      const consent = JSON.stringify([rawId, delegation.data, verified.authority.human.groups]);
-      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(consent)));
-      registrationId = `scan-${Array.from(digest).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
-      // Mark only after BOTH live checks, and seal final verified memberships, not input claims.
-      provisional.registrationId = registrationId;
-      provisional.context = await createOperatorExecutionContext({ activityId: registrationId,
-        operatorId: provisional.context.operatorId, artifactDigest: provisional.context.artifactDigest,
-        policyDigest: provisional.context.policyDigest, ...verified.authority }, this.env);
-      provisional.delegation = delegation.data;
-      if ((await this.observeProspectiveAuthority(provisional)).status !== 'current') {
-        return { ok: false, reason: 'stale-selection' };
-      }
-    }
-    return this.ctx.storage.transaction(async tx => {
-      if (!await this.prospectiveSelectionCurrent(provisional)) return { ok: false, reason: 'stale-selection' } as const;
-      const before = await tx.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-      for (const { key, revision } of inactive) if (key !== `renovate-registration:${registrationId}` && before.get(key)?.revision === revision) { await tx.delete(key); before.delete(key); }
-      if (before.size >= 32 && !before.has(`renovate-registration:${registrationId}`)) return { ok: false, reason: 'registration-limit' } as const;
-      if (input.scope !== 'installation' && await tx.get(`renovate-installation-scope:${input.installationId}`)) return { ok: false, reason: 'explicit-installation-activation-required' } as const;
-      const previous = await tx.get<ProspectiveActivation>('renovate-activation');
-      if (previous && previous.installationId !== input.installationId) return { ok: false, reason: 'activation-conflict' } as const;
-      const identityKey = `renovate-repository:${input.installationId}:${target.data.repository.toLowerCase()}`;
-      const retainedIdentity = await tx.get<number>(identityKey);
-      if (retainedIdentity !== undefined && retainedIdentity !== target.data.repositoryId) return { ok: false, reason: 'repository-changed' } as const;
-      const cutoffKey = `renovate-cutoff:${input.installationId}:${target.data.repositoryId}`;
-      const cutoff = await tx.get<string>(cutoffKey) ?? (previous?.repositoryId === target.data.repositoryId ? previous.activatedAt : new Date(Date.now()).toISOString());
-      const activation: ProspectiveActivation = { installationId: input.installationId, ...target.data, activatedAt: cutoff };
-      const current = await tx.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`);
-      await tx.put(identityKey, target.data.repositoryId);
-      await tx.put(cutoffKey, cutoff);
-      await tx.put('renovate-activation', activation);
-      // Lost acknowledgements repeat this exact consent, not its observation or lifetime.
-      const record = current && (current.scope !== 'installation' || current.nextObservationAt)
-        ? current : { ...provisional, revision: (current?.revision ?? 0) + 1 };
-      if (input.scope === 'installation') {
-        await tx.put(`renovate-installation-scope:${input.installationId}`, true);
-        // Fence concurrent legacy activation and the same owner's superseded assertion atomically.
-        for (const [key, other] of before) {
-          if (other.installationId === input.installationId && other.registrationId !== registrationId
-            && (other.scope !== 'installation' || other.ownerKey === ownerKey)) await tx.delete(key);
-        }
-      }
-      await tx.put(`renovate-registration:${registrationId}`, record);
-      if (record.scope === 'installation' && record.nextObservationAt) {
-        const alarm = await tx.getAlarm();
-        if (alarm === null || alarm > record.nextObservationAt) await tx.setAlarm(record.nextObservationAt);
-      }
-      await tx.put('renovate-election-revision', (await tx.get<number>('renovate-election-revision') ?? 0) + 1);
-      return { ok: true, activatedAt: cutoff, registrationId, ...target.data } as const;
-    });
+  async currentProspectiveRenovateRegistration(_registrationId: string, _observation?: ProspectiveObservationCapture): Promise<CurrentProspectiveRegistration | null> { return null; }
+  async reserveProspectiveRenovateActivity(_input: unknown, _observation?: ProspectiveObservationCapture): Promise<
+    { ok: true; activityId: string; actor: ProspectiveAdmission['actor'] } | { ok: false; reason: string }> {
+    return { ok: false, reason: 'application-upgrade-required' };
   }
-
-  async observeProspectiveRenovateRegistration(registrationId: string, observation?: ProspectiveObservationCapture): Promise<ProspectiveRegistrationObservation> {
-    const trace: { observation?: ProspectiveObservationCapture; capture?: RawCapture } = { observation };
-    let owned = true;
-    const result = await (async (): Promise<ProspectiveRegistrationObservation> => {
-    if (!scanId.test(registrationId)) return { status: 'denied' };
-    try {
-      const [activation, record] = await Promise.all([
-        observeDependency(() => this.ctx.storage.get<ProspectiveActivation>('renovate-activation')),
-        observeDependency(() => this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`)),
-      ]);
-      owned = !record || !observation || record.ownerKey === observation.binding.ownerKey;
-      if (owned) trace.capture = this.prospectiveObservationCapture(observation);
-      trace.capture?.record('registry-registration-request', () => ({ registrationId }));
-      trace.capture?.record('registry-registration-state', () => ({ activation, record }));
-      if (record?.scope !== 'installation' && record && await captureRawInteraction(trace.capture, 'registry-registration-scope',
-        () => `renovate-installation-scope:${record.installationId}`,
-        () => this.ctx.storage.get(`renovate-installation-scope:${record.installationId}`))) return { status: 'denied' };
-      if (!activation || !record || activation.installationId !== record.installationId
-        || activation.repository !== record.repository || activation.repositoryId !== record.repositoryId
-        || activation.baseBranch !== record.baseBranch) return { status: 'denied' };
-      const observed = await this.observeProspectiveAuthority(record, false, owned ? trace : undefined);
-      trace.capture?.record('registry-registration-state', () => ({ activation, record }));
-      const latest = await captureRawInteraction(trace.capture, 'registry-registration-latest', () => registrationId,
-        () => this.ctx.storage.get<ProspectiveRegistration>(`renovate-registration:${registrationId}`));
-      if (!latest || latest.revision !== record.revision || record.scope === 'installation' && !latest.nextObservationAt) return { status: 'denied' };
-      if (record.context.expiresAt * 1000 <= Date.now()) return { status: 'denied' };
-      if (observed.status !== 'current') return observed;
-      const current = observed.authority;
-      return { status: 'current', registration: { ...(record.scope ? { scope: record.scope } : {}),
-        ...(record.delegation ? { delegation: record.delegation } : {}), registrationId, installationId: record.installationId,
-        repository: record.repository, repositoryId: record.repositoryId, baseBranch: record.baseBranch,
-        repetitionIntervalSeconds: record.repetitionIntervalSeconds, activatedAt: activation.activatedAt,
-        bucket: record.bucket, sessionId: record.sessionId, sessionGeneration: record.sessionGeneration,
-        controlsRevision: record.controlsRevision, installationRevision: record.installationRevision,
-        operatorRevision: record.operatorRevision, releaseId: record.releaseId, bundleDigest: record.bundleDigest,
-        loggingEnabled: observed.loggingEnabled, sourceTimeoutMs: observed.sourceTimeoutMs,
-        sourceResponseBytes: observed.sourceResponseBytes,
-        deadline: Math.min(record.context.expiresAt, current.human.expiresAt) * 1000, ...current } };
-    } catch (error) {
-      trace.capture?.record('registry-registration-error', () => error);
-      return { status: error instanceof ProspectiveDependencyUnavailable ? 'unavailable' : 'denied' };
-    }
-    })();
-    trace.capture?.record('registry-registration-response', () => owned ? result : { foreignOwner: true });
-    try { await trace.capture?.finish('complete'); } catch { /* Preserve the exact observation. */ }
-    return result;
-  }
-
-  async currentProspectiveRenovateRegistration(registrationId: string, observation?: ProspectiveObservationCapture): Promise<CurrentProspectiveRegistration | null> {
-    const observed = await this.observeProspectiveRenovateRegistration(registrationId, observation);
-    return observed.status === 'current' ? observed.registration : null;
-  }
-
-  /** Trusted parent passes its authenticated GitHub observation, not route/child data. */
-  async reserveProspectiveRenovateActivity(input: { registrationId: string; repositoryId: number;
-    pullRequest: number; head: string; createdAt: string; activityId: string }, observation?: ProspectiveObservationCapture): Promise<
-      { ok: true; activityId: string; actor: ProspectiveAdmission['actor'] } | { ok: false; reason: string }> {
-    const archive = this.prospectiveObservationCapture(observation);
-    const childObservation = observation && archive ? { ...observation,
-      parentCaptureId: observation.binding.captureId, binding: archive.binding } : observation;
-    let owned = true;
-    const capture = archive && { ...archive, record: (stage: string, value: () => unknown) => {
-      if ((stage === 'registry-reservation-response' || stage === 'registry-reservation-transaction-response') && !owned) archive.record(stage, () => ({ retainedForeignOwner: true }));
-      else archive.record(stage, value);
-    } };
-    try { return await captureRawInteraction(capture, 'registry-reservation', () => input, async (): Promise<
-      { ok: true; activityId: string; actor: ProspectiveAdmission['actor'] } | { ok: false; reason: string }> => {
-    if (!scanId.test(input.registrationId) || !scanId.test(input.activityId)
-      || !Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1 || !Number.isSafeInteger(input.pullRequest)
-      || input.pullRequest < 1 || !sha.test(input.head)) return { ok: false, reason: 'invalid-target' };
-    const activation = await captureRawInteraction(capture, 'registry-reservation-activation', () => 'renovate-activation',
-      () => this.ctx.storage.get<ProspectiveActivation>('renovate-activation'));
-    const created = prospectiveRenovateTimestamp(input.createdAt);
-    const cutoff = activation ? prospectiveRenovateTimestamp(activation.activatedAt) : null;
-    if (created === null) return { ok: false, reason: 'invalid-target' };
-    if (!activation || activation.repositoryId !== input.repositoryId || cutoff === null || created <= cutoff) {
-      return { ok: false, reason: 'pre-activation' };
-    }
-    const key = `renovate-admission:${input.repositoryId}:${input.pullRequest}:${input.head}`;
-    capture?.record('registry-reservation-existing-request', () => key);
-    const existing = await this.ctx.storage.get<ProspectiveAdmission>(key);
-    owned = !existing || !observation || existing.ownerKey === observation.binding.ownerKey;
-    capture?.record('registry-reservation-existing', () => owned ? existing : { retainedForeignOwner: true });
-    const existingLayout = existing ? prospectiveAdmissionLayout(existing) : null;
-    capture?.record('registry-reservation-layout', () => ({ existingLayout, created, cutoff }));
-    if (existing && (!existingLayout || existing.createdAt !== input.createdAt)) return { ok: false, reason: 'invalid-target' };
-    let retry: ProspectiveRenovateRetryProof | null = null;
-    if (existing) try { retry = await this.prospectiveRetryProof(existing, owned ? capture : undefined, owned ? childObservation : undefined); }
-    catch { return { ok: true, activityId: existing.activityId, actor: existing.actor }; }
-    if (existing && !retry && existing.actor.registrationId === input.registrationId) {
-      return { ok: true, activityId: existing.activityId, actor: existing.actor };
-    }
-    const election = await captureRawInteraction(capture, 'registry-reservation-election', () => 'renovate-election-revision',
-      () => this.ctx.storage.get<number>('renovate-election-revision')) ?? 0;
-    capture?.record('registry-reservation-registrations-request', () => ({ prefix: 'renovate-registration:' }));
-    const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
-    capture?.record('registry-reservation-registrations', () => [...registrations].filter(([, record]) => record.ownerKey === observation?.binding.ownerKey));
-    if (registrations.size > 32) return { ok: false, reason: 'registration-limit' };
-    const candidates: Array<{ record: ProspectiveRegistration; human: VerifiedHumanAccessClaims; loggingEnabled: boolean }> = [];
-    for (const record of registrations.values()) {
-      if (record.installationId !== activation.installationId || record.repositoryId !== activation.repositoryId
-        || record.repository !== activation.repository || record.baseBranch !== activation.baseBranch) continue;
-      const observed = await this.observeProspectiveAuthority(record, false,
-        record.ownerKey === observation?.binding.ownerKey ? { observation, capture } : undefined);
-      if (observed.status === 'current') candidates.push({ record, human: observed.authority.human, loggingEnabled: observed.loggingEnabled });
-    }
-    candidates.sort((left, right) =>
-      `${left.human.issuer}:${left.human.subject}:${left.record.sessionId}:${left.record.sessionGeneration}`
-        .localeCompare(`${right.human.issuer}:${right.human.subject}:${right.record.sessionId}:${right.record.sessionGeneration}`));
-    const winner = candidates[0];
-    capture?.record('registry-reservation-candidates', () => candidates.filter(candidate => candidate.record.ownerKey === observation?.binding.ownerKey));
-    if (!winner) return { ok: false, reason: 'no-current-admin' };
-    if (observation && winner.record.ownerKey !== observation.binding.ownerKey) owned = false;
-    if (existing && retry && !this.prospectiveRetryDue(existing, retry, winner.record.repetitionIntervalSeconds)) {
-      return { ok: true, activityId: existing.activityId, actor: existing.actor };
-    }
-    let retiredPreparation = false;
-    if (existing && !retry) {
-      // Reactivation removes superseded registrations, not their immutable Activity history.
-      // Only the elected, same-owner/scope caller may retire that exact old preparation.
-      // Upgrades may select new pins for a NEW Activity; the old Activity must prove its own pins.
-      // Preserve the original short-circuit order; diagnostics never inspect skipped evidence.
-      const refusal = input.registrationId !== winner.record.registrationId ? 'caller-not-elected'
-        : registrations.has(`renovate-registration:${existing.actor.registrationId}`) ? 'original-registration-present'
-        : winner.record.scope !== 'installation' ? 'winner-not-installation'
-        : winner.record.delegation?.version !== 1 ? 'delegation-unavailable'
-        : winner.record.sessionId !== '' ? 'winner-session-id'
-        : winner.record.sessionGeneration !== 0 ? 'winner-session-generation'
-        : existing.ownerKey !== winner.record.ownerKey ? 'owner-mismatch'
-        : existing.actor.bucket !== winner.record.bucket ? 'bucket-mismatch'
-        : existing.actor.subject !== winner.human.subject ? 'subject-mismatch'
-        : existing.actor.issuer !== winner.human.issuer ? 'issuer-mismatch'
-        : existing.actor.email.toLowerCase() !== winner.human.email.toLowerCase() ? 'email-mismatch'
-        : JSON.stringify([...existing.actor.audiences].sort()) !== JSON.stringify([...winner.human.audiences].sort()) ? 'audience-mismatch'
-        : existing.installationId !== activation.installationId ? 'installation-mismatch'
-        : existing.repositoryId !== input.repositoryId ? 'repository-id-mismatch'
-        : !(existingLayout === 'legacy' ? activation.repository === 'nikolanovoselec/komodo'
-          : existing.repository === activation.repository && existing.baseBranch === activation.baseBranch) ? 'repository-scope-mismatch'
-        : existing.pullRequest !== input.pullRequest ? 'pull-request-mismatch'
-        : existing.head !== input.head ? 'head-mismatch'
-        : existing.activatedAt !== activation.activatedAt ? 'cutoff-mismatch'
-        : !this.env.OPERATOR_ACTIVITY ? 'activity-binding-unavailable' : null;
-      const trace = (reason: NonNullable<typeof refusal> | 'retirement-refused' | 'retirement-rpc-failed') => {
-        capture?.record('registry-reservation-retention', () => ({ reason }));
-        if (!winner.loggingEnabled) return;
-        try {
-          createLogger('operator-registry').info('Prospective Renovate preparation retained', {
-            reason, admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', existing.activityId])),
-          });
-        } catch { /* Optional diagnostics cannot change reservation or retirement. */ }
-      };
-      if (refusal) trace(refusal);
-      else {
-        try {
-          // This RPC fences atomically against beginDrive; a status GET cannot prove no effects.
-          const original = await this.readProspectiveRenovateAdmission(existing.activityId, childObservation);
-          let ledger: ProspectiveReconciliationAuthority['ledger'];
-          try {
-            const receipt = await this.getManagementAdmission(existing.activityId, childObservation);
-            ledger = receipt === undefined ? { ok: false, error: Error('Admission ledger missing') } : { ok: true, receipt };
-          } catch (error) { ledger = { ok: false, error: childObservation?.loggingEnabled === true ? captureRawValue(error) : undefined }; }
-          const retired = await captureRawInteraction(capture, 'registry-retirement', () => existing,
-            () => this.consumeProspectiveExchange(childObservation,
-              () => this.env.OPERATOR_ACTIVITY!.getByName(existing.activityId)
-                .retireProspectiveRenovatePreparation(existing, { original, ledger }, childObservation), value => {
-                if (!value || typeof value !== 'object' || typeof (value as ProspectiveRetirement).retired !== 'boolean'
-                  || !Object.hasOwn(value, 'summary')) throw Error('Retirement response invalid');
-                const result = value as ProspectiveRetirement;
-                if (result.summary !== null && (!result.summary || result.summary.activityId !== existing.activityId)) throw Error('Retirement summary mismatch');
-                return result;
-              }));
-          retiredPreparation = retired.retired;
-          if (retiredPreparation && retired.summary) try {
-            await this.upsertOwnedActivity(existing.ownerKey, retired.summary);
-          } catch (error) { capture?.record('activity-summary-error', () => error); }
-          if (!retiredPreparation) trace('retirement-refused');
-        } catch { trace('retirement-rpc-failed'); } // Missing/uncertain evidence retains the reservation.
-      }
-      if (!retiredPreparation) return { ok: true, activityId: existing.activityId, actor: existing.actor };
-    }
-    const actor: ProspectiveAdmission['actor'] = { registrationId: winner.record.registrationId,
-      bucket: winner.record.bucket, sessionId: winner.record.sessionId,
-      sessionGeneration: winner.record.sessionGeneration, subject: winner.human.subject,
-      issuer: winner.human.issuer, email: winner.human.email, audiences: [...winner.human.audiences] };
-    if (!await this.prospectiveAuthority(winner.record, owned ? capture : undefined)) return { ok: false, reason: 'stale-election' };
-    return captureRawInteraction(owned ? capture : undefined, 'registry-reservation-transaction', () => ({ key, actor }),
-      () => captureRawTransaction(owned ? capture : undefined, capture => this.ctx.storage.transaction(async tx => {
-      const prior = await tx.get<ProspectiveAdmission>(key);
-      if (prior && observation && prior.ownerKey !== observation.binding.ownerKey) owned = false;
-      capture?.record('registry-reservation-prior', () => !prior || prior.ownerKey === observation?.binding.ownerKey ? prior : { retainedForeignOwner: true });
-      // The head entry is only a pointer; original Activity admissions are immutable.
-      // A concurrent winner (or uncertain new preparation) always retains its actor/attempt.
-      if (prior && (!existing || prior.activityId !== existing.activityId || !retry && !retiredPreparation)) {
-        return { ok: true, activityId: prior.activityId, actor: prior.actor } as const;
-      }
-      if (existing && (!prior || retry && !this.prospectiveRetryDue(prior, retry, winner.record.repetitionIntervalSeconds))) {
-        return { ok: false, reason: 'stale-retry' } as const;
-      }
-      if (existing && retiredPreparation) {
-        const originalRegistration = await tx.get<ProspectiveRegistration>(`renovate-registration:${existing.actor.registrationId}`);
-        capture?.record('registry-reservation-original-registration', () => !originalRegistration
-          || originalRegistration.ownerKey === observation?.binding.ownerKey ? originalRegistration : { foreignOwner: true });
-        if (originalRegistration) return { ok: false, reason: 'stale-election' } as const;
-      }
-      const [stillActivated, stillRegistered, collision, currentElection] = await Promise.all([
-        tx.get<ProspectiveActivation>('renovate-activation'),
-        tx.get<ProspectiveRegistration>(`renovate-registration:${actor.registrationId}`),
-        tx.get<ProspectiveAdmission>(`renovate-activity:${input.activityId}`),
-        tx.get<number>('renovate-election-revision'),
-      ]);
-      capture?.record('registry-reservation-commit-inputs', () => ({ stillActivated,
-        stillRegistered: !stillRegistered || stillRegistered.ownerKey === observation?.binding.ownerKey ? stillRegistered : { foreignOwner: true },
-        collision: !collision || collision.ownerKey === observation?.binding.ownerKey ? collision : { foreignOwner: true }, currentElection }));
-      if (collision) return { ok: false, reason: 'activity-conflict' } as const;
-      if (stillActivated?.activatedAt !== activation.activatedAt || stillActivated.repositoryId !== activation.repositoryId
-        || stillActivated.repository !== activation.repository || stillActivated.baseBranch !== activation.baseBranch
-        || stillActivated.installationId !== activation.installationId
-        || currentElection !== election || !stillRegistered || stillRegistered.revision !== winner.record.revision
-        || stillRegistered.scope === 'installation' && !stillRegistered.nextObservationAt
-        || !await this.prospectiveSelectionCurrent(stillRegistered, capture)) return { ok: false, reason: 'stale-election' } as const;
-      const admission: ProspectiveAdmission = { activityId: input.activityId, admittedAt: Date.now(),
-        attempt: (existing?.attempt ?? (existing ? 1 : 0)) + 1,
-        ...(existing ? { previousActivityId: existing.activityId } : {}),
-        installationId: activation.installationId, repository: activation.repository, repositoryId: activation.repositoryId,
-        baseBranch: activation.baseBranch, controlsRevision: winner.record.controlsRevision,
-        installationRevision: winner.record.installationRevision, operatorRevision: winner.record.operatorRevision,
-        releaseId: winner.record.releaseId, bundleDigest: winner.record.bundleDigest,
-        pullRequest: input.pullRequest, head: input.head, createdAt: input.createdAt,
-        activatedAt: activation.activatedAt, ownerKey: winner.record.ownerKey, actor };
-      await captureRawInteraction(capture, 'registry-reservation-write', () => ({ key, value: admission }), () => tx.put(key, admission));
-      await captureRawInteraction(capture, 'registry-reservation-write', () => ({ key: `renovate-activity:${input.activityId}`, value: admission }),
-        () => tx.put(`renovate-activity:${input.activityId}`, admission));
-      return { ok: true, activityId: input.activityId, actor } as const;
-    })));
-    }); } finally { try { await archive?.finish('complete'); } catch { /* Preserve reservation. */ } }
-  }
-
-  /** Registry owns evidence persistence and consumes EOF before using eligibility.
-   * Failed optional storage is separate from failed/malformed transport. */
-  private async consumeProspectiveExchange<T>(observation: ProspectiveObservationCapture | undefined,
-    open: () => Promise<ReadableStream<Uint8Array>>, parse: (value: unknown) => T): Promise<T> {
-    const capture = this.prospectiveObservationCapture(observation);
-    let complete = false;
-    try {
-      const exchange = await consumeProspectiveReconciliation(await open(), parse, capture);
-      complete = exchange.evidenceComplete;
-      return exchange.value;
-    } finally {
-      try { await finishProspectiveReconciliationCapture(capture, complete); }
-      catch { /* Optional retention cannot change an observed business result. */ }
-    }
-  }
-
-  private async prospectiveRetryProof(admission: ProspectiveAdmission, capture?: RawCapture,
-    observation?: ProspectiveObservationCapture): Promise<ProspectiveRenovateRetryProof | null> {
-    if (!this.env.OPERATOR_ACTIVITY) return null;
-    try {
-      const request = { repositoryId: admission.repositoryId, pullRequest: admission.pullRequest, head: admission.head };
-      const original = await this.readProspectiveRenovateAdmission(admission.activityId, observation);
-      if (!original || JSON.stringify(original) !== JSON.stringify(admission)) throw Error('Original admission unavailable');
-      const value = await captureRawInteraction(capture, 'registry-retry-proof', () => ({ activityId: admission.activityId, request }), async () => {
-        const outcome = await this.consumeProspectiveExchange(observation,
-          () => this.env.OPERATOR_ACTIVITY!.getByName(admission.activityId).readProspectiveRenovateRetryProof(request, original, observation),
-          value => z.union([z.strictObject({ ok: z.literal(false) }),
-            z.strictObject({ ok: z.literal(true), proof: prospectiveRenovateRetryProof.nullable() })]).parse(value));
-        if (!outcome.ok) throw Error('Retry proof uncertain');
-        return outcome.proof;
-      });
-      const parsed = prospectiveRenovateRetryProof.safeParse(value);
-      capture?.record('registry-retry-validation', () => parsed);
-      if (!parsed.success) return null;
-      const proof = parsed.data;
-      return proof.activityId === admission.activityId && proof.repositoryId === admission.repositoryId
-        && proof.repository === admission.repository && proof.baseBranch === admission.baseBranch
-        && proof.pullRequest === admission.pullRequest && proof.head === admission.head
-        && proof.createdAt === admission.createdAt && proof.artifactDigest === admission.bundleDigest
-        && proof.terminalAt <= Date.now() ? proof : null;
-    } catch (error) {
-      capture?.record('registry-retry-error', () => error);
-      throw error; // Uncertain exchange must not fall through to retirement/election.
-    }
-  }
-
-  private prospectiveRetryDue(admission: ProspectiveAdmission, proof: ProspectiveRenovateRetryProof, interval: number): boolean {
-    // Legacy admissions lack a reservation timestamp; use their proven terminal time conservatively.
-    const started = admission.admittedAt ?? proof.terminalAt;
-    return Number.isSafeInteger(started) && started >= 0 && started <= proof.terminalAt
-      && Date.now() >= started + interval * 1000;
-  }
-
-  /** Exact retained heads only. Complete authenticated discovery must still re-observe every target. */
-  async retainedProspectiveRenovateRetryTargets(registrationId: string, observation?: ProspectiveObservationCapture): Promise<RetainedRenovateRetryTarget[]> {
-    const capture = this.prospectiveObservationCapture(observation);
-    try { return await captureRawInteraction(capture, 'registry-retained-targets', () => ({ registrationId }), async () => {
-    const current = await this.currentProspectiveRenovateRegistration(registrationId, observation);
-    if (!current) return [];
-    const targets: RetainedRenovateRetryTarget[] = [];
-    let startAfter: string | undefined;
-    for (;;) {
-      const request = { prefix: 'renovate-activity:', limit: 128, ...(startAfter ? { startAfter } : {}) };
-      capture?.record('registry-retained-admissions-request', () => request);
-      const admissions = await this.ctx.storage.list<ProspectiveAdmission>(request);
-      capture?.record('registry-retained-admissions', () => [...admissions].filter(([, admission]) => admission.ownerKey === observation?.binding.ownerKey));
-      try { await capture?.flush?.(); } catch { /* Keep the existing history scan. */ }
-      for (const admission of admissions.values()) {
-        const created = prospectiveRenovateTimestamp(admission.createdAt);
-        const cutoff = prospectiveRenovateTimestamp(current.activatedAt);
-        if (created === null || cutoff === null || created <= cutoff
-          || admission.installationId !== current.installationId || admission.repositoryId !== current.repositoryId
-          || admission.repository !== current.repository || admission.baseBranch !== current.baseBranch) continue;
-        const latest = await this.ctx.storage.get<ProspectiveAdmission>(
-          `renovate-admission:${admission.repositoryId}:${admission.pullRequest}:${admission.head}`);
-        capture?.record('registry-retained-head', () => ({ request: { repositoryId: admission.repositoryId,
-          pullRequest: admission.pullRequest, head: admission.head }, value: !latest || latest.ownerKey === observation?.binding.ownerKey ? latest : { foreignOwner: true } }));
-        if (latest?.activityId !== admission.activityId) continue;
-        let proof: ProspectiveRenovateRetryProof | null;
-        try { proof = await this.prospectiveRetryProof(admission, admission.ownerKey === observation?.binding.ownerKey ? capture : undefined,
-          admission.ownerKey === observation?.binding.ownerKey ? observation : undefined); }
-        catch { continue; } // Keep scanning independent heads, never promote this uncertain one.
-        if (proof && this.prospectiveRetryDue(admission, proof, current.repetitionIntervalSeconds)) {
-          targets.push({ repositoryId: admission.repositoryId, pullRequest: admission.pullRequest,
-            head: admission.head, createdAt: admission.createdAt });
-        }
-      }
-      if (admissions.size < 128) break;
-      startAfter = [...admissions.keys()].at(-1)!;
-    }
-    return await this.currentProspectiveRenovateRegistration(registrationId, observation) ? targets : [];
-    }); } finally { try { await capture?.finish('complete'); } catch { /* Preserve retained targets. */ } }
-  }
+  async retainedProspectiveRenovateRetryTargets(_registrationId: string, _observation?: ProspectiveObservationCapture): Promise<LegacyRetryTarget[]> { return []; }
 
   async readProspectiveRenovateAdmission(activityId: string, observation?: ProspectiveObservationCapture): Promise<ProspectiveAdmission | null> {
     const capture = this.prospectiveObservationCapture(observation);
