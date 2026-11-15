@@ -6134,6 +6134,8 @@ export class OperatorActivity extends Agent {
     raw?.record('activity-retry-original', () => owned ? { bound, original } : { foreignOwner: true });
     if (!original || original.repositoryId !== input.repositoryId || original.pullRequest !== input.pullRequest
       || original.head !== input.head) return null;
+    // Settle parent-context writer completions before the transaction holds that input gate.
+    try { await raw?.flush?.(); } catch { /* Evidence delivery cannot replace the atomic proof read. */ }
     return this.ctx.storage.transaction(async tx => {
       const state = await captureRawInteraction(owned ? raw : undefined, 'activity-retry-admission', () => 'admission', async () => {
         const value = await tx.get<AdmissionState>('admission');

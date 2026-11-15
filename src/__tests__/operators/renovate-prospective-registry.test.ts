@@ -357,6 +357,7 @@ describe('REQ-OPERATOR-090/091 AC6/7: Registry-native private observation reads'
       const response = await runInDurableObject(activityNamespace.getByName(activityName), (_instance, state) =>
         new Response(prospectiveReconciliationStream(policy !== 'off', async raw => {
           raw?.record('retained-history-start', () => ({ pages: pages.length }));
+          try { await raw?.flush?.(); } catch { /* Preserve business I/O when evidence fails. */ }
           return state.storage.transaction(async tx => {
             await captureRawInteraction(raw, 'transaction-write', () => ({ key: 'reconciliation-ready', value: true }),
               () => tx.put('reconciliation-ready', true));
