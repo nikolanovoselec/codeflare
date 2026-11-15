@@ -571,7 +571,7 @@ jobs:
           echo "--- Verifying image config ---"
           grep 'image =' wrangler.toml
 
-      - name: Enable strict Gateway egress VPC binding (enterprise mode)
+      - name: Configure enterprise egress and request budget
         # REQ-ENTERPRISE-016: the cf1:network EGRESS binding is enterprise-only and
         # committed commented-out so default/fork deploys (accounts without Workers
         # VPC / cf1:network) and the vitest-pool-workers test runtime stay green.
@@ -588,6 +588,8 @@ jobs:
             grep -qxF "$ln" wrangler.toml || { echo "::error::strict-egress binding line not enabled: $ln"; exit 1; }
           done
           echo "--- strict-egress VPC binding enabled for enterprise deploy ---"
+          # Finite headroom for full Operator capture and live authorization RPCs.
+          printf '\n[limits]\nsubrequests = 100000\n' >> wrangler.toml
 
       - name: Validate notification deployment configuration
         env:
