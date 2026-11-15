@@ -6,7 +6,7 @@ import { OperatorRegistry, type CurrentProspectiveRegistration, type ManagementE
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
-import { connectionSecret, createNormalDispatcherTransport, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
+import { connectionSecret, createNormalDispatcherTransport, normalCallback, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
 import { sealOperatorSecret } from '../../operators/protected-secrets';
 import { DispatcherAuthorityUnavailable, OperatorRuntimeCapability, authorizeDispatcherPlan } from '../../operators/operator-runtime-capability';
 import { createMockKV } from '../helpers/mock-kv';
@@ -2009,7 +2009,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     'pre-lease-fence-generation', 'pre-lease-later-generation', 'pre-lease-artifact-mismatch', 'pre-lease-input-mismatch',
     'pre-lease-checkpoint', 'pre-lease-result', 'pre-lease-collected', 'pre-lease-runtime-lease', 'pre-lease-profile-lease',
     'pre-lease-runtime-effect', 'pre-lease-publication', 'pre-lease-ledger-unavailable', 'pre-lease-read-unavailable',
-    'pre-lease-foreign-owner', 'pre-lease-delayed-admission'] as const;
+    'pre-lease-foreign-owner', 'pre-lease-delayed-admission', 'pre-lease-bootstrap-valid', 'pre-lease-bootstrap-legacy',
+    'pre-lease-bootstrap-delayed', 'pre-lease-bootstrap-generation', 'pre-lease-bootstrap-deployment',
+    'pre-lease-bootstrap-no-deployment', 'pre-lease-bootstrap-status', 'pre-lease-bootstrap-wire',
+    'pre-lease-bootstrap-receipt', 'pre-lease-bootstrap-serial', 'pre-lease-bootstrap-extra', 'pre-lease-bootstrap-effect'] as const;
   const reconciliationCases = ['upgrade', 'absent', 'prepared', 'absent-global-receipt', 'admitting',
     'ledger-unavailable', 'legacy-no-admittedAt', 'concurrent-drive', 'unknown', 'foreign-owner', 'foreign-bucket',
     'stale-caller', 'stale-selection', 'stale-election', 'legacy-full-queued', 'legacy-full-absent',
@@ -2023,11 +2026,14 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     const historical = reconciliation?.startsWith('legacy-full-') === true;
     const sessionScoped = historical || reconciliation === 'session-pinned';
     const preLease = reconciliation?.startsWith('pre-lease-') === true;
+    const bootstrap = reconciliation?.startsWith('pre-lease-bootstrap-') === true;
+    const serialBootstrap = bootstrap && reconciliation !== 'pre-lease-bootstrap-legacy';
     const repoId = historical ? 973175879 : 424242;
     const repository = historical ? 'nikolanovoselec/komodo' : 'acme/updates';
     const replaceable = ['upgrade', 'absent', 'prepared', 'legacy-no-admittedAt', 'legacy-full-queued',
       'legacy-full-absent', 'legacy-full-prepared', 'session-pinned', 'pre-lease-fenced',
-      'pre-lease-delayed-admission'].includes(reconciliation ?? '');
+      'pre-lease-delayed-admission', 'pre-lease-bootstrap-valid', 'pre-lease-bootstrap-legacy',
+      'pre-lease-bootstrap-delayed'].includes(reconciliation ?? '');
     // Reuse the normal installed-Worker wire fixture: real Registry/Activity/orchestrator,
     // controlled external App HTTP. This proves parent execution, not execution of Flue SDK code.
     const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
@@ -2061,7 +2067,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       if (loggingPolicy) selected.operator.policy.loggingEnabled = loggingPolicy.original;
       else if (diagnostics === 'off') selected.operator.policy.loggingEnabled = false;
       Object.assign(selected.release, { bundleDigest, sourceCommit: approved.sourceCommit, manifestDigest: 'd'.repeat(64),
-        intentVersion: '3', coreVersion: '1', provenance: { compilerCommit: normalDeployment.compilerCommit } });
+        intentVersion: serialBootstrap ? '4' : '3', coreVersion: '1', provenance: { compilerCommit: normalDeployment.compilerCommit } });
+      if (serialBootstrap) selected.manifestJson = JSON.stringify({ ...JSON.parse(selected.manifestJson), intentVersion: '4' });
       const transport = createNormalDispatcherTransport();
       const connection = { installationId: 'dispatcher-install', releaseId: 'release', connectionRevision: 1,
         ...normalDeployment, bundleDigest, manifestDigest: selected.release.manifestDigest,
@@ -2250,7 +2257,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         return new URL(url).origin === normalDeployment.controlOrigin
           ? transport.fetcher(input, init).then(response => {
             if (new URL(url).pathname === '/control/profile') {
-              if (fault === 'profile-unavailable') state.identityFault = 'unavailable';
+              if (fault === 'profile-unavailable' && faultArmed) state.identityFault = 'unavailable';
               if (fault === 'profile-revoked') state.identityFault = 'revoked';
             }
             return response;
@@ -2351,10 +2358,16 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             expect(await inActivity(() => originalActivity.getBrowserDetail())).toMatchObject({ executionStatus: 'unknown', result: null });
             expect(await inActivity(() => originalActivity.getDispatcherDiagnostics(original.ownerKey)))
               .toMatchObject({ parent: { driveGeneration: 2, lease: null } });
-            if (reconciliation === 'pre-lease-delayed-admission') {
+            if (reconciliation === 'pre-lease-delayed-admission' || reconciliation === 'pre-lease-bootstrap-delayed') {
+              const before = structuredClone(transport.networkRequests);
               expect(await inActivity(() => originalActivity.admitDispatcher(1, approved, bundleDigest, { repository })))
                 .toMatchObject({ ok: false });
-              expect(transport.networkRequests).toEqual([]);
+              if (bootstrap) for (const [path, body] of [
+                ['pi/config', { operation: 'read' }],
+                ['model-admission', { operationId: 'late-model', context: { messages: [{ role: 'user', content: 'Late request' }] }, options: {} }],
+              ] as const) expect(await inActivity(async () => (await originalActivity.dispatcherInstalledCallback(1,
+                normalCallback(originalId, path, body, { 'x-codeflare-operator-installation': 'dispatcher-install' }))).status)).toBe(403);
+              expect(transport.networkRequests).toEqual(before);
             }
             await inActivity(async () => {
               const saved = await activityNative.storage.get<Record<string, unknown>>('admission');
@@ -2377,6 +2390,24 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               if (reconciliation === 'pre-lease-result') value.drive = { ...drive, result: { retained: true } };
               if (reconciliation === 'pre-lease-collected') value.browserCollectionConsumed = true;
               await activityNative.storage.put('admission', value);
+              if (bootstrap) {
+                const profile = await activityNative.storage.get<Record<string, unknown>>('dispatcher:profile-lease');
+                if (!profile) throw Error('Profile failure did not retain its bootstrap envelope');
+                const envelope = { ...profile };
+                if (reconciliation === 'pre-lease-bootstrap-generation') envelope.generation = 2;
+                if (reconciliation === 'pre-lease-bootstrap-deployment') envelope.deployment = {
+                  ...profile.deployment as Record<string, unknown>, manifestDigest: 'f'.repeat(64) };
+                if (reconciliation === 'pre-lease-bootstrap-no-deployment') delete envelope.deployment;
+                if (reconciliation === 'pre-lease-bootstrap-status') envelope.status = 'unknown';
+                if (reconciliation === 'pre-lease-bootstrap-wire') envelope.wire = { id: 'historical-wire' };
+                if (reconciliation === 'pre-lease-bootstrap-receipt') envelope.receipt = { submissionId: 'historical-submission' };
+                if (reconciliation === 'pre-lease-bootstrap-serial') {
+                  const serial = profile.serial as { current: object };
+                  envelope.serial = { ...serial, current: { ...serial.current, phase: { kind: 'final' } } };
+                }
+                if (reconciliation === 'pre-lease-bootstrap-extra') envelope.unclassifiedState = true;
+                await activityNative.storage.put('dispatcher:profile-lease', envelope);
+              }
             });
           }
           // A real new package/release selection invalidates the old consent, not its history.
@@ -2409,7 +2440,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             `renovate-registration:${registration.registrationId}`));
           const orphanLease = reconciliation === 'orphan-lease' || reconciliation === 'absent-global-receipt'
             || reconciliation === 'pre-lease-runtime-lease';
-          const orphanKey = reconciliation === 'orphan-effect' || reconciliation === 'pre-lease-runtime-effect' ? 'dispatcher:operation:orphan'
+          const orphanKey = reconciliation === 'orphan-effect' || reconciliation === 'pre-lease-runtime-effect'
+            || reconciliation === 'pre-lease-bootstrap-effect' ? 'dispatcher:operation:orphan'
             : reconciliation === 'orphan-publication' || reconciliation === 'pre-lease-publication' ? 'renovate:publication'
               : reconciliation === 'pre-lease-profile-lease' ? 'dispatcher:profile-lease' : orphanLease ? 'dispatcher:lease' : null;
           const orphanValue = { ...(orphanLease ? { generation: 1, artifactDigest: persisted.bundleDigest,
@@ -2430,6 +2462,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             await activityNative.storage.put('admission', { ...saved, privateActivityEvidence: statePrivateValue });
           });
           const originalStoredState = loggingPolicy || preLease ? await inActivity(() => activityNative.storage.get('admission')) : undefined;
+          const originalProfile = bootstrap ? await inActivity(() => activityNative.storage.get('dispatcher:profile-lease')) : undefined;
           const originalState = await inActivity(() => originalActivity.getAdmission());
           const originalDetail = await inActivity(() => originalActivity.getBrowserDetail());
           const originalLedger = await inRegistry(() => owner.getManagementAdmission(originalId));
@@ -2687,7 +2720,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId))).toEqual(original);
           expect(await inRegistry(() => owner.getManagementAdmission(originalId))).toEqual(originalLedger);
           expect(transport.admissions.size).toBe(0);
-          expect(transport.networkRequests).toEqual([]);
+          if (bootstrap) expect(transport.networkRequests.filter(request => new URL(request.url).pathname !== '/control/profile')).toEqual([]);
+          else expect(transport.networkRequests).toEqual([]);
           // Intentional public diagnostic allowlist: closed first-refusal code + original admission digest only.
           // Invalid layouts return before policy is known; same-registration reuse also precedes retirement.
           // Neither path adds protected I/O solely to diagnose retention.
@@ -2713,11 +2747,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             'ledger-missing-result': ['operator-registry', 'retirement-refused'],
             'ledger-invalid-result': ['operator-registry', 'retirement-refused'],
             ...Object.fromEntries(preLeaseReconciliationCases.filter(value => !['pre-lease-fenced', 'pre-lease-delayed-admission',
-              'pre-lease-read-unavailable'].includes(value)).map(value => [value, value === 'pre-lease-foreign-owner'
+              'pre-lease-read-unavailable', 'pre-lease-bootstrap-valid', 'pre-lease-bootstrap-legacy',
+              'pre-lease-bootstrap-delayed'].includes(value)).map(value => [value, value === 'pre-lease-foreign-owner'
               ? ['operator-registry', 'owner-mismatch'] : value === 'pre-lease-ledger-unavailable'
                 ? ['operator-registry', 'retirement-refused'] : ['operator-activity', value === 'pre-lease-publication'
                   ? 'publication-present' : ['pre-lease-profile-lease', 'pre-lease-runtime-effect'].includes(value)
-                    ? 'runtime-effect-present' : 'uncertain']])) as Partial<Record<typeof reconciliationCases[number], [string, string]>>,
+                    || value.startsWith('pre-lease-bootstrap-') ? 'runtime-effect-present' : 'uncertain']])) as Partial<Record<typeof reconciliationCases[number], [string, string]>>,
           };
           const expected = diagnostics === 'rpc-throws' ? ['operator-registry', 'retirement-rpc-failed']
             : loggingPolicy?.original === false && originalLedger && expectedRefusal[reconciliation]
@@ -2768,6 +2803,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           const queuedOriginal = ['upgrade', 'legacy-full-queued', 'session-pinned'].includes(reconciliation) || preLease;
           const blockedDrive = { ok: false, reason: queuedOriginal ? 'drive-settled' : 'not-admitted' };
           if (preLease) expect(await inActivity(() => activityNative.storage.get('admission'))).toEqual(originalStoredState);
+          // Retirement preserves the original bootstrap evidence, rather than deleting it to obtain eligibility.
+          if (bootstrap) expect(await inActivity(() => activityNative.storage.get('dispatcher:profile-lease'))).toEqual(originalProfile);
           if (queuedOriginal && !preLease && diagnostics !== 'summary-throws') {
             expect(await inRegistry(() => native.storage.get(`owner-activity:${original.ownerKey}:${originalId}`)))
               .toMatchObject({ activityId: originalId, executionStatus: 'cancel-requested', cleanupStatus: 'stopped' });
@@ -2984,7 +3021,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     });
   });
   it.each(reconciliationCases)('REQ-OPERATOR-061 AC2/3/6/7 /062 /107: stale reservation %s preserves uncertainty and elects only atomically retired same-owner work',
-    reconciliation => normalAlarmHandoff(reconciliation.startsWith('pre-lease-') ? 'admission-unavailable' : reconciliation === 'unknown' ? 'binding'
+    reconciliation => normalAlarmHandoff(reconciliation.startsWith('pre-lease-bootstrap-') ? 'profile-unavailable'
+      : reconciliation.startsWith('pre-lease-') ? 'admission-unavailable' : reconciliation === 'unknown' ? 'binding'
       : ['absent', 'ledger-unavailable', 'ledger-missing-result', 'ledger-invalid-result', 'legacy-no-admittedAt', 'legacy-full-absent'].includes(reconciliation) ? 'preparation-proof-missing'
         : reconciliation === 'prepared' || reconciliation === 'legacy-full-prepared' ? 'prepared-start' : reconciliation === 'admitting' ? 'admitting-start'
           : 'persistence-unavailable', false, reconciliation));
@@ -3000,6 +3038,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   it.each(['off', 'writer-throws'] as const)(
     'REQ-OPERATOR-061/090: verified first pre-lease fence under %s logging admits one new successor without replay',
     diagnostics => normalAlarmHandoff('admission-unavailable', false, 'pre-lease-fenced', diagnostics));
+  it.each(['off', 'writer-throws'] as const)(
+    'REQ-OPERATOR-061/090: pristine bootstrap under %s logging permits one successor and retains the original evidence',
+    diagnostics => normalAlarmHandoff('profile-unavailable', false, 'pre-lease-bootstrap-valid', diagnostics));
   it.each(['off', 'on', 'writer-throws', 'summary-throws'] as const)(
     'REQ-OPERATOR-061/063/090: safe retirement under %s logging reaches one external acceptance after retained history',
     diagnostics => normalAlarmHandoff('persistence-unavailable', false, 'upgrade', diagnostics));
