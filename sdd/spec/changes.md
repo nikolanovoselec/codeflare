@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-15
+
+- Native background outcomes reach the next model request after the current tool batch instead of waiting for all queued follow-ups to drain; claimed/consumed suppression, ordering and shutdown guards remain intact ([REQ-AGENT-053](agents.md#req-agent-053-pi-native-review-result-correlation)).
+
 ## 2026-11-13
 
 - Retain complete admin-enabled parent and public Flue/SDK evidence without raw-value redaction in existing private Durable Object storage. Authenticated SDK uploads require independent byte reconstruction before completion acknowledgement; console projections remain separate, with original execution, byte limits and cancellation preserved ([REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).
