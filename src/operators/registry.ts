@@ -6,6 +6,8 @@
  * Public projections explicitly exclude ciphertext. This object is never a child Worker binding.
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
+import { consumeProspectiveReconciliation, finishProspectiveReconciliationCapture, type ProspectiveReconciliationAuthority, type ProspectiveRetirement } from './prospective-reconciliation';
+import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, openOperatorSecret, sealOperatorSecret } from './protected-secrets';
 import { parseOperatorManifest, parseDispatcherBundle, validateOperatorEndpoint, type OperatorManifest } from './distribution';
@@ -2279,7 +2281,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           try {
             // The Activity atomically refuses this fence once any drive has begun, including a concurrent winner.
             await invoke('prospective-fence', { activityId: reserved.activityId, failure },
-              () => activity.fenceRuntimeFailure(undefined, failure, { onlyBeforeDrive: true }));
+              () => app.OPERATOR_ACTIVITY.getByName(reserved.activityId).fenceRuntimeFailure(undefined, failure, { onlyBeforeDrive: true }));
           } catch (error) {
             try {
               createLogger('operator-registry').warn('Prospective Renovate handoff fence unavailable', {
@@ -2593,7 +2595,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     const existingLayout = existing ? prospectiveAdmissionLayout(existing) : null;
     capture?.record('registry-reservation-layout', () => ({ existingLayout, created, cutoff }));
     if (existing && (!existingLayout || existing.createdAt !== input.createdAt)) return { ok: false, reason: 'invalid-target' };
-    const retry = existing ? await this.prospectiveRetryProof(existing, owned ? capture : undefined, owned ? childObservation : undefined) : null;
+    let retry: ProspectiveRenovateRetryProof | null = null;
+    if (existing) try { retry = await this.prospectiveRetryProof(existing, owned ? capture : undefined, owned ? childObservation : undefined); }
+    catch { return { ok: true, activityId: existing.activityId, actor: existing.actor }; }
     if (existing && !retry && existing.actor.registrationId === input.registrationId) {
       return { ok: true, activityId: existing.activityId, actor: existing.actor };
     }
@@ -2660,9 +2664,26 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       else {
         try {
           // This RPC fences atomically against beginDrive; a status GET cannot prove no effects.
-          retiredPreparation = await captureRawInteraction(capture, 'registry-retirement', () => existing,
-            () => this.env.OPERATOR_ACTIVITY!.getByName(existing.activityId)
-              .retireProspectiveRenovatePreparation(existing, childObservation)) === true;
+          const original = await this.readProspectiveRenovateAdmission(existing.activityId, childObservation);
+          let ledger: ProspectiveReconciliationAuthority['ledger'];
+          try {
+            const receipt = await this.getManagementAdmission(existing.activityId, childObservation);
+            ledger = receipt === undefined ? { ok: false, error: Error('Admission ledger missing') } : { ok: true, receipt };
+          } catch (error) { ledger = { ok: false, error: childObservation?.loggingEnabled === true ? captureRawValue(error) : undefined }; }
+          const retired = await captureRawInteraction(capture, 'registry-retirement', () => existing,
+            () => this.consumeProspectiveExchange(childObservation,
+              () => this.env.OPERATOR_ACTIVITY!.getByName(existing.activityId)
+                .retireProspectiveRenovatePreparation(existing, { original, ledger }, childObservation), value => {
+                if (!value || typeof value !== 'object' || typeof (value as ProspectiveRetirement).retired !== 'boolean'
+                  || !Object.hasOwn(value, 'summary')) throw Error('Retirement response invalid');
+                const result = value as ProspectiveRetirement;
+                if (result.summary !== null && (!result.summary || result.summary.activityId !== existing.activityId)) throw Error('Retirement summary mismatch');
+                return result;
+              }));
+          retiredPreparation = retired.retired;
+          if (retiredPreparation && retired.summary) try {
+            await this.upsertOwnedActivity(existing.ownerKey, retired.summary);
+          } catch (error) { capture?.record('activity-summary-error', () => error); }
           if (!retiredPreparation) trace('retirement-refused');
         } catch { trace('retirement-rpc-failed'); } // Missing/uncertain evidence retains the reservation.
       }
@@ -2725,13 +2746,37 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     }); } finally { try { await archive?.finish('complete'); } catch { /* Preserve reservation. */ } }
   }
 
+  /** Registry owns evidence persistence and consumes EOF before using eligibility.
+   * Failed optional storage is separate from failed/malformed transport. */
+  private async consumeProspectiveExchange<T>(observation: ProspectiveObservationCapture | undefined,
+    open: () => Promise<ReadableStream<Uint8Array>>, parse: (value: unknown) => T): Promise<T> {
+    const capture = this.prospectiveObservationCapture(observation);
+    let complete = false;
+    try {
+      const exchange = await consumeProspectiveReconciliation(await open(), parse, capture);
+      complete = exchange.evidenceComplete;
+      return exchange.value;
+    } finally {
+      try { await finishProspectiveReconciliationCapture(capture, complete); }
+      catch { /* Optional retention cannot change an observed business result. */ }
+    }
+  }
+
   private async prospectiveRetryProof(admission: ProspectiveAdmission, capture?: RawCapture,
     observation?: ProspectiveObservationCapture): Promise<ProspectiveRenovateRetryProof | null> {
     if (!this.env.OPERATOR_ACTIVITY) return null;
     try {
       const request = { repositoryId: admission.repositoryId, pullRequest: admission.pullRequest, head: admission.head };
-      const value = await captureRawInteraction(capture, 'registry-retry-proof', () => ({ activityId: admission.activityId, request }),
-        () => this.env.OPERATOR_ACTIVITY!.getByName(admission.activityId).readProspectiveRenovateRetryProof(request, observation));
+      const original = await this.readProspectiveRenovateAdmission(admission.activityId, observation);
+      if (!original || JSON.stringify(original) !== JSON.stringify(admission)) throw Error('Original admission unavailable');
+      const value = await captureRawInteraction(capture, 'registry-retry-proof', () => ({ activityId: admission.activityId, request }), async () => {
+        const outcome = await this.consumeProspectiveExchange(observation,
+          () => this.env.OPERATOR_ACTIVITY!.getByName(admission.activityId).readProspectiveRenovateRetryProof(request, original, observation),
+          value => z.union([z.strictObject({ ok: z.literal(false) }),
+            z.strictObject({ ok: z.literal(true), proof: prospectiveRenovateRetryProof.nullable() })]).parse(value));
+        if (!outcome.ok) throw Error('Retry proof uncertain');
+        return outcome.proof;
+      });
       const parsed = prospectiveRenovateRetryProof.safeParse(value);
       capture?.record('registry-retry-validation', () => parsed);
       if (!parsed.success) return null;
@@ -2743,7 +2788,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         && proof.terminalAt <= Date.now() ? proof : null;
     } catch (error) {
       capture?.record('registry-retry-error', () => error);
-      return null; // Unknown/uncollected history cannot elect replacement work.
+      throw error; // Uncertain exchange must not fall through to retirement/election.
     }
   }
 
@@ -2760,28 +2805,36 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     try { return await captureRawInteraction(capture, 'registry-retained-targets', () => ({ registrationId }), async () => {
     const current = await this.currentProspectiveRenovateRegistration(registrationId, observation);
     if (!current) return [];
-    capture?.record('registry-retained-admissions-request', () => ({ prefix: 'renovate-activity:' }));
-    const admissions = await this.ctx.storage.list<ProspectiveAdmission>({ prefix: 'renovate-activity:' });
-    capture?.record('registry-retained-admissions', () => [...admissions].filter(([, admission]) => admission.ownerKey === observation?.binding.ownerKey));
-    try { await capture?.flush?.(); } catch { /* Keep the existing history scan. */ }
     const targets: RetainedRenovateRetryTarget[] = [];
-    for (const admission of admissions.values()) {
-      const created = prospectiveRenovateTimestamp(admission.createdAt);
-      const cutoff = prospectiveRenovateTimestamp(current.activatedAt);
-      if (created === null || cutoff === null || created <= cutoff
-        || admission.installationId !== current.installationId || admission.repositoryId !== current.repositoryId
-        || admission.repository !== current.repository || admission.baseBranch !== current.baseBranch) continue;
-      const latest = await this.ctx.storage.get<ProspectiveAdmission>(
-        `renovate-admission:${admission.repositoryId}:${admission.pullRequest}:${admission.head}`);
-      capture?.record('registry-retained-head', () => ({ request: { repositoryId: admission.repositoryId,
-        pullRequest: admission.pullRequest, head: admission.head }, value: !latest || latest.ownerKey === observation?.binding.ownerKey ? latest : { foreignOwner: true } }));
-      if (latest?.activityId !== admission.activityId) continue;
-      const proof = await this.prospectiveRetryProof(admission, admission.ownerKey === observation?.binding.ownerKey ? capture : undefined,
-        admission.ownerKey === observation?.binding.ownerKey ? observation : undefined);
-      if (proof && this.prospectiveRetryDue(admission, proof, current.repetitionIntervalSeconds)) {
-        targets.push({ repositoryId: admission.repositoryId, pullRequest: admission.pullRequest,
-          head: admission.head, createdAt: admission.createdAt });
+    let startAfter: string | undefined;
+    for (;;) {
+      const request = { prefix: 'renovate-activity:', limit: 128, ...(startAfter ? { startAfter } : {}) };
+      capture?.record('registry-retained-admissions-request', () => request);
+      const admissions = await this.ctx.storage.list<ProspectiveAdmission>(request);
+      capture?.record('registry-retained-admissions', () => [...admissions].filter(([, admission]) => admission.ownerKey === observation?.binding.ownerKey));
+      try { await capture?.flush?.(); } catch { /* Keep the existing history scan. */ }
+      for (const admission of admissions.values()) {
+        const created = prospectiveRenovateTimestamp(admission.createdAt);
+        const cutoff = prospectiveRenovateTimestamp(current.activatedAt);
+        if (created === null || cutoff === null || created <= cutoff
+          || admission.installationId !== current.installationId || admission.repositoryId !== current.repositoryId
+          || admission.repository !== current.repository || admission.baseBranch !== current.baseBranch) continue;
+        const latest = await this.ctx.storage.get<ProspectiveAdmission>(
+          `renovate-admission:${admission.repositoryId}:${admission.pullRequest}:${admission.head}`);
+        capture?.record('registry-retained-head', () => ({ request: { repositoryId: admission.repositoryId,
+          pullRequest: admission.pullRequest, head: admission.head }, value: !latest || latest.ownerKey === observation?.binding.ownerKey ? latest : { foreignOwner: true } }));
+        if (latest?.activityId !== admission.activityId) continue;
+        let proof: ProspectiveRenovateRetryProof | null;
+        try { proof = await this.prospectiveRetryProof(admission, admission.ownerKey === observation?.binding.ownerKey ? capture : undefined,
+          admission.ownerKey === observation?.binding.ownerKey ? observation : undefined); }
+        catch { continue; } // Keep scanning independent heads, never promote this uncertain one.
+        if (proof && this.prospectiveRetryDue(admission, proof, current.repetitionIntervalSeconds)) {
+          targets.push({ repositoryId: admission.repositoryId, pullRequest: admission.pullRequest,
+            head: admission.head, createdAt: admission.createdAt });
+        }
       }
+      if (admissions.size < 128) break;
+      startAfter = [...admissions.keys()].at(-1)!;
     }
     return await this.currentProspectiveRenovateRegistration(registrationId, observation) ? targets : [];
     }); } finally { try { await capture?.finish('complete'); } catch { /* Preserve retained targets. */ } }

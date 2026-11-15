@@ -6,6 +6,8 @@ import { Hono } from 'hono';
 import * as access from '../../lib/access';
 import activityRoutes from '../../routes/operator-activities';
 import { AppError } from '../../lib/error-types';
+import { consumeProspectiveReconciliation } from '../../operators/prospective-reconciliation';
+import { prospectiveRenovateRetryProof } from '../../operators/renovate-retry-proof';
 import { OperatorActivity } from '../../operators/activity';
 import { captureError, type DiagnosticEvent } from '../../operators/dispatcher-diagnostics-wire';
 import { appendDiagnostic } from '../../operators/dispatcher-diagnostics-store';
@@ -1967,7 +1969,19 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
   it.each(['read-failure', 'unknown-write', 'domain-uncertain'] as const)('REQ-OPERATOR-061: only original settled and collected singleton deferral supplies immutable scheduled-retry proof: %s', scenario => fixture(async f => {
     await start(f);
     const coordinates = { repositoryId: f.proof.repositoryId, pullRequest: f.proof.pullRequest, head: f.proof.head };
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toBeNull();
+    const retryProof = async (target: typeof coordinates) => {
+      // Root supplies its authoritative immutable admission; Activity performs
+      // no reverse Registry RPC during the streamed local proof transaction.
+      const original = await f.environment.OPERATOR_REGISTRY.getByName('registry').readProspectiveRenovateAdmission(f.proof.activityId);
+      const outcome = await consumeProspectiveReconciliation(await f.activity.readProspectiveRenovateRetryProof(target, original), value => {
+        const result = value as { ok: boolean; proof: unknown };
+        if (!result.ok) throw Error('Retry proof uncertain');
+        return result.proof === null ? null : prospectiveRenovateRetryProof.parse(result.proof);
+      });
+      expect(outcome.evidenceComplete).toBe(true);
+      return outcome.value;
+    };
+    expect(await retryProof(coordinates)).toBeNull();
     const original = await context(f);
     const target = { pullRequest: coordinates.pullRequest, headSha: coordinates.head };
     progress(f, original, { kind: 'target', index: 0, target }, { targets: [target] });
@@ -1988,23 +2002,26 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     else { f.messages([]); f.settle(current.submissionId, 'failed', { type: 'operation_failed' }); }
     await f.activity.reconcileDispatcherLease();
     const final = await context(f);
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toBeNull();
+    expect(await retryProof(coordinates)).toBeNull();
     f.messages([{ submissionId: final.submissionId, parts: [{ type: 'data-assessment', data: result }] }]);
     f.settle(final.submissionId); await f.activity.reconcileDispatcherLease();
-    const proof = await f.activity.readProspectiveRenovateRetryProof(coordinates);
+    const proof = await retryProof(coordinates);
     if (scenario === 'read-failure') expect(proof).toMatchObject({ ...coordinates, activityId: f.proof.activityId, generation: final.generation,
       repository: f.proof.repository, baseBranch: f.proof.baseBranch, artifactDigest: f.proof.bundleDigest,
       createdAt: f.proof.createdAt, sdkSubmissionId: final.submissionId, terminalAt: expect.any(Number),
       collected: true, settled: true, disposition: 'DEFERRED' });
     else expect(proof).toBeNull(); // Complete collection never grants permission to repeat an uncertain effect.
     f.restart();
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toEqual(proof);
+    expect(await retryProof(coordinates)).toEqual(proof);
     expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toEqual(proof);
-    expect(await f.activity.readProspectiveRenovateRetryProof({ ...coordinates, repositoryId: coordinates.repositoryId + 1 })).toBeNull();
-    expect(await f.activity.readProspectiveRenovateRetryProof({ ...coordinates, head: 'c'.repeat(40) })).toBeNull();
+    expect(await retryProof(coordinates)).toEqual(proof);
+    expect(await retryProof({ ...coordinates, repositoryId: coordinates.repositoryId + 1 })).toBeNull();
+    expect(await retryProof({ ...coordinates, head: 'c'.repeat(40) })).toBeNull();
+    const mismatched = await consumeProspectiveReconciliation(await f.activity.readProspectiveRenovateRetryProof(coordinates,
+      { ...f.proof, activityId: 'foreign-receiver' }), value => (value as { proof: unknown }).proof);
+    expect(mismatched.value).toBeNull();
     f.changeProof({ head: 'c'.repeat(40) });
-    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toBeNull();
+    expect(await retryProof(coordinates)).toBeNull();
   }, { prospective: true, intent4: true }));
 
   it.each([1, 2])('lost phase %i acknowledgement reattaches the original keyed admission without replacing UID/SID', lost => fixture(async f => {

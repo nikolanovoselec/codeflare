@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-15
+
+- Keep historical reconciliation on a one-way Registry-to-Activity exchange with authoritative admission/ledger results and bounded private evidence streaming. Preserve atomic retirement guards and logging non-interference; reacquire the same Activity's stub for the existing guarded fence after RPC failure ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-authorized-renovate-scan), [REQ-OPERATOR-063](operators.md#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).
+
 ## 2026-11-14
 
 - Apply existing validated source timeout/byte capacities to pre-admission metadata and automatic Renovate discovery instead of hidden eight-second/two-MiB transport caps. Share the original request deadline across headers/body, bounded by original authority expiry; preserve complete-scan, cancellation, revision and raw-capture/no-renewal fences ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-authorized-renovate-scan), [REQ-OPERATOR-101](operators.md#req-operator-101-operator-budget-policy), [REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).

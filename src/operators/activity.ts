@@ -6,9 +6,10 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import { Buffer } from 'node:buffer';
+import { prospectiveReconciliationStream, type ProspectiveReconciliationAuthority, type ProspectiveRetirement } from './prospective-reconciliation';
 import { createHash } from 'node:crypto';
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { createRawCapture, createOwnerRawCaptureStorage, verifyRawCapture, captureRawInteraction, type RawCaptureBinding, type RawCapture, type RawCaptureReceipt } from './raw-capture-storage';
+import { createRawCapture, createOwnerRawCaptureStorage, verifyRawCapture, captureRawInteraction, type RawCaptureBinding, type RawCapture } from './raw-capture-storage';
 import { requireOwnerRawReader, parseOwnerRawReadRequest, readOwnerRawCapturePage, ownerRawReadUnavailable,
   type OwnerRawReadCredential, type OwnerRawReadRequest } from './raw-capture-read';
 import { projectDispatcherOperationEvidence } from './dispatcher-runtime-diagnostics';
@@ -986,42 +987,15 @@ export class OperatorActivity extends Agent {
     return state?.ownerKey === ownerKey && (state.phase === 'prepared' || state.phase === 'admitting');
   }
 
-  /** Root-local snapshots; only inert data crosses RPC, never this writer or callbacks. */
-  private prospectiveObservationRelay(observation?: ProspectiveObservationCapture): RawCapture | undefined {
-    if (observation?.loggingEnabled !== true || observation.binding.scope.kind !== 'observation') return;
-    try {
-    const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
-    let records: Array<{ stage: string; value: unknown }> = [];
-    let receipt: RawCaptureReceipt = { status: 'disabled', captureId: observation.binding.captureId,
-      records: 0, segments: 0, bytes: 0, termination: 'complete' };
-    let failed = false;
-    let sequence = 0;
-    const flush = async () => {
-      if (failed || !records.length) return;
-      const batch = records; records = [];
-      try {
-        receipt = await registry.retainRawObservation({ binding: { ...observation.binding, captureId: crypto.randomUUID() },
-          observation, records: [{ stage: 'interaction-sequence', value: sequence++ }, ...batch], termination: 'complete', failed: false });
-        if (receipt.status !== 'complete') failed = true;
-      } catch { failed = true; }
-    };
-    return { record: (stage, lazy) => {
-      if (!failed) try { records.push({ stage, value: captureRawValue(lazy()) }); } catch { failed = true; }
-    }, flush, finish: async () => {
-      await flush();
-      if (failed) {
-        try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-incomplete',
-          data: { captureId: observation.binding.captureId, status: 'incomplete' } })); } catch { /* Preserve original result. */ }
-        return { ...receipt, status: 'incomplete' };
-      }
-      return receipt;
-    } };
-    } catch { return; } // Optional setup must not affect an original call.
+  /** Retire exact original never-driven work without SDK observation, abort or recovery. */
+  async retireProspectiveRenovatePreparation(input: ProspectiveAdmission, authority: ProspectiveReconciliationAuthority,
+    observation?: ProspectiveObservationCapture): Promise<ReadableStream<Uint8Array>> {
+    return prospectiveReconciliationStream(observation?.loggingEnabled === true,
+      raw => this.retireProspectivePreparation(input, authority, observation, raw));
   }
 
-  /** Retire exact original never-driven work without SDK observation, abort or recovery. */
-  async retireProspectiveRenovatePreparation(input: ProspectiveAdmission, observation?: ProspectiveObservationCapture): Promise<boolean> {
-    let raw: RawCapture | undefined;
+  private async retireProspectivePreparation(input: ProspectiveAdmission, authority: ProspectiveReconciliationAuthority,
+    observation?: ProspectiveObservationCapture, raw?: RawCapture): Promise<ProspectiveRetirement> {
     // Do not fetch policy or other protected evidence solely for optional diagnostics.
     let loggingEnabled: boolean | undefined;
     const refuse = (reason: 'receiver-mismatch' | 'original-admission-mismatch' | 'unsupported-layout'
@@ -1035,32 +1009,27 @@ export class OperatorActivity extends Agent {
           reason, admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', input.activityId])),
         });
       } catch { /* Optional diagnostics cannot authorize retirement or replace its result. */ }
-      return false;
+      return { retired: false, summary: null };
     };
     try {
       if (!syncIdentity.safeParse(input.activityId).success || !this.#appEnv.OPERATOR_ACTIVITY
         || this.#appEnv.OPERATOR_ACTIVITY.idFromName(input.activityId).toString() !== this.ctx.id.toString()) return refuse('receiver-mismatch');
-      const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
-      if (observation?.loggingEnabled === true && observation.binding.scope.kind === 'observation'
-        && observation.binding.ownerKey === input.ownerKey && observation.binding.installationId === input.installationId) try {
-        observation = { ...observation, parentCaptureId: observation.binding.captureId,
-          binding: { ...observation.binding, captureId: crypto.randomUUID() } };
-        raw = this.prospectiveObservationRelay(observation);
-        raw?.record('activity-retirement-request', () => input);
-      } catch { /* Optional span setup cannot change retirement. */ }
-      let original: ProspectiveAdmission | null;
-      raw?.record('activity-retirement-original-request', () => ({ activityId: input.activityId }));
-      try { original = await registry.readProspectiveRenovateAdmission(input.activityId, observation); }
-      catch (error) { raw?.record('activity-retirement-original-error', () => error); throw error; }
-      raw?.record('activity-retirement-original-response', () => !original || original.ownerKey === observation?.binding.ownerKey
-        ? original : { foreignOwner: true });
+      if (observation?.loggingEnabled !== true || observation.binding.scope.kind !== 'observation'
+        || observation.binding.ownerKey !== input.ownerKey || observation.binding.installationId !== input.installationId) raw = undefined;
+      raw?.record('activity-retirement-request', () => input);
+      const original = authority?.original;
+      raw?.record('activity-retirement-original-response', () => original);
       if (!original || !sameDispatcherPhaseValue(original, input)) return refuse('original-admission-mismatch');
       const layout = prospectiveAdmissionLayout(original);
       if (!layout) return refuse('unsupported-layout');
       // Even the original 2160810c start path wrote this immutable ledger before queue/runtime.
       // A later optional reservation timestamp is not admission evidence; local absence alone is not either.
       const ledger = await captureRawInteraction(raw, 'activity-retirement-ledger', () => original.activityId, async () => {
-        const receipt = await registry.getManagementAdmission(original.activityId, observation);
+        if (authority.ledger?.ok !== true) throw authority.ledger?.error ?? Error('Admission ledger unavailable');
+        const receipt = authority.ledger.receipt;
+        // Missing/invalid private wire data is not a successful absence read.
+        if (receipt !== null && (!receipt || !isManagementReceipt(receipt)
+          || receipt.activityId !== original.activityId || !receipt.selection?.operator?.policy)) throw Error('Admission ledger invalid');
         try { loggingEnabled = executionLoggingEnabled(receipt); }
         catch { loggingEnabled = false; }
         return receipt;
@@ -1160,14 +1129,15 @@ export class OperatorActivity extends Agent {
         return true;
       });
       const trace = loggingEnabled ? raw : undefined;
-      if (retired) await captureRawInteraction(trace, 'activity-retirement-publication-summary', () => ({ activityId: original.activityId }),
-        () => this.publishBrowserSummary(undefined, undefined, undefined, trace));
+      let summary: OperatorBrowserSummary | null = null;
+      if (retired) try { summary = await this.prospectiveBrowserSummary(trace); }
+      catch (error) { trace?.record('activity-summary-error', () => error); }
       raw?.record('activity-retirement-response', () => retired);
-      return retired;
+      return { retired, summary };
     } catch (error) {
       raw?.record('activity-retirement-error', () => loggingEnabled === false ? { omitted: 'original-logging-policy' } : error);
       return refuse('evidence-unavailable'); // Unavailable evidence cannot authorize a replacement.
-    } finally { try { await raw?.finish('complete'); } catch { /* Retention cannot change retirement. */ } }
+    }
   }
 
   /** Parent-safe discriminator used to require live installation authorization at start. */
@@ -5569,6 +5539,15 @@ export class OperatorActivity extends Agent {
       sessionId: null, source: null, updatedAt: state.updatedAt ?? Date.now() };
   }
 
+  /** Local projection only: the reconciliation caller publishes after consuming EOF. */
+  private async prospectiveBrowserSummary(raw?: RawCapture): Promise<OperatorBrowserSummary | null> {
+    const state = await captureRawInteraction(raw, 'activity-summary-state', () => 'admission',
+      () => this.ctx.storage.get<AdmissionState>('admission'));
+    if (!state?.ownerKey) return null;
+    return this.browserSummary(state, await captureRawInteraction(raw, 'activity-summary-lease',
+      () => DISPATCHER_LEASE, () => this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)));
+  }
+
   private async publishBrowserSummary(state?: AdmissionState, summary?: OperatorBrowserSummary,
     observed?: OperatorBrowserSummary, raw?: RawCapture): Promise<void> {
     state ??= await captureRawInteraction(raw, 'activity-summary-state', () => 'admission',
@@ -6123,13 +6102,18 @@ export class OperatorActivity extends Agent {
   }
 
   /** Existing Registry reads original terminal proof. Never drives, re-admits or collects history. */
-  async readProspectiveRenovateRetryProof(input: { repositoryId: number; pullRequest: number; head: string }, observation?: ProspectiveObservationCapture):
-    Promise<ProspectiveRenovateRetryProof | null> {
-    try {
-      if (observation?.loggingEnabled === true) observation = { ...observation, parentCaptureId: observation.binding.captureId,
-        binding: { ...observation.binding, captureId: crypto.randomUUID() } };
-    } catch { observation = undefined; }
-    const archive = this.prospectiveObservationRelay(observation);
+  async readProspectiveRenovateRetryProof(input: { repositoryId: number; pullRequest: number; head: string },
+    original: ProspectiveAdmission | null, observation?: ProspectiveObservationCapture): Promise<ReadableStream<Uint8Array>> {
+    return prospectiveReconciliationStream(observation?.loggingEnabled === true, async raw => {
+      try { return { ok: true, proof: await this.prospectiveRetryProof(input, original, observation, raw) }; }
+      catch { return { ok: false }; } // Raw error chains precede the explicit uncertain outcome.
+    });
+  }
+
+  private async prospectiveRetryProof(input: { repositoryId: number; pullRequest: number; head: string },
+    original: ProspectiveAdmission | null, observation?: ProspectiveObservationCapture, archive?: RawCapture): Promise<ProspectiveRenovateRetryProof | null> {
+    if (observation?.loggingEnabled !== true || observation.binding.scope.kind !== 'observation'
+      || original?.ownerKey !== observation.binding.ownerKey || original.installationId !== observation.binding.installationId) archive = undefined;
     let owned = true;
     let loggingEnabled: boolean | undefined;
     const raw = archive && { ...archive, record: (stage: string, value: () => unknown) => {
@@ -6138,12 +6122,14 @@ export class OperatorActivity extends Agent {
       } else if (stage === 'activity-retry-proof-response' && !owned) archive.record(stage, () => ({ foreignOwner: true }));
       else archive.record(stage, value);
     } };
-    try { return await captureRawInteraction(raw, 'activity-retry-proof', () => input, async () => {
+    return captureRawInteraction(raw, 'activity-retry-proof', () => input, async () => {
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest < 1 || !/^[a-f0-9]{40}$/.test(input.head)) return null;
     const bound = await this.ctx.storage.get<string>('prospective-admission');
     if (!bound) { raw?.record('activity-retry-bound', () => bound); return null; }
-    const original = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').readProspectiveRenovateAdmission(bound, observation);
+    if (!original || original.activityId !== bound || !prospectiveAdmissionLayout(original)
+      || !this.#appEnv.OPERATOR_ACTIVITY
+      || this.#appEnv.OPERATOR_ACTIVITY.idFromName(original.activityId).toString() !== this.ctx.id.toString()) return null;
     owned = !original || !observation || original.ownerKey === observation.binding.ownerKey;
     raw?.record('activity-retry-original', () => owned ? { bound, original } : { foreignOwner: true });
     if (!original || original.repositoryId !== input.repositoryId || original.pullRequest !== input.pullRequest
@@ -6151,7 +6137,7 @@ export class OperatorActivity extends Agent {
     return this.ctx.storage.transaction(async tx => {
       const state = await captureRawInteraction(owned ? raw : undefined, 'activity-retry-admission', () => 'admission', async () => {
         const value = await tx.get<AdmissionState>('admission');
-        try { loggingEnabled = executionLoggingEnabled(value?.receipt); }
+        try { loggingEnabled = (!value?.receipt || isManagementReceipt(value.receipt)) && executionLoggingEnabled(value?.receipt); }
         catch { loggingEnabled = false; }
         return value;
       }, value => !loggingEnabled ? { omitted: 'original-logging-policy' }
@@ -6202,7 +6188,7 @@ export class OperatorActivity extends Agent {
       trace?.record('activity-retry-validation', () => parsed);
       return parsed.success ? parsed.data : null;
     });
-    }); } finally { try { await raw?.finish('complete'); } catch { /* Preserve proof or its original throw. */ } }
+    });
   }
 
   /** Explicit parent-only publication; result collection and child operations never call this method. */

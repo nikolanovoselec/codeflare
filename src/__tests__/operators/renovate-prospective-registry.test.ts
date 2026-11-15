@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { env, reset, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry, type CurrentProspectiveRegistration, type ManagementExecutionSelection, type ProspectiveAdmission, type ProspectiveObservationCapture } from '../../operators/registry';
 import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
@@ -16,8 +17,10 @@ import * as access from '../../lib/access';
 import { openOperatorExecutionAccess } from '../../operators/execution-context';
 import activityRoutes from '../../routes/operator-activities';
 import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
-import { createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures, type RawCaptureReceipt, type RawCaptureBinding } from '../../operators/raw-capture-storage';
+import { createRawCapture, exportRawCapture, createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures, type RawCaptureReceipt, type RawCaptureBinding } from '../../operators/raw-capture-storage';
 import type { Env } from '../../types';
+import * as rawCaptureStorage from '../../operators/raw-capture-storage';
+import { prospectiveReconciliationStream, consumeProspectiveReconciliation } from '../../operators/prospective-reconciliation';
 import type { ProspectiveRenovateRetryProof } from '../../operators/renovate-retry-proof';
 
 const repoId = 424242, head = 'a'.repeat(40), newerHead = 'b'.repeat(40);
@@ -76,7 +79,7 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
     }) as typeof kv.get;
     const proofs = new Map<string, unknown>();
     const environment = { OPERATOR_ACTIVITY: { getByName: (id: string) => ({
-      readProspectiveRenovateRetryProof: async () => proofs.get(id) ?? null,
+      readProspectiveRenovateRetryProof: async () => prospectiveReconciliationStream(false, async () => ({ ok: true, proof: proofs.get(id) ?? null })),
     }) }, ENCRYPTION_KEY: btoa('k'.repeat(32)),
       USAGE_DB: database, KV: kv } as unknown as Env;
     const registry = new OperatorRegistry(native, environment);
@@ -135,6 +138,26 @@ async function registryRawPage(response: Response) {
   if (page.cursor !== null) expect(page.cursor).toMatch(/^[a-f0-9]{64}$/);
   return page;
 }
+// Export consumers can reconstruct full logical records; production persistence
+// deliberately never allocates a history/record reconstruction buffer.
+function reconciliationRecords(records: Array<{ stage: string; value: unknown }>) {
+  const decoded: Array<{ stage: string; value: unknown }> = [];
+  let sequence = 0; let part = 0; let text = '';
+  for (const record of records) {
+    if (record.stage !== 'reconciliation-record-part') { decoded.push(record); continue; }
+    const frame = record.value as { type: string; sequence: number; part: number; text: string; last: boolean; digest?: string };
+    expect(frame).toMatchObject({ type: 'record', sequence, part });
+    expect(frame.text.length).toBeLessThanOrEqual(4096);
+    text += frame.text;
+    if (frame.last) {
+      // The private framing contract checksums the reconstructed original UTF-8.
+      expect(frame.digest).toBe(createHash('sha256').update(text).digest('hex'));
+      decoded.push(JSON.parse(text)); text = ''; part = 0; sequence++;
+    } else part++;
+  }
+  expect(text).toBe(''); expect(part).toBe(0);
+  return decoded;
+}
 async function registryRawExport(response: Response) {
   expect(response).toBeInstanceOf(Response);
   expect(response.status).toBe(200);
@@ -145,7 +168,7 @@ async function registryRawExport(response: Response) {
   const frames = text.trimEnd().split('\n').map(line => JSON.parse(line));
   expect(frames.pop()).toEqual({ type: 'complete', receipt: expect.objectContaining({ status: 'complete' }) });
   for (const frame of frames) expect(frame).toStrictEqual({ type: 'record', stage: expect.any(String), value: frame.value });
-  return frames.map(frame => ({ stage: frame.stage as string, value: frame.value as unknown }));
+  return reconciliationRecords(frames.map(frame => ({ stage: frame.stage as string, value: frame.value as unknown })));
 }
 async function registryRawDenied(response: Response) {
   expect(response).toBeInstanceOf(Response);
@@ -182,6 +205,41 @@ async function dispatcherPlan(registry: Prospective, environment: Env, selection
 }
 
 describe('REQ-OPERATOR-090/091 AC6/7: Registry-native private observation reads', () => {
+  it.each(['on', 'off', 'writer-failure'] as const)(
+    'REQ-OPERATOR-061/090/091: %s bounded exchange preserves business outcome and complete multi-batch private bytes/error chains or explicit incompleteness',
+    policy => fixture(async ({ native, environment }) => {
+      const binding: RawCaptureBinding = { ownerKey: 'a'.repeat(64), installationId: 'dispatcher-install', releaseId: 'release',
+        captureId: crypto.randomUUID(), scope: { kind: 'observation', observationId: crypto.randomUUID() } };
+      const storage = await createOwnerRawCaptureStorage(environment, native.storage, async () => {});
+      const capture = createRawCapture({ enabled: policy !== 'off', binding,
+        storage: async () => { if (policy === 'writer-failure') throw Error('Owner writer unavailable'); return storage; },
+        schedule: work => native.waitUntil(work) });
+      const privateText = 'UNREDACTED_PRIVATE_秘密🧪\n"\\'.repeat(3000);
+      const error = Error(`Outer ${privateText}`, { cause: Error(`Inner ${privateText}`) });
+      const pages = Array.from({ length: 3 }, (_, page) => Array.from({ length: 128 }, (_, row) => ({ page, row, body: privateText.slice(row, row + 40) })));
+      let evaluated = false;
+      const stream = prospectiveReconciliationStream(policy !== 'off', async raw => {
+        for (const page of pages) {
+          raw?.record('retained-history-page', () => { evaluated = true; return page; }); await raw?.flush?.();
+        }
+        raw?.record('retained-history-error', () => error); await raw?.flush?.();
+        return { retired: true };
+      });
+      const outcome = await consumeProspectiveReconciliation(stream, value => value, policy === 'off' ? undefined : capture);
+      expect(outcome.value).toEqual({ retired: true });
+      expect(evaluated).toBe(policy !== 'off');
+      const receipt = await capture.finish('complete');
+      expect(receipt.status).toBe(policy === 'off' ? 'disabled' : policy === 'writer-failure' ? 'incomplete' : 'complete');
+      expect(outcome.evidenceComplete).toBe(policy !== 'writer-failure');
+      if (policy === 'on') {
+        const exported = await registryRawExport(await exportRawCapture({ binding, storage }));
+        expect(exported.filter(record => record.stage === 'retained-history-page').map(record => record.value)).toEqual(pages);
+        expect(exported.find(record => record.stage === 'retained-history-error')?.value).toMatchObject({ name: 'Error',
+          message: `Outer ${privateText}`, stack: expect.any(String), cause: { name: 'Error', message: `Inner ${privateText}`, stack: expect.any(String) } });
+      } else expect(await discoverRawCaptures({ scope: { ownerKey: binding.ownerKey, scope: binding.scope }, storage, authorize: async () => {} }))
+        .toMatchObject({ status: 'complete', bindings: [] });
+    }));
+
   it('exports all 538181 available pre-admission discovery bytes and original nested errors after finalization without an Activity or current registration', () => fixture(async ({ registry, native, environment, selection, state }) => {
     environment.ENTERPRISE_MODE = 'active';
     const body = new TextEncoder().encode('SYNTHETIC_PRE_ADMISSION_BODY;'.repeat(20_000)).slice(0, 538181);
@@ -1258,7 +1316,7 @@ describe('REQ-OPERATOR-063 AC1/5/6: one-round prospective admission diagnostic w
       environment.CONTAINER = { getByName: () => { throw Error('No Host access'); } } as never;
       environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
         id: activityNamespace.idFromName(id),
-        readProspectiveRenovateRetryProof: async () => null,
+        readProspectiveRenovateRetryProof: async () => prospectiveReconciliationStream(false, async () => ({ ok: true, proof: null })),
         getRuntimePlan: async () => {
           attempted.push(id);
           if (attempted.length === 1) return null;
@@ -1405,7 +1463,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     });
     if (planFailure) environment.OPERATOR_ACTIVITY = { getByName: () => ({
       getRuntimePlan: async () => { throw originalError; },
-      fenceRuntimeFailure: async () => {}, readProspectiveRenovateRetryProof: async () => null,
+      fenceRuntimeFailure: async () => {}, readProspectiveRenovateRetryProof: async () => prospectiveReconciliationStream(false, async () => ({ ok: true, proof: null })),
     }) } as never;
     Object.defineProperty(native, 'exports', { configurable: true, value: {
       GitHubInterceptor: () => ({ fetch: async (request: Request) => request.url.includes('/pulls?') ? new Response(body)
@@ -1589,7 +1647,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       const streamError = Error(privateBody);
       const handoffError = Error('secret-handoff-body https://private.test/handoff');
       environment.OPERATOR_ACTIVITY = { getByName: (id: string) => ({
-        readProspectiveRenovateRetryProof: async () => null,
+        readProspectiveRenovateRetryProof: async () => prospectiveReconciliationStream(false, async () => ({ ok: true, proof: null })),
         prepareAuthorized: async (intent: { activityId: string }, _context: unknown, _invocation: string,
           _boundary: unknown, prospectiveAdmissionId?: string) => {
           expect(intent.activityId).toBe(id);
@@ -1734,15 +1792,15 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     }));
   const handoffFaults = ['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'lost-start-ack', 'admission-unavailable', 'profile-unavailable', 'profile-revoked',
     'plan-read', 'plan-missing', 'drive-plan-read', 'drive-plan-missing', 'detail-read', 'detail-missing', 'binding', 'concurrent-drive', 'persistence-unavailable',
-    'prepared-start', 'admitting-start', 'preparation-proof-missing'] as const;
+    'prepared-start', 'admitting-start', 'preparation-proof-missing', 'poisoned-plan', 'poisoned-concurrent-drive'] as const;
   const reconciliationCases = ['upgrade', 'absent', 'prepared', 'absent-global-receipt', 'admitting',
     'ledger-unavailable', 'legacy-no-admittedAt', 'concurrent-drive', 'unknown', 'foreign-owner', 'foreign-bucket',
     'stale-caller', 'stale-selection', 'stale-election', 'legacy-full-queued', 'legacy-full-absent',
     'legacy-full-prepared', 'legacy-full-missing-local', 'legacy-full-foreign-repository', 'session-pinned',
     'partial-pins', 'invalid-pins', 'mismatched-pins', 'invalid-admittedAt', 'legacy-full-ledger-missing', 'legacy-full-ledger-mismatch',
-    'orphan-effect', 'orphan-publication', 'orphan-lease', 'active-original', 'head-boundary'] as const;
+    'orphan-effect', 'orphan-publication', 'orphan-lease', 'active-original', 'head-boundary', 'interrupted-exchange', 'malformed-exchange', 'ledger-missing-result', 'ledger-invalid-result', 'interrupted-proof-exchange', 'malformed-proof-exchange'] as const;
   const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none', delegated = false,
-    reconciliation?: typeof reconciliationCases[number], diagnostics: 'on' | 'off' | 'throws' | 'rpc-throws' | 'writer-throws' | 'foreign-scope' = 'on',
+    reconciliation?: typeof reconciliationCases[number], diagnostics: 'on' | 'off' | 'throws' | 'rpc-throws' | 'writer-throws' | 'foreign-scope' | 'summary-throws' = 'on',
     loggingPolicy?: { original: boolean; current: boolean }) => fixture(async ({ native, environment, selection, state }) => {
     // 2160810c's complete persisted layout used a fixed numeric repository and session authority.
     const historical = reconciliation?.startsWith('legacy-full-') === true;
@@ -1796,6 +1854,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
       let originalStartCapability: string | undefined;
       let missingPreparationProof = fault === 'preparation-proof-missing';
       let ledgerUnavailable = false;
+      let summaryUnavailable = false;
       const sensitiveError = 'private-token=never-log-this; body=private-owner-payload';
       const ledgerPrivateValue = 'SYNTHETIC_IMMUTABLE_RECEIPT_秘密🧪'.repeat(6000);
       const statePrivateValue = 'SYNTHETIC_ORIGINAL_ACTIVITY_STATE_秘密🧪'.repeat(6000);
@@ -1831,9 +1890,16 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         if (activityId && activityId !== id) throw Error('Unexpected replacement Activity');
         activityId = id;
         // Use the fixture's existing inOwnContext pattern for each real DO boundary.
+        let poisoned = false;
         return new Proxy(activity, { get: (target, key) => {
           const value = Reflect.get(target, key);
           return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => {
+            if (poisoned) throw Error(sensitiveError);
+            if (faultArmed && key === 'getRuntimePlan' && ['poisoned-plan', 'poisoned-concurrent-drive'].includes(fault)) {
+              poisoned = true;
+              if (fault === 'poisoned-concurrent-drive') await target.beginDrive();
+              throw Error(sensitiveError);
+            }
             if (key === 'prepareAuthorized') {
               if (historical) {
                 const intent = args[0] as Parameters<OperatorActivity['prepareAuthorized']>[0];
@@ -1918,6 +1984,16 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           native.storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', input.activityId, JSON.stringify(receipt));
         }
         return { ok: true, value: receipt };
+      });
+      const publishSummary = owner.upsertOwnedActivity.bind(owner);
+      vi.spyOn(owner, 'upsertOwnedActivity').mockImplementation(async (...args) => {
+        if (summaryUnavailable) throw Error('Summary owner unavailable');
+        return publishSummary(...args);
+      });
+      const readLedger = owner.getManagementAdmission.bind(owner);
+      vi.spyOn(owner, 'getManagementAdmission').mockImplementation(async (id, capture) => {
+        if (ledgerUnavailable) throw Error('Admission ledger unavailable', { cause: Error(sensitiveError) });
+        return readLedger(id, capture);
       });
       vi.spyOn(owner, 'getManagementBundle').mockImplementation(async () => {
         if (fault === 'admission-unavailable') state.identityFault = 'unavailable';
@@ -2105,6 +2181,14 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             }
           }
           ledgerUnavailable = reconciliation === 'ledger-unavailable';
+          summaryUnavailable = diagnostics === 'summary-throws';
+          if (reconciliation === 'ledger-missing-result') vi.mocked(owner.getManagementAdmission).mockResolvedValue(undefined as never);
+          if (reconciliation === 'ledger-invalid-result') vi.mocked(owner.getManagementAdmission).mockResolvedValue({} as never);
+          if (reconciliation === 'legacy-full-ledger-missing') vi.mocked(owner.getManagementAdmission).mockResolvedValue(null);
+          if (reconciliation === 'legacy-full-ledger-mismatch') vi.mocked(owner.getManagementAdmission)
+            .mockResolvedValue({ ...originalLedger!, intentDigest: 'f'.repeat(64) });
+          const writerFailure = diagnostics === 'writer-throws'
+            ? vi.spyOn(rawCaptureStorage, 'createOwnerRawCaptureStorage').mockRejectedValue(Error(sensitiveError)) : undefined;
           let racedDrive = false;
           environment.OPERATOR_ACTIVITY = { idFromName: () => activityNative.id, getByName: (id: string) => {
             if (id !== originalId) throw Error('Unexpected replacement before election');
@@ -2116,17 +2200,32 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
                   racedDrive = true;
                   await originalActivity.beginDrive();
                 }
-                if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'legacy-full-ledger-missing') {
-                  vi.spyOn(owner, 'getManagementAdmission').mockResolvedValue(null);
-                }
-                if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'legacy-full-ledger-mismatch') {
-                  vi.spyOn(owner, 'getManagementAdmission').mockResolvedValue({ ...originalLedger!, intentDigest: 'f'.repeat(64) });
-                }
                 const result = await Reflect.apply(value, object, args);
-                if (key === 'retireProspectiveRenovatePreparation' && result === true) {
-                  if (reconciliation === 'stale-selection') selected.installation.revision++;
-                  if (reconciliation === 'stale-election') await inRegistry(() => owner.activateProspectiveRenovate({
-                    ...consent, accessJwt: 'z-fresh-consent' }));
+                if (key === 'retireProspectiveRenovatePreparation' && ['interrupted-exchange', 'malformed-exchange'].includes(reconciliation)
+                  || key === 'readProspectiveRenovateRetryProof' && ['interrupted-proof-exchange', 'malformed-proof-exchange'].includes(reconciliation)) {
+                    // Consume the real atomic retirement, then lose/corrupt its
+                    // final response: it must not certify a replacement.
+                    const reader = (result as ReadableStream<Uint8Array>).getReader();
+                    return new ReadableStream<Uint8Array>({ async pull(controller) {
+                      const next = await reader.read();
+                      if (next.done) { controller.close(); return; }
+                      const text = new TextDecoder().decode(next.value);
+                      if (text.startsWith('{"type":"result"')) {
+                        if (reconciliation === 'malformed-exchange' || reconciliation === 'malformed-proof-exchange') controller.enqueue(new TextEncoder().encode('{"type":"result","value":true}\n'));
+                        controller.close(); await reader.cancel();
+                      } else controller.enqueue(next.value);
+                    } });
+                }
+                if (key === 'retireProspectiveRenovatePreparation') {
+                  return (result as ReadableStream<Uint8Array>).pipeThrough(new TransformStream({ async transform(chunk, controller) {
+                    const text = new TextDecoder().decode(chunk);
+                    if (text.startsWith('{"type":"result"') && JSON.parse(text).value.retired) {
+                      if (reconciliation === 'stale-selection') selected.installation.revision++;
+                      if (reconciliation === 'stale-election') await inRegistry(() => owner.activateProspectiveRenovate({
+                        ...consent, accessJwt: 'z-fresh-consent' }));
+                    }
+                    controller.enqueue(chunk);
+                  } }));
                 }
                 return result;
               }) : value;
@@ -2142,7 +2241,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           const outcomes = await inRegistry(() => Promise.all([
             owner.reserveProspectiveRenovateActivity(target, observation),
             owner.reserveProspectiveRenovateActivity({ ...target, activityId: 'reconciled-b' }, observation),
-          ]));
+          ])).finally(() => writerFailure?.mockRestore());
+          summaryUnavailable = false;
           const protectedRecords = await inRegistry(async () => {
             const storage = await createOwnerRawCaptureStorage(environment, native.storage, async () => {});
             const records: Array<{ stage: string; value: unknown }> = [];
@@ -2164,7 +2264,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
                   expect(parent.parentCaptureId).toEqual(expect.any(String));
                   sequences.set(parent.binding.captureId, [...(sequences.get(parent.binding.captureId) ?? []), sequence]);
                 }
-                records.push(...archive.records);
+                records.push(...reconciliationRecords(archive.records));
               }
               cursor = page.cursor ?? undefined;
             } while (cursor);
@@ -2209,7 +2309,16 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               expect(transport.networkRequests).toEqual(network);
             } finally { auth.mockRestore(); }
           }
-          if (!observation.loggingEnabled || diagnostics === 'foreign-scope') expect(protectedRecords).toEqual([]);
+          if (['interrupted-exchange', 'malformed-exchange', 'interrupted-proof-exchange', 'malformed-proof-exchange'].includes(reconciliation)) {
+            expect(publicOutputs.some(line => line.includes('raw-capture-incomplete'))).toBe(true);
+            expect(protectedRecords.some(record => record.stage === 'activity-retirement-response')).toBe(false);
+            if (reconciliation.endsWith('proof-exchange')) expect(protectedRecords.some(record => record.stage === 'activity-retry-proof-response')).toBe(false);
+          }
+          if (diagnostics === 'writer-throws') {
+            expect(publicOutputs.some(line => line.includes('raw-capture-incomplete'))).toBe(true);
+            expect(protectedRecords).toEqual([]);
+          }
+          if (!observation.loggingEnabled || diagnostics === 'foreign-scope' || diagnostics === 'writer-throws') expect(protectedRecords).toEqual([]);
           else {
             expect(protectedRecords).toContainEqual({ stage: 'registry-reservation-request', value: target });
             expect(protectedRecords.some(record => record.stage === 'registry-reservation-response')).toBe(true);
@@ -2291,9 +2400,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           }
           expect(publicOutputs.join('\n')).not.toContain(privateEvidence.token);
           expect(publicOutputs.join('\n')).not.toContain(legacy.privateOwnerEvidence);
-          if (reconciliation === 'legacy-full-ledger-missing' || reconciliation === 'legacy-full-ledger-mismatch') {
+          if (['legacy-full-ledger-missing', 'legacy-full-ledger-mismatch', 'ledger-missing-result', 'ledger-invalid-result'].includes(reconciliation)) {
             vi.mocked(owner.getManagementAdmission).mockRestore();
           }
+          ledgerUnavailable = false;
           expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId))).toEqual(original);
           expect(await inRegistry(() => owner.getManagementAdmission(originalId))).toEqual(originalLedger);
           expect(transport.admissions.size).toBe(0);
@@ -2318,6 +2428,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             'orphan-lease': ['operator-activity', 'runtime-effect-present'],
             'active-original': ['operator-registry', 'original-registration-present'],
             'head-boundary': ['operator-registry', 'head-mismatch'],
+            'interrupted-exchange': ['operator-registry', 'retirement-rpc-failed'],
+            'malformed-exchange': ['operator-registry', 'retirement-rpc-failed'],
+            'ledger-missing-result': ['operator-registry', 'retirement-refused'],
+            'ledger-invalid-result': ['operator-registry', 'retirement-refused'],
           };
           const expected = diagnostics === 'rpc-throws' ? ['operator-registry', 'retirement-rpc-failed']
             : loggingPolicy?.original === false && originalLedger && expectedRefusal[reconciliation]
@@ -2346,7 +2460,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             expect(await inRegistry(() => owner.readProspectiveRenovateAdmission('reconciled-b'))).toBeNull();
             if (reconciliation === 'concurrent-drive') {
               expect(await inActivity(() => originalActivity.getBrowserDetail())).toMatchObject({ executionStatus: 'running' });
-            } else if (reconciliation === 'stale-selection' || reconciliation === 'stale-election') {
+            } else if (['stale-selection', 'stale-election', 'interrupted-exchange', 'malformed-exchange'].includes(reconciliation)) {
               expect(await inActivity(() => originalActivity.getBrowserDetail())).toMatchObject({
                 executionStatus: 'cancel-requested', cleanupStatus: 'stopped' });
             } else {
@@ -2366,6 +2480,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             actor: { registrationId: current.registrationId, email: original.actor.email }, head, createdAt });
           const queuedOriginal = ['upgrade', 'legacy-full-queued', 'session-pinned'].includes(reconciliation);
           const blockedDrive = { ok: false, reason: queuedOriginal ? 'drive-settled' : 'not-admitted' };
+          if (queuedOriginal && diagnostics !== 'summary-throws') {
+            expect(await inRegistry(() => native.storage.get(`owner-activity:${original.ownerKey}:${originalId}`)))
+              .toMatchObject({ activityId: originalId, executionStatus: 'cancel-requested', cleanupStatus: 'stopped' });
+          }
           expect(await inActivity(() => originalActivity.beginDrive())).toEqual(blockedDrive);
           if (['absent', 'legacy-no-admittedAt', 'legacy-full-absent'].includes(reconciliation)) {
             const latePreparation = originalPreparation;
@@ -2381,6 +2499,14 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               .toEqual({ ok: false, reason: 'admission-denied' });
             expect(await inActivity(() => originalActivity.getAdmission())).toMatchObject({ phase: 'cancelled', receipt: null });
           }
+          // More than one native history page precedes the live head. These
+          // orphaned immutable reservations have no head pointer and must not
+          // be driven, dropped, or prevent the eligible handoff afterward.
+          const retainedHistory = reconciliation === 'upgrade' ? Object.fromEntries(Array.from({ length: 129 }, (_, index) => {
+            const admission = { ...persisted, activityId: `history-${String(index).padStart(3, '0')}`, pullRequest: 2000 + index };
+            return [`renovate-activity:${admission.activityId}`, admission];
+          })) : {};
+          if (Object.keys(retainedHistory).length) await inRegistry(() => native.storage.put(retainedHistory));
           const freshName = `alarm-reconciled-${crypto.randomUUID()}`;
           await runInDurableObject(activityNamespace.getByName(freshName), async (_fresh, freshNative) => {
             const inFresh = <T>(action: () => Promise<T>) => runInDurableObject(activityNamespace.getByName(freshName), () => action());
@@ -2404,6 +2530,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             const accepted = structuredClone([...transport.admissions.values()]);
             await inRegistry(() => owner.alarm()); await drain();
             expect([...transport.admissions.values()]).toEqual(accepted);
+            for (const [key, retained] of Object.entries(retainedHistory)) expect(await inRegistry(() => native.storage.get(key))).toEqual(retained);
             expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(originalId))).toEqual(original);
             expect(await inRegistry(() => owner.getManagementAdmission(originalId))).toEqual(originalLedger);
             expect(await inActivity(() => originalActivity.beginDrive())).toEqual(blockedDrive);
@@ -2470,13 +2597,13 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           // Immutable runtime-plan contract: fencing cannot replace pins, owner or the original authority window.
           expect(await activity.getRuntimePlan()).toEqual(queuedPlan!);
           expect(await activity.getBrowserDetail()).toMatchObject({ activityId,
-            executionStatus: fault === 'concurrent-drive' ? 'running' : fault === 'persistence-unavailable' ? 'queued' : 'unknown',
+            executionStatus: ['concurrent-drive', 'poisoned-concurrent-drive'].includes(fault) ? 'running' : fault === 'persistence-unavailable' ? 'queued' : 'unknown',
             checkpoint: null, result: null });
           const ownerKey = await operatorOwnerKey(claims('z@example.test'));
           const diagnostics = await activity.getDispatcherDiagnostics(ownerKey);
-          expect(diagnostics).toMatchObject({ parent: { driveGeneration: fault === 'concurrent-drive' ? 1
+          expect(diagnostics).toMatchObject({ parent: { driveGeneration: ['concurrent-drive', 'poisoned-concurrent-drive'].includes(fault) ? 1
             : fault === 'persistence-unavailable' ? null : 1, lease: null } });
-          if (fault !== 'concurrent-drive' && fault !== 'persistence-unavailable') {
+          if (!['concurrent-drive', 'poisoned-concurrent-drive'].includes(fault) && fault !== 'persistence-unavailable') {
             const code = fault === 'authority-denied' ? 'authority-denied'
               : ['authority-unavailable', 'late-authority-unavailable', 'lost-start-ack'].includes(fault)
                 ? 'platform-evidence-required' : 'startup-failed';
@@ -2511,7 +2638,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             Object.defineProperty(exports, 'OperatorRuntimeCapability', { configurable: true, value: runtimeExport });
             clock.mockReturnValue(due! + 1);
             await inRegistry(() => owner.alarm()); await drain();
-            expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: fault === 'concurrent-drive' ? 'running' : 'unknown' });
+            expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: ['concurrent-drive', 'poisoned-concurrent-drive'].includes(fault) ? 'running' : 'unknown' });
             expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(activityId!))).toEqual(retained);
             expect(await inRegistry(() => owner.listOwnedActivityPage(ownerKey, null))).toMatchObject({
               items: [expect.objectContaining({ activityId })],
@@ -2568,7 +2695,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   });
   it.each(reconciliationCases)('REQ-OPERATOR-061 AC2/3/6/7 /062 /107: stale reservation %s preserves uncertainty and elects only atomically retired same-owner work',
     reconciliation => normalAlarmHandoff(reconciliation === 'unknown' ? 'binding'
-      : ['absent', 'ledger-unavailable', 'legacy-no-admittedAt', 'legacy-full-absent'].includes(reconciliation) ? 'preparation-proof-missing'
+      : ['absent', 'ledger-unavailable', 'ledger-missing-result', 'ledger-invalid-result', 'legacy-no-admittedAt', 'legacy-full-absent'].includes(reconciliation) ? 'preparation-proof-missing'
         : reconciliation === 'prepared' || reconciliation === 'legacy-full-prepared' ? 'prepared-start' : reconciliation === 'admitting' ? 'admitting-start'
           : 'persistence-unavailable', false, reconciliation));
   it.each((['upgrade', 'orphan-effect', 'orphan-publication', 'orphan-lease', 'absent-global-receipt', 'absent', 'prepared'] as const)
@@ -2580,6 +2707,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   it.each(['off', 'throws', 'rpc-throws', 'writer-throws', 'foreign-scope'] as const)(
     'REQ-OPERATOR-063/079: stale reservation diagnostics %s preserve the original effect fence and election',
     diagnostics => normalAlarmHandoff('persistence-unavailable', false, 'orphan-effect', diagnostics));
+  it.each(['off', 'on', 'writer-throws', 'summary-throws'] as const)(
+    'REQ-OPERATOR-061/063/090: safe retirement under %s logging reaches one external acceptance after retained history',
+    diagnostics => normalAlarmHandoff('persistence-unavailable', false, 'upgrade', diagnostics));
   it('role restoration without new consent cannot elect a retired admin or strand the active admin’s normal Dispatcher work',
     () => normalAlarmHandoff('none'));
   it.each(['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'admission-unavailable', 'profile-unavailable', 'profile-revoked'] as const)(

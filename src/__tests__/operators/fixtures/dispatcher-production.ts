@@ -303,7 +303,7 @@ export async function fixture(test: (f: {
       controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: artifactDigest,
       pullRequest: 17, head: 'b'.repeat(40), createdAt: new Date(now - 86_400_000).toISOString(),
       activatedAt: new Date(now - 2 * 86_400_000).toISOString(), ownerKey: await operatorOwnerKey(human),
-      actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: options.delegated ? '' : 'original-session',
+      actor: { registrationId: 'scan-original', bucket: 'owner-bucket', sessionId: options.delegated ? '' : 'originalsession',
         sessionGeneration: options.delegated ? 0 : 3, subject: human.subject, issuer: human.issuer, email: human.email, audiences: human.audiences } } as unknown as ProspectiveAdmission;
     const admittedTarget = { repository: configuredTarget.repository, repositoryId: proof.repositoryId,
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
