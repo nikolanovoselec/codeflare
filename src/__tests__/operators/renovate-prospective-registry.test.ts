@@ -2405,6 +2405,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           }
           if (reconciliation === 'active-original') await inRegistry(() => native.storage.put(
             `renovate-registration:${registration.registrationId}`, originalRegistration));
+          if (reconciliation === 'pre-lease-foreign-owner') await inRegistry(() => native.storage.delete(
+            `renovate-registration:${registration.registrationId}`));
           const orphanLease = reconciliation === 'orphan-lease' || reconciliation === 'absent-global-receipt'
             || reconciliation === 'pre-lease-runtime-lease';
           const orphanKey = reconciliation === 'orphan-effect' || reconciliation === 'pre-lease-runtime-effect' ? 'dispatcher:operation:orphan'
@@ -2712,7 +2714,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             'ledger-invalid-result': ['operator-registry', 'retirement-refused'],
             ...Object.fromEntries(preLeaseReconciliationCases.filter(value => !['pre-lease-fenced', 'pre-lease-delayed-admission',
               'pre-lease-read-unavailable'].includes(value)).map(value => [value, value === 'pre-lease-foreign-owner'
-              ? ['operator-registry', 'original-registration-present'] : value === 'pre-lease-ledger-unavailable'
+              ? ['operator-registry', 'owner-mismatch'] : value === 'pre-lease-ledger-unavailable'
                 ? ['operator-registry', 'retirement-refused'] : ['operator-activity', value === 'pre-lease-publication'
                   ? 'publication-present' : ['pre-lease-profile-lease', 'pre-lease-runtime-effect'].includes(value)
                     ? 'runtime-effect-present' : 'uncertain']])) as Partial<Record<typeof reconciliationCases[number], [string, string]>>,

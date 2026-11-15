@@ -1054,7 +1054,20 @@ export class OperatorActivity extends Agent {
         try { await trace?.flush?.(); } catch { /* Preserve the transaction. */ }
         if (bound && bound !== original.activityId || retirement && retirement !== original.activityId) return refuse('binding-mismatch');
         if (!state && !neverAdmitted) return refuse('missing-state-with-ledger');
-        if (state?.diagnosticFence?.uncertain) return refuse('uncertain');
+        // The first drive may have failed before any runtime lease was committed.
+        // Its binding was recorded atomically with the fence while no lease existed;
+        // unlike a missing lease alone, it positively identifies that pre-runtime failure.
+        const binding = state?.diagnosticBinding;
+        const firstPreLeaseFence = state?.phase === 'queued' && state.ownerKey === original.ownerKey
+          && state.diagnosticsVersion === 1 && state.drive?.status === 'unknown' && state.drive.generation === 2
+          && state.drive.checkpoint === null && state.drive.result === null && !state.browserCollectionConsumed
+          && state.diagnosticFence?.uncertain === true && state.diagnosticFence.generation === 1
+          && binding?.generation === 1 && !!state.executionContext && !!state.receipt
+          && binding.artifactDigest === state.executionContext.artifactDigest
+          && binding.inputDigest === state.receipt.intentDigest;
+        const neverLeased = firstPreLeaseFence && await captureRawInteraction(trace, 'activity-retirement-lease',
+          () => DISPATCHER_LEASE, () => tx.get<DispatcherLease>(DISPATCHER_LEASE)) === undefined;
+        if (state?.diagnosticFence?.uncertain && !neverLeased) return refuse('uncertain');
         if (state?.browserCollectionConsumed && !neverStartedDispatcherCancellation(state)) return refuse('collection-consumed');
         if (state) {
           if (!state.executionContext || !('installationId' in state.intent) || bound !== original.activityId
@@ -1092,7 +1105,7 @@ export class OperatorActivity extends Agent {
               || selection.release.bundleDigest !== state.executionContext.artifactDigest
               || await sha256(JSON.stringify(selection.installation.policy)) !== state.executionContext.policyDigest
               || layout === 'pinned' && selection.release.id !== original.releaseId) return refuse('receipt-selection-mismatch');
-            if (state.drive && !neverStartedDispatcherCancellation(state)) return refuse('drive-started');
+            if (state.drive && !neverStartedDispatcherCancellation(state) && !neverLeased) return refuse('drive-started');
           } else if (!neverAdmitted || state.receipt || state.drive
             || state.phase !== 'prepared' && !(state.phase === 'cancelled' && retirement === original.activityId)) return refuse('phase-or-ledger');
         }
