@@ -9,7 +9,7 @@ const layouts = [
   {
     path: 'src/index.ts',
     pristine: '677355618c6306a39e5a9f8f7e3bc88329724731ff6549f5bcb9bfeca9bafaaf',
-    prepared: '298278b11a962e5d57426aea419503a2cf13515732f5e6ab9ca4c68e1cf67de0',
+    prepared: '1fc3200ab602b7a0b3f5dc598df602fff44e0e1bc2edb17d5fc3fe091e9d2d77',
     replacements: [
       [`  // Gate nudge delivery on the parent's agent run. agent_settled fires exactly
   // once per run (from a finally block, so it also covers error and abort),
@@ -19,7 +19,7 @@ const layouts = [
   // model request. Keep agent_settled as the idle/error/abort fallback; turn_end
   // does not mean the parent's run is idle.`],
       ['  pi.on("agent_start", () => notifications.onParentAgentStart());',
-        '  pi.on("agent_start", () => notifications.onParentAgentStart());\n  pi.on("turn_end", () => notifications.onParentTurnEnd());'],
+        '  pi.on("agent_start", () => notifications.onParentAgentStart());\n  pi.on("turn_end", (event) => {\n    if (event.outcome === "completed") notifications.onParentTurnEnd();\n  });'],
     ],
   },
   {
