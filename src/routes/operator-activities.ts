@@ -166,7 +166,7 @@ app.get('/installations', async c => {
       && selected.value.release.id === installation.releaseId && selected.value.release.operatorId === operator.id
       && selected.value.release.bundleDigest === release?.bundleDigest && selected.value.release.approved
       ? selected.value : null;
-    let preview: ReturnType<typeof guidedPreview> = null;
+    let preview: ReturnType<typeof guidedPreview> | null = null;
     let settings: ReturnType<typeof applicationSchedule> = null;
     try {
       preview = selection ? guidedPreview(selection) : null;

@@ -422,7 +422,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     const item = await screen.findByRole('article', { name: 'Updates' });
     if ('application' in extra && extra.application === null) {
       expect(within(item).queryByRole('button', { name: 'Run once' })).toBeNull();
-      expect(within(item).getByText(/manual input not supported here/i)).toBeVisible();
+      expect(within(item).getByText('Install a compatible release before starting.')).toBeVisible();
     } else expect(within(item).getByRole('button', { name: 'Run once' })).toBeDisabled();
     // Intentional navigation contract: this usable link enters the existing reauthorizing management route.
     expect(screen.getByRole('link', { name: 'Manage installations' }).getAttribute('href')).toBe('/operators');
@@ -484,7 +484,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     const card = await screen.findByRole('article', { name: 'Updates' });
     if ('application' in extra && extra.application === null) {
       expect(within(card).queryByRole('button', { name: 'Run once' })).toBeNull();
-      expect(within(card).getByText(/manual input not supported here/i)).toBeVisible();
+      expect(within(card).getByText('Install a compatible release before starting.')).toBeVisible();
     } else {
       const button = within(card).getByRole('button', { name: 'Run once' });
       expect(button).toBeDisabled();
@@ -830,7 +830,7 @@ describe('Task94 installed role help and independent controls', () => {
       expect(explanation.textContent).toMatch(/coordinat/i);
       expect(screen.queryByRole('button', { name: /conductor run|start review coordination/i })).toBeNull();
       expect(within(card).queryByRole('button', { name: 'Run once' })).toBeNull();
-      expect(within(card).getByText(/manual input not supported here/i)).toBeVisible();
+      expect(within(card).getByText('Install a compatible release before starting.')).toBeVisible();
     }
     expect(server.prepared).toEqual({});
     expect(server.mutations).toEqual([]);

@@ -25,15 +25,16 @@ afterEach(async () => { vi.restoreAllMocks(); await reset(); });
 async function fixture(run: (f: Awaited<ReturnType<typeof seed>>) => Promise<void>) {
   const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-  await runInDurableObject(registryNamespace.getByName(`execution-ledger-${crypto.randomUUID()}`), async (_registry, registryNative) => {
-    const activityId = `execution-${crypto.randomUUID()}`;
-    await runInDurableObject(activityNamespace.getByName(activityId), async (_activity, native) => {
-      await run(await seed(registryNative, native, activityNamespace, activityId));
-    });
+  const registryName = `execution-ledger-${crypto.randomUUID()}`;
+  const inRegistry = <T>(action: (state: DurableObjectState) => T | Promise<T>) =>
+    runInDurableObject(registryNamespace.getByName(registryName), (_registry, state) => action(state));
+  const activityId = `execution-${crypto.randomUUID()}`;
+  await runInDurableObject(activityNamespace.getByName(activityId), async (_activity, native) => {
+    await run(await seed(native, activityNamespace, activityId, inRegistry));
   });
 }
-async function seed(registryNative: DurableObjectState, native: DurableObjectState,
-  namespace: DurableObjectNamespace, activityId: string) {
+async function seed(native: DurableObjectState, namespace: DurableObjectNamespace, activityId: string,
+  inRegistry: <T>(action: (state: DurableObjectState) => T | Promise<T>) => Promise<T>) {
   const now = Date.now();
   const human = { subject: 'z@example.test', email: 'z@example.test', issuer: 'https://owner.cloudflareaccess.com',
     audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 20, expiresAt: Math.floor(now / 1000) + 3600 };
@@ -45,7 +46,15 @@ async function seed(registryNative: DurableObjectState, native: DurableObjectSta
     CONTAINER: { getByName: () => refuse('container') }, LOADER: { get: () => refuse('loader') },
   } as unknown as Env;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => refuse('network'));
-  const registry = new OperatorRegistry(registryNative, environment);
+  const registryInstance = await inRegistry(state => new OperatorRegistry(state, environment));
+  const registry = new Proxy(registryInstance, { get(target, property) {
+    const member = Reflect.get(target, property, target);
+    return typeof member === 'function' ? (...args: unknown[]) => inRegistry(() => member.apply(target, args)) : member;
+  } });
+  const setLedger = (receipt?: ManagementAdmissionReceipt) => inRegistry(state => {
+    if (receipt) state.storage.sql.exec('INSERT OR REPLACE INTO operator_admissions VALUES(?,?)', activityId, JSON.stringify(receipt));
+    else state.storage.sql.exec('DELETE FROM operator_admissions WHERE activity_id=?', activityId);
+  });
   const activity = new OperatorActivity(native, environment);
   const bundle = normalDispatcherBundle(), bundleDigest = hash(bundle);
   const policy = { capabilities: ['fetch'], resourceProfileId: null };
@@ -57,7 +66,7 @@ async function seed(registryNative: DurableObjectState, native: DurableObjectSta
     release: { id: 'release', operatorId: 'dispatcher', bundleDigest, sourceCommit: bundle.sourceCommit,
       manifestDigest: 'd'.repeat(64), intentVersion: '4', provenance: { compilerCommit: normalDeployment.compilerCommit } },
     manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '4' }),
-  } as ManagementExecutionSelection;
+  } as unknown as ManagementExecutionSelection;
   const context = await createOperatorExecutionContext({ activityId, operatorId: 'dispatcher', artifactDigest: bundleDigest,
     policyDigest: hash(policy), human, accessJwt: 'z-jwt' }, environment);
   const ownerKey = await operatorOwnerKey(human);
@@ -72,7 +81,7 @@ async function seed(registryNative: DurableObjectState, native: DurableObjectSta
     expectedControlsRevision: 1, deadline: intent.deadline, admittedAt: now, selection };
   // Same real immutable SQL ledger as the old normalAlarmHandoff fixture.
   await registry.getManagementAdmission(activityId);
-  registryNative.storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', activityId, JSON.stringify(receipt));
+  await setLedger(receipt);
   const authority: ApplicationExecutionAuthority = { version: 1,
     current: { principal: 'operator', sourceId: '23', sourceRepositoryId: 23, installationId: 'dispatcher-install',
       ownerKey, activityId: 'current-activity', generation: 1, deadline: intent.deadline, human,
@@ -96,7 +105,7 @@ async function seed(registryNative: DurableObjectState, native: DurableObjectSta
       { purpose: 'connection', recordId: 'dispatcher-install' }), deployment,
     serial: createDispatcherPhaseState('submission', hash(receipt), { deliveryToken: 'original-token', idempotencyKey: 'original-key' }) };
   await native.storage.put({ admission: state, 'prospective-admission': activityId });
-  return { activity, native, registry, registryNative, activityId, authority, state, profile, receipt,
+  return { activity, native, registry, setLedger, activityId, authority, state, profile, receipt,
     capability, context, invocationJson, unsafe, environment, bundle };
 }
 type Fixture = Awaited<ReturnType<typeof seed>>;
@@ -171,7 +180,7 @@ describe('generic local execution facts: original first-generation pre-lease pro
         delete profile.serial;
         state.receipt.selection.release.intentVersion = '3';
         state.receipt.selection.manifestJson = JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' });
-        f.registryNative.storage.sql.exec('UPDATE operator_admissions SET data=? WHERE activity_id=?', JSON.stringify(state.receipt), f.activityId);
+        await f.setLedger(state.receipt);
         f.authority.ledger = { ok: true, receipt: await f.registry.getManagementAdmission(f.activityId) };
       }
       if (name === 'pre-lease-bootstrap-generation') profile.generation = 2;
@@ -209,7 +218,7 @@ describe('generic execution binding and atomic retirement', () => {
     const state = structuredClone(f.state) as Record<string, any>;
     delete state.drive; delete state.diagnosticBinding; delete state.diagnosticFence; delete state.diagnosticsVersion;
     if (name.includes('absent') || name.includes('prepared')) {
-      f.registryNative.storage.sql.exec('DELETE FROM operator_admissions WHERE activity_id=?', f.activityId);
+      await f.setLedger();
       f.authority.ledger = { ok: true, receipt: await f.registry.getManagementAdmission(f.activityId) };
       state.phase = 'prepared'; state.receipt = null;
     }
@@ -306,19 +315,18 @@ describe('generic execution binding and atomic retirement', () => {
       if (name === 'ledger-missing-result') f.authority.ledger = { ok: true, receipt: undefined as never };
       if (name === 'ledger-invalid-result') f.authority.ledger = { ok: true, receipt: {} as never };
       if (name === 'ledger-missing' || name === 'legacy-full-ledger-missing') {
-        f.registryNative.storage.sql.exec('DELETE FROM operator_admissions WHERE activity_id=?', f.activityId);
+        await f.setLedger();
         f.authority.ledger = { ok: true, receipt: await f.registry.getManagementAdmission(f.activityId) };
       }
       if (name === 'ledger-mismatch' || name === 'legacy-full-ledger-mismatch') {
-        f.registryNative.storage.sql.exec('UPDATE operator_admissions SET data=? WHERE activity_id=?',
-          JSON.stringify({ ...f.receipt, intentDigest: 'f'.repeat(64) }), f.activityId);
+        await f.setLedger({ ...f.receipt, intentDigest: 'f'.repeat(64) });
         f.authority.ledger = { ok: true, receipt: await f.registry.getManagementAdmission(f.activityId) };
       }
       if (name === 'orphan-effect') await f.native.storage.put('dispatcher:operation:orphan', { phase: 'unknown' });
       if (name === 'orphan-lease') await f.native.storage.put('dispatcher:lease', { generation: 1, status: 'unknown' });
       if (name === 'orphan-publication') await f.native.storage.put('renovate:publication', { effects: { comment: { phase: 'unknown' } } });
       if (name === 'owned-session') await f.native.storage.put('ownedSession', { sessionId: 'zsession01' });
-      if (name === 'expired') f.authority.current.deadline = Date.now() - 1;
+      if (name === 'expired') f.authority.current = { ...f.authority.current, deadline: Date.now() - 1 };
       if (name === 'short-human-lifetime') f.authority.current.human = { ...f.authority.current.human, expiresAt: Math.floor(Date.now() / 1000) };
       if (name !== 'absent-global-receipt' && name !== 'legacy-full-missing-local') await f.native.storage.put('admission', state);
       await assertLocal(f, false);
@@ -337,7 +345,7 @@ describe('generic execution binding and atomic retirement', () => {
       // Seed the observable committed competing drive; do not start a native workload.
       if (name === 'concurrent-drive') await f.native.storage.put('admission', { ...state,
         drive: { generation: 1, status: 'running', checkpoint: null, result: null } });
-      if (name === 'expired') f.authority.current.deadline = Date.now() - 1;
+      if (name === 'expired') f.authority.current = { ...f.authority.current, deadline: Date.now() - 1 };
       const before = structuredClone(await f.native.storage.list());
       expect(await f.activity.retireApplicationExecution({ ...f.authority, proofVersion: facts.proofVersion }))
         .toEqual({ status: name === 'changed-state' ? 'conflict' : 'unavailable' });
@@ -503,17 +511,23 @@ const historyCaptureBinding = (f: Fixture) => ({ ownerKey: f.authority.original.
 
 /** Private v1 encrypted frame contract: inspect durable bytes while their producer
  * is paused, before any complete receipt/locator is allowed to exist. */
-async function storedHistoryFrames(f: Fixture, list: typeof f.native.storage.list = f.native.storage.list.bind(f.native.storage)) {
+async function storedHistoryFrames(f: Fixture, list: typeof f.native.storage.list = f.native.storage.list.bind(f.native.storage), newestOnly = false) {
   const binding = historyCaptureBinding(f);
   const context = JSON.stringify(['codeflare-operator-raw-v1', binding.ownerKey, binding.installationId,
     binding.releaseId, binding.captureId, 'activity', f.activityId, 2]);
   const prefix = `operator-raw:v1:${createHash('sha256').update(context).digest('hex')}/`;
   const key = (await getOrImportKey(f.environment))!;
   const batches = new Map<number, Array<{ part: number; bytes: Buffer }>>();
-  for (const [name, value] of await list<string>({ prefix })) {
+  const frames = await list<string>({ prefix });
+  const latest = newestOnly ? Math.max(-1, ...[...frames.keys()].flatMap(name => {
+    const match = /\/segment-\d+-(\d+)-\d+$/.exec(name);
+    return match ? [Number(match[1])] : [];
+  })) : -1;
+  for (const [name, value] of frames) {
     const frame = /\/segment-(\d+)-(\d+)-(\d+)$/.exec(name);
     if (!frame) continue;
     const [ordinal, batch, part] = frame.slice(1).map(Number);
+    if (newestOnly && batch !== latest) continue;
     const text = await decryptFromKV(value.slice(3), key, JSON.stringify([context, ordinal, batch, part]));
     const parts = batches.get(batch) ?? [];
     parts.push({ part, bytes: Buffer.from(text, 'base64') }); batches.set(batch, parts);
@@ -529,17 +543,19 @@ async function storedHistoryFrames(f: Fixture, list: typeof f.native.storage.lis
 it('persists each large history page before reading the next and reconstructs every original record', () => fixture(async f => {
   f.authority.observationLoggingEnabled = true;
   vi.spyOn(crypto, 'randomUUID').mockReturnValue(historyCaptureId);
-  const retained = new Map(Array.from({ length: 260 }, (_, index) => [
+  const retained = new Map<string, { text: string }>(Array.from({ length: 260 }, (_, index) => [
     `dispatcher:diagnostics:retained:${String(index).padStart(3, '0')}`,
     { text: `SYNTHETIC_HISTORY_${index}_秘密` + 'x'.repeat(8192) },
   ] as const));
   for (const [key, value] of retained) await f.native.storage.put(key, value);
   const list = f.native.storage.list.bind(f.native.storage);
+  const persisted = new Set<string>();
   const checkBackpressure = async (options: { prefix?: string; startAfter?: string } = {}) => {
-    if (options.prefix !== 'dispatcher:' || !options.startAfter) return;
-    const records = await storedHistoryFrames(f, list);
+    if (options.prefix !== 'dispatcher:' || !options.startAfter || persisted.has(options.startAfter)) return;
+    const records = await storedHistoryFrames(f, list, true);
     expect(records).toContainEqual({ stage: 'application-execution-runtime',
       value: [[options.startAfter, retained.get(options.startAfter)]] });
+    persisted.add(options.startAfter);
   };
   vi.spyOn(f.native.storage, 'list').mockImplementation((async (options?: { prefix?: string; startAfter?: string; limit?: number }) => {
     await checkBackpressure(options); return list(options);
@@ -591,3 +607,50 @@ it.each(['lease', 'effect', 'diagnostic'] as const)('a concurrent %s invalidates
   expect(await f.native.storage.get('prospective-retirement')).toBeUndefined();
   expect(f.unsafe).toEqual([]);
 }));
+
+it('retains complete supported large responses without exceeding the source live-payload allowance', () => fixture(async f => {
+  f.authority.observationLoggingEnabled = true;
+  vi.spyOn(crypto, 'randomUUID').mockReturnValue(historyCaptureId);
+  const body = 'x'.repeat(1024 * 1024 - 128) + '終';
+  const retained = new Map(Array.from({ length: 3 }, (_, index) => [
+    `dispatcher:response:large-${index}`, { status: 200, body, contentType: 'text/plain' },
+  ] as const));
+  for (const [key, value] of retained) await f.native.storage.put(key, value);
+  // Model a producer whose supported values fit individually but whose live
+  // returned payload allowance does not permit buffering several at once.
+  const cached = new Map<string, number>();
+  const bounded = async (read: () => Promise<Map<string, unknown>>, options?: { prefix?: string; noCache?: boolean }) => {
+    const page = await read();
+    if (options?.prefix === 'dispatcher:') {
+      let pageBytes = 0;
+      for (const [key, value] of page) {
+        const size = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+        pageBytes += size;
+        if (!options.noCache) cached.set(key, size);
+      }
+      const liveBytes = Math.max(pageBytes, [...cached.values()].reduce((total, size) => total + size, 0));
+      if (liveBytes > 1200 * 1024) throw new Error('Synthetic source live-payload allowance exceeded');
+    }
+    return page;
+  };
+  const list = f.native.storage.list.bind(f.native.storage);
+  vi.spyOn(f.native.storage, 'list').mockImplementation((async (options?: { prefix?: string; startAfter?: string; limit?: number; noCache?: boolean }) =>
+    bounded(() => list(options), options)) as typeof f.native.storage.list);
+  const transaction = f.native.storage.transaction.bind(f.native.storage);
+  vi.spyOn(f.native.storage, 'transaction').mockImplementation((async (work: (tx: DurableObjectTransaction) => Promise<unknown>) =>
+    transaction(tx => work(new Proxy(tx, { get(object, property) {
+      const value = Reflect.get(object, property, object);
+      if (property === 'list') return (options?: { prefix?: string; noCache?: boolean }) => bounded(() => value.call(object, options), options);
+      return typeof value === 'function' ? value.bind(object) : value;
+    } })))) as typeof f.native.storage.transaction);
+  // A cached response is not proof that execution never started. Its refusal
+  // does not excuse dropping or truncating the available private evidence.
+  expect(await f.activity.readApplicationExecutionFacts(f.authority)).toEqual({ status: 'unavailable' });
+  const storage = await createOwnerRawCaptureStorage(f.environment, f.native.storage, async () => {});
+  const archive = await readRawCapture({ storage, binding: historyCaptureBinding(f) });
+  expect(archive.status).toBe('complete');
+  expect(new Map(archive.records.filter(record => record.stage === 'application-execution-runtime')
+    .flatMap(record => record.value as Array<[string, unknown]>))).toEqual(retained);
+  expect(await f.native.storage.get('admission')).toEqual(f.state);
+  expect(f.unsafe).toEqual([]);
+}), 30_000);

@@ -229,7 +229,7 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
 });
 
 
-describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+describe('REQ-OPERATOR-016/061: opaque application preparation', () => {
   function configured(configuration: unknown = { renovate: { repository: 'acme/updates', automaticRuns: false,
     repetitionIntervalSeconds: 900 } }, intentVersion = '3') {
     const prepared: Array<{ intent: { activityId: string; intentDigest: string }; invocation: string }> = [];
@@ -239,7 +239,11 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
       operator: { operatorId: 'renovate-dispatcher', profile: 'dispatcher', revision: 1,
         policy: { capabilities: ['fetch'], resourceProfileId: null },
         invokers: { users: [claims.email], groups: [] } }, release: { id: 'release', bundleDigest: 'a'.repeat(64) },
-      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion }) };
+      manifestJson: JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: 'renovate-dispatcher',
+        name: 'Opaque application', description: 'Application-owned input and configuration',
+        coreVersion: '1', profile: 'dispatcher', intentVersion, inputSchema: { type: 'object' },
+        application: { controlVersion: 1 }, requiredCapabilities: ['fetch'],
+        artifact: { path: '/operator-bundle.json', sha256: 'a'.repeat(64) } }) };
     const host = { ...encryption, OPERATOR_REGISTRY: { getByName: () => ({
       resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
       OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized: async (intent: typeof prepared[number]['intent'],
@@ -272,9 +276,9 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     expect(accepted).toEqual([{ intent: expect.objectContaining({ activityId: reserved,
       installationId: 'configured-install', operatorId: 'renovate-dispatcher', expectedControlsRevision: 13,
       expectedInstallationRevision: 7, expectedRevision: 11, deadline: claims.expiresAt * 1000,
-      intentDigest: await createOperatorIntentDigest('renovate-dispatcher', reserved, '{"repository":"acme/updates"}') }),
+      intentDigest: await createOperatorIntentDigest('renovate-dispatcher', reserved, '{}') }),
     executionContext: expect.objectContaining({ activityId: reserved, operatorId: 'renovate-dispatcher',
-      artifactDigest: 'a'.repeat(64), expiresAt: claims.expiresAt }), invocationJson: '{"repository":"acme/updates"}',
+      artifactDigest: 'a'.repeat(64), expiresAt: claims.expiresAt }), invocationJson: '{}',
     boundary: undefined, prospectiveAdmissionId: reserved }]);
     expect(result.startExpiresAt).toBeLessThanOrEqual(claims.expiresAt * 1000);
   });
@@ -296,7 +300,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
       const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation: {} },
         { human: claims, accessJwt: 'private.jwt' }, f.host,
         mode === 'boundary' ? { activityId: 'manual-boundary-activity', boundary } : undefined);
-      expect(accepted).toEqual([{ activityId: result.activityId, invocationJson: '{"repository":"acme/updates"}',
+      expect(accepted).toEqual([{ activityId: result.activityId, invocationJson: '{}',
         boundary: mode === 'boundary' ? boundary : undefined, prospectiveAdmissionId: undefined }]);
       if (mode === 'boundary') expect(result.activityId).toBe('manual-boundary-activity');
       else expect(result.activityId).toMatch(/^[0-9a-f-]{36}$/);
@@ -315,31 +319,27 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
       }
     });
 
-  it.each([{}, { repository: 'acme/updates' }])('materializes only the configured repository before immutable admission for %j', async invocation => {
-    const f = configured();
-    const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation },
-      { human: claims, accessJwt: 'private.jwt' }, f.host);
-    expect(f.prepared).toEqual([{ intent: expect.objectContaining({ activityId: result.activityId,
-      intentDigest: await createOperatorIntentDigest('renovate-dispatcher', result.activityId, '{"repository":"acme/updates"}') }),
-      invocation: '{"repository":"acme/updates"}' }]);
-  });
-  it.each([{ repository: 'other/repo' }, { repository: '' }, { repository: 'https://github.com/acme/updates' },
+  it.each([{}, { repository: 'acme/updates' }, { repository: 'other/repo' },
+    { repository: '' }, { repository: 'https://github.com/acme/updates' },
     { repository: 'acme/updates', pullRequest: 17 }, { repository: 'acme/updates', repetitionIntervalSeconds: 900 },
-    { repository: 'acme/updates', automaticRuns: true }, { repository: 17 }, null, [], 'acme/updates'])
-    ('rejects changed or malformed manual input %j before any prepared admission', async invocation => {
+    { repository: 'acme/updates', automaticRuns: true }, { repository: 17 }, null, [], 'acme/updates'])(
+    'pins opaque JSON input %j unchanged rather than interpreting application policy', async invocation => {
       const f = configured();
-      await expect(prepareOperatorActivity({ installationId: 'configured-install', invocation },
-        { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toBeDefined();
-      expect(f.prepared).toEqual([]);
+      const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation },
+        { human: claims, accessJwt: 'private.jwt' }, f.host);
+      expect(f.prepared).toEqual([{ intent: expect.objectContaining({ activityId: result.activityId,
+        intentDigest: await createOperatorIntentDigest('renovate-dispatcher', result.activityId, JSON.stringify(invocation)) }),
+        invocation: JSON.stringify(invocation) }]);
     });
-  it.each([{}, { renovate: { automaticRuns: true } }])('requires saved repository even for an explicit input when settings are %j', async configuration => {
-    for (const invocation of [{}, { repository: 'nikolanovoselec/komodo' }]) {
-      const f = configured(configuration);
-      await expect(prepareOperatorActivity({ installationId: 'configured-install', invocation },
-        { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toBeDefined();
-      expect(f.prepared).toEqual([]);
-    }
-  });
+  it.each([{}, { renovate: { automaticRuns: true } }])(
+    'leaves absent repository defaults to the application for configuration %j', async configuration => {
+      for (const invocation of [{}, { repository: 'nikolanovoselec/komodo' }]) {
+        const f = configured(configuration);
+        await prepareOperatorActivity({ installationId: 'configured-install', invocation },
+          { human: claims, accessJwt: 'private.jwt' }, f.host);
+        expect(f.prepared.map(value => JSON.parse(value.invocation))).toEqual([invocation]);
+      }
+    });
   it('does not reinterpret legacy single-PR input as configured intent3', async () => {
     const f = configured({}, '2');
     await prepareOperatorActivity({ installationId: 'configured-install', invocation: { repository: 'other/repo', pullRequest: 17 } },

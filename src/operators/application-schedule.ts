@@ -269,7 +269,7 @@ export async function runApplicationSchedules(context: ApplicationScheduleContex
           current.authority, context.env, { activityId, expectedManagement: pinsFromRecord(record) }));
       if ((await handoffAuthority(context, record)).status !== 'current') { await fence(); continue; }
       const started = await captureRawInteraction(capture, 'application-schedule-start',
-        () => ({ activityId, capability: prepared.startCapability }), () => activity.start(prepared.startCapability));
+        () => ({ activityId, capability: prepared.startCapability }), async () => await activity.start(prepared.startCapability));
       if (!started.ok || (await handoffAuthority(context, record)).status !== 'current') { await fence(); continue; }
       context.waitUntil(runOperatorActivity(activityId, context.env, bind).catch(fence));
     } catch (error) {

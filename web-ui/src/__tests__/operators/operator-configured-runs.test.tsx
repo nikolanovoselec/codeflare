@@ -319,6 +319,13 @@ describe('application-owned run settings', () => {
       submit();
       expect(writes).toEqual([]);
       expect(state.installations).toEqual(before);
+      fireEvent.input(repository(group), { target: { value: 'acme/valid' } });
+      expect(repository(group).checkValidity()).toBe(true);
+      submit();
+      await waitFor(() => expect(writes).toEqual([{
+        path: '/api/operator-management/installations/installation-1/configure',
+        body: { revision: 4, policy, configuration: before[0].configuration },
+      }]));
     });
 
   it.each(['', '0', '-1', '1.5', '9007199254740992'])(

@@ -56,7 +56,7 @@ async function fixture(test: (f: {
       expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
       deadline: human.expiresAt * 1000, startExpiresAt: human.expiresAt * 1000, startVerifier: 'e'.repeat(64) };
     const context = await createOperatorExecutionContext({ activityId, operatorId: 'operator',
-      artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64), ...authority }, encryption);
+      artifactDigest: 'c'.repeat(64), policyDigest: 'd'.repeat(64), human, accessJwt: authority.accessJwt }, encryption);
     const retained = new Map<string, unknown>([
       ['admission', { intent, phase: 'queued', receipt: { ...intent, admittedAt: NOW, selection: {
         controlsRevision: 1, operator: { operatorId: 'operator', profile: 'dispatcher', revision: 1 },

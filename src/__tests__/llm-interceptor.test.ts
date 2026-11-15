@@ -1061,9 +1061,16 @@ describe('native provider authorization and compat dispatch', () => {
     const kv = fixture.kv as Record<string, string>;
     const encryption = Buffer.alloc(32, 7).toString('base64');
     const installationPolicy = { capabilities: ['inference', 'fetch'], resourceProfileId: null };
-    const selection = { controlsRevision: 1, installation: { id: 'installation', revision: 1, policy: installationPolicy },
-      operator: { profile: 'dispatcher', revision: 1, policy: installationPolicy, invokers: { users: [SESSION_USER], groups: [] } },
-      release: { bundleDigest: 'a'.repeat(64) } };
+    const selection = { controlsRevision: 1,
+      installation: { id: 'installation', operatorId: 'operator', releaseId: 'release', revision: 1,
+        configurationJson: '{}', policy: installationPolicy },
+      operator: { id: 'operator', operatorId: 'operator', repositoryId: 417, profile: 'dispatcher', revision: 1,
+        policy: installationPolicy, invokers: { users: [SESSION_USER], groups: [] } },
+      release: { id: 'release', operatorId: 'operator', bundleDigest: 'a'.repeat(64) },
+      manifestJson: JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: 'operator', name: 'Inference fixture',
+        description: 'Signed replay through managed Dispatcher authority', coreVersion: '1', intentVersion: '1',
+        profile: 'dispatcher', inputSchema: { type: 'object' }, requiredCapabilities: ['inference', 'fetch'],
+        artifact: { path: '/operator-bundle.json', sha256: 'a'.repeat(64) } }) };
     const environment = { ENCRYPTION_KEY: encryption, AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN,
       KV: { get: async (key: string, type?: string) => type === 'json' && kv[key] ? JSON.parse(kv[key]) : kv[key] ?? null },
       OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },

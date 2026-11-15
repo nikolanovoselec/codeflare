@@ -162,6 +162,9 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     const repository = await screen.findByRole('textbox', { name: 'Repository' }) as HTMLInputElement;
     expect(repository).toHaveValue('');
     expect(screen.getByRole('spinbutton', { name: 'Pull request number' })).toHaveValue(null);
+    const count = screen.getByRole('spinbutton', { name: 'Pull request number' }) as HTMLInputElement;
+    fireEvent.input(count, { target: { value: '42' } });
+    expect(count.checkValidity()).toBe(true);
     fireEvent.input(repository, { target: { value: 'https://github.com/other/repository' } });
     expect(repository.checkValidity()).toBe(false);
     fireEvent.submit(screen.getByRole('button', { name: 'Start run' }).closest('form')!);

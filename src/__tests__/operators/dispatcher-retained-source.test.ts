@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { describe, expect, it } from 'vitest';
-import { digest, fixture, genericWire, start } from './fixtures/dispatcher-production';
+import { digest, fixture, genericWire, start, applicationWire, writableApplication } from './fixtures/dispatcher-production';
 
 const url = 'https://api.github.com/repos/another/service';
 const operationId = 'retained-evidence';
@@ -123,18 +123,19 @@ describe('REQ-OPERATOR-097: cached-only source receipt wire', () => {
   it('cannot release or replay an uncertain mutation as retained GET evidence', () => fixture(async f => {
     await start(f);
     f.loseResponse();
-    const mutation = await f.capability.fetch(genericWire('source', { operationId, method: 'POST',
+    const mutation = await f.capability.fetch(applicationWire(f, 'source', { operationId, method: 'POST',
       url: `${url}/issues/17/comments`, body: '{"body":"Original uncertain effect"}' }));
     expect(mutation.status).toBe(409);
     f.restoreTransport();
-    const receipt = await (await f.capability.fetch(genericWire('receipt', { operationId }))).json() as Receipt;
+    const receipt = await (await f.capability.fetch(applicationWire(f, 'receipt', { operationId }))).json() as Receipt;
     expect(receipt).toMatchObject({ method: 'POST', phase: 'unknown' });
     const effects = [...f.sent];
-    const denied = await f.capability.fetch(request({ ...receipt, responseDigest: 'f'.repeat(64) },
-      { url: `${url}/issues/17/comments` }));
+    const evidenceRequest = request({ ...receipt, responseDigest: 'f'.repeat(64) }, { url: `${url}/issues/17/comments` });
+    evidenceRequest.headers.set('x-codeflare-dispatcher-delivery', applicationWire(f, 'receipt', {}).headers.get('x-codeflare-dispatcher-delivery')!);
+    const denied = await f.capability.fetch(evidenceRequest);
     expect(denied.status).toBe(403);
     expect(f.sent).toEqual(effects);
-    expect(await (await f.capability.fetch(genericWire('receipt', { operationId }))).json()).toEqual(receipt);
+    expect(await (await f.capability.fetch(applicationWire(f, 'receipt', { operationId }))).json()).toEqual(receipt);
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-  }, { repositoryOnly: true }));
+  }, writableApplication));
 });

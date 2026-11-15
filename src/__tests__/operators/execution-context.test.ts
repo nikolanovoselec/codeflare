@@ -35,9 +35,13 @@ describe('REQ-OPERATOR-003: protected verified execution context', () => {
   it('REQ-OPERATOR-061: delegation cannot manufacture membership or extend the captured expiry', async () => {
     await expect(createOperatorExecutionContext({ ...input(), delegation: { version: 1, routingGroups: [] } }, env))
       .rejects.toThrow('Invalid operator execution authority');
-    await expect(createOperatorExecutionContext({ ...input(), human: human({ groups: [] }),
-      delegation: { version: 1, routingGroups: [], expiresAt: human().expiresAt + 1 } }, env))
-      .rejects.toThrow('Invalid operator execution authority');
+    const original = human({ groups: [] });
+    const context = await createOperatorExecutionContext({ ...input(), human: original,
+      delegation: { version: 1, routingGroups: [] } }, env);
+    expect(context.expiresAt).toBe(original.expiresAt);
+    await expect(openOperatorExecutionAccess({ ...context, expiresAt: original.expiresAt + 1 }, env))
+      .rejects.toThrow('protection');
+    expect((await openOperatorExecutionAccess(context, env)).human.expiresAt).toBe(original.expiresAt);
   });
 
   it('encrypts Access authority for one activity and exposes only a safe immutable projection', async () => {

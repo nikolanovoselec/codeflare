@@ -1,16 +1,14 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
-import type { RawCapture, RawCaptureReceipt } from './raw-capture-storage';
+import type { RawCapture } from './raw-capture-storage';
 import type { ManagementAdmissionReceipt, ProspectiveAdmission } from './registry';
-import type { OperatorBrowserSummary } from './browser-activity';
 
 /** Root-private authoritative reads. Only a successful null is proven ledger absence. */
 export type ProspectiveReconciliationAuthority = {
   original: ProspectiveAdmission | null;
   ledger: { ok: true; receipt: ManagementAdmissionReceipt | null } | { ok: false; error: unknown };
 };
-export type ProspectiveRetirement = { retired: boolean; summary: OperatorBrowserSummary | null };
 
 // Use the raw archive's NDJSON record convention and chunked writes. Unlike an
 // archive export, this live exchange must also bound a single historical record.
@@ -157,13 +155,4 @@ export async function consumeProspectiveReconciliation<T>(stream: ReadableStream
     if (pending || part || !result) throw Error('RECONCILIATION_INTERRUPTED');
     return { ...result, evidenceComplete: result.evidenceComplete && !storageFailed };
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
-}
-
-/** Keep incomplete evidence visibly separate from business eligibility. */
-export async function finishProspectiveReconciliationCapture(capture: RawCapture | undefined, complete: boolean): Promise<RawCaptureReceipt | undefined> {
-  if (!capture) return;
-  if (complete) return capture.finish('complete');
-  // No receipt/locator may certify an interrupted or unserializable exchange.
-  try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-incomplete',
-    data: { status: 'incomplete' } })); } catch { /* Optional bounded diagnostic. */ }
 }

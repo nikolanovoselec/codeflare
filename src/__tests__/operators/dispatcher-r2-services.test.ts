@@ -530,7 +530,8 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(selection).toMatchObject({ source: 'pi-native', ...logical });
     // Exact DTO is the intentional wire contract: no settings/resources/auth metadata passthrough.
     expect(await json(await config(f))).toEqual({ source: 'pi-native',
-      settings: { defaultProvider: providerId, defaultModel: logical.model }, reasoningOverride: 'low', selection });
+      settings: { defaultProvider: providerId, defaultModel: logical.model }, reasoningOverride: 'low', selection,
+      deliveryToken: (f.normalTransport!.requests.find(request => request.path === '/control/plan')!.body.delivery as { token: string }).token });
     expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
     await denied(await callback(f, 'pi/config', { operation: 'read', key: authKey }), [400, 403]);
     expect(store.touchedKeys).toEqual(new Set([settingsKey, authKey].map(key => `/owner-bucket/${key}`)));
@@ -1118,7 +1119,8 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     // Account credentials may only be injected by Root's protected HTTP transport.
     expect(JSON.stringify(managed)).not.toMatch(/parent-only|PRIVATE_R2_SERVICES_CANARY/);
     expect(managed).not.toHaveProperty('token'); expect(managed).not.toHaveProperty('credentials');
-    expect(await json(await config(f))).toEqual({ source: 'managed' });
+    expect(await json(await config(f))).toEqual({ source: 'managed',
+      deliveryToken: (f.normalTransport!.requests.find(request => request.path === '/control/plan')!.body.delivery as { token: string }).token });
     await denied(await read(f));
     await denied(await credentials(f, { operation: 'list' }));
     expect(JSON.stringify(f.normalTransport!.requests)).not.toContain(canary);
@@ -1180,7 +1182,8 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       routeCatalog: ['approved', 'not-allowed'], defaultRoute: 'not-allowed', allowPersonalPiProviders: false });
     store.override(() => { throw new Error(`${canary}_NATIVE_OFF_R2_READ`); });
     expect(await json(await gateway(f))).toMatchObject({ source: 'managed', routeId: 'approved' });
-    expect(await json(await config(f))).toEqual({ source: 'managed' });
+    expect(await json(await config(f))).toEqual({ source: 'managed',
+      deliveryToken: (f.normalTransport!.requests.find(request => request.path === '/control/plan')!.body.delivery as { token: string }).token });
     await denied(await read(f));
     expect(store.touchedKeys).toEqual(new Set());
     expect(store.escapedReads).toEqual([]);
@@ -1850,6 +1853,13 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     else await denied(readmission, [403, 404, 409]);
     // Spare operation capacity is intentional: only inferenceAttemptLimit=1
     // forbids another attempt for this operation, including its initial send.
+    const accepted = [...f.normalTransport!.admissions.values()];
+    f.normalTransport!.settleSubmission(accepted[0].receipt.submissionId, 'failed');
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect((await f.activity.getBrowserDetail())!.result).toBeNull();
+    expect([...f.normalTransport!.admissions.values()]).toEqual(accepted);
+    expect(f.sent).toEqual([]);
     expect(paid).toEqual([{ url: request.url, body: sdkBody }]);
   }, true, false, { operationLimit: 2, inferenceAttemptLimit: 1 }));
 

@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, denyDiagnosticWrites, diagnosticJson, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, fixture, genericWire, invalidPreparationRefusal, nativeProfileFiles, preparationFailures, remoteMutations, seedDiagnosticSnapshot, start } from './fixtures/dispatcher-production';
+import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, denyDiagnosticWrites, diagnosticJson, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, encodeSdkHeader, runtimeEnvelope, fixture, genericWire, invalidPreparationRefusal, nativeProfileFiles, preparationFailures, remoteMutations, seedDiagnosticSnapshot, start } from './fixtures/dispatcher-production';
 import { describe, expect, it, vi } from 'vitest';
 import { Agent } from 'agents';
 import { consumeProspectiveReconciliation } from '../../operators/prospective-reconciliation';
@@ -37,6 +37,75 @@ const storedRuntime = async (f: DispatcherFixture) => {
   return values;
 };
 
+
+describe('retained retirement and preparation fences', () => {
+  it.each([true, false])('REQ-OPERATOR-104 AC2: retained cancel-requested work preserves known release=%s without respawn', released => fixture(async f => {
+    // Historical retained snapshot only: never admit or contact its retired job.
+    await f.mutateEvidence(async storage => {
+      const state = (await storage.get<{ receipt: { intentDigest: string }; intent: { deadline: number } }>('admission'))!;
+      await storage.put('admission', { ...state, drive: {
+        generation: 2, status: 'cancel-requested', checkpoint: null, result: null } });
+      await storage.put('dispatcher:lease', { generation: 1, artifactDigest: f.artifactDigest,
+        inputDigest: state.receipt.intentDigest, expiresAt: state.intent.deadline,
+        status: 'unknown', submissionId: 'historical-job',
+        serial: { version: 1, scope: 'submission', authorityDigest: await digest(JSON.stringify(state.receipt)),
+          uid: 'historical-incarnation', results: [], previous: [], current: { phase: { kind: 'discovery' },
+            deliveryToken: 'historical-delivery', idempotencyKey: 'historical-key',
+            receipt: { uid: 'historical-incarnation', submissionId: 'historical-job', offset: 'historical-offset' } } },
+        sdkReleased: released });
+    });
+    const cleanup = vi.spyOn(Agent.prototype as unknown as { _cf_cleanupFacetPrefix: () => Promise<void> },
+      '_cf_cleanupFacetPrefix').mockRejectedValue(new Error('Retirement unavailable'));
+    try {
+      const cold = f.restart(); await f.drainBackground();
+      if (released) expect((await cold.cancelDrive()).ok).toBe(true);
+      else await expect(cold.cancelDrive()).rejects.toThrow('Retirement unavailable');
+      expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested',
+        sdkCleanupReleased: released, result: null, collectionStatus: 'unavailable' });
+      expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+      expect(await cold.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(f.ownedChildReadbacks()).toEqual([]);
+      expect(f.sent).toEqual([]); expect(f.childSubmissions).toEqual([]);
+    } finally {
+      cleanup.mockRestore();
+      // Avoid retrying this deliberately failed historical retirement during fixture teardown.
+      await f.mutateEvidence(async storage => {
+        const lease = (await storage.get<Record<string, unknown>>('dispatcher:lease'))!;
+        await storage.put('dispatcher:lease', { ...lease, sdkReleased: true });
+      });
+    }
+  }, { repositoryOnly: true, facetContract: true }));
+
+  it('REQ-OPERATOR-104 AC3: pending preparation cannot recreate runtime after cancel', () => fixture(async f => {
+    f.afterBundleRead(async () => { await f.activity.cancelDrive(); });
+    await start(f); await f.drainBackground();
+    const cold = f.restart(); await f.drainBackground();
+    expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', result: null });
+    expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    expect(f.ownedChildReadbacks()).toEqual([]);
+    expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
+    expect(await cold.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { repositoryOnly: true, facetContract: true }));
+
+  it('REQ-OPERATOR-106 AC1: historical unkeyed admitting uncertainty stays fenced without SDK lookup', () => fixture(async f => {
+    await f.mutateEvidence(async storage => {
+      const state = (await storage.get<{ receipt: { intentDigest: string }; intent: { deadline: number } }>('admission'))!;
+      await storage.put('admission', { ...state,
+        drive: { generation: 1, status: 'running', checkpoint: null, result: null } });
+      await storage.put('dispatcher:lease', { generation: 1, artifactDigest: f.artifactDigest,
+        inputDigest: state.receipt.intentDigest, expiresAt: state.intent.deadline, status: 'admitting', submissionId: null });
+      await storage.put('dispatcher:journal', { generation: 1, count: 0, nextOrdinal: 0, unresolved: 0 });
+    });
+    const cold = f.restart(); await f.drainBackground();
+    await cold.getAdmission(); await f.drainBackground();
+    await cold.reconcileDispatcherLease();
+    expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    expect((await cold.beginDrive()).ok).toBe(false);
+    expect(await cold.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(f.ownedChildReadbacks()).toEqual([]);
+    expect(f.childSubmissions).toEqual([]); expect(f.sent).toEqual([]);
+  }, { repositoryOnly: true, facetContract: true }));
+});
 
 describe('REQ-OPERATOR-052: admitted package-resource persistence', () => {
   it('retains exact admitted resource bytes across Activity reconstruction and refuses another artifact', () => fixture(async f => {
@@ -1044,6 +1113,28 @@ describe('generic Dispatcher runtime and retained legacy evidence', () => {
       ? { kind: 'dispatch', checkpoint: 'second', message: { kind: 'user', body: 'Second opaque work' }, context: {} }
       : { kind: 'complete', checkpoint: 'done', result: { completed: true } } }));
 
+  it.each([true, false])('REQ-OPERATOR-081 AC2: refused normal dispatch retains validated SDK header only with logging=%s', loggingEnabled => fixture(async f => {
+    const report = await runtimeEnvelope(f);
+    // Pre-admission evidence has no SDK receipt/root yet; never invent those coordinates.
+    report.sdk = { attemptId: 'PRIVATE_REFUSED_ATTEMPT' };
+    f.admissionFault(() => Response.json({ error: 'PRIVATE_REFUSED_DISPATCH' }, { status: 400,
+      headers: { 'x-codeflare-sdk-diagnostics': encodeSdkHeader({ version: 1, records: [report],
+        outbox: { through: 1, dropped: 0, status: 'available' } }) } }));
+    await start(f); await f.activity.reconcileDispatcherLease(); await f.drainBackground();
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+    const imported = records.filter(record => record.owner === 'sdk');
+    if (loggingEnabled) expect(imported).toEqual(expect.arrayContaining([expect.objectContaining({
+      boundary: 'model', code: report.code, outcome: 'failed',
+      correlation: expect.objectContaining({ sdkAttemptDigest: await digest('PRIVATE_REFUSED_ATTEMPT') }),
+    })]));
+    else expect(imported).toEqual([]);
+    expect(JSON.stringify(records)).not.toMatch(/PRIVATE_REFUSED|private\.jwt/);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(f.sent).toEqual([]);
+  }, { ...writableApplication, sdkDiagnostics: true, loggingEnabled }));
+
   it.each([500, 503])('pre-admission HTTP%i preserves the saved application wire through cold recovery', status => fixture(async f => {
     f.admissionFault(() => Response.json({ error: 'PRIVATE_ADMISSION_RESPONSE' }, { status }));
     await start(f);
@@ -1097,7 +1188,7 @@ describe('generic Dispatcher runtime and retained legacy evidence', () => {
       const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
       const token = applicationToken(f); const deadline = (await f.activity.getRuntimePlan())!.deadline;
       if (boundary === 'expired') f.expire();
-      else if (boundary === 'exact-deadline') f.advanceClock(deadline - Date.now());
+      else if (boundary === 'exact-deadline') f.setClock(deadline);
       else if (boundary === 'expiry-during-authorization') f.afterRegistryResolve(async () => { f.expire(); });
       else if (boundary === 'installation-revoked') f.revoke();
       else if (boundary === 'invoker-removed') f.revokeGrant();
@@ -1409,6 +1500,7 @@ describe('generic Dispatcher runtime and retained legacy evidence', () => {
         authority = { scope: serial.scope, authorityDigest, generation: 1, deadline: new Date(state.intent.deadline).toISOString(),
           releaseDigest: f.artifactDigest, repositoryJson: JSON.stringify(f.input), assessmentBytes: 48 * 1024 };
         await storage.put('admission', { ...state, drive: { generation: 2, status: 'cancel-requested', checkpoint: null, result: null },
+          diagnosticFence: { generation: 1, timestamp: Date.now(), boundary: 'fence', code: 'cancelled', uncertain: false },
           updatedAt: Date.now(), diagnosticsVersion: 1, diagnosticBinding: { generation: 1, artifactDigest: f.artifactDigest, inputDigest: state.receipt.intentDigest } });
         await storage.put('dispatcher:lease', { generation: 1, artifactDigest: f.artifactDigest, inputDigest: state.receipt.intentDigest,
           expiresAt: Math.floor(state.intent.deadline / 1000) * 1000, status: 'unknown', submissionId: 'archived-target',
@@ -2634,6 +2726,7 @@ describe('normal installed Dispatcher control', () => {
     'REQ-OPERATOR-048/081: %s permit cannot authorize another application delivery or final collection', fault => fixture(async f => {
       await start(f);
       const permit = await unusedPermit(f, 'unresolved-original', fault !== 'no-declared-delivery');
+      const original = await applicationContext(f);
       const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
       await f.mutateEvidence(async storage => {
         const [key, entry] = [...await storage.list<Record<string, unknown>>({ prefix: 'dispatcher:operation:1:' })][0];
@@ -2651,9 +2744,36 @@ describe('normal installed Dispatcher control', () => {
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
       await cold(f);
       expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
-      const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
-      expect(records.find(row => row.kind === 'operation')).toMatchObject({
-        status: fault === 'unknown' ? 'unknown' : 'reserved', operationKind: 'sdk-model-http', terminalOutcome: null });
+      const get = diagnosticsBrowser(f);
+      const { records } = await diagnosticTraversal(get);
+      const operationDigest = await digest('unresolved-original');
+      const operation = records.find(row => row.kind === 'operation' && row.operationDigest === operationDigest)!;
+      expect(operation).toMatchObject({ id: `o-1-${operationDigest}`, ordinal: 0,
+        status: fault === 'unknown' ? 'unknown' : 'reserved', operationKind: 'sdk-model-http',
+        sdkHttp: { state: fault === 'sending' || fault === 'unknown' ? fault : 'ready',
+          attempts: fault === 'sending' || fault === 'unknown' ? 1 : 0 },
+        terminalOutcome: null, association: 'unassociated', binding: null });
+      const parent = (await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))!.parent;
+      expect(parent.journal).toMatchObject({ generation: 1, count: 1, nextOrdinal: 1, unresolved: 1 });
+      expect(parent.operations.records).toEqual(expect.arrayContaining([expect.objectContaining({
+        operationDigest, ordinal: 0, status: operation.status, sdkHttp: operation.sdkHttp,
+      })]));
+      const failure = records.find(row => row.kind === 'event' && row.code === 'journal-unaccounted'
+        && row.origin === 'originating');
+      expect(failure).toMatchObject({ owner: 'host', boundary: 'settlement', outcome: 'failed',
+        error: { publicCode: 'journal-unaccounted', journal: { gate: 'unresolved-count', operationDigest, unresolved: 1,
+          inspectedUnresolved: 1, phase: 'single', phaseIndex: null } },
+        correlation: { submissionDigest: await digest(original.receipt.submissionId),
+          rootDigest: await digest(original.receipt.uid) } });
+      expect(failure!.capsuleId).toEqual(expect.any(String));
+      const operationDetail = await diagnosticJson<{ record: DiagnosticRecord }>(await get(`/diagnostics/v2/records/${operation.id}`));
+      expect(operationDetail.record).toEqual(operation);
+      const failureDetail = await diagnosticJson<{ record: DiagnosticRecord }>(await get(`/diagnostics/v2/records/${failure!.id}`));
+      expect(failureDetail.record).toEqual(failure);
+      const exported = await diagnosticTraversal(get, '/diagnostics/v2/export');
+      expect(exported.records).toEqual(records);
+      expect(exported.records.find(row => row.id === operation.id)).toEqual(operation);
+      expect(exported.records.find(row => row.id === failure!.id)).toEqual(failure);
       expect((await modelSend(f, 'unresolved-original', permit.permitId)).status).toBe(403);
       expect(f.sent).toEqual([]);
     }, { ...applicationOptions, loggingEnabled: true }));

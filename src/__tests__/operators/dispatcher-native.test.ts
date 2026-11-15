@@ -37,15 +37,16 @@ function fixture(planOverrides: Partial<RuntimePlan> = {}) {
 }
 
 // Mock capability coverage only. Native Flue proof lives in loader-runtime.test.ts.
+// Valid managed application refusal/no-I/O is exercised in renovate-dispatcher.test.ts.
+// Domain execution belongs to codeflare-operator-dispatcher/test/renovate/admission-assessment.test.ts.
 describe('REQ-OPERATOR-048: Dispatcher mocked capability contract', () => {
-  it('runs approved Dispatcher work through the activity- and generation-bound capability without a session', async () => {
+  it('refuses the retired Dispatcher controller on a legacy receipt without producing an assessment', async () => {
     const { capability, request } = fixture();
 
     const response = await capability.fetch(request());
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ schemaVersion: 1, status: expect.stringMatching(/waiting|completed/),
-      result: expect.objectContaining({ activityId, generation, repository: 'owner/repository', pullRequest: 17, headSha }) });
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Capability unavailable', code: 'OPERATOR_CAPABILITY_DENIED', activityId, generation });
   });
 
   it('denies profile substitutions, session/container requests, and mutation paths at the mocked capability boundary', async () => {

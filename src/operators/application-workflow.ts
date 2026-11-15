@@ -98,7 +98,8 @@ export type ApplicationExecutionFacts = { status: 'unavailable' }
   | { status: 'never-started'; activityId: string; proofVersion: string; retired: boolean }
   | { status: 'value'; activityId: string; generation: number; releaseDigest: string; inputDigest: string;
     terminalAt: number; collected: true; settled: true; sdkSubmissionId: string; unknownEffects: false;
-    result: ApplicationValue; checkpoint: ApplicationValue };
+    /** Validated JSON, deliberately opaque across the native RPC boundary. */
+    result: unknown; checkpoint: unknown };
 export type ApplicationExecutionRetirement = { status: 'retired'; activityId: string; proofVersion: string }
   | { status: 'conflict' } | { status: 'unavailable' };
 

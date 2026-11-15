@@ -1,60 +1,56 @@
 import { describe, expect, it } from 'vitest';
-import type { Env } from '../../types';
-import { OperatorRuntimeCapability } from '../../operators/operator-runtime-capability';
+import { applicationWire, fixture, remoteMutations, start, writableApplication } from './fixtures/dispatcher-production';
 
-const activityId = 'renovate-activity';
-const generation = 2;
 const headSha = 'b'.repeat(40);
+const target = { repository: 'owner/repository', pullRequest: 17, headSha };
 
-function request(body: unknown) {
-  return new Request('https://operator.internal/v1/dispatcher/renovate', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-  });
-}
-
-function capability() {
-  const activity = { getRuntimePlan: async () => ({ activityId, deadline: Date.now() + 60_000,
-    invocationJson: JSON.stringify({ repository: 'owner/repository', pullRequest: 17, headSha }),
-    receipt: { operatorId: 'renovate-dispatcher', profile: 'dispatcher', artifactDigest: 'a'.repeat(64),
-      policyJson: '{"capabilities":["renovate"]}' },
-  }) };
-  const env = { OPERATOR_ACTIVITY: { getByName: () => activity } } as unknown as Env;
-  return new OperatorRuntimeCapability({ props: { activityId, generation } } as unknown as ExecutionContext, env);
-}
-
-describe('REQ-OPERATOR-051: Renovate Dispatcher assessment', () => {
-  it('returns a bounded read-only assessment for the authorized Renovate repository, bot, PR, checks, and diff', async () => {
-    const response = await capability().fetch(request({ repository: 'owner/repository', pullRequest: 17, headSha,
-      bot: 'renovate[bot]', checks: [{ name: 'tests', conclusion: 'success' }],
-      diff: { files: 2, bytes: 1024, truncated: false },
-    }));
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ schemaVersion: 1,
-      result: { repository: 'owner/repository', pullRequest: 17, observedHead: headSha,
-        readOnly: true, evidence: { complete: true } } });
-  });
-
-  it('binds recommendations to the exact observed head and reports stale or incomplete evidence instead of treating it as current', async () => {
-    const response = await capability().fetch(request({ repository: 'owner/repository', pullRequest: 17,
-      headSha: 'c'.repeat(40), bot: 'renovate[bot]', checks: [],
-      diff: { files: 300, bytes: 2_000_000, truncated: true }, evidence: { rateLimited: true },
-    }));
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ result: { observedHead: 'c'.repeat(40),
-      evidence: { stale: true, complete: false, truncated: true, rateLimited: true } } });
-  });
-
-  it('denies foreign bots and all repository, session, container, and unattended-rerun mutations', async () => {
-    const attempts = [
-      { repository: 'owner/repository', pullRequest: 17, headSha, bot: 'dependabot[bot]' },
-      { repository: 'owner/repository', pullRequest: 17, headSha, mutation: { method: 'POST', path: '/merge' } },
-      { repository: 'owner/repository', pullRequest: 17, headSha, createSession: true },
-      { repository: 'owner/repository', pullRequest: 17, headSha, createContainer: true },
-      { repository: 'owner/repository', pullRequest: 17, headSha, schedule: 'hourly' },
-    ];
-
-    for (const body of attempts) expect((await capability().fetch(request(body))).status).toBe(403);
-  });
+// The displaced assessment assertions have actual package equivalents in
+// codeflare-operator-dispatcher/test/renovate/renovate.test.ts:
+// "assesses only bounded authorized Renovate PR and CI evidence through parent-bound reads"
+// and "makes an observed stale head, truncated diff, and rate-limited evidence explicit in the assessment".
+// Root proves retirement here, not those domain outcomes.
+describe('REQ-OPERATOR-051: retired Renovate Dispatcher assessment', () => {
+  it.each([
+    { name: 'complete evidence', body: { ...target, bot: 'renovate[bot]',
+      checks: [{ name: 'tests', conclusion: 'success' }], diff: { files: 2, bytes: 1024, truncated: false } } },
+    { name: 'stale incomplete evidence', body: { ...target, headSha: 'c'.repeat(40), bot: 'renovate[bot]', checks: [],
+      diff: { files: 300, bytes: 2_000_000, truncated: true }, evidence: { rateLimited: true } } },
+    { name: 'foreign bot', body: { ...target, bot: 'dependabot[bot]' } },
+    { name: 'repository mutation', body: { ...target, mutation: { method: 'POST', path: '/merge' } } },
+    { name: 'session creation', body: { ...target, createSession: true } },
+    { name: 'container creation', body: { ...target, createContainer: true } },
+    { name: 'unattended rerun', body: { ...target, schedule: 'hourly' } },
+  ])('refuses $name without I/O or an assessment and preserves generic source authority', ({ body }) => fixture(async f => {
+    await start(f);
+    const source = { operationId: 'original-evidence', url: 'https://api.github.com/repos/another/service' };
+    const original = await f.capability.fetch(applicationWire(f, 'source', source));
+    expect(original.status).toBe(200);
+    const bytes = await original.text();
+    const receipt = async () => {
+      const response = await f.capability.fetch(applicationWire(f, 'receipt', { operationId: source.operationId }));
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const before = await receipt();
+    expect(before).toMatchObject({ phase: 'completed', operationCount: 1 });
+    const sent = [...f.sent];
+    for (const reload of [false, true]) {
+      if (reload) f.restart();
+      const denied = await f.capability.fetch(applicationWire(f, 'renovate', body));
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'request-invalid', disposition: 'operation-local' });
+      expect(await receipt()).toEqual(before);
+      const cached = await f.capability.fetch(applicationWire(f, 'source', source));
+      expect(cached.status).toBe(200);
+      expect(await cached.text()).toBe(bytes);
+      expect(f.sent).toEqual(sent);
+      expect(remoteMutations(f)).toEqual([]);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }
+    const corrected = await f.capability.fetch(applicationWire(f, 'source', { ...source, operationId: 'supported-after-refusal' }));
+    expect(corrected.status).toBe(200);
+    expect(await corrected.text()).toBe(bytes);
+    expect(await receipt()).toMatchObject({ operationCount: 2 });
+  }, writableApplication));
 });

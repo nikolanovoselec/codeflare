@@ -230,7 +230,7 @@ describe('REQ-OPERATOR-046: explicit, revision-safe release promotion', () => {
 });
 
 
-describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+describe('REQ-OPERATOR-014/061: immutable application configuration', () => {
   async function setup(request: (path: string, method?: string, body?: unknown) => Promise<Response>) {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ profile: 'dispatcher', repositoryName: 'codeflare-operator-dispatcher', repositoryOwner: 'nikolanovoselec', packageId: 'renovate-dispatcher', intentVersion: '3', inputSchema: { type: 'object', additionalProperties: false, required: ['repository'], properties: { repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } } })).fetcher);
     expect((await request('/access', 'POST', { revision: 0, managers: registration.managers,
@@ -274,28 +274,35 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
       expect.objectContaining({ id: first.id, enabled: false, configuration: next, policy }), other,
     ]) });
   }));
-  it.each([
-    { repository: '' }, { repository: 'acme' }, { repository: 'acme/../updates' }, { repository: './updates' },
-    { repository: 'acme/..' }, { repository: 'acme/%75pdates' }, { repository: 'https://github.com/acme/updates' },
-    { repository: 'acme/updates?override=1' }, { repository: 'acme/updates#branch' },
-    { repository: 'a'.repeat(202) + '/updates' }, { repository: ' acme/updates' },
-    { repetitionIntervalSeconds: 0 }, { repetitionIntervalSeconds: -1 }, { repetitionIntervalSeconds: 1.5 },
-    { repetitionIntervalSeconds: '900' }, { repetitionIntervalSeconds: Number.MAX_SAFE_INTEGER + 1 }, { repetitionIntervalSeconds: Number.MAX_SAFE_INTEGER },
-    { repetitionIntervalSeconds: 8_640_000_000_000 }, { repetitionIntervalSeconds: null },
-    { automaticRuns: 'true' }, { extraAuthority: true },
-  ])('rejects malformed reserved settings %j without changing retained installation', patch => withManagementApi(async request => {
+  it.each([null, [], 'not-an-object', 17, true, { payload: 'x'.repeat(65537) }])(
+    'rejects structurally invalid configuration %# without changing retained installation', configuration => withManagementApi(async request => {
+      const operator = await setup(request);
+      const original = { unrelated: { keep: true }, renovate: {
+        repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };
+      const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+        name: 'primary', revision: operator.revision, policy, configuration: original });
+      expect(created.status).toBe(201);
+      const installation = await created.json() as { id: string; revision: number };
+      const invalid = await request(`/installations/${installation.id}/configure`, 'POST', {
+        revision: installation.revision, policy, configuration });
+      expect(invalid.status).toBe(typeof configuration === 'object' && configuration !== null && !Array.isArray(configuration) ? 413 : 400);
+      expect(await (await request(`/operators/${operator.operatorId}`)).json()).toMatchObject({ installations: [expect.objectContaining({
+        id: installation.id, revision: installation.revision, configuration: original, enabled: false, policy })] });
+    }));
+
+  it('retains opaque application fields without interpreting removed Renovate business policy', () => withManagementApi(async request => {
     const operator = await setup(request);
-    const configuration = { unrelated: { keep: true }, renovate: {
-      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };
+    const configuration = { renovate: { repository: 'package-validates-this', automaticRuns: 'package-owned',
+      repetitionIntervalSeconds: 0, extraAuthority: true } };
     const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
-      name: 'primary', revision: operator.revision, policy, configuration });
+      name: 'opaque', revision: operator.revision, policy, configuration });
     expect(created.status).toBe(201);
     const installation = await created.json() as { id: string; revision: number };
-    const invalid = await request(`/installations/${installation.id}/configure`, 'POST', {
-      revision: installation.revision, policy, configuration: { ...configuration, renovate: { ...configuration.renovate, ...patch } } });
-    expect(invalid.status).toBe(400);
-    expect(await (await request(`/operators/${operator.operatorId}`)).json()).toMatchObject({ installations: [expect.objectContaining({
-      id: installation.id, revision: installation.revision, configuration, enabled: false, policy })] });
+    expect(installation).toMatchObject({ configuration, enabled: false, policy });
+    const saved = await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: installation.revision, policy, configuration });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ configuration, enabled: false, policy });
   }));
   it.each([1, 900, 7200, 31_536_000, 1_000_000_000_000])('accepts valid %i-second cadence without inventing an hourly or short business cap', interval => withManagementApi(async request => {
     const operator = await setup(request);
@@ -361,7 +368,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     });
   }));
 
-  it('validates reserved settings at the Registry RPC boundary and retains state on rejection', () => withManagementApi(async (request, ctx) => {
+  it('validates configuration structure at the Registry RPC boundary and retains state on rejection', () => withManagementApi(async (request, ctx) => {
     const operator = await setup(request);
     const configuration = { renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };
     const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
@@ -373,7 +380,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     if (!current.ok) throw Error('Operator unavailable');
     const controls = await registry.getManagementControls();
     await expect(registry.configureManagementInstallation(installation.id, { revision: installation.revision, policy,
-      configurationJson: JSON.stringify({ renovate: { repository: 'acme/../other', automaticRuns: true, repetitionIntervalSeconds: 0 } }) },
+      configurationJson: '["not-an-object"]' },
       { operatorRevision: current.value.revision, controlsRevision: controls.revision, expiresAt: Date.now() + 60000 }))
       .rejects.toBeDefined();
     expect(await registry.getManagementInstallation(installation.id)).toMatchObject({ ok: true, value: {

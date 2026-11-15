@@ -47,6 +47,23 @@ describe('application-owned configuration fields', () => {
     expect(initial.project).toBe('one');
   });
 
+  it('REQ-OPERATOR-209: declared string constraints invalidate initial and edited values and clear after correction', () => {
+    const [value, setValue] = createSignal<Record<string, unknown>>({ project: 'a/b' });
+    render(() => <form><OperatorApplicationFields schema={{ type: 'object', properties: {
+      project: { type: 'string', title: 'Project', maxLength: 4, pattern: '^[A-Za-z0-9_-]+$' },
+    } }} value={value()} onChange={setValue} /></form>);
+    const project = screen.getByRole('textbox', { name: 'Project' }) as HTMLInputElement;
+    expect(project.form!.checkValidity()).toBe(false);
+    fireEvent.input(project, { target: { value: 'longer' } });
+    expect(project.form!.checkValidity()).toBe(false);
+    fireEvent.input(project, { target: { value: 'a-b' } });
+    expect(project.form!.checkValidity()).toBe(true);
+    fireEvent.input(project, { target: { value: 'a/b' } });
+    expect(project.form!.checkValidity()).toBe(false);
+    fireEvent.input(project, { target: { value: 'a_b' } });
+    expect(project.form!.checkValidity()).toBe(true);
+  });
+
   it('REQ-OPERATOR-209: reuses interval controls with the application default and exact wire seconds', () => {
     const configured = { delivery: { period: 120 } };
     const [value, setValue] = createSignal<Record<string, unknown>>(configured);

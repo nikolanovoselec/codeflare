@@ -1145,7 +1145,9 @@ export class OperatorActivity extends Agent {
       const entries = new Map<string, unknown>();
       let startAfter: string | undefined;
       for (;;) {
-        const page = await tx.list({ prefix: 'dispatcher:', limit: 128, ...(startAfter ? { startAfter } : {}) });
+        // KV listing includes complete values. A count-bounded page can still
+        // retain hundreds of MiB, so pull one value at a time without a total cutoff.
+        const page = await tx.list({ prefix: 'dispatcher:', limit: 1, noCache: true, ...(startAfter ? { startAfter } : {}) });
         for (const [key, value] of page) {
           await observe('application-execution-runtime', [[key, value]]);
           startAfter = key;
@@ -1158,7 +1160,7 @@ export class OperatorActivity extends Agent {
             || key === `dispatcher:result:${state?.drive?.generation}`) entries.set(key, value);
           else entries.set('unexpected-runtime-state', true); // One presence bit fences work; payloads and their keys add no proof.
         }
-        if (page.size < 128) break;
+        if (page.size === 0) break;
       }
       return { state, bound, retirement, publication, ownedSession, entries,
         ...(hash ? { captureFingerprint: hash.digest('hex') } : {}) };
@@ -2140,9 +2142,12 @@ export class OperatorActivity extends Agent {
       parsed = result.data;
       // SDK settlement owns its assessment allowance, not the non-SDK response envelope.
       const sdkSettlement = lease?.generation === generation;
-      const json = JSON.stringify(sdkSettlement ? { ...parsed, result: null } : parsed);
+      const applicationCheckpoint = sdkSettlement && !!lease?.application;
+      const json = JSON.stringify(sdkSettlement
+        ? { ...parsed, result: null, ...(applicationCheckpoint ? { checkpoint: null } : {}) } : parsed);
       if (new TextEncoder().encode(json).byteLength > (sdkSettlement || !dispatcher ? 64 * 1024 : limits.driveResponseBytes)
-        || (sdkSettlement && new TextEncoder().encode(JSON.stringify(parsed.result ?? null)).byteLength > limits.assessmentBytes)) {
+        || (sdkSettlement && new TextEncoder().encode(JSON.stringify(parsed.result ?? null)).byteLength > limits.assessmentBytes)
+        || (applicationCheckpoint && new TextEncoder().encode(JSON.stringify(parsed.checkpoint)).byteLength > limits.assessmentBytes)) {
         return { ok: false, reason: 'invalid-update' };
       }
     } catch {
@@ -2563,7 +2568,7 @@ export class OperatorActivity extends Agent {
 
   /** Only application HTTP is used here. Redirects never receive installation authorization. */
   async #normalDispatcherControl(lease: DispatcherLease, plan: OperatorRuntimePlan,
-    action: 'dispatch' | 'read' | 'abort' | 'plan', applicationRequest?: unknown): Promise<{ status: number; value: unknown; cursorObservation: boolean }> {
+    action: 'dispatch' | 'read' | 'abort' | 'plan', applicationRequest?: unknown): Promise<{ status: number; value: unknown; cursorObservation: boolean; sdkResponse: Response }> {
     // Live metadata gates new admission/read authority, but never replaces the original transport.
     // Abort exclusively uses the frozen installation connection, even if live rotation is unverified/disabled.
     if (action !== 'abort') await this.#normalDispatcherConnection(lease, plan);
@@ -2597,6 +2602,9 @@ export class OperatorActivity extends Agent {
     const unavailable = action !== 'abort' && response.status >= 500;
     if (unavailable || response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
       || ![200, 202].includes(response.status)) {
+      // Refusal bodies retain their independent raw-capture path. Validated header
+      // evidence must not be lost just because no SDK admission receipt follows.
+      if (trace.loggingEnabled !== false) this.#observeSdkHeader(generation, response);
       const cancel = () => { void response.body?.cancel().catch(() => {}); };
       if (trace.loggingEnabled !== false) {
         // This refused body has no functional reader. Join its framed producer at private
@@ -2650,17 +2658,27 @@ export class OperatorActivity extends Agent {
       if (unavailable) throw new NormalDispatcherObservationUnavailable('Normal Dispatcher control acknowledgement unavailable');
       throw new Error('Normal Dispatcher control rejected');
     }
+    // A successful dispatch may first establish the header's SDK coordinates.
+    // Its caller imports after binding that receipt; other calls already have a binding.
+    if (action !== 'dispatch' && trace.loggingEnabled !== false) this.#observeSdkHeader(generation, response);
     // SDK public reply data is a named-array map. Preserve original bytes until validated;
     // result allowance and the small wire envelope are bounded independently of source/inference.
     let bodyText: string;
     try { bodyText = await readDispatcherBody(response, signal, action === 'read' || action === 'plan' ? limits.assessmentBytes + 64 * 1024 : 4096); }
     catch (error) {
+      if (action === 'dispatch' && trace.loggingEnabled !== false) this.#observeSdkHeader(generation, response);
       emitRaw(trace, 'dispatcher-control-body-failure', () => error);
       if (signal.aborted) throw new NormalDispatcherObservationUnavailable('Normal Dispatcher observation timed out');
       throw error;
     }
     emitRaw(trace, 'dispatcher-control-response', () => ({ status: response.status, headers: response.headers, body: bodyText }));
-    return { status: response.status, value: JSON.parse(bodyText) as unknown,
+    let value: unknown;
+    try { value = JSON.parse(bodyText); }
+    catch (error) {
+      if (action === 'dispatch' && trace.loggingEnabled !== false) this.#observeSdkHeader(generation, response);
+      throw error;
+    }
+    return { status: response.status, value, sdkResponse: response,
       cursorObservation: response.headers.get('x-codeflare-observation') === 'cursor-v1' };
   }
 
@@ -2695,31 +2713,35 @@ export class OperatorActivity extends Agent {
       if (current?.receipt && sameDispatcherPhaseValue(current.wire, lease.wire)) return;
       const plan = await this.#normalDispatcherCurrent(lease);
       const response = await this.#normalDispatcherControl(lease, plan, 'dispatch');
-      if (response.status !== 202) throw new Error('Normal Dispatcher admission invalid');
-      const receipt = normalDispatcherReceiptSchema.parse(response.value);
-      if (lease.wire!.uid !== undefined && receipt.uid !== lease.wire!.uid) throw new Error('Normal Dispatcher incarnation changed');
-      await this.#normalDispatcherCurrent(lease);
-      await this.ctx.storage.transaction(async tx => {
-        const record = await tx.get<AdmissionState>('admission');
-        const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (!this.#leaseMatches(record, live, lease.generation) || live!.hosting !== 'normal'
-          || !sameDispatcherPhaseValue(live!.wire, lease.wire)) throw new Error('Stale normal Dispatcher admission');
-        if (live!.receipt) {
-          if (!this.#normalReceiptMatches(live!.receipt, receipt)) throw new Error('Normal Dispatcher receipt conflict');
-          return;
-        }
-        const { id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId } = live!.wire!;
-        const observation = response.cursorObservation ? this.#normalObservation({ ...live!, receipt }, {
-          id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId,
-          version: 1, uid: receipt.uid, submissionId: receipt.submissionId, offset: '-1',
-        }) : undefined;
-        await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...live!, receipt, status: 'running',
-          submissionId: receipt.submissionId, rootDigest: hashDiagnostic(receipt.uid),
-          ...(observation ? { observation } : {}) });
-        await tx.put<AdmissionState>('admission', { ...record!, updatedAt: Date.now() });
-      });
-      await this.publishBrowserSummary();
-      this.#recordDiagnostic(lease.generation, 'submission', 'accepted');
+      try {
+        if (response.status !== 202) throw new Error('Normal Dispatcher admission invalid');
+        const receipt = normalDispatcherReceiptSchema.parse(response.value);
+        if (lease.wire!.uid !== undefined && receipt.uid !== lease.wire!.uid) throw new Error('Normal Dispatcher incarnation changed');
+        await this.#normalDispatcherCurrent(lease);
+        await this.ctx.storage.transaction(async tx => {
+          const record = await tx.get<AdmissionState>('admission');
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!this.#leaseMatches(record, live, lease.generation) || live!.hosting !== 'normal'
+            || !sameDispatcherPhaseValue(live!.wire, lease.wire)) throw new Error('Stale normal Dispatcher admission');
+          if (live!.receipt) {
+            if (!this.#normalReceiptMatches(live!.receipt, receipt)) throw new Error('Normal Dispatcher receipt conflict');
+            return;
+          }
+          const { id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId } = live!.wire!;
+          const observation = response.cursorObservation ? this.#normalObservation({ ...live!, receipt }, {
+            id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId,
+            version: 1, uid: receipt.uid, submissionId: receipt.submissionId, offset: '-1',
+          }) : undefined;
+          await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...live!, receipt, status: 'running',
+            submissionId: receipt.submissionId, rootDigest: hashDiagnostic(receipt.uid),
+            ...(observation ? { observation } : {}) });
+          await tx.put<AdmissionState>('admission', { ...record!, updatedAt: Date.now() });
+        });
+        await this.publishBrowserSummary();
+        this.#recordDiagnostic(lease.generation, 'submission', 'accepted');
+      } finally {
+        if (executionLoggingEnabled(plan.receipt)) this.#observeSdkHeader(lease.generation, response.sdkResponse);
+      }
     })().finally(() => { if (this.#phaseAdmissions.get(key) === flight) this.#phaseAdmissions.delete(key); });
     this.#phaseAdmissions.set(key, flight);
     return flight;
@@ -2752,7 +2774,7 @@ export class OperatorActivity extends Agent {
           || !sameDispatcherPhaseValue(live!.wire, lease.wire) || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)
           || !sameDispatcherPhaseValue(live!.application, lease.application)) throw new Error('Application plan retired');
         await this.#retireUnsentModelPermits(tx, live!);
-        if ((await loadDispatcherJournal(tx, lease.generation)).unresolved !== 0) throw new Error('Application unresolved operations');
+        await this.#requireAccountedDispatcherJournal(tx, live!);
         const app = live!.application!;
         const pending = app.pending ?? (confirmed ? { delivery: { token: crypto.randomUUID(), ordinal: app.delivery.ordinal + 1 },
           idempotencyKey: crypto.randomUUID() } : { delivery: app.delivery, idempotencyKey: app.idempotencyKey });
@@ -2779,9 +2801,12 @@ export class OperatorActivity extends Agent {
           || !sameDispatcherPhaseValue(live!.wire, lease.wire) || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)
           || !sameDispatcherPhaseValue(live!.application, app)) return false;
         await this.#retireUnsentModelPermits(tx, live!);
-        if ((await loadDispatcherJournal(tx, lease.generation)).unresolved !== 0) throw new Error('Application journal changed');
+        await this.#requireAccountedDispatcherJournal(tx, live!);
         const { pending: _pending, ...retained } = app;
         if (decision.kind === 'complete') {
+          // Initial no-work completion needs no SDK job. Once work was admitted,
+          // a failed job may inform another decision but cannot certify success.
+          if (confirmed && 'status' in confirmed) throw new Error('Successful final SDK settlement required');
           const prior = await tx.get(`dispatcher:result:${generation}`);
           if (prior !== undefined && !sameDispatcherPhaseValue(prior, decision.result)) throw new Error('Application immutable result changed');
           await tx.put(`dispatcher:result:${generation}`, decision.result);
@@ -3675,6 +3700,9 @@ export class OperatorActivity extends Agent {
         return;
       }
       if (response.status !== 200) throw new Error('Normal Dispatcher terminal reply invalid');
+      const settlementCorrelation: Correlation = { submissionDigest: hashDiagnostic(lease.receipt.submissionId),
+        rootDigest: hashDiagnostic(lease.receipt.uid),
+        ...(lease.application ? { deliveryDigest: hashDiagnostic(lease.application.delivery.token) } : {}) };
       let reply: { data: Record<string, unknown[]> };
       if (receiptEnvelope.status === 'completed') {
         await this.#normalDispatcherCurrent(lease);
@@ -3685,10 +3713,15 @@ export class OperatorActivity extends Agent {
           throw new Error('Normal Dispatcher foreign completed reply');
         }
         reply = { data: completed.reply.data };
+        try { this.#recordDiagnostic(lease.generation, 'settlement', 'completed', 'none', undefined, settlementCorrelation); }
+        catch { /* Diagnostic failure cannot change validated SDK settlement. */ }
       } else {
         const terminal = z.strictObject({ status: z.enum(['failed', 'aborted']), receipt: normalDispatcherReceiptSchema,
           submissionId: z.string(), data: z.record(z.string(), z.array(z.json())).optional() }).parse(response.value);
         if (terminal.submissionId !== lease.receipt.submissionId) throw new Error('Normal Dispatcher foreign terminal reply');
+        try { this.#recordDiagnostic(lease.generation, 'settlement', 'failed',
+          terminal.status === 'aborted' ? 'cancelled' : 'settlement-failed', undefined, settlementCorrelation); }
+        catch { /* Diagnostic failure cannot change validated SDK settlement. */ }
         if (terminal.status === 'failed') {
           // Only the existing safe native-auth classification needs another remote
           // authority check. Generic terminal evidence must close local authority first.
@@ -3706,9 +3739,7 @@ export class OperatorActivity extends Agent {
               || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)) throw new Error('Normal Dispatcher failure authority changed');
             if (live!.configuredSelection?.source !== 'pi-native'
               || !record!.authFailure || record!.authFailure.provider !== live!.configuredSelection.provider) return false;
-            if ((await loadDispatcherJournal(tx, lease.generation)).unresolved !== 0) {
-              throw new Error('Normal Dispatcher authentication failure has unresolved operations');
-            }
+            await this.#requireAccountedDispatcherJournal(tx, live!);
             await tx.put(DISPATCHER_LEASE, { ...live!, settledSubmissionId: lease.submissionId });
             return true;
           });
@@ -3757,9 +3788,7 @@ export class OperatorActivity extends Agent {
           || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)) return false;
         const prior = await tx.get(`dispatcher:result:${lease.generation}`);
         if (prior !== undefined && !sameDispatcherPhaseValue(prior, assessment)) throw new Error('Normal Dispatcher immutable result changed');
-        const journal = await loadDispatcherJournal(tx, lease.generation);
-        if (journal.unresolved !== 0) throw new DispatcherJournalUnaccounted({ gate: 'unresolved-count',
-          unresolved: journal.unresolved, inspectedUnresolved: 0, phase: 'single', phaseIndex: null });
+        await this.#requireAccountedDispatcherJournal(tx, live!);
         await tx.put(`dispatcher:result:${lease.generation}`, assessment);
         await tx.put(DISPATCHER_LEASE, { ...live!, settledSubmissionId: lease.submissionId });
         return true;
@@ -3783,7 +3812,8 @@ export class OperatorActivity extends Agent {
           error: { ...captureError(error), ...(journal ? { publicCode: 'journal-unaccounted' as const, journal } : {}) },
           ...(journal ? { origin: 'originating' as const, correlation: {
             ...(lease.receipt ? { submissionDigest: hashDiagnostic(lease.receipt.submissionId), rootDigest: hashDiagnostic(lease.receipt.uid) } : {}),
-            ...(lease.serial ? { deliveryDigest: hashDiagnostic(lease.serial.current.deliveryToken) } : {}) },
+            ...(lease.application ? { deliveryDigest: hashDiagnostic(lease.application.delivery.token) }
+              : lease.serial ? { deliveryDigest: hashDiagnostic(lease.serial.current.deliveryToken) } : {}) },
             affectedOperations: journal.operationDigest ? [{ operationDigest: journal.operationDigest,
               effect: 'unknown' as const, status: 'unknown' as const }] : [] } : {}) }, lease);
       if (fenced.ok) {
@@ -3804,6 +3834,29 @@ export class OperatorActivity extends Agent {
     return { submissionId: lease.receipt.submissionId, deliveryToken: lease.application.delivery.token, resource };
   }
 
+  /** Enforce the existing journal gate and retain its actual unresolved metadata.
+   * Read current parent entries only; never inspect SDK jobs or response bodies. */
+  async #requireAccountedDispatcherJournal(tx: DurableObjectTransaction, lease: DispatcherLease): Promise<void> {
+    const journal = await loadDispatcherJournal(tx, lease.generation);
+    if (journal.unresolved === 0) return;
+    const prefix = `dispatcher:operation:${lease.generation}:`;
+    let startAfter: string | undefined;
+    let inspectedUnresolved = 0;
+    let operationDigest: string | undefined;
+    for (;;) {
+      const page = await tx.list<DispatcherOperationRecord>({ prefix, limit: 1, noCache: true, ...(startAfter ? { startAfter } : {}) });
+      for (const [key, entry] of page) {
+        startAfter = key;
+        if (entry.generation !== lease.generation || entry.phase === 'completed') continue;
+        inspectedUnresolved++;
+        operationDigest ??= hashDiagnostic(key.slice(prefix.length));
+      }
+      if (page.size === 0) break;
+    }
+    throw new DispatcherJournalUnaccounted({ gate: 'unresolved-count', unresolved: journal.unresolved,
+      inspectedUnresolved, ...(operationDigest ? { operationDigest } : {}), phase: 'single', phaseIndex: null });
+  }
+
   /** Only a claimed send can reach physical egress. Retire zero-send permits in
    * the SAME transaction that retires their exact delivery; never manufacture receipts.
    * Historical/unbound, sending and uncertain permits remain unresolved. */
@@ -3814,7 +3867,7 @@ export class OperatorActivity extends Agent {
     const prefix = `dispatcher:operation:${lease.generation}:`;
     let startAfter: string | undefined;
     for (;;) {
-      const page = await tx.list<DispatcherOperationRecord>({ prefix, limit: 128, ...(startAfter ? { startAfter } : {}) });
+      const page = await tx.list<DispatcherOperationRecord>({ prefix, limit: 1, noCache: true, ...(startAfter ? { startAfter } : {}) });
       for (const [key, entry] of page) {
         startAfter = key;
         const permit = entry.sdkHttp;
@@ -3828,7 +3881,7 @@ export class OperatorActivity extends Agent {
         await putDispatcherEntry(tx, journal, key.slice(prefix.length), entry,
           { ...entry, phase: 'completed', terminalOutcome: 'not-sent', sdkHttp: { ...permit, phase: 'not-sent' } });
       }
-      if (page.size < 128) return;
+      if (page.size === 0) return;
     }
   }
 
@@ -4670,17 +4723,19 @@ export class OperatorActivity extends Agent {
   }
 
   #observeSdkHeader(generation: number, response: Response): void {
-    const header = readSdkDiagnosticHeader(response);
-    if (!header) return;
-    this.#enqueueDiagnostic(async () => {
-      for (const envelope of header.records) await this.#importRuntimeEnvelope(generation, envelope);
-      await this.ctx.storage.transaction(async tx => {
-        const state = await tx.get<AdmissionState>('admission');
-        const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-        if (state && lease?.generation === generation && this.#diagnosticBindingValid(state, lease)
-          && lease.sdkProvenance && executionLoggingEnabled(state.receipt)) await observeOutbox(tx, lease, header.outbox);
+    try {
+      const header = readSdkDiagnosticHeader(response);
+      if (!header) return;
+      this.#enqueueDiagnostic(async () => {
+        for (const envelope of header.records) await this.#importRuntimeEnvelope(generation, envelope);
+        await this.ctx.storage.transaction(async tx => {
+          const state = await tx.get<AdmissionState>('admission');
+          const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (state && lease?.generation === generation && this.#diagnosticBindingValid(state, lease)
+            && lease.sdkProvenance && executionLoggingEnabled(state.receipt)) await observeOutbox(tx, lease, header.outbox);
+        });
       });
-    });
+    } catch { /* Optional header observation cannot replace the transport outcome. */ }
   }
 
   async dispatcherDiagnosticReport(generation: number, request: Request): Promise<Response> {

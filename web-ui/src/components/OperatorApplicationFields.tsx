@@ -73,20 +73,40 @@ export const OperatorApplicationFields: Component<{
       const required = () => Array.isArray(fields.schema.required) && fields.schema.required.includes(key);
       const options = () => Array.isArray(schema.enum) ? schema.enum.filter((item): item is string => typeof item === 'string') : [];
       const numeric = () => schema.type === 'number' || schema.type === 'integer';
+      let input: HTMLInputElement | undefined;
+      const validationMessage = (value: unknown) => {
+        if (numeric() || typeof value !== 'string' || !value) return '';
+        if (typeof schema.maxLength === 'number' && value.length > schema.maxLength)
+          return `Enter no more than ${schema.maxLength} characters.`;
+        if (typeof schema.pattern === 'string') {
+          // Package patterns use ECMAScript syntax, not HTML pattern's Unicode-set syntax.
+          try {
+            if (!new RegExp(schema.pattern, 'u').test(value)) return 'Enter a value matching the required pattern.';
+          } catch { return 'This field has an invalid validation pattern.'; }
+        }
+        return '';
+      };
+      createEffect(() => {
+        const message = validationMessage(value());
+        input?.setCustomValidity(message);
+      });
       return <Show when={schema.type !== 'object'} fallback={<fieldset class="admin-form-grid">
         <legend>{title()}</legend><Fields schema={schema} value={value()} path={path} />
       </fieldset>}>
         <Show when={numeric() && schema.format === 'duration-seconds'} fallback={<Show when={schema.type === 'boolean'} fallback={<label class="admin-form-field" for={id}>
           <span>{title()}</span>
-          <Show when={options().length > 0} fallback={<input id={id} aria-label={title()}
+          <Show when={options().length > 0} fallback={<input ref={input} id={id} aria-label={title()}
             type={numeric() ? 'number' : 'text'} required={required()} disabled={props.disabled}
             step={schema.type === 'integer' ? 1 : 'any'}
             min={typeof schema.minimum === 'number' ? schema.minimum : undefined}
             max={typeof schema.maximum === 'number' ? schema.maximum : undefined}
             maxlength={typeof schema.maxLength === 'number' ? schema.maxLength : undefined}
-            pattern={typeof schema.pattern === 'string' ? schema.pattern : undefined}
             value={typeof value() === 'string' || typeof value() === 'number' ? String(value()) : ''}
-            onInput={event => change(path, numeric() ? event.currentTarget.valueAsNumber : event.currentTarget.value)} />}>
+            onInput={event => {
+              const input = event.currentTarget;
+              input.setCustomValidity(validationMessage(input.value));
+              change(path, numeric() ? input.valueAsNumber : input.value);
+            }} />}>
             <select id={id} aria-label={title()} value={typeof value() === 'string' ? String(value()) : ''}
               required={required()} disabled={props.disabled} onChange={event => change(path, event.currentTarget.value)}>
               <option value="">Choose</option><For each={options()}>{option => <option value={option}>{option}</option>}</For>

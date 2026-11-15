@@ -31,13 +31,19 @@ export const operatorCapabilityChoices = capability.options;
 const configurationPointer = z.string().min(2).max(512).refine(value => value.startsWith('/')
   && value.slice(1).split('/').every(part => part.length > 0 && !/~(?![01])/u.test(part)
     && !['__proto__', 'constructor', 'prototype'].includes(part.replace(/~1/g, '/').replace(/~0/g, '~'))));
-const applicationSchema = z.strictObject({
+export interface OperatorApplicationDefinition {
+  controlVersion: 1;
+  /** Runtime-validated JSON, kept opaque to native RPC's recursive type mapping. */
+  configurationSchema?: Record<string, unknown>;
+  githubWriteRepositoriesPath?: string;
+  schedule?: { enabledPath: string; intervalSecondsPath: string };
+}
+const applicationSchema: z.ZodType<OperatorApplicationDefinition> = z.strictObject({
   controlVersion: z.literal(1),
   configurationSchema: z.record(z.string(), z.json()).optional(),
   githubWriteRepositoriesPath: configurationPointer.optional(),
   schedule: z.strictObject({ enabledPath: configurationPointer, intervalSecondsPath: configurationPointer }).optional(),
 });
-export type OperatorApplicationDefinition = z.infer<typeof applicationSchema>;
 
 const manifestSchema = z.strictObject({
   schemaVersion: z.literal(1),

@@ -37,7 +37,7 @@ const authoritySchema = z.object({ scope: identity, generation: integer.min(1),
   deadline: z.string().refine(value => Number.isFinite(Date.parse(value))),
   releaseDigest: digest, authorityDigest: digest, repositoryJson: z.string(), assessmentBytes: integer.min(1),
 }).strict();
-export type DispatcherTarget = z.infer<typeof targetSchema>;
+type DispatcherTarget = z.infer<typeof targetSchema>;
 export type DispatcherJourneyResult = z.infer<typeof resultSchema>;
 export type DispatcherPhase = z.infer<typeof phaseSchema>;
 export type DispatcherPhaseDelivery = z.infer<typeof deliverySchema>;
@@ -71,8 +71,6 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 function equal(left: unknown, right: unknown): boolean { return canonical(left) === canonical(right); }
-/** JSON member order cannot change an already witnessed functional checkpoint. */
-export const sameDispatcherPhaseValue = equal;
 function requireWire(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }

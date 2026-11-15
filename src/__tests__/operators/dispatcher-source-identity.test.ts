@@ -45,12 +45,16 @@ async function fixture(identityResponse: IdentityResponse, groupGrant = false, g
   const policy = { capabilities: options.inferencePolicies ? ['fetch', 'inference'] : ['fetch'], resourceProfileId: null,
     ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
   const selection = { controlsRevision: 1,
-    installation: { id: 'installation', revision: 1,
-      policy: { ...policy, inference: options.inferencePolicies?.installation } },
-    operator: { profile: 'dispatcher', revision: 1,
+    installation: { id: 'installation', operatorId: 'operator', releaseId: 'release', revision: 1,
+      configurationJson: '{}', policy: { ...policy, inference: options.inferencePolicies?.installation } },
+    operator: { id: 'operator', operatorId: 'operator', repositoryId: 417, profile: 'dispatcher', revision: 1,
       policy: { ...policy, inference: options.inferencePolicies?.operator }, invokers: {
       users: groupGrant ? [] : [email], groups: groupGrant ? [{ ...stableGroup, issuer: grantIssuer }] : [],
-    } }, release: { bundleDigest: 'a'.repeat(64) } };
+    } }, release: { id: 'release', operatorId: 'operator', bundleDigest: 'a'.repeat(64) },
+    manifestJson: JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: 'operator',
+      name: 'Source identity fixture', description: 'Current Access identity contract',
+      coreVersion: '1', intentVersion: '1', profile: 'dispatcher', inputSchema: { type: 'object' },
+      requiredCapabilities: policy.capabilities, artifact: { path: '/operator-bundle.json', sha256: 'a'.repeat(64) } }) };
   const environment = {
     ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
     OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },

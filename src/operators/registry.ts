@@ -189,9 +189,9 @@ export interface ManagementAdmissionReceipt extends ManagementAdmissionRequest {
 interface ProspectiveSelectionPin {
   controlsRevision: number; installationRevision: number; operatorRevision: number; releaseId: string; bundleDigest: string;
 }
-export const dispatcherDelegationSchema = z.strictObject({ version: z.literal(1),
+const dispatcherDelegationSchema = z.strictObject({ version: z.literal(1),
   routingGroups: z.array(z.string().min(1).max(256)).max(1024) });
-export type DispatcherDelegation = z.infer<typeof dispatcherDelegationSchema>;
+type DispatcherDelegation = z.infer<typeof dispatcherDelegationSchema>;
 interface ProspectiveRegistration extends LegacyRepositoryIdentity, ProspectiveSelectionPin {
   scope?: 'installation'; nextObservationAt?: number; delegation?: DispatcherDelegation;
   registrationId: string; installationId: string; ownerKey: string; bucket: string; sessionId: string;
@@ -1713,8 +1713,13 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       && original.expectedControlsRevision === binding.controlsRevision;
   }
 
-  /** Opaque application state shares the existing Registry, not a new authority service. */
-  async applyApplicationState(binding: RuntimeApplicationStateBinding, request: ApplicationStateRequest) {
+  /** Keep recursive JSON opaque on the RPC surface; the owning adapter validates
+   * actual data before any mutation. This is not a new storage or authority port. */
+  async applyApplicationState(binding: RuntimeApplicationStateBinding, request: unknown): Promise<unknown> {
+    return this.#applyApplicationState(binding, request as ApplicationStateRequest);
+  }
+
+  async #applyApplicationState(binding: RuntimeApplicationStateBinding, request: ApplicationStateRequest) {
     try {
       this.managementSchema();
       const keys = request.operation === 'read' ? request.keys : request.expected.map(entry => entry.key);
@@ -1782,14 +1787,14 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   }
 
   /** Read/fence an original owned execution, never wake or observe an old SDK job. */
-  async applyApplicationExecution(binding: RuntimeApplicationStateBinding, request: ApplicationExecutionRequest) {
+  async applyApplicationExecution(binding: RuntimeApplicationStateBinding, request: ApplicationExecutionRequest): Promise<unknown> {
     const unavailable = () => ({ status: 'unavailable' as const, activityId: request.activityId });
     try {
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(request.activityId) || request.activityId === binding.activityId
         || !/^[a-f0-9]{64}$/.test(request.version)) return unavailable();
       const readCurrent = async () => {
-        const read = await this.applyApplicationState(binding, { operation: 'read', keys: [request.key] });
-        if (!('entries' in read)) return null;
+        const read = await this.#applyApplicationState(binding, { operation: 'read', keys: [request.key] });
+        if (!read.entries) return null;
         const entry = read.entries[0];
         return entry?.status === 'value' && entry.version === request.version ? entry : null;
       };

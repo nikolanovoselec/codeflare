@@ -3,7 +3,7 @@
 import { fixture, start, type DispatcherFixture } from './fixtures/dispatcher-production';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { env, reset, runInDurableObject } from 'cloudflare:test';
-import { OperatorRegistry, type ManagementExecutionSelection } from '../../operators/registry';
+import { OperatorRegistry, type ManagementAdmissionReceipt, type ManagementExecutionSelection } from '../../operators/registry';
 import { normalCallback, normalDeployment } from './fixtures/normal-dispatcher';
 import { createOwnerRawCaptureStorage, discoverRawCaptures, readRawCapture } from '../../operators/raw-capture-storage';
 import type { Env } from '../../types';
@@ -91,12 +91,14 @@ async function withRegistry(run: (context: {
       if (property === 'upsertOwnedActivity') return (...args: unknown[]) => enter(async () =>
         Reflect.apply(registry.upsertOwnedActivity, registry, args));
       if (property === 'resolveManagementExecution' || property === 'admitManagement') return async (...args: unknown[]) => {
-        const result = await Reflect.apply(Reflect.get(target, property), target, args);
+        const result = await Reflect.apply(Reflect.get(target, property), target, args) as {
+          ok: boolean; value: ManagementExecutionSelection | ManagementAdmissionReceipt;
+        };
         if (result.ok) {
-          const selection = property === 'admitManagement' ? result.value.selection : result.value;
-          await seedSelection(selection);
-          if (property === 'admitManagement') await enter(async state => {
-            state.storage.sql.exec('INSERT OR REPLACE INTO operator_admissions VALUES(?,?)', result.value.activityId, JSON.stringify(result.value));
+          const receipt = property === 'admitManagement' ? result.value as ManagementAdmissionReceipt : undefined;
+          await seedSelection(receipt ? receipt.selection : result.value as ManagementExecutionSelection);
+          if (receipt) await enter(async state => {
+            state.storage.sql.exec('INSERT OR REPLACE INTO operator_admissions VALUES(?,?)', receipt.activityId, JSON.stringify(receipt));
           });
         }
         return result;
@@ -274,15 +276,15 @@ describe('application-owned opaque state through authenticated OPERATOR', () => 
       await fixture(async f => {
         r.attach(f); await start(f);
         const version = await create(f, 'retained', { owner: 'original' });
-        const before = await r.enter(native => native.storage.list());
         const headers: Record<string, string> = {};
         if (fault === 'expired') f.expire();
-        if (fault === 'cancelled') await f.activity.cancelDrive();
+        if (fault === 'cancelled') { await f.activity.cancelDrive(); await f.drainBackground(); }
         if (fault === 'wrong-generation') headers['x-codeflare-operator-generation'] = '2';
         if (fault === 'release') f.changeConnection({ releaseId: 'replacement-release' });
         if (fault === 'configuration') f.changeInferenceAuthority('installation');
         if (fault === 'disabled') f.revoke();
         if (fault === 'credentials') headers.authorization = 'Bearer unrelated-caller';
+        const before = await r.enter(native => native.storage.list());
         await denied(await callback(f, { operation: 'read', keys: ['retained'] }, headers));
         await denied(await callback(f, { operation: 'compare-exchange', expected: [{ key: 'retained', version }],
           writes: [{ key: 'retained', value: 'must-not-replace-original' }] }, headers));
@@ -471,6 +473,40 @@ const workflowOptions = { ...normal, applicationConfiguration: configuration, ap
 // The external application supplies only opaque decisions. SDK receipts, frozen
 // input/identity, dispatch keys and terminal collection remain real Root behavior.
 describe('generic application decisions on the existing normal control lifecycle', () => {
+  it.each([false, true])('collects an admitted checkpoint above64KiB within its allowance, cold=%s', cold => fixture(async f => {
+    const checkpoint = { retained: 'x'.repeat(96 * 1024) };
+    const result = { complete: true };
+    await start(f);
+    const original = accepted(f);
+    expect(original).toHaveLength(1);
+    if (cold) { f.restart(); await f.drainBackground(); }
+    f.normalTransport!.settleSubmission(original[0].receipt.submissionId, 'completed');
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true,
+      detail: { executionStatus: 'completed', checkpoint, result } });
+    expect(accepted(f)).toEqual(original);
+    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed',
+      checkpoint: 'x'.repeat(128 * 1024 + 1), result })).toEqual({ ok: false, reason: 'invalid-update' });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ checkpoint, result });
+  }, { ...normal, capacityPolicy: { assessmentBytes: 128 * 1024 }, applicationPlan: body => body.checkpoint === null
+    ? { kind: 'dispatch', checkpoint: { retained: 'x'.repeat(96 * 1024) }, context: {}, message: firstInput }
+    : { kind: 'complete', checkpoint: body.checkpoint, result: { complete: true } } }));
+
+  it.each([false, true])('failed SDK work cannot certify final completion even after reconstruction, cold=%s', cold => fixture(async f => {
+    await start(f);
+    const original = accepted(f);
+    f.normalTransport!.settleSubmission(original[0].receipt.submissionId, 'failed',
+      [{ name: 'actual-failure', data: { preserved: true } }]);
+    if (cold) { f.restart(); await f.drainBackground(); }
+    await f.activity.reconcileDispatcherLease();
+    expect(accepted(f)).toEqual(original);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect((await f.activity.getBrowserDetail())!.result).toBeNull();
+    await f.mutateEvidence(async storage => { expect(await storage.get('dispatcher:result:1')).toBeUndefined(); });
+  }, { ...normal, applicationPlan: body => body.checkpoint === null
+    ? { kind: 'dispatch', checkpoint: { active: true }, context: {}, message: firstInput }
+    : { kind: 'complete', checkpoint: { done: true }, result: { inventedSuccess: true } } }));
+
   it.each([true, false])('matching SDK settlements alone advance opaque work and preserve final output with logging=%s', loggingEnabled => fixture(async f => {
     await planned(f);
     const first = accepted(f)[0];
@@ -664,6 +700,7 @@ describe('historical execution callback capture policy', () => {
           current.environment.OPERATOR_ACTIVITY = {
             idFromName: () => { throw Error('Registry must not select a native identity'); },
             getByName: (id: string) => {
+              if (id === current.activityId) return current.activity;
               if (id !== original.activityId) throw Error('Unexpected historical target');
               return { readApplicationExecutionFacts: (authority: Parameters<typeof original.activity.readApplicationExecutionFacts>[0]) =>
                 original.inOwnContext(() => original.activity.readApplicationExecutionFacts(authority)) };

@@ -23,12 +23,6 @@ import { hasApplicationWorkflow } from './application-workflow';
 import { applicationWriteRepositories } from './application-configuration';
 import { parseOperatorManifest } from './distribution';
 
-/** Read-only historical wire compatibility; never current application authority. */
-export interface DispatcherAdmittedTarget {
-  repository: string; repositoryId: number; pullRequest: number; headSha: string;
-  createdAt: string; createdAfter: string; baseBranch: string;
-}
-
 const DEFAULT_DISPATCHER_BODY_BYTES = dispatcherCapacities().dispatcherRequestBytes;
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherSourceSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,

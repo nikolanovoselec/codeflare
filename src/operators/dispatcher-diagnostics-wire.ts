@@ -20,7 +20,7 @@ export const gaps = ['legacy-uncaptured', 'sdk-import-incomplete', 'platform-evi
 const errorLoss = ['cause-cycle', 'cause-depth', 'message-truncated', 'stack-truncated', 'unsafe-error-access', 'uninspectable-throw'] as const;
 const kinds = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'ValidationError', 'TransportDenied', 'DefiniteEffectFailure', 'other'] as const;
 /** Public pinned-SDK error types only; never retain response messages/details/meta. */
-export const sdkAdmissionTypes = ['invalid_request', 'invalid_json', 'unsupported_media_type', 'agent_instance_not_found',
+const sdkAdmissionTypes = ['invalid_request', 'invalid_json', 'unsupported_media_type', 'agent_instance_not_found',
   'agent_instance_exists', 'submission_conflict', 'conversation_record_invariant', 'attachment_integrity',
   'persisted_format_version_unsupported', 'internal_error', 'conversation_stream_store_failure', 'runtime_unavailable'] as const;
 export const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);

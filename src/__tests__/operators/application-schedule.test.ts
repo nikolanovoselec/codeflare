@@ -70,7 +70,7 @@ function fixture() {
   const storage = new Storage();
   const bundle = normalDispatcherBundle();
   const bytes = new TextEncoder().encode(JSON.stringify(bundle));
-  const selection = {
+  const selection: ManagementExecutionSelection = {
     controlsRevision: 3,
     installation: { id: 'installation', operatorId: 'application', name: 'Independent application',
       revision: 7, enabled: true, releaseId: 'release', approvedSourceRevision: 2,
@@ -82,7 +82,10 @@ function fixture() {
       source: { kind: 'github-release', repositoryId: 23, repositoryUrl: 'https://github.com/example/application',
         credentialConfigured: true, approvedWorkflow: { id: 1, ref: 'main' } } },
     release: { id: 'release', operatorId: 'application', approved: true, bundleDigest: hash(bundle),
-      manifestDigest: 'b'.repeat(64), sourceRevision: 2, repositoryId: 23, sourceCommit: bundle.sourceCommit },
+      manifestDigest: 'b'.repeat(64), sourceRevision: 2, repositoryId: 23, sourceCommit: bundle.sourceCommit,
+      githubReleaseId: 1, interfaceVersion: 1, coreVersion: '1', intentVersion: '1', requestedCapabilities: [],
+      assets: [], provenance: { workflowId: 1, workflowRef: 'main', runId: 1, runAttempt: 1,
+        artifactId: 1, artifactDigest: hash(bundle) } },
     manifestJson: JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: 'application',
       name: 'Independent application', description: '', coreVersion: '1', intentVersion: '1', profile: 'dispatcher',
       inputSchema: {}, requiredCapabilities: [],
@@ -91,7 +94,7 @@ function fixture() {
       configurationSchema: { type: 'object', properties: { jobs: { type: 'object', properties: {
         automatic: { type: 'boolean', default: true }, interval: { type: 'integer', default: 60 },
       } } } }, schedule: { enabledPath: '/jobs/automatic', intervalSecondsPath: '/jobs/interval' } } }),
-  } as ManagementExecutionSelection;
+  };
   const roles = new Map([['owner@example.test', 'admin'], ['other@example.test', 'admin']]);
   let unavailable = false;
   let afterRoleRead: (() => void) | undefined;
@@ -274,13 +277,17 @@ describe('application timer delivery: explicit original-lifetime consent and nor
   it.each(['missing delegation', 'missing verified groups', 'non-admin', 'no invocation grant', 'expired',
     'stale revision', 'disabled', 'unapproved', 'unsupported descriptor', 'disabled default', 'invalid interval'])
   ('refuses activation with %s and leaves no schedule or alarm', async failure => {
-    const f = fixture(), value = authority();
+    const f = fixture();
+    let value = authority();
     let revision = 7;
     if (failure === 'missing delegation') delete value.delegation;
-    if (failure === 'missing verified groups') delete value.human.groups;
+    if (failure === 'missing verified groups') {
+      const { groups: _groups, ...human } = value.human;
+      value = { ...value, human };
+    }
     if (failure === 'non-admin') f.roles.set(value.human.email, 'user');
     if (failure === 'no invocation grant') f.selection.operator.invokers.groups = [];
-    if (failure === 'expired') value.human.expiresAt = epoch / 1000;
+    if (failure === 'expired') value = { ...value, human: { ...value.human, expiresAt: epoch / 1000 } };
     if (failure === 'stale revision') revision--;
     if (failure === 'disabled') f.selection.installation.enabled = false;
     if (failure === 'unapproved') f.selection.release.approved = false;
@@ -299,8 +306,8 @@ describe('application timer delivery: explicit original-lifetime consent and nor
     f.onRoleRead(() => { f.roles.set('owner@example.test', 'user'); });
     expect(await f.activate()).toMatchObject({ ok: false });
     expect(await f.storage.records()).toEqual(new Map());
-    const other = fixture(), value = authority();
-    value.human.groups = [];
+    const other = fixture(), original = authority();
+    const value = { ...original, human: { ...original.human, groups: [] } };
     value.delegation!.routingGroups = ['verified-invokers'];
     expect(await other.activate(value)).toMatchObject({ ok: false });
     expect(await other.storage.records()).toEqual(new Map());
@@ -358,8 +365,8 @@ describe('application timer delivery: explicit original-lifetime consent and nor
   });
 
   it('never refreshes original authority through live SSO and stops at the original deadline', async () => {
-    const f = fixture(), value = authority();
-    value.human.expiresAt = epoch / 1000 + 2;
+    const f = fixture(), original = authority();
+    const value = { ...original, human: { ...original.human, expiresAt: epoch / 1000 + 2 } };
     vi.stubGlobal('fetch', () => { throw new Error('No live SSO or application discovery is permitted'); });
     await f.activate(value);
     vi.setSystemTime(epoch + 1000);
@@ -374,8 +381,8 @@ describe('application timer delivery: explicit original-lifetime consent and nor
   });
 
   it('expiry during handoff cannot start a run or leave a future timer', async () => {
-    const f = fixture(), value = authority();
-    value.human.expiresAt = epoch / 1000 + 2;
+    const f = fixture(), original = authority();
+    const value = { ...original, human: { ...original.human, expiresAt: epoch / 1000 + 2 } };
     await f.activate(value);
     vi.setSystemTime(epoch + 1000);
     f.onPrepare(() => { vi.setSystemTime(epoch + 2000); });

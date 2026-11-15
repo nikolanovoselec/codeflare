@@ -95,6 +95,17 @@ export const invocation = { repository: 'owner/repo', pullRequest: 17 };
 export const genericWire = (path: string, body: unknown) => new Request(`https://operator.internal/v1/dispatcher/${path}`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
+/** Explicit owner-saved mutation scope; the public invocation is not an authorization input. */
+export const writableApplication = { repositoryOnly: true, normalHosting: true, applicationWorkflow: true,
+  applicationConfiguration: { repository: 'another/service' }, applicationWriteRepositoriesPath: '/repository' };
+export function applicationWire(f: DispatcherFixture, path: string, body: unknown): Request {
+  const plan = f.normalTransport?.requests.filter(request => request.path === '/control/plan').at(-1);
+  const delivery = plan?.body.delivery as { token: string } | undefined;
+  if (!delivery) throw new Error('Application delivery unavailable');
+  const request = genericWire(path, body);
+  request.headers.set('x-codeflare-dispatcher-delivery', delivery.token);
+  return request;
+}
 export const guideExcerpt = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007';
 export const guideBlobSha = '9fd821c091950776b4aef53bdc5f55fc72df25af';
 export async function digest(value: string | Uint8Array) {
@@ -113,7 +124,7 @@ const syntheticFrameText = (index: number) => `// Synthetic source-map fixture $
 const canonicalDiagnosticJson = (value: unknown): string => JSON.stringify(value, (_key, item) =>
   item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
-async function syntheticSdkProvenance() {
+async function syntheticSdkProvenance(runtimeVersion = '2.2.2', agentsVersion = '0.20.1') {
   const integrity = async (value: string) => `sha512-${btoa(Array.from(new Uint8Array(await crypto.subtle.digest(
     'SHA-512', new TextEncoder().encode(value))), byte => String.fromCharCode(byte)).join(''))}`;
   const original = 'synthetic SDK fixture before instrumentation';
@@ -122,12 +133,12 @@ async function syntheticSdkProvenance() {
     capabilities: ['origin-error-v1', 'strict-sse-v1', 'sdk-attempt-v1', 'canonical-commit-v1',
       'settlement-finalization-v1', 'cleanup-error-v1', 'local-outbox-v1'],
     basePackages: [
-      { name: '@flue/runtime', version: '2.2.2', integrity: await integrity(original),
+      { name: '@flue/runtime', version: runtimeVersion, integrity: await integrity(original),
         tarballSha256: await digest(original) },
-      { name: 'agents', version: '0.20.1', integrity: await integrity(transformed),
+      { name: 'agents', version: agentsVersion, integrity: await integrity(transformed),
         tarballSha256: await digest(transformed) },
     ],
-    targets: [{ package: '@flue/runtime', version: '2.2.2', path: 'dist/synthetic-fixture.mjs',
+    targets: [{ package: '@flue/runtime', version: runtimeVersion, path: 'dist/synthetic-fixture.mjs',
       originalSha256: await digest(original), transformedSha256: await digest(transformed) }],
     sources: [{ repository: 'nikolanovoselec/codeflare', commit: bundle.sourceCommit,
       path: 'src/__tests__/operators/fixtures/synthetic-sdk.ts', sha256: await digest(original) },
@@ -156,14 +167,17 @@ export const encodeSdkHeader = (value: unknown) => {
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 };
 export async function runtimeEnvelope(f: DispatcherFixture, sequence = 1): Promise<RuntimeEnvelope> {
+  const receipt = f.normalTransport ? [...f.normalTransport.admissions.values()].at(-1)?.receipt : undefined;
+  const coordinates = f.normalTransport ? receipt ? { rootUid: receipt.uid, submissionId: receipt.submissionId } : {}
+    : { rootUid: 'fixture-incarnation', submissionId: 'submission-1' };
   return { version: 1, captureId: await digest(`synthetic-capture-${sequence}`), sequence, timestamp: Date.now(),
     boundary: 'model', outcome: 'failed', code: 'provider-failed', origin: 'originating',
-    source: { package: '@flue/runtime', boundary: 'model', baseVersion: '2.2.2',
+    source: { package: '@flue/runtime', boundary: 'model', baseVersion: f.bundle.versions.runtime,
       patchSetDigest: f.sdkPatchSetDigest, status: 'partial', frames: [] },
     error: { kind: 'TypeError', publicCode: null, messageDigest: await digest('PRIVATE_SDK_MESSAGE'),
       stackDigest: await digest('PRIVATE_SDK_STACK'), causes: [{ kind: 'Error',
         messageDigest: await digest('PRIVATE_SDK_CAUSE'), stackDigest: null }], loss: [], fingerprintScope: 'full' },
-    sdk: { rootUid: 'fixture-incarnation', submissionId: 'submission-1', attemptId: 'PRIVATE_SDK_ATTEMPT',
+    sdk: { ...coordinates, attemptId: 'PRIVATE_SDK_ATTEMPT',
       streamIncarnation: 'PRIVATE_SDK_STREAM', batchSequence: 7, producerEpoch: 3, producerSequence: 11,
       recordIndex: 2, recordType: 'assistant_message_completed', inputApplied: false, settlement: 'unknown' },
     local: { through: sequence, dropped: 0, status: 'captured' } };
@@ -191,6 +205,7 @@ export async function fixture(test: (f: {
   sdkPatchSetDigest: string | null; sdkHeader: (value: string | undefined) => void;
   settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   advanceClock: (milliseconds: number) => void;
+  setClock: (timestamp: number) => void;
   seedLegacyJournal: (entries: Array<{ body: { operationId: string; url: string; method?: 'GET' | 'POST' | 'PUT'; body?: string };
     phase: 'reserved' | 'completed' | 'unknown'; ordinal: number; response?: unknown }>) => Promise<void>;
   revoke: () => void; sent: Request[]; childSubmissions: Request[]; abortStatus: () => string | undefined;
@@ -263,11 +278,12 @@ export async function fixture(test: (f: {
   const fixtureInvocation = options.applicationInput ?? (options.prospective ? { repository: configuredTarget.repository,
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
     : options.repositoryOnly ? { repository: 'another/service' } : invocation);
-  const sdkProvenance = options.sdkDiagnostics ? await syntheticSdkProvenance() : null;
-  const baseBundle: DispatcherBundle = options.runtimeVersion === '2.2.2' || options.sdkDiagnostics ? { ...bundle,
-    versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1' } } : bundle;
-  // The untrusted schema-2 fixture intentionally reaches today's parser rather than requiring a new export at import time.
-  const fixtureBundle: DispatcherBundle = options.normalHosting ? normalDispatcherBundle() as unknown as DispatcherBundle : sdkProvenance ? { ...baseBundle, modules: { ...baseBundle.modules,
+  const baseBundle: DispatcherBundle = options.normalHosting ? normalDispatcherBundle()
+    : options.runtimeVersion === '2.2.2' || options.sdkDiagnostics ? { ...bundle,
+      versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1' } } : bundle;
+  const sdkProvenance = options.sdkDiagnostics
+    ? await syntheticSdkProvenance(baseBundle.versions.runtime, baseBundle.versions.agents) : null;
+  const fixtureBundle: DispatcherBundle = sdkProvenance ? { ...baseBundle, modules: { ...baseBundle.modules,
     'codeflare/sdk-diagnostics-provenance.json': { text: canonicalDiagnosticJson(sdkProvenance) },
     ...Object.fromEntries([...syntheticFramePaths, ...syntheticBudgetPaths()].map((path, index) => [path, { text: syntheticFrameText(index) }])),
   } } : baseBundle;
@@ -314,7 +330,11 @@ export async function fixture(test: (f: {
         required: options.legacyProspective ? ['repository', 'pullRequest'] : ['repository'],
         properties: { repository: { type: 'string', pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' },
           ...(options.legacyProspective ? { pullRequest: { type: 'integer', minimum: 1 } } : {}) } },
-      requiredCapabilities: ['inference', 'fetch'], artifact: { path: '/operator-bundle.json', sha256: artifactDigest } }) : '{}' };
+      requiredCapabilities: ['inference', 'fetch'], artifact: { path: '/operator-bundle.json', sha256: artifactDigest } })
+      : JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: fixtureOperatorId,
+        name: 'Generic Dispatcher', description: 'Protected transport fixture', coreVersion: '1', intentVersion: '1',
+        profile: 'dispatcher', inputSchema: { type: 'object' }, requiredCapabilities: ['fetch', 'inference'],
+        artifact: { path: '/operator-bundle.json', sha256: artifactDigest } }) };
     if (applicationWorkflow) selection.manifestJson = JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
       id: fixtureOperatorId, name: 'Configured application', description: 'Generic application fixture',
       coreVersion: '1', intentVersion: '1', profile: 'dispatcher', inputSchema: { type: 'object' },
@@ -701,7 +721,8 @@ export async function fixture(test: (f: {
       }) } } : {}),
       ...(options.nativeInference ? { R2_ACCESS_KEY_ID: 'synthetic-scoped-id', R2_SECRET_ACCESS_KEY: 'synthetic-scoped-secret',
         R2_ACCOUNT_ID: 'synthetic-r2-account', R2_ENDPOINT: 'https://r2.example.test',
-        KV: { get: async (key: string) => key === 'setup:strict_egress' ? 'active' : null },
+        KV: { get: async (key: string) => key === 'setup:strict_egress' ? 'active'
+          : options.delegated && key === `user:${human.email.trim().toLowerCase()}` ? '{"role":"admin"}' : null },
         EGRESS: { fetch: nativeTransport } } : {}),
       OPERATOR_REGISTRY: { getByName: () => options.registryAdapter ? options.registryAdapter(registry) : registry },
       OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
@@ -825,6 +846,7 @@ export async function fixture(test: (f: {
         exceedGuideDeadline: () => { exceedDeadline = true; },
         expire: () => { vi.spyOn(Date, 'now').mockReturnValue(expiresAt * 1000 + 1); },
         advanceClock: milliseconds => { vi.spyOn(Date, 'now').mockReturnValue(now + milliseconds); },
+        setClock: timestamp => { vi.spyOn(Date, 'now').mockReturnValue(timestamp); },
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         drainBackground,
@@ -1178,16 +1200,4 @@ export function sourceRead(operationId: string, url: string, extra = {}) {
 
 // Instrumented production Activity/Fetcher boundary only; compiled connected acceptance is separate.
 export type DispatcherFixture = Parameters<Parameters<typeof fixture>[0]>[0];
-export const prospectiveRepo = 'nikolanovoselec/komodo';
-export const prospectiveBase = `https://api.github.com/repos/${prospectiveRepo}`;
-export const prospectiveComment = (operationId = 'admitted-comment', base = prospectiveBase) => ({ operationId,
-  method: 'POST', url: `${base}/issues/17/comments`, body: JSON.stringify({ body: 'Exact admitted judgment' }) });
-export const prospectiveMerge = (operationId = 'admitted-merge', base = prospectiveBase) => ({ operationId,
-  method: 'PUT', url: `${base}/pulls/17/merge`, body: JSON.stringify({ sha: 'b'.repeat(40), merge_method: 'merge' }) });
 export const remoteMutations = (f: DispatcherFixture) => f.sent.filter(request => request.method !== 'GET');
-export async function startProspective(f: DispatcherFixture) {
-  await start(f);
-  expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-  expect((await f.capability.fetch(genericWire('source', { operationId: 'admitted-initial-read',
-    url: `${prospectiveBase}/pulls/17` }))).status).toBe(200);
-}

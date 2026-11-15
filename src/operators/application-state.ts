@@ -1,4 +1,4 @@
-export type ApplicationStateValue = null | boolean | number | string | ApplicationStateValue[]
+type ApplicationStateValue = null | boolean | number | string | ApplicationStateValue[]
   | { [key: string]: ApplicationStateValue };
 
 /** Root-derived authority; never accept these fields from the application request. */
@@ -22,7 +22,7 @@ export type ApplicationStateExchangeResult = { status: 'committed' } | { status:
 export type ApplicationStateRequest = { operation: 'read'; keys: string[] }
   | ({ operation: 'compare-exchange' } & ApplicationStateExchange);
 
-export interface ApplicationStateLegacyAlias {
+interface ApplicationStateLegacyAlias {
   storageKey: string;
   /** Local, synchronous inspection of the ACTUAL record. Root must validate its
    * complete layout and prove source, installation and owner permission. Unknown
@@ -56,7 +56,7 @@ const encoder = new TextEncoder();
 const versionPattern = /^[a-f0-9]{64}$/;
 const PREFIX = 'application-state:v1:';
 type Failure = ApplicationStateError['code'];
-const fail = (code: Failure): never => { throw new ApplicationStateError(code); };
+function fail(code: Failure): never { throw new ApplicationStateError(code); }
 const bytes = (value: string) => encoder.encode(value).byteLength;
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

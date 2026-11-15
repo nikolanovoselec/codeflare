@@ -2,8 +2,6 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it as vitestIt, vi } from 'vitest';
 import { createFlueCaseShard } from './flue-case-shard';
-import type { DispatcherPhaseContext } from '../../../operators/dispatcher-phases';
-import type { FiberObservation, NativeFaultImport, NativeFaultSettlement, NativeImportOmission } from './dispatcher-composed-fixture';
 import type { DispatcherResultProjection } from '../../../operators/dispatcher-result';
 // The Node harness exercises the pure publication parser; the Worker read transport is not loaded here.
 vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatcherBody: () => {
@@ -183,82 +181,12 @@ export function registerNativeDispatcherCases(
     return { id, value };
   }
 
-  // The one-attempt case is retired after ProxyWorker connection loss; retain the two-attempt control.
-  const composedAttemptLimits = group === 'flue' ? [2].filter(() => ownsNext()) : [];
-  if (composedAttemptLimits.length) describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
-    beforeEach(() => harness.reset(), 60_000);
-    type Composed = { instance: string; fiberEvents: FiberObservation[] | null;
-      rawFailures?: Array<{ name: string; classification: string }>;
-      nativeSettlement?: NativeFaultSettlement | null; nativeImport?: NativeFaultImport | null; nativeOmission?: NativeImportOmission | null;
-      diagnostics?: Array<{ module: string; stage?: string; outcome?: string; status?: number;
-        failureClass?: string; preparationStep?: string; wireRules?: string;
-        messages?: number; tools?: number | null; messageMinimum?: number; messageMaximum?: number;
-        messageCountViolation?: 'below-minimum' | 'above-maximum' }>;
-      journal?: { generation: number; unresolved: number; operationId: string; receipt: {
-        generation: number; phase: string; requestDigest: string; responseDigest?: string; resolution?: unknown;
-        request?: { method: string; url: string };
-        phaseBinding?: { submissionId: string; deliveryToken: string; phase: DispatcherPhaseContext['phase'] };
-      } } | null;
-      detail: { executionStatus: string; collectionStatus: string; result: unknown; sdkCleanupReleased?: boolean };
-      external: { held: boolean; phases: Array<{ context: DispatcherPhaseContext; commentCount: number }>; inference: Array<{ inputDigest: string; turn: number; phase?: DispatcherPhaseContext['phase'] }>; comments: Array<{ body: string }>;
-        sourceRequests: Array<{ url: string; method: string }>;
-        sourceDeliveries: Array<{ operationId: string; url: string; method: string }>;
-        isolationFaults: Array<{ kind: string; pullRequest: number; status?: number }>;
-        duplicates: Array<{ statuses: number[]; digests: string[] }>;
-        budget?: { operationCount: number; operationLimit: number };
-        evidence?: Array<{ index: number; complete: boolean }>; batches?: string[][];
-        firstAppend?: { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' } | null;
-        sdkSubmissions?: Array<{ stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number }> } };
-    async function composed<T>(id: string, value: unknown): Promise<T> {
-      const response = await harness.fetch(`/dispatcher-composed?activity=${id}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(value), signal: AbortSignal.timeout(20_000),
-      });
-      const body = await response.json();
-      expect(response.status, JSON.stringify(body)).toBe(200);
-      return body as T;
-    }
-    function reportObservation(value: Composed) {
-      const closed = JSON.stringify({ executionStatus: value.detail.executionStatus,
-        collectionStatus: value.detail.collectionStatus, firstAppend: value.external.firstAppend ?? null,
-        sdkSubmissions: value.external.sdkSubmissions ?? [], fiberEvents: value.fiberEvents,
-        inferenceCount: value.external.inference.length, rawFailures: value.rawFailures ?? [],
-        commentCount: value.external.comments.length,
-        operationDenials: (value.diagnostics ?? []).filter(entry => entry.outcome === 'denied' || entry.stage === 'preparation')
-          .map(entry => ({ module: entry.module, stage: entry.stage, outcome: entry.outcome, status: entry.status,
-            failureClass: entry.failureClass, preparationStep: entry.preparationStep, wireRules: entry.wireRules,
-            messages: entry.messages, tools: entry.tools, messageMinimum: entry.messageMinimum,
-            messageMaximum: entry.messageMaximum, messageCountViolation: entry.messageCountViolation })) });
-      return closed;
-    }
-    async function observed(id: string, predicate: (value: Composed) => boolean) {
-      const deadline = Date.now() + 60_000;
-      let value: Composed;
-      do {
-        value = await composed<Composed>(id, { action: 'observe' });
-        if (predicate(value) || ['unknown', 'failed', 'cancel-requested'].includes(value.detail.executionStatus)) break;
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } while (Date.now() < deadline);
-      expect(predicate(value!), reportObservation(value!)).toBe(true);
-      return value!;
-    }
-    // Ordinary/supplemental, committed-reset, duplicate, precommit-reset, incomplete and native-error rows,
-    // plus saved-submission budget/recovery workloads, are retired after ProxyWorker connection loss.
-    // Do not recreate equivalents; retirement supplies no passing behavioral evidence.
-    vitestIt.each(composedAttemptLimits)('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {
-      const pinned = await pinnedArtifact(false, false, true);
-      const id = `exhausted-${crypto.randomUUID()}`;
-      const admission = await composed(id, { action: 'start', ...pinned, scenario: 'persistent', attemptLimit });
-      expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
-      const result = await observed(id, value => value.detail.executionStatus === 'unknown');
-      expect(result.external.inference, JSON.stringify(result)).toHaveLength(attemptLimit);
-      expect(result.external.comments).toEqual([]);
-      expect(result.detail.result).toBeNull();
-      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: false });
-      expect((await composed<Composed>(id, { action: 'observe' })).external.inference).toEqual(result.external.inference);
-    }, 90_000);
-
-  });
+  // The old composed intent4 recovery case required Root's removed phase
+  // coordinator. It cannot qualify the application-owned protocol. Current
+  // installed-SDK transport budget/no-replay and failed-collection assertions
+  // live in dispatcher-r2-services.test.ts. Generated application/SDK attempt
+  // exhaustion still requires compatible-package and hosted qualification;
+  // removing this obsolete execution is not passing native evidence.
 
   if (group === 'authority') describe('REQ-OPERATOR-048: separate pinned native journey compatibility', () => {
     beforeEach(() => harness.reset(), 60_000);

@@ -59,9 +59,10 @@ export function createNormalDispatcherTransport(options: {
   let pendingAcknowledgement: { accepted: () => void; released: Promise<void> } | undefined;
   let nextReadFailure: number | undefined;
   let afterRead: (() => void | Promise<void>) | undefined;
-  let outcome: 'pending' | 'completed' | 'failed' | 'aborted' = 'pending';
+  type Outcome = 'pending' | 'completed' | 'failed' | 'aborted';
+  let outcome: Outcome = 'pending';
   let data: Record<string, unknown[]> = {};
-  const settlements = new Map<string, { outcome: typeof outcome; data: Record<string, unknown[]> }>();
+  const settlements = new Map<string, { outcome: Outcome; data: Record<string, unknown[]> }>();
   let replyPatch: Record<string, unknown> = {};
   let receiptPatch: Record<string, unknown> = {};
   let profileAuthMissing = false;
@@ -147,14 +148,14 @@ export function createNormalDispatcherTransport(options: {
     },
     failNextRead: (status: number) => { nextReadFailure = status; },
     afterNextRead: (action: () => void | Promise<void>) => { afterRead = action; },
-    settle: (status: typeof outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
+    settle: (status: Outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
       outcome = status;
       data = {};
       for (const item of assessmentData) (data[item.name] ??= []).push(item.data);
     },
     // Serial application tests settle one exact SDK receipt, not every job.
     // The legacy settle() behavior remains unchanged for existing fixtures.
-    settleSubmission: (submissionId: string, status: typeof outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
+    settleSubmission: (submissionId: string, status: Outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
       const observedData: Record<string, unknown[]> = {};
       for (const item of assessmentData) (observedData[item.name] ??= []).push(item.data);
       settlements.set(submissionId, { outcome: status, data: observedData });
