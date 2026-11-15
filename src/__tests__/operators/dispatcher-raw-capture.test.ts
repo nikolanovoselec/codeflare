@@ -232,19 +232,18 @@ describe('REQ-OPERATOR-090 AC2/4/6 and 091 AC6/7: rejected normal control captur
     let consumed = false, closed = false;
     const output: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((line: unknown) => { if (typeof line === 'string') output.push(line); });
-    // Transfer a native Response, never a bare cross-context stream, through the existing DO fixture.
-    const nativeResponse = await f.inOwnContext(async () => {
-      let offset = 0;
-      return new Response(new ReadableStream<Uint8Array>({ async pull(controller) {
-        consumed = true;
-        if (offset) await delayed;
-        const part = bytes.subarray(offset, offset + 70_001);
-        offset += part.length;
-        controller.enqueue(part);
-        if (offset === bytes.length) { closed = true; controller.close(); }
-      } }, { highWaterMark: 0 }), { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8',
-        'x-private-refusal': 'SYNTHETIC_CONTROL_HEADER' } });
-    });
+    // fixture already owns this DO's I/O context. A nested Response RPC would pump
+    // the source before the consumer and invalidate the pull/cancellation observations.
+    let offset = 0;
+    const nativeResponse = new Response(new ReadableStream<Uint8Array>({ async pull(controller) {
+      consumed = true;
+      if (offset) await delayed;
+      const part = bytes.subarray(offset, offset + 70_001);
+      offset += part.length;
+      controller.enqueue(part);
+      if (offset === bytes.length) { closed = true; controller.close(); }
+    } }, { highWaterMark: 0 }), { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8',
+      'x-private-refusal': 'SYNTHETIC_CONTROL_HEADER' } });
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       return new URL(request.url).pathname === '/control/dispatch' ? nativeResponse : f.normalTransport!.fetcher(request);
@@ -303,14 +302,12 @@ describe('REQ-OPERATOR-090 AC2/4/6 and 091 AC6/7: rejected normal control captur
       try { const record = JSON.parse(line); if (record.message === 'raw-capture-receipt') receipts.push(record.data); } catch { /* Other metadata. */ }
     });
     let cancelled = false;
-    const nativeResponse = await f.inOwnContext(async () => {
-      let first = true;
-      return new Response(new ReadableStream<Uint8Array>({ pull(controller) {
-        if (first) { first = false; controller.enqueue(Buffer.from('SYNTHETIC_CONTROL_SECRET'.repeat(5000))); return; }
-        if (fault === 'body') throw new Error('SYNTHETIC_CONTROL_BODY_FAILURE');
-        // No EOF: only the original request deadline may stop optional delivery.
-      }, cancel() { cancelled = true; } }, { highWaterMark: 0 }), { status: 400, headers: { 'content-type': 'text/plain' } });
-    });
+    let first = true;
+    const nativeResponse = new Response(new ReadableStream<Uint8Array>({ pull(controller) {
+      if (first) { first = false; controller.enqueue(Buffer.from('SYNTHETIC_CONTROL_SECRET'.repeat(5000))); return; }
+      if (fault === 'body') throw new Error('SYNTHETIC_CONTROL_BODY_FAILURE');
+      // No EOF: only the original request deadline may stop optional delivery.
+    }, cancel() { cancelled = true; } }, { highWaterMark: 0 }), { status: 400, headers: { 'content-type': 'text/plain' } });
     const storage = fault === 'storage' ? vi.spyOn(rawCaptureStorage, 'createOwnerRawCaptureStorage')
       .mockRejectedValue(new Error('SYNTHETIC_CONTROL_STORAGE_FAILURE')) : undefined;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
