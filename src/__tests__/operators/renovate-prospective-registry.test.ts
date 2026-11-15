@@ -289,14 +289,17 @@ describe('REQ-OPERATOR-090/091 AC6/7: Registry-native private observation reads'
       const error = Error(`Outer ${privateText}`, { cause: Error(`Inner ${privateText}`) });
       const pages = Array.from({ length: 3 }, (_, page) => Array.from({ length: 128 }, (_, row) => ({ page, row, body: privateText.slice(row, row + 40) })));
       let evaluated = false;
-      const stream = prospectiveReconciliationStream(policy !== 'off', async raw => {
-        for (const page of pages) {
-          raw?.record('retained-history-page', () => { evaluated = true; return page; }); await raw?.flush?.();
-        }
-        raw?.record('retained-history-error', () => error); await raw?.flush?.();
-        return { retired: true };
-      });
-      const outcome = await consumeProspectiveReconciliation(stream, value => value, policy === 'off' ? undefined : capture);
+      const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
+      const response = await runInDurableObject(activityNamespace.getByName(`multi-batch-${crypto.randomUUID()}`), () =>
+        new Response(prospectiveReconciliationStream(policy !== 'off', async raw => {
+          for (const page of pages) {
+            raw?.record('retained-history-page', () => { evaluated = true; return page; }); await raw?.flush?.();
+          }
+          raw?.record('retained-history-error', () => error); await raw?.flush?.();
+          return { retired: true };
+        })));
+      if (!response.body) throw Error('Missing reconciliation response body');
+      const outcome = await consumeProspectiveReconciliation(response.body, value => value, policy === 'off' ? undefined : capture);
       expect(outcome.value).toEqual({ retired: true });
       expect(evaluated).toBe(policy !== 'off');
       const receipt = await capture.finish('complete');
@@ -306,7 +309,7 @@ describe('REQ-OPERATOR-090/091 AC6/7: Registry-native private observation reads'
         const exported = await registryRawExport(await exportRawCapture({ binding, storage }));
         expect(exported.filter(record => record.stage === 'retained-history-page').map(record => record.value)).toEqual(pages);
         expect(exported.find(record => record.stage === 'retained-history-error')?.value).toMatchObject({ name: 'Error',
-          message: `Outer ${privateText}`, stack: expect.any(String), cause: { name: 'Error', message: `Inner ${privateText}`, stack: expect.any(String) } });
+          message: error.message, stack: error.stack, cause: { name: 'Error', message: (error.cause as Error).message, stack: (error.cause as Error).stack } });
       } else expect(await discoverRawCaptures({ scope: { ownerKey: binding.ownerKey, scope: binding.scope }, storage, authorize: async () => {} }))
         .toMatchObject({ status: 'complete', bindings: [] });
     }));
@@ -1888,6 +1891,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     const activityName = `alarm-normal-${crypto.randomUUID()}`;
     // Retain only names; each caller must acquire its own I/O stub, as in inOwnContext.
     const inActivity = <T>(action: () => Promise<T>) => runInDurableObject(activityNamespace.getByName(activityName), () => action());
+    const inStream = async (enter: typeof inActivity, action: () => Promise<ReadableStream<Uint8Array>>) => {
+      // Only Response uses native fetch transfer; ordinary results stay in the helper's shared map.
+      const response = await enter(async () => new Response(await action()));
+      if (!response.body) throw Error('Missing reconciliation response body');
+      return response.body;
+    };
     await runInDurableObject(activityNamespace.getByName(activityName), async (_instance, activityNative) => {
       state.sessions.clear();
       const approved = normalDispatcherBundle();
@@ -1964,7 +1973,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         let poisoned = false;
         return new Proxy(activity, { get: (target, key) => {
           const value = Reflect.get(target, key);
-          return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => {
+          const invoke = key === 'readProspectiveRenovateRetryProof' || key === 'retireProspectiveRenovatePreparation'
+            ? (action: () => Promise<ReadableStream<Uint8Array>>) => inStream(inActivity, action) : inActivity;
+          return typeof value === 'function' ? (...args: unknown[]) => invoke(async () => {
             if (poisoned) throw Error(sensitiveError);
             if (faultArmed && key === 'getRuntimePlan' && ['poisoned-plan', 'poisoned-concurrent-drive'].includes(fault)) {
               poisoned = true;
@@ -2265,7 +2276,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             if (id !== originalId) throw Error('Unexpected replacement before election');
             return new Proxy(originalActivity, { get: (object, key) => {
               const value = Reflect.get(object, key);
-              return typeof value === 'function' ? (...args: unknown[]) => inActivity(async () => {
+              const invoke = key === 'readProspectiveRenovateRetryProof' || key === 'retireProspectiveRenovatePreparation'
+                ? (action: () => Promise<ReadableStream<Uint8Array>>) => inStream(inActivity, action) : inActivity;
+              return typeof value === 'function' ? (...args: unknown[]) => invoke(async () => {
                 if (key === 'retireProspectiveRenovatePreparation' && diagnostics === 'rpc-throws') throw Error(sensitiveError);
                 if (key === 'retireProspectiveRenovatePreparation' && reconciliation === 'concurrent-drive' && !racedDrive) {
                   racedDrive = true;
@@ -2590,7 +2603,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
                 const enter = id === originalId ? inActivity : inFresh;
                 return new Proxy(object, { get: (target, key) => {
                   const value = Reflect.get(target, key);
-                  return typeof value === 'function' ? (...args: unknown[]) => enter(async () => Reflect.apply(value, target, args)) : value;
+                  const invoke = key === 'readProspectiveRenovateRetryProof' || key === 'retireProspectiveRenovatePreparation'
+                    ? (action: () => Promise<ReadableStream<Uint8Array>>) => inStream(enter, action) : enter;
+                  return typeof value === 'function' ? (...args: unknown[]) => invoke(async () => Reflect.apply(value, target, args)) : value;
                 } });
               } } as never;
             const due = await inRegistry(() => native.storage.getAlarm());
