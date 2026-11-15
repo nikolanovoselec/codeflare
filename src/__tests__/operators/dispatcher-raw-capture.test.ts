@@ -5,6 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { fixture, start, type DispatcherFixture } from './fixtures/dispatcher-production';
 import { normalCallback } from './fixtures/normal-dispatcher';
 import { createOwnerRawCaptureStorage, readRawCapture, discoverRawCaptures } from '../../operators/raw-capture-storage';
+import * as rawCaptureStorage from '../../operators/raw-capture-storage';
+import { within } from '../helpers/pending-recipient';
+import { hashDiagnostic } from '../../operators/dispatcher-diagnostics-wire';
 import { OperatorOwnerInferenceAuthority } from '../../operators/dispatcher-owner-inference';
 import { OperatorDispatcherCapability } from '../../operators/activity';
 import type { InferenceArchiveBinding } from '../../lib/inference-archive-capability';
@@ -220,6 +223,138 @@ it('REQ-OPERATOR-090/091: original logging survives terminal expiry without rene
   const after = await persistedState(f);
   for (const [key, original] of before) expect(after.get(key)).toEqual(original);
 }, options));
+
+describe('REQ-OPERATOR-090 AC2/4/6 and 091 AC6/7: rejected normal control capture', () => {
+  it.each([true, false])('validator HTTP400 preserves private bytes through delayed EOF with original logging=%s', loggingEnabled => fixture(async f => {
+    const bytes = Buffer.from(`Invalid settings.sourceResponseBytes: maximum 1048576\npassword=SYNTHETIC_CONTROL_SECRET\n${'漢🦊é'.repeat(40_000)}`);
+    let release!: () => void;
+    const delayed = new Promise<void>(resolve => { release = resolve; });
+    let consumed = false, closed = false;
+    const output: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => { if (typeof line === 'string') output.push(line); });
+    // Transfer a native Response, never a bare cross-context stream, through the existing DO fixture.
+    const nativeResponse = await f.inOwnContext(async () => {
+      let offset = 0;
+      return new Response(new ReadableStream<Uint8Array>({ async pull(controller) {
+        consumed = true;
+        if (offset) await delayed;
+        const part = bytes.subarray(offset, offset + 70_001);
+        offset += part.length;
+        controller.enqueue(part);
+        if (offset === bytes.length) { closed = true; controller.close(); }
+      } }, { highWaterMark: 0 }), { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8',
+        'x-private-refusal': 'SYNTHETIC_CONTROL_HEADER' } });
+    });
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      return new URL(request.url).pathname === '/control/dispatch' ? nativeResponse : f.normalTransport!.fetcher(request);
+    });
+    try {
+      // The parent must finish its original rejection while optional body delivery is still held.
+      expect(await within(start(f), 'original control rejection before optional EOF')).toMatchObject({ ok: true });
+      expect(closed).toBe(false);
+      expect(f.normalTransport!.admissions.size).toBe(0);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    } finally { release(); await f.drainBackground(); }
+    const history = await f.activity.getDispatcherDiagnosticsV2(f.proof.ownerKey, { view: 'history' });
+    expect(history.status).toBe(200);
+    if (loggingEnabled) {
+      expect('value' in history && history.value.records).toContainEqual(expect.objectContaining({
+        boundary: 'submission', outcome: 'failed', code: 'submission-failed',
+        error: expect.objectContaining({ messageDigest: hashDiagnostic('Normal Dispatcher control rejected') }) }));
+      const auth = ownerReadAuth(f);
+      try {
+        const page = await ownerPage(await nativeOwnerRead(f, { view: 'discover', scope: activityScope(f) }));
+        const archives = await Promise.all(page.bindings.map(async binding => ownerExport(await nativeOwnerRead(f,
+          { view: 'export', scope: activityScope(f), captureId: binding.captureId }))));
+        const archive = archives.find(archive => archive.records.some(record => record.stage === 'dispatcher-control-response'));
+        expect(archive).toBeDefined();
+        expect(archive!.receipt.status).toBe('complete');
+        expect(archive!.records).toContainEqual({ stage: 'dispatcher-control-response', value: { action: 'dispatch', status: 400,
+          headers: { 'content-type': 'text/plain; charset=utf-8', 'x-private-refusal': 'SYNTHETIC_CONTROL_HEADER' } } });
+        let offset = 0;
+        const chunks = archive!.records.filter(record => record.stage === 'dispatcher-control-response-chunk').map(record => {
+          const chunk = record.value as { offset: number; bytes: string };
+          expect(chunk.offset).toBe(offset);
+          const part = Buffer.from(chunk.bytes, 'base64'); offset += part.length;
+          return part;
+        });
+        expect(Buffer.concat(chunks)).toEqual(bytes);
+        expect(archive!.records).toContainEqual({ stage: 'dispatcher-control-response-eof', value: { offset: bytes.length } });
+        expect(closed).toBe(true);
+      } finally { auth.restore(); }
+    } else {
+      expect(consumed).toBe(false);
+      expect(await discoverRetained(f)).toEqual([]);
+      expect([...(await persistedState(f)).keys()].some(key => key.startsWith('operator-raw'))).toBe(false);
+    }
+    expect(output.join('\n')).not.toContain('SYNTHETIC_CONTROL_SECRET');
+    expect(output.join('\n')).not.toContain('SYNTHETIC_CONTROL_HEADER');
+    expect(f.sent).toEqual([]);
+    expect(f.childSubmissions).toEqual([]);
+  }, { ...options, loggingEnabled }));
+
+  it.each(['body', 'storage', 'deadline'] as const)('%s capture failure cannot replace the original validator rejection or certify completeness', fault => fixture(async f => {
+    const receipts: RawCaptureReceipt[] = [];
+    const output: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (typeof line !== 'string') return;
+      output.push(line);
+      try { const record = JSON.parse(line); if (record.message === 'raw-capture-receipt') receipts.push(record.data); } catch { /* Other metadata. */ }
+    });
+    let cancelled = false;
+    const nativeResponse = await f.inOwnContext(async () => {
+      let first = true;
+      return new Response(new ReadableStream<Uint8Array>({ pull(controller) {
+        if (first) { first = false; controller.enqueue(Buffer.from('SYNTHETIC_CONTROL_SECRET'.repeat(5000))); return; }
+        if (fault === 'body') throw new Error('SYNTHETIC_CONTROL_BODY_FAILURE');
+        // No EOF: only the original request deadline may stop optional delivery.
+      }, cancel() { cancelled = true; } }, { highWaterMark: 0 }), { status: 400, headers: { 'content-type': 'text/plain' } });
+    });
+    const storage = fault === 'storage' ? vi.spyOn(rawCaptureStorage, 'createOwnerRawCaptureStorage')
+      .mockRejectedValue(new Error('SYNTHETIC_CONTROL_STORAGE_FAILURE')) : undefined;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      return new URL(request.url).pathname === '/control/dispatch' ? nativeResponse : f.normalTransport!.fetcher(request);
+    });
+    try {
+      expect(await within(start(f), 'original rejection despite optional capture failure')).toMatchObject({ ok: true });
+      await within(f.drainBackground(), 'capture stops at failure or original deadline');
+    } finally { storage?.mockRestore(); }
+    expect(receipts).toContainEqual(expect.objectContaining({ status: 'incomplete' }));
+    expect((await discoverRetained(f)).flatMap(archive => archive.records)
+      .some(record => record.stage === 'dispatcher-control-response')).toBe(false);
+    const history = await f.activity.getDispatcherDiagnosticsV2(f.proof.ownerKey, { view: 'history' });
+    expect(history.status).toBe(200);
+    expect('value' in history && history.value.records).toContainEqual(expect.objectContaining({ boundary: 'submission',
+      outcome: 'failed', error: expect.objectContaining({ messageDigest: hashDiagnostic('Normal Dispatcher control rejected') }) }));
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    if (fault !== 'body') expect(cancelled).toBe(true);
+    expect(output.join('\n')).not.toMatch(/SYNTHETIC_CONTROL_(?:SECRET|BODY_FAILURE|STORAGE_FAILURE)/);
+  }, { ...options, ...(fault === 'deadline' ? { capacityPolicy: { driveTimeoutMs: 100 } } : {}) }));
+
+  it.each([400, 503])('HTTP%s keeps the original rejection versus observation-unavailable lifecycle', status => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const nativeResponse = await f.inOwnContext(async () => new Response('SYNTHETIC_CONTROL_READ_REFUSAL', {
+      status, headers: { 'content-type': 'text/plain' } }));
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      return new URL(request.url).pathname === '/control/read' ? nativeResponse : f.normalTransport!.fetcher(request);
+    });
+    await f.activity.reconcileDispatcherLease(); await f.drainBackground();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: status === 503 ? 'running' : 'unknown', result: null });
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    const records = (await discoverRetained(f)).flatMap(archive => archive.records);
+    expect(records).toContainEqual({ stage: 'dispatcher-control-response', value: { action: 'read', status,
+      headers: { 'content-type': 'text/plain' } } });
+    const chunks = records.filter(record => record.stage === 'dispatcher-control-response-chunk')
+      .map(record => Buffer.from((record.value as { bytes: string }).bytes, 'base64'));
+    expect(Buffer.concat(chunks).toString()).toBe('SYNTHETIC_CONTROL_READ_REFUSAL');
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+});
 
 describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention', () => {
   it.each([true, false])('failed profile evidence has exact private readback with original logging=%s', loggingEnabled => {

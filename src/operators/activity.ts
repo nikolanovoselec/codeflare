@@ -2362,13 +2362,60 @@ export class OperatorActivity extends Agent {
       emitRaw(trace, 'dispatcher-control-failure', () => error);
       throw new NormalDispatcherObservationUnavailable('Normal Dispatcher observation unavailable');
     }
-    if (action !== 'abort' && response.status >= 500) {
-      void response.body?.cancel().catch(() => {});
-      throw new NormalDispatcherObservationUnavailable('Normal Dispatcher control acknowledgement unavailable');
-    }
-    if (response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
+    const unavailable = action !== 'abort' && response.status >= 500;
+    if (unavailable || response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
       || ![200, 202].includes(response.status)) {
-      void response.body?.cancel().catch(() => {});
+      const cancel = () => { void response.body?.cancel().catch(() => {}); };
+      if (trace.loggingEnabled !== false) {
+        // This refused body has no functional reader. Join its framed producer at private
+        // finalization, never at the functional rejection, using only the original signal.
+        const work = this.#retainRawObservation(trace, 'dispatcher-control-response',
+          { action, status: response.status, headers: response.headers }, undefined, async writer => {
+            const reader = response.body?.getReader();
+            let offset = 0, eof = false;
+            let abort: () => void = () => {};
+            try {
+              signal.throwIfAborted();
+              const stopped = new Promise<never>((_, reject) => {
+                abort = () => reject(signal.reason);
+                signal.addEventListener('abort', abort, { once: true });
+              });
+              for (;;) {
+                const chunk = reader ? await Promise.race([reader.read(), stopped]) : { done: true as const };
+                signal.throwIfAborted();
+                if (chunk.done) {
+                  eof = true;
+                  writer.record('dispatcher-control-response-eof', () => ({ offset }));
+                  await Promise.race([writer.flush?.(), stopped]);
+                  break;
+                }
+                // Transport framing only: the functional 4096-byte reply allowance is not a raw cutoff.
+                for (let start = 0; start < chunk.value.byteLength; start += 64 * 1024) {
+                  signal.throwIfAborted();
+                  const part = chunk.value.subarray(start, start + 64 * 1024);
+                  writer.record('dispatcher-control-response-chunk', () => ({ offset, bytes: Buffer.from(part).toString('base64') }));
+                  offset += part.byteLength;
+                  await Promise.race([writer.flush?.(), stopped]);
+                }
+              }
+            } catch (error) {
+              writer.record('dispatcher-control-response-incomplete', () => ({ offset, eof, error }));
+              throw error; // RawCapture.defer marks failed delivery incomplete, not a verified EOF.
+            } finally {
+              signal.removeEventListener('abort', abort);
+              if (!eof) void reader?.cancel(signal.aborted ? signal.reason : undefined).catch(() => {});
+              reader?.releaseLock();
+            }
+          }).then(receipt => {
+          if (!receipt) throw new Error('Raw capture unavailable');
+        }).catch(() => {
+          try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-incomplete',
+            data: { activityId, generation, status: 'incomplete' } })); }
+          catch { /* Optional capture cannot replace the original refusal. */ }
+        }).finally(cancel);
+        try { this.ctx.waitUntil(work); } catch { /* Preserve the functional rejection. */ }
+      } else cancel();
+      if (unavailable) throw new NormalDispatcherObservationUnavailable('Normal Dispatcher control acknowledgement unavailable');
       throw new Error('Normal Dispatcher control rejected');
     }
     // SDK public reply data is a named-array map. Preserve original bytes until validated;
@@ -2634,7 +2681,7 @@ export class OperatorActivity extends Agent {
   }
 
   async #retainRawObservation(context: InferenceDiagnosticContext, stage: string, value: unknown,
-    authorize?: () => Promise<void>) {
+    authorize?: () => Promise<void>, produce?: (writer: Pick<RawCapture, 'record' | 'flush'>) => Promise<void>) {
     await authorize?.();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
@@ -2654,6 +2701,7 @@ export class OperatorActivity extends Agent {
           || !sameDispatcherPhaseValue(current.executionContext.owner, owner)) throw new Error('Raw capture unavailable');
       }), schedule: pending => this.ctx.waitUntil(pending) });
     capture.record(stage, () => value);
+    if (produce) capture.defer?.(produce);
     const receipt = await capture.finish('complete');
     try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-receipt', data: receipt })); }
     catch { /* Private retention does not depend on console availability. */ }
