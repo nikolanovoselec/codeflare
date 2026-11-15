@@ -64,6 +64,20 @@ describe('application-owned configuration fields', () => {
     expect(project.form!.checkValidity()).toBe(true);
   });
 
+  it.each(['😀', '🧪'])('REQ-OPERATOR-209: schema length counts Unicode characters for initial and edited %s values', initial => {
+    const [value, setValue] = createSignal<Record<string, unknown>>({ project: initial });
+    render(() => <form><OperatorApplicationFields schema={{ type: 'object', properties: {
+      project: { type: 'string', title: 'Project', maxLength: 1 },
+    } }} value={value()} onChange={setValue} /></form>);
+    const project = screen.getByRole('textbox', { name: 'Project' }) as HTMLInputElement;
+    expect(project.form!.checkValidity()).toBe(true);
+    fireEvent.input(project, { target: { value: '😀🧪' } });
+    expect(project.form!.checkValidity()).toBe(false);
+    fireEvent.input(project, { target: { value: '🧪' } });
+    expect(project.form!.checkValidity()).toBe(true);
+    expect(value()).toEqual({ project: '🧪' });
+  });
+
   it('REQ-OPERATOR-209: reuses interval controls with the application default and exact wire seconds', () => {
     const configured = { delivery: { period: 120 } };
     const [value, setValue] = createSignal<Record<string, unknown>>(configured);

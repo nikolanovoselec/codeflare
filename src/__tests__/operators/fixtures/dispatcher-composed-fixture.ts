@@ -92,7 +92,7 @@ export const observeBoundary = (observationId: string | undefined,
 };
 export type CanonicalAppendObservation = { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' };
 type SdkObservation = { stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number };
-export type NativeFaultSettlement = {
+type NativeFaultSettlement = {
   submissionDigest: string; attemptDigest: string; obligationDigest: string;
   batchSequence: number; recordIndex: number; producerEpoch: number; producerSequence: number;
   canonicalSequence: number; failureSequence: number; finalizedSequence: number;
@@ -101,7 +101,7 @@ export type NativeFaultImport = {
   generation: number; events: number; indexSdkImport: string; through: number; localThrough: number;
   dropped: number; pendingSequences: number[] | null; gaps: string[]; armedThrough: number;
 };
-export type NativeImportOmission = {
+type NativeImportOmission = {
   captureDigest: string; submissionDigest: string; attemptDigest: string; rootDigest: string; patchSetDigest: string;
   failureSequence: number; canonicalSequence: number; recoveredSequence: number;
   batchSequence: number; recordIndex: number; producerEpoch: number; producerSequence: number;

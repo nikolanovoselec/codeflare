@@ -33,7 +33,7 @@ const configurationPointer = z.string().min(2).max(512).refine(value => value.st
     && !['__proto__', 'constructor', 'prototype'].includes(part.replace(/~1/g, '/').replace(/~0/g, '~'))));
 export interface OperatorApplicationDefinition {
   controlVersion: 1;
-  /** Runtime-validated JSON, kept opaque to native RPC's recursive type mapping. */
+  /** Runtime-validated JSON; consumers inspect fields without interpreting domain policy. */
   configurationSchema?: Record<string, unknown>;
   githubWriteRepositoriesPath?: string;
   schedule?: { enabledPath: string; intervalSecondsPath: string };

@@ -2755,16 +2755,20 @@ describe('normal installed Dispatcher control', () => {
         terminalOutcome: null, association: 'unassociated', binding: null });
       const parent = (await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))!.parent;
       expect(parent.journal).toMatchObject({ generation: 1, count: 1, nextOrdinal: 1, unresolved: 1 });
-      expect(parent.operations.records).toEqual(expect.arrayContaining([expect.objectContaining({
-        operationDigest, ordinal: 0, status: operation.status, sdkHttp: operation.sdkHttp,
-      })]));
+      // The legacy parent DTO has no v2 sdkHttp projection. Correlate the same
+      // retained operation through its actual seven-field wire contract.
+      expect(parent.operations.records).toEqual([{
+        operationDigest, ordinal: 0, status: operation.status, requestDigest: operation.requestDigest,
+        responseDigest: fault === 'unproved-response' ? 'f'.repeat(64) : null,
+        binding: null, hostInference: null,
+      }]);
       const failure = records.find(row => row.kind === 'event' && row.code === 'journal-unaccounted'
         && row.origin === 'originating');
       expect(failure).toMatchObject({ owner: 'host', boundary: 'settlement', outcome: 'failed',
         error: { publicCode: 'journal-unaccounted', journal: { gate: 'unresolved-count', operationDigest, unresolved: 1,
-          inspectedUnresolved: 1, phase: 'single', phaseIndex: null } },
-        correlation: { submissionDigest: await digest(original.receipt.submissionId),
-          rootDigest: await digest(original.receipt.uid) } });
+          inspectedUnresolved: 1, phase: 'single', phaseIndex: null } } });
+      expect(failure!.correlation).toEqual({ submissionDigest: await digest(original.receipt.submissionId),
+        rootDigest: await digest(original.receipt.uid), deliveryDigest: await digest(original.delivery.token) });
       expect(failure!.capsuleId).toEqual(expect.any(String));
       const operationDetail = await diagnosticJson<{ record: DiagnosticRecord }>(await get(`/diagnostics/v2/records/${operation.id}`));
       expect(operationDetail.record).toEqual(operation);

@@ -106,8 +106,8 @@ export function applicationWire(f: DispatcherFixture, path: string, body: unknow
   request.headers.set('x-codeflare-dispatcher-delivery', delivery.token);
   return request;
 }
-export const guideExcerpt = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007';
-export const guideBlobSha = '9fd821c091950776b4aef53bdc5f55fc72df25af';
+const guideExcerpt = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007';
+const guideBlobSha = '9fd821c091950776b4aef53bdc5f55fc72df25af';
 export async function digest(value: string | Uint8Array) {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', typeof value === 'string'
     ? new TextEncoder().encode(value) : value)), b => b.toString(16).padStart(2, '0')).join('');
@@ -940,29 +940,9 @@ export function diagnosticReport(body: unknown = { stage: 'fetch-rejected' }, pa
   if (method === 'GET') return new Request(url, { method: 'GET' });
   return new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 }
-export function composeRead(operationId = 'compose-1', extra = {}) {
-  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
-    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'changed-compose', ...extra }) });
-}
-export function releaseRead(operationId = 'release-1', extra = {}) {
-  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
-    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'release-notes', ...extra }) });
-}
-export function guideRead(operationId = 'guide-1', extra = {}) {
-  return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',
-    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId, resource: 'upstream-guide', ...extra }) });
-}
-export function changedCompose(path: string, sha = 'd'.repeat(40)) {
-  return { filename: path, status: 'modified', sha, additions: 1, deletions: 1,
-    patch: '-    image: amir20/dozzle:v11.1.1\n+    image: amir20/dozzle:v11.1.2' };
-}
-export function composeBlob(path: string, sha: string, content: string) {
+function composeBlob(path: string, sha: string, content: string) {
   return { path, sha, type: 'file', size: new TextEncoder().encode(content).byteLength,
     encoding: 'base64', content: btoa(content) };
-}
-export function dozzleFiles(before = 'v11.1.1', after = 'v11.1.2') {
-  return [{ filename: 'compose.yaml', status: 'modified', additions: 1, deletions: 1,
-    patch: `-    image: amir20/dozzle:${before}\n+    image: amir20/dozzle:${after}` }];
 }
 export function read(operationId = 'read-1', extra = {}) {
   return new Request('https://operator.internal/v1/dispatcher/github/read', { method: 'POST',

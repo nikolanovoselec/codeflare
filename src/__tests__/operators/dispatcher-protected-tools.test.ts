@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
+// Register the fixture's Access seams before loading runtime authority consumers.
 import { applicationWire, fixture, genericWire, remoteMutations, start, writableApplication } from './fixtures/dispatcher-production';
+import { parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
 
 const head = 'a'.repeat(40);
 const target = { pullRequest: 1, headSha: head };
@@ -47,7 +48,7 @@ describe('REQ-OPERATOR-051/060: retired domain tools cannot acquire generic tran
     ['github/read', { operationId: 'foreign', resource: 'open-pull-requests', url: 'https://evil.test' }],
     ['github/comment', { operationId: 'forged', target, sessionId: 'forged', decision: 'MERGE', comment: 'Research judgment' }],
   ] as const)('refuses %s before I/O and preserves original source receipts across reconstruction (%#)', (path, body) => fixture(async f => {
-    await start(f);
+    expect(await start(f)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
     const source = { operationId: 'authorized-source', url: 'https://api.github.com/repos/another/service' };
     const original = await f.capability.fetch(applicationWire(f, 'source', source));
     expect(original.status).toBe(200);

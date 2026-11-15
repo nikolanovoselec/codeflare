@@ -21,7 +21,7 @@ import { AppError, ValidationError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
 import { createLogger } from '../lib/logger';
 import type { OperatorRegistry, ManagementOperatorProjection, ManagementPolicy, ManagementAuthority, ManagementControls,
-  ManagementInstallation } from '../operators/registry';
+  ManagementInstallation, ManagementRelease } from '../operators/registry';
 import { registerGithubOperator, refreshGithubReleases, updateGithubOperatorSource } from '../operators/github-release-management';
 import { proposeBoundaryWorkflow, verifyBoundaryWorkflow } from '../operators/boundary-action-installation';
 
@@ -133,6 +133,9 @@ function presentInstallation(installation: ManagementInstallation): Record<strin
   if (!configurationValueResult.success) throw new AppError('UNAVAILABLE', 503, 'Operator installation configuration unavailable');
   const { configurationJson: _, ...publicInstallation } = installation;
   return { ...publicInstallation, configuration: configurationValueResult.data };
+}
+function presentRelease({ applicationJson, ...release }: ManagementRelease): Record<string, unknown> {
+  return { ...release, ...(applicationJson === undefined ? {} : { application: JSON.parse(applicationJson) }) };
 }
 async function managementContext(c: Context<RouteEnv>, fresh = false): Promise<HumanContext> {
   // New management authority uses the authenticated platform role or stable,
@@ -376,7 +379,9 @@ app.get('/operators/:operatorId', async c => {
   // A concurrent ACL change must not make the earlier authorization a data grant.
   const current = await managed(c, operator.id);
   if (current.revision !== operator.revision) throw new AppError('CONFLICT', 409, 'Operator management conflict');
-  return c.json({ operator: current, releases, installations: installations.map(presentInstallation), grants: { managers: current.managers, invokers: current.invokers } });
+  return c.json({ operator: current,
+    releases: releases.map(presentRelease),
+    installations: installations.map(presentInstallation), grants: { managers: current.managers, invokers: current.invokers } });
 });
 
 app.post('/operators/:operatorId/releases/refresh', async c => {
@@ -384,7 +389,7 @@ app.post('/operators/:operatorId/releases/refresh', async c => {
   const operator = await managed(c, c.req.param('operatorId'));
   withinCeiling(c.get('operatorHuman'), operator.policy);
   const items = await refreshGithubReleases(acquisitionContext(c, operator), operator.id, input.revision);
-  return c.json({ items });
+  return c.json({ items: items.map(presentRelease) });
 });
 
 app.post('/operators/:operatorId/source', async c => {

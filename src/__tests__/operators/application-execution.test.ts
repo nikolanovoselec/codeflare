@@ -56,6 +56,9 @@ async function seed(native: DurableObjectState, namespace: DurableObjectNamespac
     else state.storage.sql.exec('DELETE FROM operator_admissions WHERE activity_id=?', activityId);
   });
   const activity = new OperatorActivity(native, environment);
+  // Agents 0.33 starts capability migrations lazily on the first async RPC.
+  // Settle that real startup before seeding evidence or taking no-write baselines.
+  await activity.lifecycle.start();
   const bundle = normalDispatcherBundle(), bundleDigest = hash(bundle);
   const policy = { capabilities: ['fetch'], resourceProfileId: null };
   const selection = { controlsRevision: 1,

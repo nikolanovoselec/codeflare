@@ -888,14 +888,28 @@ describe('REQ-OPERATOR-081: protected synthetic SDK runtime import', () => {
     }, options));
 
   it('REQ-OPERATOR-081: AC1/3/4 late original runtime metadata enriches retired history without reopening owned work', () => fixture(async f => {
-    await start(f); const first = await runtimeEnvelope(f); await importRuntime(f, first);
-    await f.activity.cancelDrive(); const before = await f.activity.getBrowserDetail();
+    expect(await start(f)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+    const first = await runtimeEnvelope(f); await importRuntime(f, first);
+    const [readOriginal] = f.ownedChildReadbacks();
+    const originalSnapshot = await (await readOriginal()).text();
+    const submissions = [...f.childSubmissions];
+    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { status: 'cancel-requested' } });
+    expect(f.abortStatus()).toBe('cancel-requested');
+    const before = await f.activity.getBrowserDetail();
     const late = await runtimeEnvelope(f, 2); late.boundary = 'release'; late.source.boundary = 'release';
     late.code = 'cleanup-failed'; await importRuntime(f, late);
     f.restart(); await f.drainBackground();
     expect(await sdkRecords(f)).toHaveLength(2);
     expect(await f.environment.OPERATOR_ACTIVITY!.getByName(f.activityId).getBrowserDetail()).toEqual(before);
-    for (const read of f.ownedChildReadbacks()) await expect(read()).rejects.toThrow();
+    // This unkeyed legacy lease delivers abort, not physical stub invalidation.
+    // Late metadata may not change its read-only bytes or reopen execution.
+    for (const read of f.ownedChildReadbacks()) {
+      const response = await read();
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(originalSnapshot);
+    }
+    expect(f.childSubmissions).toEqual(submissions);
+    expect(await f.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
     expect((await f.capability.fetch(genericWire('source', { operationId: 'late-import-no-effect',
       method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments',
       body: '{"body":"must not execute"}' }))).status).toBe(403);

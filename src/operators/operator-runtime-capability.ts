@@ -247,7 +247,7 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
     if (observed.status !== 'current') throw new Error('Dispatcher authority denied');
     human = { ...human, groups: observed.groups };
   }
-  const admittedTarget: DispatcherAdmittedTarget | undefined = undefined;
+  const admittedTarget = undefined;
   if (human.expiresAt * 1000 <= Date.now() || plan.deadline <= Date.now()
     || !canInvokeOperator(human, selected.value.operator)) throw new Error('Dispatcher invoker denied');
   return { authority: { ...authority, human }, delegation, parent, policy: pinned.installation.policy, admittedTarget,

@@ -76,7 +76,7 @@ export const OperatorApplicationFields: Component<{
       let input: HTMLInputElement | undefined;
       const validationMessage = (value: unknown) => {
         if (numeric() || typeof value !== 'string' || !value) return '';
-        if (typeof schema.maxLength === 'number' && value.length > schema.maxLength)
+        if (typeof schema.maxLength === 'number' && Array.from(value).length > schema.maxLength)
           return `Enter no more than ${schema.maxLength} characters.`;
         if (typeof schema.pattern === 'string') {
           // Package patterns use ECMAScript syntax, not HTML pattern's Unicode-set syntax.
@@ -100,7 +100,6 @@ export const OperatorApplicationFields: Component<{
             step={schema.type === 'integer' ? 1 : 'any'}
             min={typeof schema.minimum === 'number' ? schema.minimum : undefined}
             max={typeof schema.maximum === 'number' ? schema.maximum : undefined}
-            maxlength={typeof schema.maxLength === 'number' ? schema.maxLength : undefined}
             value={typeof value() === 'string' || typeof value() === 'number' ? String(value()) : ''}
             onInput={event => {
               const input = event.currentTarget;

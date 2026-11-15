@@ -27,7 +27,7 @@ import type { OperatorExecutionAuthority } from './execution-context';
 import { z } from 'zod';
 import { ApplicationStateStore, ApplicationStateError, type ApplicationStateBinding, type ApplicationStateRequest } from './application-state';
 import { hasApplicationWorkflow, type RuntimeApplicationStateBinding, type ApplicationExecutionAuthority,
-  type ApplicationExecutionRequest } from './application-workflow';
+  type ApplicationExecutionRequest, type ApplicationExecutionFacts, type ApplicationExecutionRetirement } from './application-workflow';
 import { activateApplicationSchedule as activateSchedule, applicationScheduleStatus as scheduleStatus, runApplicationSchedules } from './application-schedule';
 import { canInvokeOperator, resolveBucketName } from '../lib/access';
 import { createRawCapture, createOwnerRawCaptureStorage, captureRawInteraction, type RawCapture, type RawCaptureBinding, type RawCaptureReceipt } from './raw-capture-storage';
@@ -136,7 +136,8 @@ export interface ManagementRelease {
   tagName?: string; publishedAt?: string;
   /** Verified manifest metadata projected for display, never persisted into the immutable release identity. */
   name?: string; description?: string;
-  application?: OperatorManifest['application'];
+  /** Bounded manifest JSON stays text across RPC, like configurationJson and manifestJson. */
+  applicationJson?: string;
   assets: Array<{ id: number; name: string; digest: string }>;
   provenance: { compilerCommit?: string; workflowId: number; workflowRef: string; runId: number; runAttempt: number; artifactId: number; artifactDigest: string };
 }
@@ -1168,7 +1169,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         const manifest = JSON.parse(row.manifest) as { name?: unknown; description?: unknown; application?: OperatorManifest['application'] };
         if (typeof manifest.name !== 'string' || typeof manifest.description !== 'string') throw new ValidationError('Operator description unavailable');
         return { ...JSON.parse(row.data) as ManagementRelease, name: manifest.name, description: manifest.description,
-          ...(manifest.application ? { application: manifest.application } : {}) };
+          ...(manifest.application ? { applicationJson: JSON.stringify(manifest.application) } : {}) };
       });
   }
 
@@ -1794,7 +1795,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         || !/^[a-f0-9]{64}$/.test(request.version)) return unavailable();
       const readCurrent = async () => {
         const read = await this.#applyApplicationState(binding, { operation: 'read', keys: [request.key] });
-        if (!read.entries) return null;
+        if (!('entries' in read) || !read.entries) return null;
         const entry = read.entries[0];
         return entry?.status === 'value' && entry.version === request.version ? entry : null;
       };
@@ -1839,7 +1840,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         const logging = current?.selection.operator.policy.loggingEnabled;
         authority.observationLoggingEnabled = !!current && (logging === undefined || logging === true);
       } catch { /* Unproven observation policy withholds capture, not execution facts. */ }
-      const activity = (this.env as Env).OPERATOR_ACTIVITY?.getByName(request.activityId);
+      // Actual JSON is validated by the owning Activity. Keep opaque payloads
+      // behind a narrow RPC port instead of recursively mapping their type graph.
+      const activity: {
+        readApplicationExecutionFacts(authority: ApplicationExecutionAuthority): Promise<ApplicationExecutionFacts>;
+        retireApplicationExecution(authority: ApplicationExecutionAuthority): Promise<ApplicationExecutionRetirement>;
+      } | undefined = (this.env as Env).OPERATOR_ACTIVITY?.getByName(request.activityId);
       if (!activity) return unavailable();
       const facts = await activity.readApplicationExecutionFacts(authority);
       if (!await readCurrent()) return { status: 'conflict' as const, activityId: request.activityId };
