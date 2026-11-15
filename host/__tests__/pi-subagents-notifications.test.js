@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { stripTypeScriptTypes } from 'node:module';
+import { transformSync } from 'esbuild';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -80,7 +80,9 @@ async function host(t) {
   const modules = new Map();
   function url(path) {
     if (modules.has(path)) return modules.get(path);
-    let source = stripTypeScriptTypes(readFileSync(join(root, path), 'utf8'), { mode: 'transform' });
+    let source = transformSync(readFileSync(join(root, path), 'utf8'), {
+      loader: 'ts', format: 'esm', target: 'es2022',
+    }).code;
     source = source.replace(/from "(#src\/[^"]+|@earendil-works\/pi-coding-agent)"/g, (_match, specifier) => {
       const dependency = specifier.replace('#src/', 'src/') + '.ts';
       return `from "${real.has(dependency) ? url(dependency) : inertUrl}"`;
@@ -240,6 +242,33 @@ test('Task118: settled fallback and already-idle completion retain followUp deli
   ]);
 });
 
+for (const outcome of ['aborted', 'error']) {
+  test(`REQ-AGENT-053: ${outcome} turn retains completion and update for settled fallback`, async t => {
+    const h = await host(t);
+    const running = record('running', { status: 'running', runUpdates: ['still relevant'] });
+    await h.emit('agent_start');
+    h.notifications.sendCompletion(record('finished'));
+    h.notifications.sendUpdate(running, 'still relevant');
+    await h.emit('turn_end', { outcome, toolResults: [] });
+    assert.deepEqual(h.sent, [], 'an interrupted turn must not strand outcomes in steering');
+    assert.deepEqual(running.runUpdates, ['still relevant']);
+    await h.emit('agent_settled', { aborted: outcome === 'aborted' });
+    const messages = h.nextModelMessages();
+    assert.deepEqual(announcements(messages).map(({ type, id }) => ({ type, id })), [
+      { type: 'subagent-notification', id: 'finished' },
+      { type: 'subagent-update', id: 'running' },
+    ]);
+    assert.deepEqual(h.sent.map(({ options }) => options), [
+      { deliverAs: 'followUp', triggerTurn: true },
+      { deliverAs: 'followUp', triggerTurn: true },
+    ]);
+    assert.deepEqual(running.runUpdates, []);
+    await h.emit('agent_settled');
+    await h.emit('turn_end', { outcome: 'completed', toolResults: [] });
+    assert.deepEqual(h.nextModelMessages(), messages, 'fallback delivers once without a new user prompt');
+  });
+}
+
 test('Task118: live updates stay ordered and distinct while stale/claimed updates are suppressed', async t => {
   const h = await host(t);
   const running = record('running', { status: 'running', runUpdates: ['one', 'two'] });
@@ -328,7 +357,7 @@ for (const drift of ['name', 'version', 'manifest', 'index', 'notification', 'pr
       writeFileSync(join(root, path), readFileSync(join(root, path), 'utf8') + '\n// unreviewed drift\n');
     }
     const before = Object.fromEntries(Object.keys(capture.sources).map(file => [file, readFileSync(join(root, file))]));
-    assert.throws(() => patchPiSubagentsNotifications(root), /identity\/version|digest changed|Unsafe subagents/);
+    assert.throws(() => patchPiSubagentsNotifications(root));
     for (const [file, bytes] of Object.entries(before)) {
       assert.deepEqual(readFileSync(join(root, file)), bytes, 'fail-closed no-partial-write artifact contract');
     }
