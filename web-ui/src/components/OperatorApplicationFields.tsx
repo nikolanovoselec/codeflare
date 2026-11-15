@@ -22,7 +22,7 @@ const DurationField: Component<{ value: unknown; schema: Record<string, unknown>
 };
 
 /** A small scalar/object view of package-owned configuration; unknown saved fields survive edits. */
-export const OperatorApplicationFields: Component<{
+const OperatorApplicationFields: Component<{
   schema: Record<string, unknown>;
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
@@ -69,7 +69,7 @@ export const OperatorApplicationFields: Component<{
       const path = [...fields.path, key];
       const id = createUniqueId();
       const title = () => typeof schema.title === 'string' ? schema.title : key;
-      const value = () => object(fields.value) && Object.hasOwn(fields.value, key) ? fields.value[key] : schema.default;
+      const value = () => object(fields.value) && Object.prototype.hasOwnProperty.call(fields.value, key) ? fields.value[key] : schema.default;
       const required = () => Array.isArray(fields.schema.required) && fields.schema.required.includes(key);
       const options = () => Array.isArray(schema.enum) ? schema.enum.filter((item): item is string => typeof item === 'string') : [];
       const numeric = () => schema.type === 'number' || schema.type === 'integer';

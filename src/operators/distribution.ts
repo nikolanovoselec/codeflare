@@ -87,7 +87,7 @@ const bundleSchema = z.strictObject({
   mainModule: relativePath,
   modules: modulesSchema,
   resources: packageResourcesSchema.optional(),
-}).refine(bundle => Object.hasOwn(bundle.modules, bundle.mainModule)
+}).refine(bundle => Object.prototype.hasOwnProperty.call(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 
 /** Approved generated modules; normal deployment metadata grants no resource authority. */
@@ -113,7 +113,7 @@ const dispatcherBundleSchema = z.strictObject({
   mainModule: relativePath,
   modules: modulesSchema,
 }).refine(bundle => (bundle.schemaVersion === 2) === (bundle.hosting !== undefined)
-  && Object.hasOwn(bundle.modules, bundle.mainModule)
+  && Object.prototype.hasOwnProperty.call(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 
 /** Validated discovery data; artifact URL is derived, never supplied as authority. */

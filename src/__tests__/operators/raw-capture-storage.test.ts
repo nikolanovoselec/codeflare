@@ -139,6 +139,34 @@ it('immediate parent finalization retains the refused HTTP body through its dela
   } finally { gate.release?.(); }
 });
 
+it.each(['throw', 'rejected promise', 'async rejection', 'delayed rejection'] as const)(
+  'owns a deferred producer %s before finalization without replacing business outcomes', async failure => {
+    const f = boundary();
+    const capture = f.create();
+    const producerError = new Error('Synthetic deferred producer failure');
+    capture.record('before-producer-failure', () => CANARY);
+    await capture.flush();
+    if (!capture.defer) throw new Error('Deferred capture producer unavailable');
+    capture.defer(() => {
+      if (failure === 'throw') throw producerError;
+      if (failure === 'rejected promise') return Promise.reject(producerError);
+      if (failure === 'async rejection') return (async () => { throw producerError; })();
+      return new Promise<void>((_resolve, reject) => { setTimeout(() => reject(producerError), 0); });
+    });
+    // Let rejection reporting run before finish joins producers. Vitest's ordinary
+    // unhandled-error gate must remain clean without a test-installed error sink.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    // Scheduled work must fulfill; producer failure is reported by the receipt.
+    await Promise.all(f.pending);
+    const result = { unchanged: true };
+    const original = new Error('Synthetic business failure');
+    expect(await captureRawInteraction(capture, 'success', () => CANARY, async () => result)).toBe(result);
+    await expect(captureRawInteraction(capture, 'failure', () => CANARY, async () => { throw original; }))
+      .rejects.toBe(original);
+    expect(await capture.finish('failed')).toMatchObject({ status: 'incomplete', termination: 'failed' });
+    expect(await read(f)).toEqual(incomplete);
+  });
+
 it('retains complete interaction inputs/results/original errors before projections, with no private truncation', async () => {
   const f = boundary();
   const capture = f.create();

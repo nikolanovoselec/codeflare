@@ -127,15 +127,22 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
       return json({ items: [] });
     };
     render(() => <OperatorManagement />);
-    const repository = await screen.findByRole('textbox', { name: 'Repository' });
-    expect(repository).toHaveAttribute('maxlength', '256');
+    const repository = await screen.findByRole('textbox', { name: 'Repository' }) as HTMLInputElement;
     expect(repository).toHaveValue('');
-    fireEvent.input(repository, { target: { value: 'owner/repo' } });
     const count = screen.getByRole('spinbutton', { name: 'Pull request number' }) as HTMLInputElement;
+    fireEvent.input(count, { target: { value: '1' } });
+    fireEvent.input(repository, { target: { value: `owner/${'r'.repeat(251)}` } });
+    expect(repository.checkValidity()).toBe(false);
+    fireEvent.submit(screen.getByRole('button', { name: 'Start run' }).closest('form')!);
+    expect(mutations).toEqual([]);
+    fireEvent.input(repository, { target: { value: `owner/${'r'.repeat(250)}` } });
+    expect(repository.checkValidity()).toBe(true);
     fireEvent.input(count, { target: { value: '0' } });
     expect(count.checkValidity()).toBe(false);
     fireEvent.submit(screen.getByRole('button', { name: 'Start run' }).closest('form')!);
     expect(mutations).toEqual([]);
+    fireEvent.input(count, { target: { value: '1' } });
+    expect(repository.form!.checkValidity()).toBe(true);
   });
   it('returns from the application form to the catalog without starting an activity', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');

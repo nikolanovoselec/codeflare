@@ -242,8 +242,13 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
       if (!enabled || finished || failed) return;
       let active = true;
       const writer = { record: (stage: string, lazy: () => unknown) => { if (active) write(stage, lazy); }, flush };
-      const work: Promise<void> = Promise.resolve().then(() => { if (!failed) return produce(writer); })
-        .catch(() => { failed = true; }).finally(() => { active = false; producers.delete(work); });
+      // Own the producer's rejection at invocation, before the outer queue
+      // adopts this callback's result. Only the handled work is scheduled.
+      const work: Promise<void> = Promise.resolve().then(async () => {
+        try { if (!failed) await produce(writer); }
+        catch { failed = true; }
+        finally { active = false; producers.delete(work); }
+      });
       producers.add(work);
       try { schedule(work); } catch { failed = true; }
     },

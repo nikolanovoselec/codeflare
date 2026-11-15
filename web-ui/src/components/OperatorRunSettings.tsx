@@ -22,10 +22,6 @@ export function createRunInterval(seconds = 3600) {
 export const runSettingsSaved = 'Run settings saved. Installation is disabled; Activate in Administration when ready.';
 export const runSettingsHelp = 'Saving run settings disables this installation. It does not start a run and stops future automatic observations. Activate in Administration to use the saved settings.';
 
-export const AutomaticRunsField: Component<{ checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }> = props =>
-  <label class="operator-automatic-field"><input type="checkbox" checked={props.checked} disabled={props.disabled}
-    onChange={event => props.onChange(event.currentTarget.checked)} /> Automatic runs</label>;
-
 export const RunIntervalField: Component<{ interval: ReturnType<typeof createRunInterval>; disabled?: boolean;
   label?: string; defaultSeconds?: number; description?: string; onChange?: (seconds: number) => void }> = props => {
   const id = createUniqueId();

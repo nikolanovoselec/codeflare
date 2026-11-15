@@ -12,11 +12,11 @@ export function applicationSetting(
   for (const encoded of pointer.slice(1).split('/')) {
     const key = encoded.replace(/~1/g, '/').replace(/~0/g, '~');
     if (!key || ['__proto__', 'constructor', 'prototype'].includes(key)) return undefined;
-    value = record(value) && Object.hasOwn(value, key) ? value[key] : undefined;
+    value = record(value) && Object.prototype.hasOwnProperty.call(value, key) ? value[key] : undefined;
     const properties = record(schema) && record(schema.properties) ? schema.properties : undefined;
-    schema = properties && Object.hasOwn(properties, key) ? properties[key] : undefined;
+    schema = properties && Object.prototype.hasOwnProperty.call(properties, key) ? properties[key] : undefined;
   }
-  return value === undefined && record(schema) && Object.hasOwn(schema, 'default') ? schema.default : value;
+  return value === undefined && record(schema) && Object.prototype.hasOwnProperty.call(schema, 'default') ? schema.default : value;
 }
 
 /** A schedule is declared by the package; absence or invalid data never arms one. */

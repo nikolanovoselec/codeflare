@@ -403,16 +403,27 @@ export async function fixture(test: (f: {
     const childSubmissions: Request[] = [];
     const deliveredTail: Array<{ activityId: string; generation: number; stage: string }> = [];
     let configuredTail: Promise<{ tail(events: unknown): Promise<void> }> | undefined;
-    const pending: Promise<unknown>[] = [];
+    const pending: Promise<PromiseSettledResult<unknown>>[] = [];
+    const trackBackground = (promise: Promise<unknown>) => {
+      // Own the rejection now, not when a later drain first observes it.
+      // Retain the original failure so neither drain nor teardown can hide it.
+      pending.push(promise.then(value => ({ status: 'fulfilled' as const, value }),
+        reason => ({ status: 'rejected' as const, reason })));
+    };
     let drained = 0;
     const drainBackground = async () => {
       // Lifecycle bookkeeping only: include work enqueued by constructor callbacks/background work.
       // Do not substitute a fake concurrency fence or infer recovery from callback counts.
+      const errors: unknown[] = [];
       while (drained < pending.length) {
         const batch = pending.slice(drained);
         drained = pending.length;
-        await Promise.all(batch);
+        for (const result of await Promise.all(batch)) {
+          if (result.status === 'rejected') errors.push(result.reason);
+        }
       }
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, 'Fixture background work failed');
     };
     const blockConcurrencyWhile = native.blockConcurrencyWhile.bind(native);
     let activity: OperatorActivity;
@@ -526,7 +537,7 @@ export async function fixture(test: (f: {
     Object.defineProperties(native, {
       blockConcurrencyWhile: { configurable: true, value: <T>(callback: () => Promise<T>) => {
         const promise = blockConcurrencyWhile(callback);
-        pending.push(promise);
+        trackBackground(promise);
         return promise;
       } },
       facets: { configurable: true, value: facets },
@@ -641,7 +652,7 @@ export async function fixture(test: (f: {
           return new Response(options.inferenceBody ?? 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
         } }),
       } },
-      waitUntil: { configurable: true, value: (promise: Promise<unknown>) => { pending.push(promise); } },
+      waitUntil: { configurable: true, value: trackBackground },
     });
     const context = native;
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
@@ -930,7 +941,7 @@ export async function fixture(test: (f: {
           vi.restoreAllMocks();
           vi.unstubAllGlobals();
         }
-        await Promise.allSettled(pending);
+        await drainBackground();
       }
     }
   });

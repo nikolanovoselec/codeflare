@@ -38,6 +38,38 @@ const storedRuntime = async (f: DispatcherFixture) => {
 };
 
 
+describe('fixture background promise ownership', () => {
+  it('owns rejection immediately and drain preserves the identical failure', () => fixture(async f => {
+    const original = new Error('Synthetic background failure');
+    f.waitUntil(Promise.reject(original));
+    // Exercise the gap before a caller drains, without intercepting unhandled errors.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await expect(f.drainBackground()).rejects.toBe(original);
+    await expect(f.drainBackground()).resolves.toBeUndefined();
+  }));
+
+  it('drains work registered by background work and retains every failure', () => fixture(async f => {
+    const first = new Error('Synthetic first background failure');
+    const second = new Error('Synthetic nested background failure');
+    f.waitUntil(Promise.resolve().then(() => {
+      f.waitUntil(Promise.reject(second));
+      throw first;
+    }));
+    await expect(f.drainBackground()).rejects.toMatchObject({
+      name: 'AggregateError', errors: [first, second],
+    });
+    await expect(f.drainBackground()).resolves.toBeUndefined();
+  }));
+
+  it('teardown reports background failures that the caller did not drain', async () => {
+    const original = new Error('Synthetic undrained background failure');
+    await expect(fixture(async f => {
+      f.waitUntil(Promise.reject(original));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    })).rejects.toBe(original);
+  });
+});
+
 describe('retained retirement and preparation fences', () => {
   it.each([true, false])('REQ-OPERATOR-104 AC2: retained cancel-requested work preserves known release=%s without respawn', released => fixture(async f => {
     // Historical retained snapshot only: never admit or contact its retired job.
@@ -54,12 +86,18 @@ describe('retained retirement and preparation fences', () => {
             receipt: { uid: 'historical-incarnation', submissionId: 'historical-job', offset: 'historical-offset' } } },
         sdkReleased: released });
     });
+    const retirementFailure = new Error('Retirement unavailable');
     const cleanup = vi.spyOn(Agent.prototype as unknown as { _cf_cleanupFacetPrefix: () => Promise<void> },
-      '_cf_cleanupFacetPrefix').mockRejectedValue(new Error('Retirement unavailable'));
+      '_cf_cleanupFacetPrefix').mockRejectedValue(retirementFailure);
     try {
       const cold = f.restart(); await f.drainBackground();
       if (released) expect((await cold.cancelDrive()).ok).toBe(true);
-      else await expect(cold.cancelDrive()).rejects.toThrow('Retirement unavailable');
+      else {
+        await expect(cold.cancelDrive()).rejects.toThrow('Retirement unavailable');
+        // Ordinary cold entry also schedules retirement. Own and assert that
+        // original failure separately; it is not permission to respawn the job.
+        await expect(f.drainBackground()).rejects.toBe(retirementFailure);
+      }
       expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested',
         sdkCleanupReleased: released, result: null, collectionStatus: 'unavailable' });
       expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });

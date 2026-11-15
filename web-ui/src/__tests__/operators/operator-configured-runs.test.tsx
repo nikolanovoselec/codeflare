@@ -164,7 +164,6 @@ describe('application-owned run settings', () => {
     const group = await settings();
     expect(repository(group)).toHaveValue('');
     expect(repository(group)).toBeRequired();
-    expect(repository(group)).toHaveAttribute('maxlength', '201');
     expect(automatic(group)).not.toBeChecked();
     expect(within(group).queryByRole('spinbutton', { name: 'Repeat interval' })).not.toBeInTheDocument();
     expect(group).not.toHaveTextContent(/1 hour/i);
@@ -174,6 +173,31 @@ describe('application-owned run settings', () => {
     submit();
     expect(writes).toEqual([]);
     expect(state.installations[0].configuration).toEqual(retained);
+  });
+
+  it('REQ-OPERATOR-061: declared repository bounds reject excess input and preserve a corrected maximum-length value on save', async () => {
+    setRunSettings('acme/valid', false, 3600);
+    const before = structuredClone(state.installations);
+    await open();
+    const group = await settings();
+    const maximum = `${'a'.repeat(100)}/${'b'.repeat(100)}`;
+    fireEvent.input(repository(group), { target: { value: `${maximum}b` } });
+    expect(repository(group).checkValidity()).toBe(false);
+    submit();
+    expect(writes).toEqual([]);
+    expect(state.installations).toEqual(before);
+    fireEvent.input(repository(group), { target: { value: maximum } });
+    expect(repository(group).checkValidity()).toBe(true);
+    submit();
+    await waitFor(() => expect(writes).toEqual([{
+      path: '/api/operator-management/installations/installation-1/configure',
+      body: { revision: 4, policy, configuration: { ...retained,
+        renovate: { repository: maximum, automaticRuns: false, repetitionIntervalSeconds: 3600 } } },
+    }]));
+    expect(state.installations[0].configuration?.renovate).toEqual({
+      repository: maximum, automaticRuns: false, repetitionIntervalSeconds: 3600,
+    });
+    expect(state.installations[1]).toEqual(before[1]);
   });
 
   it('REQ-OPERATOR-061: labeled Automatic runs checkbox edits only the unsaved run-settings draft', async () => {
