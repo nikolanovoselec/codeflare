@@ -2005,22 +2005,29 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   const handoffFaults = ['authority-unavailable', 'authority-denied', 'late-authority-unavailable', 'lost-start-ack', 'admission-unavailable', 'profile-unavailable', 'profile-revoked',
     'plan-read', 'plan-missing', 'drive-plan-read', 'drive-plan-missing', 'detail-read', 'detail-missing', 'binding', 'concurrent-drive', 'persistence-unavailable',
     'prepared-start', 'admitting-start', 'preparation-proof-missing', 'poisoned-plan', 'poisoned-concurrent-drive'] as const;
+  const preLeaseReconciliationCases = ['pre-lease-fenced', 'pre-lease-missing-binding', 'pre-lease-binding-generation',
+    'pre-lease-fence-generation', 'pre-lease-later-generation', 'pre-lease-artifact-mismatch', 'pre-lease-input-mismatch',
+    'pre-lease-checkpoint', 'pre-lease-result', 'pre-lease-collected', 'pre-lease-runtime-lease', 'pre-lease-profile-lease',
+    'pre-lease-runtime-effect', 'pre-lease-publication', 'pre-lease-ledger-unavailable', 'pre-lease-read-unavailable',
+    'pre-lease-foreign-owner', 'pre-lease-delayed-admission'] as const;
   const reconciliationCases = ['upgrade', 'absent', 'prepared', 'absent-global-receipt', 'admitting',
     'ledger-unavailable', 'legacy-no-admittedAt', 'concurrent-drive', 'unknown', 'foreign-owner', 'foreign-bucket',
     'stale-caller', 'stale-selection', 'stale-election', 'legacy-full-queued', 'legacy-full-absent',
     'legacy-full-prepared', 'legacy-full-missing-local', 'legacy-full-foreign-repository', 'session-pinned',
     'partial-pins', 'invalid-pins', 'mismatched-pins', 'invalid-admittedAt', 'legacy-full-ledger-missing', 'legacy-full-ledger-mismatch',
-    'orphan-effect', 'orphan-publication', 'orphan-lease', 'active-original', 'head-boundary', 'interrupted-exchange', 'malformed-exchange', 'ledger-missing-result', 'ledger-invalid-result', 'interrupted-proof-exchange', 'malformed-proof-exchange'] as const;
+    'orphan-effect', 'orphan-publication', 'orphan-lease', 'active-original', 'head-boundary', 'interrupted-exchange', 'malformed-exchange', 'ledger-missing-result', 'ledger-invalid-result', 'interrupted-proof-exchange', 'malformed-proof-exchange', ...preLeaseReconciliationCases] as const;
   const normalAlarmHandoff = (fault: typeof handoffFaults[number] | 'none', delegated = false,
     reconciliation?: typeof reconciliationCases[number], diagnostics: 'on' | 'off' | 'throws' | 'rpc-throws' | 'writer-throws' | 'foreign-scope' | 'summary-throws' = 'on',
     loggingPolicy?: { original: boolean; current: boolean }) => fixture(async ({ native, environment, selection, state }) => {
     // 2160810c's complete persisted layout used a fixed numeric repository and session authority.
     const historical = reconciliation?.startsWith('legacy-full-') === true;
     const sessionScoped = historical || reconciliation === 'session-pinned';
+    const preLease = reconciliation?.startsWith('pre-lease-') === true;
     const repoId = historical ? 973175879 : 424242;
     const repository = historical ? 'nikolanovoselec/komodo' : 'acme/updates';
     const replaceable = ['upgrade', 'absent', 'prepared', 'legacy-no-admittedAt', 'legacy-full-queued',
-      'legacy-full-absent', 'legacy-full-prepared', 'session-pinned'].includes(reconciliation ?? '');
+      'legacy-full-absent', 'legacy-full-prepared', 'session-pinned', 'pre-lease-fenced',
+      'pre-lease-delayed-admission'].includes(reconciliation ?? '');
     // Reuse the normal installed-Worker wire fixture: real Registry/Activity/orchestrator,
     // controlled external App HTTP. This proves parent execution, not execution of Flue SDK code.
     const registryNamespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
@@ -2220,7 +2227,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
         return readLedger(id, capture);
       });
       vi.spyOn(owner, 'getManagementBundle').mockImplementation(async () => {
-        if (fault === 'admission-unavailable') state.identityFault = 'unavailable';
+        if (fault === 'admission-unavailable' && faultArmed) state.identityFault = 'unavailable';
         return bytes;
       });
       vi.spyOn(owner, 'getManagementDispatcherConnection').mockResolvedValue(connection);
@@ -2339,6 +2346,39 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           faultArmed = false;
           missingPreparationProof = false;
           Object.defineProperty(exports, 'OperatorRuntimeCapability', { configurable: true, value: runtimeExport });
+          if (preLease) {
+            state.identityFault = 'valid';
+            expect(await inActivity(() => originalActivity.getBrowserDetail())).toMatchObject({ executionStatus: 'unknown', result: null });
+            expect(await inActivity(() => originalActivity.getDispatcherDiagnostics(original.ownerKey)))
+              .toMatchObject({ parent: { driveGeneration: 2, lease: null } });
+            if (reconciliation === 'pre-lease-delayed-admission') {
+              expect(await inActivity(() => originalActivity.admitDispatcher(1, approved, bundleDigest, { repository })))
+                .toMatchObject({ ok: false });
+              expect(transport.networkRequests).toEqual([]);
+            }
+            await inActivity(async () => {
+              const saved = await activityNative.storage.get<Record<string, unknown>>('admission');
+              if (!saved) throw Error('Missing original pre-lease admission');
+              const proof = saved.diagnosticBinding as { generation: number; artifactDigest: string; inputDigest: string };
+              const fence = saved.diagnosticFence as { generation: number };
+              const drive = saved.drive as { generation: number; checkpoint: unknown; result: unknown };
+              const value = { ...saved };
+              if (reconciliation === 'pre-lease-missing-binding') delete value.diagnosticBinding;
+              if (reconciliation === 'pre-lease-binding-generation') value.diagnosticBinding = { ...proof, generation: 2 };
+              if (reconciliation === 'pre-lease-fence-generation') value.diagnosticFence = { ...fence, generation: 0 };
+              if (reconciliation === 'pre-lease-later-generation') {
+                value.diagnosticBinding = { ...proof, generation: 2 };
+                value.diagnosticFence = { ...fence, generation: 2 };
+                value.drive = { ...drive, generation: 3 };
+              }
+              if (reconciliation === 'pre-lease-artifact-mismatch') value.diagnosticBinding = { ...proof, artifactDigest: 'f'.repeat(64) };
+              if (reconciliation === 'pre-lease-input-mismatch') value.diagnosticBinding = { ...proof, inputDigest: 'f'.repeat(64) };
+              if (reconciliation === 'pre-lease-checkpoint') value.drive = { ...drive, checkpoint: { retained: true } };
+              if (reconciliation === 'pre-lease-result') value.drive = { ...drive, result: { retained: true } };
+              if (reconciliation === 'pre-lease-collected') value.browserCollectionConsumed = true;
+              await activityNative.storage.put('admission', value);
+            });
+          }
           // A real new package/release selection invalidates the old consent, not its history.
           approved.modules['resources/intent.txt'].text += 'Upgraded approved resource\n';
           bytes = new TextEncoder().encode(JSON.stringify(approved));
@@ -2350,8 +2390,8 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           connection.releaseId = selected.release.id;
           const consent = { installationId: 'dispatcher-install', scope: 'installation' as const,
             bucket: reconciliation === 'foreign-bucket' ? 'other-bucket' : 'owner-bucket', sessionId: '', sessionGeneration: 0,
-            human: claims(reconciliation === 'foreign-owner' ? 'a@example.test' : 'z@example.test', 86400),
-            accessJwt: reconciliation === 'foreign-owner' ? 'a-jwt' : 'z-jwt',
+            human: claims(reconciliation === 'foreign-owner' || reconciliation === 'pre-lease-foreign-owner' ? 'a@example.test' : 'z@example.test', 86400),
+            accessJwt: reconciliation === 'foreign-owner' || reconciliation === 'pre-lease-foreign-owner' ? 'a-jwt' : 'z-jwt',
             repository: { repository, repositoryId: repoId, baseBranch: 'trunk' } };
           const originalRegistration = await inRegistry(() => native.storage.get(`renovate-registration:${registration.registrationId}`));
           const current = await inRegistry(() => owner.activateProspectiveRenovate(consent));
@@ -2365,9 +2405,11 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           }
           if (reconciliation === 'active-original') await inRegistry(() => native.storage.put(
             `renovate-registration:${registration.registrationId}`, originalRegistration));
-          const orphanLease = reconciliation === 'orphan-lease' || reconciliation === 'absent-global-receipt';
-          const orphanKey = reconciliation === 'orphan-effect' ? 'dispatcher:operation:orphan'
-            : reconciliation === 'orphan-publication' ? 'renovate:publication' : orphanLease ? 'dispatcher:lease' : null;
+          const orphanLease = reconciliation === 'orphan-lease' || reconciliation === 'absent-global-receipt'
+            || reconciliation === 'pre-lease-runtime-lease';
+          const orphanKey = reconciliation === 'orphan-effect' || reconciliation === 'pre-lease-runtime-effect' ? 'dispatcher:operation:orphan'
+            : reconciliation === 'orphan-publication' || reconciliation === 'pre-lease-publication' ? 'renovate:publication'
+              : reconciliation === 'pre-lease-profile-lease' ? 'dispatcher:profile-lease' : orphanLease ? 'dispatcher:lease' : null;
           const orphanValue = { ...(orphanLease ? { generation: 1, artifactDigest: persisted.bundleDigest,
             inputDigest: originalPreparation![0].intentDigest, expiresAt: Date.now() + 60_000, submissionId: null, status: 'unknown' }
             : reconciliation === 'orphan-publication' ? { ownerKey: original.ownerKey, bucket: original.actor.bucket,
@@ -2385,7 +2427,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             if (!saved) throw Error('Missing original Activity state');
             await activityNative.storage.put('admission', { ...saved, privateActivityEvidence: statePrivateValue });
           });
-          const originalStoredState = loggingPolicy ? await inActivity(() => activityNative.storage.get('admission')) : undefined;
+          const originalStoredState = loggingPolicy || preLease ? await inActivity(() => activityNative.storage.get('admission')) : undefined;
           const originalState = await inActivity(() => originalActivity.getAdmission());
           const originalDetail = await inActivity(() => originalActivity.getBrowserDetail());
           const originalLedger = await inRegistry(() => owner.getManagementAdmission(originalId));
@@ -2404,7 +2446,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
                 value: expect.objectContaining({ receipt: originalLedger }) });
             }
           }
-          ledgerUnavailable = reconciliation === 'ledger-unavailable';
+          ledgerUnavailable = reconciliation === 'ledger-unavailable' || reconciliation === 'pre-lease-ledger-unavailable';
           summaryUnavailable = diagnostics === 'summary-throws';
           if (reconciliation === 'ledger-missing-result') vi.mocked(owner.getManagementAdmission).mockResolvedValue(undefined as never);
           if (reconciliation === 'ledger-invalid-result') vi.mocked(owner.getManagementAdmission).mockResolvedValue({} as never);
@@ -2413,6 +2455,17 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             .mockResolvedValue({ ...originalLedger!, intentDigest: 'f'.repeat(64) });
           const writerFailure = diagnostics === 'writer-throws'
             ? vi.spyOn(rawCaptureStorage, 'createOwnerRawCaptureStorage').mockRejectedValue(Error(sensitiveError)) : undefined;
+          const transaction = activityNative.storage.transaction.bind(activityNative.storage);
+          const unavailableRead = reconciliation === 'pre-lease-read-unavailable'
+            ? vi.spyOn(activityNative.storage, 'transaction').mockImplementation((async (callback: (tx: DurableObjectTransaction) => Promise<unknown>) =>
+              transaction(tx => callback(new Proxy(tx, { get(target, key) {
+                if (key === 'get') return (...args: unknown[]) => {
+                  if (args[0] === 'dispatcher:lease') throw Error('Original lease read unavailable');
+                  return Reflect.apply(target.get, target, args);
+                };
+                const member = Reflect.get(target, key, target);
+                return typeof member === 'function' ? member.bind(target) : member;
+              } })))) as typeof activityNative.storage.transaction) : undefined;
           let racedDrive = false;
           environment.OPERATOR_ACTIVITY = { idFromName: () => activityNative.id, getByName: (id: string) => {
             if (id !== originalId) throw Error('Unexpected replacement before election');
@@ -2466,7 +2519,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           const outcomes = await inRegistry(() => Promise.all([
             owner.reserveProspectiveRenovateActivity(target, observation),
             owner.reserveProspectiveRenovateActivity({ ...target, activityId: 'reconciled-b' }, observation),
-          ])).finally(() => writerFailure?.mockRestore());
+          ])).finally(() => { writerFailure?.mockRestore(); unavailableRead?.mockRestore(); });
           summaryUnavailable = false;
           const protectedRecords = await inRegistry(async () => {
             const storage = await createOwnerRawCaptureStorage(environment, native.storage, async () => {});
@@ -2657,6 +2710,12 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
             'malformed-exchange': ['operator-registry', 'retirement-rpc-failed'],
             'ledger-missing-result': ['operator-registry', 'retirement-refused'],
             'ledger-invalid-result': ['operator-registry', 'retirement-refused'],
+            ...Object.fromEntries(preLeaseReconciliationCases.filter(value => !['pre-lease-fenced', 'pre-lease-delayed-admission',
+              'pre-lease-read-unavailable'].includes(value)).map(value => [value, value === 'pre-lease-foreign-owner'
+              ? ['operator-registry', 'original-registration-present'] : value === 'pre-lease-ledger-unavailable'
+                ? ['operator-registry', 'retirement-refused'] : ['operator-activity', value === 'pre-lease-publication'
+                  ? 'publication-present' : ['pre-lease-profile-lease', 'pre-lease-runtime-effect'].includes(value)
+                    ? 'runtime-effect-present' : 'uncertain']])) as Partial<Record<typeof reconciliationCases[number], [string, string]>>,
           };
           const expected = diagnostics === 'rpc-throws' ? ['operator-registry', 'retirement-rpc-failed']
             : loggingPolicy?.original === false && originalLedger && expectedRefusal[reconciliation]
@@ -2704,9 +2763,10 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
           expect(await inRegistry(() => owner.readProspectiveRenovateAdmission(elected.activityId))).toMatchObject({
             previousActivityId: originalId, attempt: 2, releaseId: 'upgraded-release', bundleDigest: upgradedDigest,
             actor: { registrationId: current.registrationId, email: original.actor.email }, head, createdAt });
-          const queuedOriginal = ['upgrade', 'legacy-full-queued', 'session-pinned'].includes(reconciliation);
+          const queuedOriginal = ['upgrade', 'legacy-full-queued', 'session-pinned'].includes(reconciliation) || preLease;
           const blockedDrive = { ok: false, reason: queuedOriginal ? 'drive-settled' : 'not-admitted' };
-          if (queuedOriginal && diagnostics !== 'summary-throws') {
+          if (preLease) expect(await inActivity(() => activityNative.storage.get('admission'))).toEqual(originalStoredState);
+          if (queuedOriginal && !preLease && diagnostics !== 'summary-throws') {
             expect(await inRegistry(() => native.storage.get(`owner-activity:${original.ownerKey}:${originalId}`)))
               .toMatchObject({ activityId: originalId, executionStatus: 'cancel-requested', cleanupStatus: 'stopped' });
           }
@@ -2922,7 +2982,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
     });
   });
   it.each(reconciliationCases)('REQ-OPERATOR-061 AC2/3/6/7 /062 /107: stale reservation %s preserves uncertainty and elects only atomically retired same-owner work',
-    reconciliation => normalAlarmHandoff(reconciliation === 'unknown' ? 'binding'
+    reconciliation => normalAlarmHandoff(reconciliation.startsWith('pre-lease-') ? 'admission-unavailable' : reconciliation === 'unknown' ? 'binding'
       : ['absent', 'ledger-unavailable', 'ledger-missing-result', 'ledger-invalid-result', 'legacy-no-admittedAt', 'legacy-full-absent'].includes(reconciliation) ? 'preparation-proof-missing'
         : reconciliation === 'prepared' || reconciliation === 'legacy-full-prepared' ? 'prepared-start' : reconciliation === 'admitting' ? 'admitting-start'
           : 'persistence-unavailable', false, reconciliation));
@@ -2935,6 +2995,9 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
   it.each(['off', 'throws', 'rpc-throws', 'writer-throws', 'foreign-scope'] as const)(
     'REQ-OPERATOR-063/079: stale reservation diagnostics %s preserve the original effect fence and election',
     diagnostics => normalAlarmHandoff('persistence-unavailable', false, 'orphan-effect', diagnostics));
+  it.each(['off', 'writer-throws'] as const)(
+    'REQ-OPERATOR-061/090: verified first pre-lease fence under %s logging admits one new successor without replay',
+    diagnostics => normalAlarmHandoff('admission-unavailable', false, 'pre-lease-fenced', diagnostics));
   it.each(['off', 'on', 'writer-throws', 'summary-throws'] as const)(
     'REQ-OPERATOR-061/063/090: safe retirement under %s logging reaches one external acceptance after retained history',
     diagnostics => normalAlarmHandoff('persistence-unavailable', false, 'upgrade', diagnostics));
