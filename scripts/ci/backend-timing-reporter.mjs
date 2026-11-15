@@ -22,6 +22,27 @@ export default class BackendTimingReporter {
     }
   }
 
+  // Emit before hooks and immediately after each result, not only at run end:
+  // a forcibly terminated suite must leave its active case and first failure.
+  // Only test identity/state cross this diagnostic wire, never errors or payloads.
+  testProgress(testCase, phase, state) {
+    process.stdout.write(`\nBACKEND_TEST ${JSON.stringify({
+      phase,
+      file: relative(process.cwd(), testCase.module.moduleId).replaceAll('\\', '/'),
+      id: testCase.id,
+      name: testCase.fullName,
+      ...(state ? { state } : {}),
+    })}\n`);
+  }
+
+  onTestCaseReady(testCase) {
+    this.testProgress(testCase, 'start');
+  }
+
+  onTestCaseResult(testCase) {
+    this.testProgress(testCase, 'finish', testCase.result().state);
+  }
+
   cpuError(error) {
     process.stdout.write(`BACKEND_CPU_ERROR ${JSON.stringify({ code: error?.code ?? 'profile-failed' })}\n`);
     this.cpuSession?.disconnect();
