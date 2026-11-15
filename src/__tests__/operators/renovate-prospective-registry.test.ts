@@ -204,6 +204,77 @@ async function dispatcherPlan(registry: Prospective, environment: Env, selection
   return { plan: plan as never, host };
 }
 
+describe('REQ-OPERATOR-061 AC2/6/7 /090/091: reconciliation consumer wire integrity', () => {
+  const encoder = new TextEncoder();
+  const privateText = 'PRIVATE_秘密🧪';
+  const texts = ['{"stage":"boundary","value":"', privateText, '"}'];
+  // Hand-authored wire frames, independent of the production stream producer.
+  // Recompute checksums after part edits so ordering failures stand alone.
+  const records = (order = [0, 1, 2], sequence = 0) => {
+    const digest = createHash('sha256').update(order.map(part => texts[part]).join('')).digest('hex');
+    return order.map((part, index) => ({ type: 'record', sequence, part, text: texts[part],
+      last: index === order.length - 1, ...(index === order.length - 1 ? { digest } : {}) }));
+  };
+  const result = (count = 1) => ({ type: 'result', value: { retired: true, text: privateText },
+    evidenceComplete: true, records: count });
+  const wire = (frames: unknown[]) => encoder.encode(frames.map(frame => `${JSON.stringify(frame)}\n`).join(''));
+  const stream = (chunks: Uint8Array[], failure?: Error) => {
+    let index = 0;
+    return new ReadableStream<Uint8Array>({ pull(controller) {
+      if (index < chunks.length) controller.enqueue(chunks[index++]);
+      else if (failure) controller.error(failure);
+      else controller.close();
+    } }, { highWaterMark: 0 });
+  };
+  const valid = () => wire([...records(), result()]);
+  const malformed: Array<{ name: string; chunks: Uint8Array[]; failure?: Error }> = [
+    { name: 'altered record text with its original checksum', chunks: [wire([
+      ...records().map(frame => frame.part === 1 ? { ...frame, text: 'ALTERED' } : frame), result()])] },
+    { name: 'altered checksum with original record text', chunks: [wire([
+      ...records().map(frame => frame.last ? { ...frame, digest: '0'.repeat(64) } : frame), result()])] },
+    { name: 'duplicate part with a matching recomputed checksum', chunks: [wire([...records([0, 1, 1, 2]), result()])] },
+    { name: 'reordered parts with a matching recomputed checksum', chunks: [wire([...records([1, 0, 2]), result()])] },
+    { name: 'missing middle part with a matching recomputed checksum', chunks: [wire([...records([0, 2]), result()])] },
+    { name: 'wrong final part number with a valid checksum', chunks: [wire([
+      ...records().map(frame => frame.last ? { ...frame, part: 3 } : frame), result()])] },
+    { name: 'skipped record sequence with valid parts and checksums', chunks: [wire([
+      ...records(), ...records([0, 1, 2], 2), result(2)])] },
+    { name: 'underreported record count', chunks: [wire([...records(), result(0)])] },
+    { name: 'overreported record count', chunks: [wire([...records(), result(2)])] },
+    { name: 'valid result followed by another valid record', chunks: [valid(), wire(records([0, 1, 2], 1))] },
+    { name: 'valid result followed by another result', chunks: [valid(), wire([result()])] },
+    { name: 'valid result followed by a stream error', chunks: [valid()], failure: Error('Transport failed after result') },
+    { name: 'unfinished record before a result with a matching completed-record count',
+      chunks: [wire([...records().slice(0, 2), result(0)])] },
+    { name: 'missing final result after a complete record', chunks: [wire(records())] },
+    { name: 'incomplete final result frame', chunks: [wire(records()), encoder.encode('{"type":"result","value":')] },
+    { name: 'final result without its terminating newline', chunks: [valid().slice(0, -1)] },
+    // Invalid bytes inside the result string would otherwise become replacement
+    // characters in an accepted result; record checksums cannot mask this guard.
+    { name: 'invalid UTF-8 inside an otherwise valid result', chunks: [wire(records()),
+      encoder.encode('{"type":"result","value":{"retired":true,"text":"'), Uint8Array.of(0xff),
+      encoder.encode('"},"evidenceComplete":true,"records":1}\n')] },
+    { name: 'unfinished UTF-8 sequence at EOF after a valid result', chunks: [valid(), Uint8Array.of(0xe7)] },
+  ];
+
+  it.each(malformed)('$name rejects rather than returning retirement eligibility', async ({ chunks, failure }) => {
+    await expect(consumeProspectiveReconciliation(stream(chunks, failure), value => value)).rejects.toThrow();
+  });
+
+  it('decodes exact Unicode evidence and outcome when every UTF-8 byte is a separate chunk', async () => {
+    const captured: Array<{ stage: string; value: unknown }> = [];
+    const bytes = wire([...records(), ...records([0, 1, 2], 1), result(2)]);
+    const outcome = await consumeProspectiveReconciliation(stream(Array.from(bytes, byte => Uint8Array.of(byte))), value => value, {
+      record(stage, lazy) { captured.push({ stage, value: lazy() }); },
+      finish: async () => { throw Error('Stream-only fixture has no archive to finalize'); },
+    });
+    expect(outcome).toEqual({ value: { retired: true, text: privateText }, evidenceComplete: true });
+    expect(reconciliationRecords(captured)).toEqual([
+      { stage: 'boundary', value: privateText }, { stage: 'boundary', value: privateText },
+    ]);
+  });
+});
+
 describe('REQ-OPERATOR-090/091 AC6/7: Registry-native private observation reads', () => {
   it.each(['on', 'off', 'writer-failure'] as const)(
     'REQ-OPERATOR-061/090/091: %s bounded exchange preserves business outcome and complete multi-batch private bytes/error chains or explicit incompleteness',
@@ -2334,7 +2405,7 @@ describe('Task101 REQ-OPERATOR-061 installation-scoped observation', () => {
               expect(error).toMatchObject({ name: 'Error', message: sensitiveError, stack: expect.any(String) });
             }
             if (['prepared', 'absent', 'orphan-effect', 'upgrade'].includes(reconciliation)
-              && diagnostics !== 'writer-throws' && diagnostics !== 'rpc-throws'
+              && diagnostics !== 'rpc-throws'
               && originalLedger?.selection.operator.policy.loggingEnabled !== false) {
               expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-request', value: original });
               expect(protectedRecords).toContainEqual({ stage: 'activity-retirement-ledger-response', value: originalLedger });

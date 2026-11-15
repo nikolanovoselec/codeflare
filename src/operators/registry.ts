@@ -2281,7 +2281,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           try {
             // The Activity atomically refuses this fence once any drive has begun, including a concurrent winner.
             await invoke('prospective-fence', { activityId: reserved.activityId, failure },
-              () => app.OPERATOR_ACTIVITY.getByName(reserved.activityId).fenceRuntimeFailure(undefined, failure, { onlyBeforeDrive: true }));
+              () => app.OPERATOR_ACTIVITY!.getByName(reserved.activityId).fenceRuntimeFailure(undefined, failure, { onlyBeforeDrive: true }));
           } catch (error) {
             try {
               createLogger('operator-registry').warn('Prospective Renovate handoff fence unavailable', {

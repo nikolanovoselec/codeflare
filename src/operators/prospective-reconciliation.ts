@@ -111,7 +111,7 @@ export function prospectiveReconciliationStream<T>(enabled: boolean,
 export async function consumeProspectiveReconciliation<T>(stream: ReadableStream<Uint8Array>,
   parse: (value: unknown) => T, capture?: RawCapture): Promise<{ value: T; evidenceComplete: boolean }> {
   const reader = stream.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
   let pending = ''; let sequence = 0; let part = 0;
   let hash = createHash('sha256');
   let result: { value: T; evidenceComplete: boolean } | undefined;

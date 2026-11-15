@@ -1001,7 +1001,7 @@ export class OperatorActivity extends Agent {
     const refuse = (reason: 'receiver-mismatch' | 'original-admission-mismatch' | 'unsupported-layout'
       | 'binding-mismatch' | 'missing-state-with-ledger' | 'uncertain' | 'collection-consumed'
       | 'binding-intent-pins' | 'owner-mismatch' | 'receipt-mismatch' | 'receipt-selection-mismatch'
-      | 'drive-started' | 'phase-or-ledger' | 'publication-present' | 'runtime-effect-present' | 'evidence-unavailable') => {
+      | 'drive-started' | 'phase-or-ledger' | 'publication-present' | 'runtime-effect-present' | 'evidence-unavailable'): false => {
       raw?.record('activity-retirement-refusal', () => ({ reason }));
       raw?.record('activity-retirement-response', () => false);
       if (loggingEnabled && observation?.loggingEnabled !== false) try {
@@ -1009,19 +1009,19 @@ export class OperatorActivity extends Agent {
           reason, admissionDigest: hashDiagnostic(JSON.stringify(['prospective-renovate-admission:v1', input.activityId])),
         });
       } catch { /* Optional diagnostics cannot authorize retirement or replace its result. */ }
-      return { retired: false, summary: null };
+      return false;
     };
     try {
       if (!syncIdentity.safeParse(input.activityId).success || !this.#appEnv.OPERATOR_ACTIVITY
-        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(input.activityId).toString() !== this.ctx.id.toString()) return refuse('receiver-mismatch');
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(input.activityId).toString() !== this.ctx.id.toString()) return { retired: refuse('receiver-mismatch'), summary: null };
       if (observation?.loggingEnabled !== true || observation.binding.scope.kind !== 'observation'
         || observation.binding.ownerKey !== input.ownerKey || observation.binding.installationId !== input.installationId) raw = undefined;
       raw?.record('activity-retirement-request', () => input);
       const original = authority?.original;
       raw?.record('activity-retirement-original-response', () => original);
-      if (!original || !sameDispatcherPhaseValue(original, input)) return refuse('original-admission-mismatch');
+      if (!original || !sameDispatcherPhaseValue(original, input)) return { retired: refuse('original-admission-mismatch'), summary: null };
       const layout = prospectiveAdmissionLayout(original);
-      if (!layout) return refuse('unsupported-layout');
+      if (!layout) return { retired: refuse('unsupported-layout'), summary: null };
       // Even the original 2160810c start path wrote this immutable ledger before queue/runtime.
       // A later optional reservation timestamp is not admission evidence; local absence alone is not either.
       const ledger = await captureRawInteraction(raw, 'activity-retirement-ledger', () => original.activityId, async () => {
@@ -1136,7 +1136,7 @@ export class OperatorActivity extends Agent {
       return { retired, summary };
     } catch (error) {
       raw?.record('activity-retirement-error', () => loggingEnabled === false ? { omitted: 'original-logging-policy' } : error);
-      return refuse('evidence-unavailable'); // Unavailable evidence cannot authorize a replacement.
+      return { retired: refuse('evidence-unavailable'), summary: null }; // Unavailable evidence cannot authorize a replacement.
     }
   }
 

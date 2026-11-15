@@ -1972,7 +1972,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     const retryProof = async (target: typeof coordinates) => {
       // Root supplies its authoritative immutable admission; Activity performs
       // no reverse Registry RPC during the streamed local proof transaction.
-      const original = await f.environment.OPERATOR_REGISTRY.getByName('registry').readProspectiveRenovateAdmission(f.proof.activityId);
+      const original = await f.environment.OPERATOR_REGISTRY!.getByName('registry').readProspectiveRenovateAdmission(f.proof.activityId);
       const outcome = await consumeProspectiveReconciliation(await f.activity.readProspectiveRenovateRetryProof(target, original), value => {
         const result = value as { ok: boolean; proof: unknown };
         if (!result.ok) throw Error('Retry proof uncertain');
