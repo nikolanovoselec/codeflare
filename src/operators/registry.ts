@@ -31,7 +31,7 @@ import { hasApplicationWorkflow, type RuntimeApplicationStateBinding, type Appli
 import { activateApplicationSchedule as activateSchedule, applicationScheduleStatus as scheduleStatus, runApplicationSchedules } from './application-schedule';
 import { canInvokeOperator, canManageOperator, resolveBucketName } from '../lib/access';
 import { callApplicationRecovery, inspectRecoveryRecord, recoveryInventoryPage, applicationRecoveryPrefix,
-  recoveryDigest, recoveryEntries, type RecoveryInspection, type RecoveryFactsRequest, type RecoveryFacts } from './application-recovery';
+  recoveryDigest, recoveryEntries, parseRecoveryCursor, type RecoveryInspection, type RecoveryFactsRequest, type RecoveryFacts } from './application-recovery';
 import type { StateRecord } from './application-state';
 import { createRawCapture, createOwnerRawCaptureStorage, captureRawInteraction, type RawCapture, type RawCaptureBinding, type RawCaptureReceipt } from './raw-capture-storage';
 import { captureError, hashDiagnostic } from './dispatcher-diagnostics-wire';
@@ -1793,7 +1793,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   /** Human-only recovery; no admission, scheduling, cancellation or SDK runtime calls. */
   async recoverApplication(input: { installationId: string; revision: number; human: VerifiedHumanAccessClaims;
     authority: ManagementAuthority; platformAdmin: boolean;
-    operation: 'preview' | 'reset'; after?: string; requestId?: string; entries?: Array<{ key: string; version: string }> }): Promise<unknown> {
+    operation: 'preview' | 'reset'; after?: string; scopeCursor?: string;
+    requestId?: string; entries?: Array<{ key: string; version: string }> }): Promise<unknown> {
     this.managementSchema();
     const conflict = (): never => { throw new AppError('CONFLICT', 409, 'Application recovery conflict'); };
     const denied = (): never => { throw new AppError('NOT_FOUND', 404, 'Operator not found'); };
@@ -1832,7 +1833,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     const prefix = await applicationRecoveryPrefix(sourceId);
     const requestId = input.operation === 'reset' ? z.string().uuid().parse(input.requestId) : crypto.randomUUID();
     const entries = input.operation === 'reset' ? recoveryEntries.parse(input.entries) : [];
-    const requestDigest = await recoveryDigest(JSON.stringify({ installationId: input.installationId, revision: input.revision, entries }));
+    const requestDigest = await recoveryDigest(JSON.stringify({ installationId: input.installationId,
+      revision: input.revision, entries, scopeCursor: input.scopeCursor }));
     const requestKey = `${prefix}request:${await recoveryDigest(JSON.stringify([ownerKey, requestId]))}`;
     type Result = { requestId: string; reset: number; skipped: Array<{ key: string; reason: string }> };
     const replay = async (storage: Pick<DurableObjectStorage, 'get'>) => {
@@ -1889,35 +1891,60 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       const activity = namespace.getByName(original.activityId);
       return activity.readRecoveryFacts(authority);
     };
-    // Scope selection sees ONLY original owned records. Paginate until the
-    // installed package identifies an owned anchor for its current configuration.
-    let scope: { prefix: string; anchorKey: string } | undefined;
-    let anchorVersion: string | undefined;
-    let cursor: string | undefined;
-    do {
-      const page = await recoveryInventoryPage(this.ctx.storage, sourceId, cursor);
+    const ownedCandidates = async (keys: string[]) => {
       const owned: RecoveryInspection[] = [];
-      for (const key of page.keys) {
+      for (const key of keys) {
         if (!key.startsWith(descriptor.prefix)) continue;
         const item = await inspect(this.ctx.storage, key);
         if (item.record.status === 'owned') owned.push(item);
       }
-      if (owned.length) {
-        const response = await callApplicationRecovery(this.env as Env, connection, 'scope', JSON.parse(selection.installation.configurationJson),
-          owned.map(item => item.record), requestId, current);
-        if (response.scope) {
-          if (!response.scope.prefix.startsWith(descriptor.prefix) || response.scope.prefix.length <= descriptor.prefix.length
-            || !response.scope.anchorKey.startsWith(response.scope.prefix)
-            || !owned.some(item => item.record.key === response.scope!.anchorKey)) return conflict();
-          scope = response.scope;
-          anchorVersion = owned.find(item => item.record.key === scope!.anchorKey)!.record.version;
-        }
+      return owned;
+    };
+    const selectScope = async (owned: RecoveryInspection[]) => {
+      if (!owned.length) return undefined;
+      const response = await callApplicationRecovery(this.env as Env, connection, 'scope', JSON.parse(selection.installation.configurationJson),
+        owned.map(item => item.record), requestId, current);
+      if (!response.scope) return undefined;
+      const scope = response.scope;
+      const anchor = owned.find(item => item.record.key === scope.anchorKey);
+      if (!scope.prefix.startsWith(descriptor.prefix) || scope.prefix.length <= descriptor.prefix.length
+        || !scope.anchorKey.startsWith(scope.prefix) || !anchor) return conflict();
+      return { scope, anchor: { key: anchor.record.key, version: anchor.record.version } };
+    };
+    const progress = parseRecoveryCursor(input.operation === 'preview' ? input.after : input.scopeCursor);
+    if (input.operation === 'reset' && input.scopeCursor !== undefined && progress.phase !== 'records') return conflict();
+    let selectedScope: Awaited<ReturnType<typeof selectScope>>;
+    let page: { keys: string[]; nextCursor: string | null };
+    if (input.operation === 'preview' && progress.phase === 'scope') {
+      const discovery = await recoveryInventoryPage(this.ctx.storage, sourceId, progress.after);
+      selectedScope = await selectScope(await ownedCandidates(discovery.keys));
+      if (!selectedScope) {
+        await current();
+        return { items: [], nextCursor: discovery.nextCursor
+          ? JSON.stringify({ phase: 'scope', after: discovery.nextCursor }) : null };
       }
-      cursor = page.nextCursor ?? undefined;
-    } while (!scope && cursor);
-    if (!scope) return input.operation === 'preview' ? { items: [], nextCursor: null } : conflict();
+      // Earlier discovery pages disclosed no rows; traverse records once from
+      // the beginning so conflicts preceding a late owned anchor are included.
+      page = progress.after ? await recoveryInventoryPage(this.ctx.storage, sourceId) : discovery;
+    } else {
+      if (progress.phase === 'records') {
+        const owned = await ownedCandidates([progress.anchor.key]);
+        if (input.operation === 'preview' && owned[0]?.record.version !== progress.anchor.version) return conflict();
+        selectedScope = await selectScope(owned);
+      } else {
+        // Direct reset callers can use their selected entries as scope witnesses.
+        // The browser also retains its preview witness for malformed entries.
+        selectedScope = await selectScope(await ownedCandidates(entries.map(item => item.key)));
+      }
+      if (!selectedScope) return conflict();
+      page = input.operation === 'preview'
+        ? await recoveryInventoryPage(this.ctx.storage, sourceId, progress.after)
+        : { keys: entries.map(item => item.key), nextCursor: null };
+    }
+    const { scope, anchor } = selectedScope;
+    const anchorVersion = anchor.version;
+    const scopeCursor = JSON.stringify({ phase: 'records', anchor });
     const approvedScope = scope;
-    const page = input.operation === 'preview' ? await recoveryInventoryPage(this.ctx.storage, sourceId, input.after) : { keys: entries.map(item => item.key), nextCursor: null };
     const inspected: RecoveryInspection[] = [];
     const proofs = new Map<string, RecoveryFacts>();
     for (const key of page.keys) {
@@ -1944,7 +1971,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         return { key: item.record.key, version: item.record.version, label: choice?.label ?? item.record.key,
           status: item.record.resettable && choice?.disposition === 'reset' ? 'resettable' : 'blocked',
           reason: item.record.resettable ? choice?.reason ?? 'package-declined' : item.record.reason };
-      }), nextCursor: page.nextCursor };
+      }), nextCursor: page.nextCursor ? JSON.stringify({ phase: 'records', anchor, after: page.nextCursor }) : null,
+      scopeCursor };
     }
     // The old generation is already irreversibly fenced. Re-read its proof before
     // entering the local CAS transaction; the transaction never calls an actor.

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import routes from '../../routes/operator-management';
 import { AppError } from '../../lib/error-types';
 import type { Env } from '../../types';
@@ -34,7 +35,8 @@ function fixture() {
     },
   };
   const app = new Hono<{ Bindings: Env }>();
-  app.onError((error, c) => error instanceof AppError ? c.json(error.toJSON(), error.statusCode as never) : c.json({}, 500));
+  app.onError((error, c) => error instanceof AppError ? c.json(error.toJSON(), error.statusCode as never)
+    : error instanceof HTTPException ? error.getResponse() : c.json({}, 500));
   app.route('/api/operator-management', routes);
   const request = (operation: string, input: unknown, csrf = true) => app.request(`https://enterprise.example.test/api/operator-management/installations/install/recovery/${operation}`,
     { method: 'POST', headers: { 'content-type': 'application/json', ...(csrf ? { 'x-requested-with': 'XMLHttpRequest' } : {}) }, body: JSON.stringify(input) },
@@ -55,12 +57,13 @@ describe('recovery browser POST boundary', () => {
     expect(f.observed).toEqual([expect.objectContaining({ operation: 'preview', installationId: 'install', revision: 7 }),
       expect.objectContaining({ operation: 'reset', requestId, authority: expect.objectContaining({ operatorRevision: 2, controlsRevision: 1 }) })]);
   });
-  it.each(['csrf', 'manager', 'body', 'oversize'] as const)('denies %s before recovery', async name => {
+  it.each(['csrf', 'manager', 'body', 'cursor', 'oversize'] as const)('denies %s before recovery', async name => {
     const f = fixture();
     if (name === 'manager') identity.manager = false;
     const response = await f.request('preview', name === 'body' ? { revision: -1 } : name === 'oversize'
-      ? { revision: 7, after: 'x'.repeat(70 * 1024) } : { revision: 7 }, name !== 'csrf');
-    expect(response.status).toBe({ csrf: 403, manager: 404, body: 400, oversize: 413 }[name]);
+      ? { revision: 7, after: 'x'.repeat(70 * 1024) } : name === 'cursor'
+        ? { revision: 7, after: 'invalid-cursor' } : { revision: 7 }, name !== 'csrf');
+    expect(response.status).toBe({ csrf: 403, manager: 404, body: 400, cursor: 400, oversize: 413 }[name]);
     expect(f.observed).toEqual([]);
   });
   it.each([['revision', new Error('Application recovery conflict'), 409],

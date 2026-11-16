@@ -421,11 +421,23 @@ describe('explicit owner recovery facts preserve original history', () => {
   const request = (f: Fixture) => ({ human: f.authority.current.human, deadline: f.authority.current.deadline,
     original: f.authority.original, ledger: f.authority.ledger });
   it.each(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'orphan-response-cache', 'retained-result',
+    'settlement-cache', 'orphan-settlement-cache', 'missing-settlement-chunk',
     'missing-journal', 'invalid-aggregate', 'invalid-lease', 'incomplete', 'write', 'unknown-kind', 'foreign-owner',
     'foreign-generation', 'ordinal-gap', 'count-mismatch', 'active', 'publication', 'session'] as const)(
     'classifies %s without SDK receipt, mutation or new execution', name => fixture(async f => {
+      const settlement = new TextEncoder().encode(JSON.stringify({ status: 'failed', data: {},
+        receipt: { submissionId: 'original-submission', uid: 'original-root', acceptedAt: new Date().toISOString() } }));
       const lease = { ...f.profile, status: 'unknown',
-        submissionId: name === 'earlier-delivery-model' ? 'later-submission' : 'original-submission' };
+        submissionId: name === 'earlier-delivery-model' ? 'later-submission' : 'original-submission',
+        ...(['settlement-cache', 'missing-settlement-chunk'].includes(name) ? { application: {
+          version: 1, initialData: {}, checkpoint: null, context: null, planned: true,
+          delivery: { token: 'original-delivery', ordinal: 1 }, idempotencyKey: 'original-key',
+          pending: { delivery: { token: 'next-delivery', ordinal: 2 }, idempotencyKey: 'next-key',
+            confirmed: { delivery: { token: 'original-delivery', ordinal: 1 }, settlementRef: {
+              bytes: settlement.byteLength, sha256: createHash('sha256').update(settlement).digest('hex'),
+            } } },
+        } } : {}),
+      };
       const state = structuredClone(f.state) as Record<string, any>;
       const authority = request(f);
       const operations = name === 'zero' ? [] : [
@@ -452,13 +464,15 @@ describe('explicit owner recovery facts preserve original history', () => {
           'dispatcher:response:1:op-1': { body: 'retained model bytes' } } : {}),
         ...(name === 'orphan-response-cache' ? { 'dispatcher:response:unaccounted': { body: 'unbound bytes' } } : {}),
         ...(name === 'retained-result' ? { 'dispatcher:result:1': { original: 'retained result' } } : {}),
+        ...(['settlement-cache', 'orphan-settlement-cache'].includes(name)
+          ? { 'dispatcher:application-settlement:1:0': settlement } : {}),
         ...(name === 'publication' ? { 'renovate:publication': { effect: true } } : {}),
         ...(name === 'session' ? { ownedSession: { sessionId: 'old-session' } } : {}),
       });
       const before = structuredClone(await f.native.storage.list());
       const alarm = await f.native.storage.getAlarm();
       const result = await f.activity.readRecoveryFacts(authority);
-      expect(result.resettable).toBe(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'retained-result'].includes(name));
+      expect(result.resettable).toBe(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'retained-result', 'settlement-cache'].includes(name));
       if (result.resettable) expect(result).toMatchObject({ reason: 'fenced-no-write', proofDigest: expect.stringMatching(/^[a-f0-9]{64}$/) });
       expect(await f.native.storage.list()).toEqual(before);
       expect(await f.native.storage.getAlarm()).toBe(alarm);

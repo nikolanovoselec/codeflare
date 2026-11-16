@@ -18,6 +18,7 @@ const OperatorRecovery: Component<Props> = props => {
   const [pending, setPending] = createSignal(false);
   const [items, setItems] = createSignal<ApplicationRecoveryItem[]>([]);
   const [next, setNext] = createSignal<string | null>(null);
+  const [scopeCursor, setScopeCursor] = createSignal<string>();
   const [snapshot, setSnapshot] = createSignal<{ installationId: string; revision: number; prefix: string }>();
   const [invalid, setInvalid] = createSignal(true);
   const [finished, setFinished] = createSignal(false);
@@ -35,8 +36,10 @@ const OperatorRecovery: Component<Props> = props => {
   };
   const checkResult = async () => {
     const attempt = unconfirmed();
+    // Reconcile the original request, even if its installation revision has advanced.
+    // Only a new reset requires a current preview/revision.
     const sameContext = () => alive && attempt?.installationId === props.installationId
-      && attempt.input.revision === props.revision && attempt.prefix === props.recovery.prefix;
+      && attempt.prefix === props.recovery.prefix;
     if (!attempt || pending() || props.blocked || !sameContext()) return;
     busy(true);
     try {
@@ -68,7 +71,7 @@ const OperatorRecovery: Component<Props> = props => {
     if (pending() || props.blocked || more && (!current() || invalid() || !next())) return;
     if (!more) {
       setSnapshot({ installationId: props.installationId, revision: props.revision, prefix: props.recovery.prefix });
-      setItems([]); setNext(null); cursors.clear(); setInvalid(true);
+      setItems([]); setNext(null); setScopeCursor(undefined); cursors.clear(); setInvalid(true);
       if (!uncertain()) { setFinished(false); setSkipped([]); setOperations([]); setUnconfirmed(undefined); }
     }
     const scope = snapshot()!;
@@ -87,6 +90,7 @@ const OperatorRecovery: Component<Props> = props => {
       }
       if (page.nextCursor && (page.nextCursor === after || cursors.has(page.nextCursor))) throw new Error('Repeated recovery cursor');
       if (page.nextCursor) cursors.add(page.nextCursor);
+      if (page.scopeCursor !== undefined) setScopeCursor(page.scopeCursor);
       setItems(values => [...values, ...page.items]); setNext(page.nextCursor); setInvalid(false);
     } catch (error) {
       if (alive) {
@@ -111,7 +115,8 @@ const OperatorRecovery: Component<Props> = props => {
         const requestId = crypto.randomUUID();
         setOperations(values => [...values, requestId]);
         submitted = offset + chunk.length;
-        const input = { revision: scope.revision, requestId, entries: chunk };
+        const input = { revision: scope.revision, requestId, entries: chunk,
+          ...(scopeCursor() === undefined ? {} : { scopeCursor: scopeCursor() }) };
         setUnconfirmed({ installationId: scope.installationId, prefix: scope.prefix, input,
           confirmed: reset, remaining: entries.length - submitted });
         const result = await resetApplicationRecovery(scope.installationId, input);
@@ -155,7 +160,7 @@ const OperatorRecovery: Component<Props> = props => {
       <div class="operator-actions">
         <Show when={uncertain() && unconfirmed()}><button type="button" class="admin-secondary-button"
           disabled={pending() || props.blocked || unconfirmed()?.installationId !== props.installationId
-            || unconfirmed()?.input.revision !== props.revision || unconfirmed()?.prefix !== props.recovery.prefix}
+            || unconfirmed()?.prefix !== props.recovery.prefix}
           onClick={() => void checkResult()}>Check reset result</button></Show>
         <Show when={next()}><button type="button" class="admin-secondary-button" disabled={pending() || props.blocked || invalid() || !current()}
           onClick={() => void preview(true)}>Load more locks</button></Show>

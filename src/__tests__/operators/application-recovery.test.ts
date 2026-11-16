@@ -17,9 +17,10 @@ afterEach(async () => { vi.restoreAllMocks(); await reset(); });
 describe('recovery inventory preserves ownership and state-version contracts', () => {
   it.each(['owned', 'owner', 'source', 'legacy-drift', 'malformed'] as const)('%s overlay is classified without foreign bytes', name => withStorage(async storage => {
     const prefix = await applicationRecoveryPrefix(sourceId);
-    const record: StateRecord = { ...origin, schemaVersion: 1, key, legacy: { storageKey: alias, version: null }, value: { secret: 'ORIGINAL_PRIVATE' } };
-    if (name === 'owner') record.ownerKey = 'c'.repeat(64);
-    if (name === 'source') record.sourceId = '98';
+    const record: StateRecord = { ...origin, schemaVersion: 1, key,
+      ...(name === 'owner' ? { ownerKey: 'c'.repeat(64) } : {}),
+      ...(name === 'source' ? { sourceId: '98' } : {}),
+      legacy: { storageKey: alias, version: null }, value: { secret: 'ORIGINAL_PRIVATE' } };
     if (name === 'legacy-drift') record.legacy!.version = 'd'.repeat(64);
     await storage.put(`${prefix}${await recoveryDigest(key)}`, name === 'malformed' ? { value: 'FOREIGN_PRIVATE' } : record);
     const result = await inspectRecoveryRecord(storage, key, sourceId, ownerKey, async () => null);

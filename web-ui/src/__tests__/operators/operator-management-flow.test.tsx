@@ -254,7 +254,9 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     fireEvent.click(await screen.findByRole('button', { name: 'Versions & updates' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Refresh releases' }));
+    const refresh = await screen.findByRole('button', { name: 'Refresh releases' });
+    fireEvent.click(refresh);
+    await waitFor(() => expect(refresh).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Installed version' }));
     const install = await screen.findByRole('button', { name: 'Install operator' });
     await waitFor(() => expect(install).toBeEnabled());

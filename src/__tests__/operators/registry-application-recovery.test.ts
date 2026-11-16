@@ -9,7 +9,7 @@ import type { Env } from '../../types';
 
 afterEach(async () => { vi.restoreAllMocks(); await reset(); });
 async function fixture(run: (f: Awaited<ReturnType<typeof seed>>) => Promise<void>) {
-  const namespace = (env as unknown as { TIMEKEEPER: DurableObjectNamespace }).TIMEKEEPER;
+  const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_, state) => run(await seed(state)));
 }
 async function seed(state: DurableObjectState) {
@@ -59,7 +59,8 @@ async function seed(state: DurableObjectState) {
     expectedControlsRevision: 1, selection: { operator, installation, release } };
   await state.storage.put(storageKey, original);
   state.storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', 'old', JSON.stringify(ledger));
-  const callback: { alter?: () => Promise<void>; malformed?: boolean; declineKey?: string; records: unknown[] } = { records: [] };
+  const callback: { alter?: () => Promise<void>; malformed?: boolean; declineKey?: string;
+    scopeAnchor?: string | null; records: unknown[] } = { records: [] };
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     if (String(url) !== 'https://worker.example.test/control/recovery') { unsafe.push('SDK-runtime'); throw Error('Forbidden endpoint'); }
     const body = JSON.parse(String(init?.body));
@@ -67,14 +68,18 @@ async function seed(state: DurableObjectState) {
     expect(body.records.length).toBeLessThanOrEqual(64);
     if (callback.alter) { const action = callback.alter; callback.alter = undefined; await action(); }
     if (callback.malformed) return Response.json({ items: [{ key: 'foreign', label: 'foreign', disposition: 'reset', reason: 'invalid' }] });
-    return Response.json(body.operation === 'scope' ? { scope: { prefix: 'opaque:scope:', anchorKey: body.records[0].key }, items: [] }
+    const scopeAnchor = callback.scopeAnchor === undefined ? body.records[0]
+      : body.records.find((record: { key: string }) => record.key === callback.scopeAnchor);
+    return Response.json(body.operation === 'scope' ? { ...(scopeAnchor
+      ? { scope: { prefix: 'opaque:scope:', anchorKey: scopeAnchor.key } } : {}), items: [] }
       : { items: body.records.map((record: { key: string }) => record.key === callback.declineKey
         ? { key: record.key, label: 'Preserved record', disposition: 'skip', reason: 'Already processed' }
         : { key: record.key, label: 'Owned record', disposition: 'reset', reason: 'owner-reset', value: { reset: true } }) });
   });
   const base = { installationId: 'install', revision: 1, human, platformAdmin: false,
     authority: { operatorRevision: 1, controlsRevision: 1, expiresAt: human.expiresAt * 1000 } };
-  const preview = (after?: string) => registry.recoverApplication({ ...base, operation: 'preview', after }) as Promise<{ items: Array<{ key: string; version: string; status: string }>; nextCursor: string | null }>;
+  const preview = (after?: string) => registry.recoverApplication({ ...base, operation: 'preview', after }) as Promise<{
+    items: Array<{ key: string; version: string; status: string }>; nextCursor: string | null; scopeCursor?: string }>;
   const resetRequest = async () => ({ ...base, operation: 'reset' as const, requestId: crypto.randomUUID(),
     entries: (await preview()).items.map(({ key, version }) => ({ key, version })) });
   return { registry, state, base, preview, resetRequest, callback, original, ledger, installation, operator, facts, saveOperator, storageKey, unsafe, prefix };
@@ -146,6 +151,65 @@ describe('real Registry recovery transaction', () => {
     expect(page.items).toContainEqual(expect.objectContaining({ key, label: 'Owned record', status: 'blocked', reason: 'owner-mismatch' }));
     expect(JSON.stringify(f.callback.records)).not.toContain('PRIVATE_FOREIGN');
     expect(await f.state.storage.get(storageKey)).toEqual(original);
+  }));
+  it('continues late-anchor discovery and later record pages without rescanning completed pages', () => fixture(async f => {
+    const records = [{ key: f.original.key, storageKey: f.storageKey }];
+    for (let index = 0; index < 140; index++) {
+      const key = `opaque:scope:late-${index}`, storageKey = `${f.prefix}${await recoveryDigest(key)}`;
+      await f.state.storage.put(storageKey, { ...f.original, key });
+      records.push({ key, storageKey });
+    }
+    records.sort((a, b) => a.storageKey.localeCompare(b.storageKey));
+    f.callback.scopeAnchor = records.at(-1)!.key;
+    let page = await f.preview();
+    expect(page.items).toEqual([]);
+    expect(page.nextCursor).not.toBeNull();
+    const cursors = new Set<string>();
+    while (!page.items.length && page.nextCursor) {
+      expect(cursors.has(page.nextCursor)).toBe(false); cursors.add(page.nextCursor);
+      page = await f.preview(page.nextCursor);
+    }
+    expect(page.items.length).toBeGreaterThan(0);
+    expect(page.scopeCursor).toBeDefined();
+    const shown = page.items.map(item => item.key);
+    const prior = records.find(record => record.key === shown[0])!;
+    await f.state.storage.put(prior.storageKey, { ...f.original, key: prior.key, value: 'x'.repeat(65 * 1024) });
+    while (page.nextCursor) {
+      page = await f.preview(page.nextCursor);
+      shown.push(...page.items.map(item => item.key));
+    }
+    expect(shown).toHaveLength(records.length);
+    expect(new Set(shown).size).toBe(records.length);
+  }));
+  it('returns resumable discovery pages when no configured scope exists', () => fixture(async f => {
+    for (let index = 0; index < 70; index++) {
+      const key = `opaque:scope:unmatched-${index}`;
+      await f.state.storage.put(`${f.prefix}${await recoveryDigest(key)}`, { ...f.original, key });
+    }
+    f.callback.scopeAnchor = null;
+    let page = await f.preview();
+    expect(page).toMatchObject({ items: [] });
+    expect(page.nextCursor).not.toBeNull();
+    const seen = new Set<string>();
+    while (page.nextCursor) {
+      expect(seen.has(page.nextCursor)).toBe(false); seen.add(page.nextCursor);
+      page = await f.preview(page.nextCursor);
+      expect(page.items).toEqual([]);
+    }
+  }));
+  it('uses an owner-validated preview witness without resetting that anchor', () => fixture(async f => {
+    const key = 'opaque:scope:unrecognized', storageKey = `${f.prefix}${await recoveryDigest(key)}`;
+    const record = { ...f.original, key, value: null };
+    await f.state.storage.put(storageKey, record);
+    f.callback.scopeAnchor = f.original.key;
+    const page = await f.preview();
+    const selected = page.items.find(item => item.key === key)!;
+    expect(await f.registry.recoverApplication({ ...f.base, operation: 'reset', requestId: crypto.randomUUID(),
+      scopeCursor: page.scopeCursor, entries: [{ key, version: selected.version }] })).toMatchObject({ reset: 1, skipped: [] });
+    expect(await f.state.storage.get(f.storageKey)).toEqual(f.original);
+    expect(await f.state.storage.get(storageKey)).toMatchObject({ value: { reset: true } });
+    await f.state.storage.put(f.storageKey, { ...f.original, ownerKey: 'f'.repeat(64) });
+    await expect(f.preview(page.nextCursor ?? page.scopeCursor)).rejects.toThrow();
   }));
   it('previews more than 64 records through bounded callback pages', () => fixture(async f => {
     for (let index = 0; index < 70; index++) {

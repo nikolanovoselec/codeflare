@@ -215,7 +215,8 @@ interface DispatcherLease {
   application?: ApplicationWorkflow & { completed?: true; pending?: {
     delivery: ApplicationWorkflow['delivery']; idempotencyKey: string;
     /** One validated SDK settlement, bound to the delivery being advanced. Consumed with the decision. */
-    confirmed?: { delivery: ApplicationWorkflow['delivery']; settlement: ApplicationSettlement };
+    confirmed?: { delivery: ApplicationWorkflow['delivery']; settlement: ApplicationSettlement }
+      | { delivery: ApplicationWorkflow['delivery']; settlementRef: { bytes: number; sha256: string } };
   } };
   terminalAt?: number;
   inferenceRecovery?: { version: 1; attemptLimit: number };
@@ -276,6 +277,8 @@ const DISPATCHER_PROFILE_LEASE = 'dispatcher:profile-lease';
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
 const DISPATCHER_JOURNAL = 'dispatcher:journal';
+const APPLICATION_SETTLEMENT_PREFIX = 'dispatcher:application-settlement:';
+const APPLICATION_SETTLEMENT_CHUNK_BYTES = 1024 * 1024;
 interface DispatcherJournal { generation: number; count: number; nextOrdinal: number; unresolved: number }
 interface RetiredEffectItem {
   ordinal: number; operationDigest: string; requestDigest?: string; responseDigest?: string;
@@ -1059,13 +1062,33 @@ export class OperatorActivity extends Agent {
             || value.inputDigest !== state.receipt.intentDigest
             || value.expiresAt !== Math.floor(state.receipt.deadline / 1000) * 1000)) return { resettable: false, reason: 'lease-binding-mismatch' };
         }
+        const chunks = [...entries].filter(([key]) => key.startsWith(APPLICATION_SETTLEMENT_PREFIX));
+        const confirmed = lease?.application?.pending?.confirmed;
+        if (confirmed && 'settlementRef' in confirmed) {
+          const reference = z.strictObject({ bytes: z.number().int().positive().safe()
+            .max(dispatcherCapacities(state.receipt.selection.operator.policy).assessmentBytes + 64 * 1024), sha256: syncDigest })
+            .safeParse(confirmed.settlementRef);
+          if (!reference.success || chunks.length !== Math.ceil(reference.data.bytes / APPLICATION_SETTLEMENT_CHUNK_BYTES)) {
+            return { resettable: false, reason: 'unbound-settlement-cache' };
+          }
+          for (const [key, value] of chunks) {
+            const index = Number(key.slice(`${APPLICATION_SETTLEMENT_PREFIX}${journal.generation}:`.length));
+            const chunk = z.strictObject({ bytes: z.number().int().positive(), sha256: syncDigest }).safeParse(value);
+            if (!Number.isSafeInteger(index) || index < 0 || index >= chunks.length
+              || key !== `${APPLICATION_SETTLEMENT_PREFIX}${journal.generation}:${index}` || !chunk.success
+              || chunk.data.bytes !== Math.min(APPLICATION_SETTLEMENT_CHUNK_BYTES,
+                reference.data.bytes - index * APPLICATION_SETTLEMENT_CHUNK_BYTES)) {
+              return { resettable: false, reason: 'unbound-settlement-cache' };
+            }
+          }
+        } else if (chunks.length) return { resettable: false, reason: 'unbound-settlement-cache' };
         const aggregate = entries.get(DISPATCHER_OPERATIONS) as Record<string, DispatcherOperationRecord> | undefined;
         const records = [...entries].filter(([key]) => key.startsWith('dispatcher:operation:'));
         if (entries.has(DISPATCHER_OPERATIONS) && (!aggregate || typeof aggregate !== 'object' || Array.isArray(aggregate) || records.length)
           || records.some(([key]) => !key.startsWith(`dispatcher:operation:${journal.generation}:`))
           || [...entries.keys()].some(key => ![DISPATCHER_LEASE, DISPATCHER_PROFILE_LEASE, DISPATCHER_JOURNAL, DISPATCHER_OPERATIONS].includes(key)
             && !key.startsWith('dispatcher:operation:') && !key.startsWith('dispatcher:response:')
-            && key !== `dispatcher:result:${journal.generation}`)) return { resettable: false, reason: 'journal-unaccounted' };
+            && !key.startsWith(APPLICATION_SETTLEMENT_PREFIX) && key !== `dispatcher:result:${journal.generation}`)) return { resettable: false, reason: 'journal-unaccounted' };
         const operationIds = aggregate ? Object.keys(aggregate)
           : records.map(([key]) => key.slice(`dispatcher:operation:${journal.generation}:`.length));
         const responseKeys = new Set(operationIds.flatMap(id => [
@@ -1264,7 +1287,10 @@ export class OperatorActivity extends Agent {
             entries.set(key, Object.fromEntries(Object.entries(value).map(([id, operation]) => [id, applicationOperationProof(operation)])));
           } else if (key === DISPATCHER_LEASE || key === DISPATCHER_PROFILE_LEASE || key === DISPATCHER_JOURNAL
             || key === `dispatcher:result:${state?.drive?.generation}`) entries.set(key, value);
-          else if (key.startsWith('dispatcher:response:') || /^dispatcher:result:[1-9][0-9]*$/.test(key)) {
+          else if (key.startsWith(APPLICATION_SETTLEMENT_PREFIX)) {
+            entries.set(key, value instanceof Uint8Array
+              ? { bytes: value.byteLength, sha256: createHash('sha256').update(value).digest('hex') } : null);
+          } else if (key.startsWith('dispatcher:response:') || /^dispatcher:result:[1-9][0-9]*$/.test(key)) {
             // Cache bodies are retained separately; recovery only needs their original-key association.
             entries.set(key, true);
           } else entries.set('unexpected-runtime-state', true); // One presence bit fences work; payloads and their keys add no proof.
@@ -2874,14 +2900,42 @@ export class OperatorActivity extends Agent {
         z.strictObject({ receipt: normalDispatcherReceiptSchema, status: z.literal('failed'),
           data: z.record(z.string(), z.array(z.json())) }),
       ]);
+      const settlementLimit = dispatcherCapacities(plan.receipt.selection.operator.policy).assessmentBytes + 64 * 1024;
+      // Fixed current-settlement slots in the existing functional KV store. Keep
+      // the payload out of the lease: checkpoint + settlement can exceed SQLite's
+      // 8 MB key/value bound even when each fits its admitted allowance.
+      const chunkBytes = APPLICATION_SETTLEMENT_CHUNK_BYTES;
+      const chunkKey = (index: number) => `${APPLICATION_SETTLEMENT_PREFIX}${lease.generation}:${index}`;
       const savedPending = lease.application.pending === undefined ? undefined : z.strictObject({
         delivery: deliverySchema, idempotencyKey: z.string().min(1),
-        confirmed: z.strictObject({ delivery: deliverySchema, settlement: settlementSchema }).optional(),
+        confirmed: z.union([
+          z.strictObject({ delivery: deliverySchema, settlement: settlementSchema }),
+          z.strictObject({ delivery: deliverySchema, settlementRef: z.strictObject({
+            bytes: z.number().int().positive().safe().max(settlementLimit), sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          }) }),
+        ]).optional(),
       }).parse(lease.application.pending);
-      if (confirmed && savedPending && !sameDispatcherPhaseValue(savedPending.confirmed?.settlement, confirmed)) {
+      const retained = savedPending?.confirmed;
+      let savedSettlement: ApplicationSettlement | undefined;
+      if (retained && 'settlementRef' in retained) {
+        const { bytes, sha256: digest } = retained.settlementRef;
+        const encoded = new Uint8Array(bytes);
+        await this.ctx.storage.transaction(async tx => {
+          for (let offset = 0, index = 0; offset < bytes; offset += chunkBytes, index++) {
+            const chunk = await tx.get<Uint8Array>(chunkKey(index));
+            if (!(chunk instanceof Uint8Array) || chunk.byteLength !== Math.min(chunkBytes, bytes - offset)) {
+              throw new Error('Application settlement incomplete');
+            }
+            encoded.set(chunk, offset);
+          }
+        });
+        if (createHash('sha256').update(encoded).digest('hex') !== digest) throw new Error('Application settlement changed');
+        savedSettlement = settlementSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(encoded)));
+      } else if (retained) savedSettlement = retained.settlement; // Existing inline records remain replayable.
+      if (confirmed && savedPending && !sameDispatcherPhaseValue(savedSettlement, confirmed)) {
         throw new Error('Application pending settlement changed');
       }
-      const settlement = savedPending?.confirmed?.settlement ?? (confirmed ? settlementSchema.parse(confirmed) : undefined);
+      const settlement = savedSettlement ?? (confirmed ? settlementSchema.parse(confirmed) : undefined);
       if (settlement) {
         if (lease.status !== 'running' || !lease.application.planned || !lease.receipt
           || lease.submissionId !== lease.receipt.submissionId
@@ -2894,8 +2948,7 @@ export class OperatorActivity extends Agent {
             || savedPending.idempotencyKey === lease.application.idempotencyKey)) {
           throw new Error('Application previous receipt mismatch');
         }
-        if (new TextEncoder().encode(JSON.stringify(settlement)).byteLength
-          > dispatcherCapacities(plan.receipt.selection.operator.policy).assessmentBytes + 64 * 1024) {
+        if (new TextEncoder().encode(JSON.stringify(settlement)).byteLength > settlementLimit) {
           throw new Error('Application settlement exceeds admitted capacity');
         }
       } else if (lease.application.planned || lease.receipt || lease.submissionId !== null
@@ -2912,9 +2965,18 @@ export class OperatorActivity extends Agent {
         await this.#retireUnsentModelPermits(tx, live!);
         await this.#requireAccountedDispatcherJournal(tx, live!);
         const app = live!.application!;
-        const pending = app.pending ?? (settlement ? { delivery: { token: crypto.randomUUID(), ordinal: app.delivery.ordinal + 1 },
-          idempotencyKey: crypto.randomUUID(), confirmed: { delivery: app.delivery, settlement } }
-          : { delivery: app.delivery, idempotencyKey: app.idempotencyKey });
+        let pending = app.pending;
+        if (!pending) {
+          if (settlement) {
+            const encoded = new TextEncoder().encode(JSON.stringify(settlement));
+            for (let offset = 0, index = 0; offset < encoded.byteLength; offset += chunkBytes, index++) {
+              await tx.put(chunkKey(index), encoded.slice(offset, offset + chunkBytes));
+            }
+            pending = { delivery: { token: crypto.randomUUID(), ordinal: app.delivery.ordinal + 1 },
+              idempotencyKey: crypto.randomUUID(), confirmed: { delivery: { ...app.delivery },
+                settlementRef: { bytes: encoded.byteLength, sha256: createHash('sha256').update(encoded).digest('hex') } } };
+          } else pending = { delivery: { ...app.delivery }, idempotencyKey: app.idempotencyKey };
+        }
         if (!Number.isSafeInteger(pending.delivery.ordinal)) throw new Error('Application delivery bound exceeded');
         const next = { ...live!, application: { ...app, pending } };
         await tx.put(DISPATCHER_LEASE, next);
@@ -2926,7 +2988,7 @@ export class OperatorActivity extends Agent {
       const response = await this.#normalDispatcherControl(lease, plan, 'plan', {
         id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId,
         initialData: app.initialData, checkpoint: app.checkpoint, delivery: pending.delivery,
-        ...(pending.confirmed ? { settlement: pending.confirmed.settlement } : {}),
+        ...(settlement ? { settlement } : {}),
       });
       if (response.status !== 200) throw new Error('Application decision unavailable');
       const decision = parseApplicationDecision(response.value, dispatcherCapacities(plan.receipt.selection.operator.policy).assessmentBytes);
@@ -2958,6 +3020,11 @@ export class OperatorActivity extends Agent {
               applicationContext: decision.context } }) };
           await tx.put(DISPATCHER_LEASE, { ...live!, application, wire, receipt: undefined, observation: undefined,
             settledSubmissionId: undefined, submissionId: null, status: 'admitting' });
+        }
+        if (pending.confirmed && 'settlementRef' in pending.confirmed) {
+          for (let index = 0; index < Math.ceil(pending.confirmed.settlementRef.bytes / chunkBytes); index++) {
+            await tx.delete(chunkKey(index));
+          }
         }
         await tx.put('admission', { ...record!, drive: { ...record!.drive!, checkpoint: decision.checkpoint } });
         return true;

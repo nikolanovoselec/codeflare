@@ -7,6 +7,7 @@ import { OperatorRegistry, type ManagementAdmissionReceipt, type ManagementExecu
 import { normalCallback, normalDeployment } from './fixtures/normal-dispatcher';
 import { createOwnerRawCaptureStorage, discoverRawCaptures, readRawCapture } from '../../operators/raw-capture-storage';
 import type { Env } from '../../types';
+import type { ApplicationValue } from '../../operators/application-workflow';
 
 const normal = { applicationWorkflow: true, normalHosting: true, repositoryOnly: true };
 const configuration = { documentSync: { collection: 'invoices', mode: 'append-only' } };
@@ -136,7 +137,7 @@ describe('application-owned opaque state through authenticated OPERATOR', () => 
         { key: 'cursor', status: 'value', version: expect.any(String), value },
         { key: 'claim', status: 'value', version: expect.any(String), value: ['opaque', null, 3] },
       ]);
-      r.reconstruct(); f.restart(); await f.drainBackground();
+      r.reconstruct(); f.activity = f.restart(); await f.drainBackground();
       expect(await read(f, ['cursor', 'claim'])).toEqual(retained);
       expect(await f.activity.getAdmission()).toEqual(original);
       expect(await f.activity.getRuntimePlan()).toEqual(plan);
@@ -264,7 +265,7 @@ describe('application-owned opaque state through authenticated OPERATOR', () => 
         const reset = await cas(f, [{ key, version: null }], [{ key, value: { ownerKey: f.proof.ownerKey } }]);
         expect(kind === 'unknown-layout' || kind === 'foreign-bucket' ? [409, 503] : [409]).toContain(reset.status);
         expect(await reset.text()).not.toContain('PRIVATE_FOREIGN_VALUE');
-        r.reconstruct(); f.restart(); await f.drainBackground();
+        r.reconstruct(); f.activity = f.restart(); await f.drainBackground();
         expect(await observe()).toEqual(entries);
         expect(await r.enter(native => native.storage.get(storageKey))).toEqual(legacy);
         expect(await r.enter(native => native.storage.get('renovate-activity:legacy-original'))).toEqual(legacy);
@@ -470,6 +471,15 @@ async function planned(f: DispatcherFixture) {
 }
 const workflowOptions = { ...normal, applicationConfiguration: configuration, applicationPlan: dispatchDecision };
 
+async function restartApplication(f: DispatcherFixture) {
+  // restart() returns the new instance; the fixture's original activity field is
+  // not a live getter. Enter that instance to exercise cold recovery.
+  f.activity = f.restart();
+  await f.drainBackground();
+  await f.activity.getAdmission();
+  await f.drainBackground();
+}
+
 /** The remote planner has received the input, but its response is unavailable
  * until explicitly restored. No SDK or Root method is replaced. */
 function interruptedSettlementPlan(decide: (body: Record<string, unknown>) => unknown = dispatchDecision) {
@@ -502,7 +512,8 @@ describe('generic application decisions on the existing normal control lifecycle
         expect(response.status).toBe(200);
         const effects = f.sent.filter(request => request.method !== 'GET').map(request => request.url);
         expect(effects).toEqual([mutation.url]);
-        const data = outcome === 'failed-empty' ? {} : { 'opaque-work': [{ text: '秘密🧪'.repeat(12000), complete: outcome === 'completed' }] };
+        const data: Record<string, ApplicationValue[]> = outcome === 'failed-empty' ? {}
+          : { 'opaque-work': [{ text: '秘密🧪'.repeat(12000), complete: outcome === 'completed' }] };
         f.normalTransport!.settleSubmission(first.receipt.submissionId, outcome === 'completed' ? 'completed' : 'failed',
           Object.entries(data).flatMap(([name, values]) => values.map(value => ({ name, data: value }))));
         if (outcome === 'completed') f.normalTransport!.changeReply({ text: 'Original SDK text', metadata: { opaque: [null, false, 'β'] } });
@@ -517,9 +528,7 @@ describe('generic application decisions on the existing normal control lifecycle
         await f.mutateEvidence(async storage => {
           const lease = await storage.get<{ application: { pending: unknown } }>('dispatcher:lease');
           pendingProof = lease!.application.pending;
-          expect(pendingProof).toMatchObject({ delivery: interrupted.delivery,
-            confirmed: { delivery, settlement: interrupted.settlement } });
-          expect(new TextEncoder().encode(JSON.stringify(pendingProof)).byteLength).toBeLessThan(128 * 1024 + 64 * 1024);
+          expect(pendingProof).toMatchObject({ delivery: interrupted.delivery, confirmed: { delivery } });
         });
         expect(accepted(f)).toEqual([first]);
         expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
@@ -527,8 +536,7 @@ describe('generic application decisions on the existing normal control lifecycle
         // A later SDK view is neither needed nor allowed to replace the saved input.
         f.normalTransport!.changeReceipt({ uid: 'foreign-later-view' });
         f.normalTransport!.changeReply({ text: 'Changed later SDK data', data: { changed: [true] } });
-        f.restart(); await f.drainBackground();
-        await f.activity.getAdmission(); await f.drainBackground();
+        await restartApplication(f);
         expect(plans(f).at(-1)).toEqual(interrupted);
         expect(accepted(f)).toEqual([first]);
         await f.mutateEvidence(async storage => {
@@ -536,8 +544,7 @@ describe('generic application decisions on the existing normal control lifecycle
           expect(lease!.application.pending).toEqual(pendingProof);
         });
         remote.restore();
-        f.restart(); await f.drainBackground();
-        await f.activity.getAdmission(); await f.drainBackground();
+        await restartApplication(f);
         expect(plans(f).at(-1)).toEqual(interrupted);
         expect(f.normalTransport!.requests.filter(request => request.path === '/control/read')).toEqual(observed);
         expect(accepted(f)).toHaveLength(2);
@@ -563,6 +570,54 @@ describe('generic application decisions on the existing normal control lifecycle
         applicationConfiguration: { ...configuration, repository: 'acme/updates' }, applicationWriteRepositoriesPath: '/repository' });
     });
 
+  // REQ-OPERATOR-048 AC2: independently valid current inputs must remain
+  // replayable when their combined size exceeds SQLite's 8 MB key/value bound.
+  it('replays a large settlement beside an existing checkpoint exceeding 8 MB combined', async () => {
+    const allowance = 5 * 1024 * 1024;
+    const checkpoint = { retained: 'c'.repeat(4.5 * 1024 * 1024) };
+    const data = { 'opaque-work': [{ text: 's'.repeat(4.5 * 1024 * 1024), tail: 'original' }] };
+    const remote = interruptedSettlementPlan(body => body.checkpoint === null
+      ? { kind: 'dispatch', checkpoint, context: {}, message: firstInput }
+      : { kind: 'complete', checkpoint: { done: true }, result: finalOutput });
+    await fixture(async f => {
+      await start(f);
+      const original = accepted(f);
+      expect(original).toHaveLength(1);
+      const delivery = plans(f)[0].delivery;
+      f.normalTransport!.settleSubmission(original[0].receipt.submissionId, 'completed',
+        [{ name: 'opaque-work', data: data['opaque-work'][0] }]);
+      await f.activity.reconcileDispatcherLease();
+      const interrupted = structuredClone(plans(f).at(-1)!);
+      expect(interrupted).toMatchObject({ checkpoint, settlement: { receipt: original[0].receipt,
+        reply: { data, uid: original[0].receipt.uid, submissionId: original[0].receipt.submissionId } } });
+      const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+      expect(bytes(checkpoint)).toBeLessThan(allowance);
+      expect(bytes(interrupted.settlement)).toBeLessThan(allowance);
+      expect(bytes({ checkpoint, settlement: interrupted.settlement })).toBeGreaterThan(8 * 1024 * 1024);
+      await f.mutateEvidence(async storage => {
+        const lease = await storage.get<{ application: { pending: { confirmed: { delivery: unknown } } } }>('dispatcher:lease');
+        expect(lease!.application.pending.confirmed.delivery).toEqual(delivery);
+      });
+      const observed = f.normalTransport!.requests.filter(request => request.path === '/control/read');
+      f.normalTransport!.changeReply({ data: { changed: [true] } });
+      await restartApplication(f);
+      expect(plans(f).at(-1)).toEqual(interrupted);
+      expect(accepted(f)).toEqual(original);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      remote.restore();
+      await restartApplication(f);
+      expect(plans(f).at(-1)).toEqual(interrupted);
+      expect(f.normalTransport!.requests.filter(request => request.path === '/control/read')).toEqual(observed);
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: finalOutput } });
+      expect(accepted(f)).toEqual(original);
+      await f.mutateEvidence(async storage => {
+        const lease = await storage.get<{ application: Record<string, unknown> }>('dispatcher:lease');
+        expect(lease!.application).not.toHaveProperty('pending');
+        expect((await storage.list({ prefix: 'dispatcher:application-settlement:' })).size).toBe(0);
+      });
+    }, { ...normal, loggingEnabled: false, capacityPolicy: { assessmentBytes: allowance }, applicationPlan: remote.plan });
+  });
+
   it('a saved failed settlement cannot certify successful completion after a lost planner response', async () => {
     const remote = interruptedSettlementPlan(body => body.checkpoint === null
       ? dispatchDecision(body) : { kind: 'complete', checkpoint: { done: true }, result: { inventedSuccess: true } });
@@ -572,8 +627,7 @@ describe('generic application decisions on the existing normal control lifecycle
       f.normalTransport!.settleSubmission(original[0].receipt.submissionId, 'failed', [{ name: 'failure', data: { exact: true } }]);
       await f.activity.reconcileDispatcherLease();
       const interrupted = structuredClone(plans(f).at(-1)!);
-      remote.restore(); f.restart(); await f.drainBackground();
-      await f.activity.getAdmission(); await f.drainBackground();
+      remote.restore(); await restartApplication(f);
       expect(plans(f).at(-1)).toEqual(interrupted);
       expect(accepted(f)).toEqual(original);
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
@@ -582,7 +636,7 @@ describe('generic application decisions on the existing normal control lifecycle
     }, { ...workflowOptions, applicationPlan: remote.plan });
   });
 
-  it.each(['receipt', 'delivery', 'missing-settlement', 'malformed-settlement', 'oversized-settlement',
+  it.each(['receipt', 'delivery', 'missing-settlement', 'missing-chunk', 'changed-chunk', 'malformed-settlement', 'oversized-settlement',
     'expired', 'revoked', 'cancelled', 'already-fenced'] as const)(
     'saved settlement cannot reopen work across the %s fence', async fault => {
       const remote = interruptedSettlementPlan();
@@ -597,20 +651,29 @@ describe('generic application decisions on the existing normal control lifecycle
         else if (fault === 'already-fenced') await f.activity.interruptDrive(1);
         else await f.mutateEvidence(async storage => {
           const lease = (await storage.get<{ receipt: Record<string, unknown>; application: {
-            delivery: { token: string }; pending: { confirmed?: { settlement: Record<string, unknown> } } } }>('dispatcher:lease'))!;
+            delivery: { token: string }; pending: { confirmed?: { delivery: unknown; settlement?: unknown } } } }>('dispatcher:lease'))!;
           if (fault === 'receipt') lease.receipt.submissionId = 'foreign-submission';
-          if (fault === 'delivery') lease.application.delivery.token = 'foreign-delivery';
+          if (fault === 'delivery') lease.application.delivery = { ...lease.application.delivery, token: 'foreign-delivery' };
           if (fault === 'missing-settlement') delete lease.application.pending.confirmed;
-          if (fault === 'malformed-settlement') lease.application.pending.confirmed!.settlement = { status: 'completed' };
-          if (fault === 'oversized-settlement') lease.application.pending.confirmed!.settlement = {
-            receipt: lease.receipt, reply: { text: 'x'.repeat(128 * 1024 + 64 * 1024), data: {},
-              uid: lease.receipt.uid, submissionId: lease.receipt.submissionId } };
+          if (fault === 'missing-chunk') await storage.delete('dispatcher:application-settlement:1:0');
+          if (fault === 'changed-chunk') {
+            const chunk = (await storage.get<Uint8Array>('dispatcher:application-settlement:1:0'))!;
+            chunk[chunk.length - 1] ^= 1;
+            await storage.put('dispatcher:application-settlement:1:0', chunk);
+          }
+          if (fault === 'malformed-settlement' || fault === 'oversized-settlement') {
+            // Exercise the legacy inline format as well as current references;
+            // do not leave both formats present and fail only on unknown keys.
+            lease.application.pending.confirmed = { delivery: lease.application.pending.confirmed!.delivery,
+              settlement: fault === 'malformed-settlement' ? { status: 'completed' } : {
+                receipt: lease.receipt, reply: { text: 'x'.repeat(128 * 1024 + 64 * 1024), data: {},
+                  uid: lease.receipt.uid, submissionId: lease.receipt.submissionId } } };
+          }
           await storage.put('dispatcher:lease', lease);
         });
         const submittedPlans = structuredClone(plans(f));
         const observed = f.normalTransport!.requests.filter(request => request.path === '/control/read');
-        remote.restore(); f.restart(); await f.drainBackground();
-        await f.activity.getAdmission(); await f.drainBackground();
+        remote.restore(); await restartApplication(f);
         await f.activity.reconcileDispatcherLease();
         expect(plans(f)).toEqual(submittedPlans);
         expect(f.normalTransport!.requests.filter(request => request.path === '/control/read')).toEqual(observed);
@@ -627,7 +690,7 @@ describe('generic application decisions on the existing normal control lifecycle
     await start(f);
     const original = accepted(f);
     expect(original).toHaveLength(1);
-    if (cold) { f.restart(); await f.drainBackground(); }
+    if (cold) { f.activity = f.restart(); await f.drainBackground(); }
     f.normalTransport!.settleSubmission(original[0].receipt.submissionId, 'completed');
     await f.activity.reconcileDispatcherLease();
     expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true,
@@ -645,7 +708,7 @@ describe('generic application decisions on the existing normal control lifecycle
     const original = accepted(f);
     f.normalTransport!.settleSubmission(original[0].receipt.submissionId, 'failed',
       [{ name: 'actual-failure', data: { preserved: true } }]);
-    if (cold) { f.restart(); await f.drainBackground(); }
+    if (cold) { f.activity = f.restart(); await f.drainBackground(); }
     await f.activity.reconcileDispatcherLease();
     expect(accepted(f)).toEqual(original);
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
@@ -673,7 +736,7 @@ describe('generic application decisions on the existing normal control lifecycle
     expect(JSON.parse(accepted(f)[1].wire)).toMatchObject({ message: secondInput });
     expect((await f.activity.getRuntimePlan())!.deadline).toBe(original!.deadline);
     expect((await f.activity.getRuntimePlan())!.invocationJson).toBe(original!.invocationJson);
-    f.restart(); await f.drainBackground();
+    f.activity = f.restart(); await f.drainBackground();
     await f.activity.reconcileDispatcherLease();
     expect(accepted(f)).toHaveLength(2);
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
@@ -701,7 +764,7 @@ describe('generic application decisions on the existing normal control lifecycle
     const original = accepted(f);
     expect(original).toHaveLength(1);
     f.normalTransport!.settle('completed', [{ name: 'opaque-document-result', data: { tooLate: true } }]);
-    f.restart(); await f.drainBackground();
+    f.activity = f.restart(); await f.drainBackground();
     await f.activity.reconcileDispatcherLease();
     expect(accepted(f)).toEqual(original);
     expect(plans(f).every(plan => plan.checkpoint === null)).toBe(true);
@@ -716,7 +779,7 @@ describe('generic application decisions on the existing normal control lifecycle
     const original = accepted(f);
     expect(original).toHaveLength(1);
     const originalPlan = await f.activity.getRuntimePlan();
-    f.restart(); await f.drainBackground();
+    f.activity = f.restart(); await f.drainBackground();
     await f.activity.reconcileDispatcherLease();
     expect(accepted(f)).toEqual(original);
     const wire = JSON.parse(original[0].wire);
@@ -742,7 +805,7 @@ describe('generic application decisions on the existing normal control lifecycle
     expect(accepted(f)).toHaveLength(2);
     expect(JSON.parse(accepted(f)[1].wire).message).toEqual(secondInput);
     expect((await f.activity.getRuntimePlan())!.deadline).toBe(original!.deadline);
-    f.restart(); await f.drainBackground();
+    f.activity = f.restart(); await f.drainBackground();
     expect(accepted(f)).toHaveLength(2);
     f.normalTransport!.settleSubmission(accepted(f)[1].receipt.submissionId, 'completed');
     await f.activity.reconcileDispatcherLease();
@@ -786,7 +849,7 @@ describe('generic application decisions on the existing normal control lifecycle
       if (fault === 'expired') f.expire();
       if (fault === 'release') f.changeConnection({ releaseId: 'replacement' });
       if (fault === 'configuration') f.changeInferenceAuthority('installation');
-      f.restart(); await f.drainBackground();
+      f.activity = f.restart(); await f.drainBackground();
       await f.activity.reconcileDispatcherLease();
       expect(accepted(f)).toEqual(original);
       expect(plans(f).every(plan => plan.checkpoint === null)).toBe(true);

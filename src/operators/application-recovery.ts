@@ -17,15 +17,15 @@ export type RecoveryFacts = { resettable: false; reason: string } | {
   resettable: true; reason: string; proofDigest: string; invocation?: unknown;
   origin: { generation: number; deadline: number };
 };
-export const recoveryKey = z.string().min(1).max(1024);
-export const recoveryVersion = z.string().regex(/^[a-f0-9]{64}$/);
+const recoveryKey = z.string().min(1).max(1024);
+const recoveryVersion = z.string().regex(/^[a-f0-9]{64}$/);
 export const recoveryEntries = z.array(z.strictObject({ key: recoveryKey, version: recoveryVersion })).min(1).max(64)
   .refine(items => new Set(items.map(item => item.key)).size === items.length);
 export interface RecoveryRecord {
   key: string; version: string; value?: unknown; invocation?: unknown; activityId?: string;
   status: 'owned' | 'conflict' | 'unavailable'; reason: string; resettable: boolean;
 }
-export interface RecoveryOriginal {
+interface RecoveryOriginal {
   activityId: string; installationId: string; ownerKey: string; sourceId: string;
   legacy: boolean; value: unknown;
 }
@@ -38,7 +38,7 @@ export const recoveryDigest = async (value: string): Promise<string> => Array.fr
 const encode = (value: unknown) => JSON.stringify(value);
 const bounded = (value: unknown) => new TextEncoder().encode(encode(value)).byteLength <= 64 * 1024;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
-export const legacyRecoveryKey = (key: string): string | null => /^renovate:head:[1-9][0-9]*:[1-9][0-9]*:[a-f0-9]{40,64}$/.test(key)
+const legacyRecoveryKey = (key: string): string | null => /^renovate:head:[1-9][0-9]*:[1-9][0-9]*:[a-f0-9]{40,64}$/.test(key)
   ? `renovate-admission:${key.slice('renovate:head:'.length)}` : null;
 export const applicationRecoveryPrefix = async (sourceId: string) => `application-state:v1:${await recoveryDigest(sourceId)}:`;
 
@@ -78,6 +78,19 @@ export async function inspectRecoveryRecord(storage: Pick<DurableObjectStorage, 
   if (!object(prior) || typeof prior.activityId !== 'string' || typeof prior.installationId !== 'string') return blocked('malformed', 'unavailable');
   return { ...base, original: { activityId: prior.activityId, installationId: prior.installationId, ownerKey, sourceId, legacy: true, value: prior },
     record: { ...base.record, status: 'owned', reason: 'proof-required', value: prior, activityId: prior.activityId } };
+}
+
+// Progress only, never authority: Registry revalidates the owned anchor and
+// package-selected scope on every continuation.
+const previewCursor = z.discriminatedUnion('phase', [
+  z.strictObject({ phase: z.literal('scope'), after: z.string().max(3000).optional() }),
+  z.strictObject({ phase: z.literal('records'), after: z.string().max(3000).optional(),
+    anchor: z.strictObject({ key: recoveryKey, version: recoveryVersion }) }),
+]);
+export function parseRecoveryCursor(value?: string): z.infer<typeof previewCursor> {
+  try {
+    return value === undefined ? { phase: 'scope' } : previewCursor.parse(JSON.parse(z.string().max(4096).parse(value)));
+  } catch { throw new ValidationError('Invalid recovery cursor'); }
 }
 
 /** Fixed namespace traversal, bounded pages, explicit cursor; no arbitrary storage prefix. */

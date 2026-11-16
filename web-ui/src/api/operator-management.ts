@@ -132,12 +132,13 @@ export const configureInstallation = (installationId: string, input: { revision:
 export const APPLICATION_RECOVERY_BATCH_SIZE = 64;
 const recoveryEntrySchema = z.strictObject({ key: z.string().min(1).max(1024), version: digest });
 const recoverySkippedSchema = z.strictObject({ key: z.string().min(1).max(1024), reason: z.string().max(256) });
+const recoveryScopeCursor = z.string().min(1).max(4096).optional();
 export const applicationRecoveryPreviewSchema = z.strictObject({
   items: z.array(recoveryEntrySchema.extend({ label: z.string().max(256),
     status: z.enum(['resettable', 'blocked']), reason: z.string().max(256) })).max(APPLICATION_RECOVERY_BATCH_SIZE),
-  nextCursor: z.string().min(1).nullable(),
+  nextCursor: z.string().min(1).nullable(), scopeCursor: recoveryScopeCursor,
 });
-export const applicationRecoveryResetInputSchema = z.strictObject({ revision, requestId: z.uuid(),
+export const applicationRecoveryResetInputSchema = z.strictObject({ revision, requestId: z.uuid(), scopeCursor: recoveryScopeCursor,
   entries: z.array(recoveryEntrySchema).min(1).max(APPLICATION_RECOVERY_BATCH_SIZE)
     .refine(entries => new Set(entries.map(entry => entry.key)).size === entries.length),
 });
