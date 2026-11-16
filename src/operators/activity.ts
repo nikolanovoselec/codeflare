@@ -240,7 +240,8 @@ function applicationOperationProof(value: unknown): unknown {
     ...(record.native ? { native: { handle: record.native.handle, profileDigest: record.native.profileDigest,
       attempt: record.native.attempt, phase: record.native.phase, outcome: record.native.outcome,
       wireDigest: record.native.wireDigest, deliveryToken: record.native.deliveryToken } } : {}),
-    ...(record.sdkHttp ? { sdkHttp: { permitId: record.sdkHttp.permitId, attempts: record.sdkHttp.attempts } } : {}) };
+    ...(record.sdkHttp ? { sdkHttp: { permitId: record.sdkHttp.permitId, attempts: record.sdkHttp.attempts,
+      phase: record.sdkHttp.phase, responseKey: record.sdkHttp.responseKey } } : {}) };
 }
 type OriginalExecutionProof = Pick<ApplicationExecutionAuthority, 'original' | 'ledger'> & {
   current: Pick<ApplicationExecutionAuthority['current'], 'deadline'>;
@@ -364,11 +365,20 @@ function applicationJournalAccounting(entries: Map<string, unknown>, generation:
     } else {
       hasInference = true;
       const binding = operation.deliveryBinding ?? operation.phaseBinding;
-      if (!binding || binding.resource !== 'inference' || typeof binding.submissionId !== 'string' || !binding.submissionId
+      const sdk = operation.sdkHttp;
+      const responseKey = `dispatcher:response:${generation}:${id}`;
+      const response = entries.get(responseKey);
+      // Ordinary settlement accepts a proven completed SDK HTTP exchange without
+      // optional association. Historical recovery still requires its old binding.
+      const completedUnboundSdk = !!delivery && !binding && !operation.inference && !operation.native
+        && sdk?.phase === 'completed' && sdk.attempts === 1 && typeof sdk.permitId === 'string' && !!sdk.permitId
+        && sdk.responseKey === responseKey && digest(operation.responseDigest)
+        && object(response) && response.sha256 === operation.responseDigest;
+      if (!completedUnboundSdk && (!binding || binding.resource !== 'inference'
+        || typeof binding.submissionId !== 'string' || !binding.submissionId
         || !(operation.inference?.version === 1 && integer(operation.inference.attempt) && operation.inference.attempt >= 1
           || operation.native && typeof operation.native.handle === 'string' && digest(operation.native.profileDigest)
-          || operation.sdkHttp && typeof operation.sdkHttp.permitId === 'string'
-            && integer(operation.sdkHttp.attempts) && operation.sdkHttp.attempts <= 1)) return fail('unknown-operation');
+          || sdk && typeof sdk.permitId === 'string' && integer(sdk.attempts) && sdk.attempts <= 1))) return fail('unknown-operation');
     }
     if (!operation.inference && !operation.native) {
       if (!charge(operation.ordinal)) return fail('journal-ordinal-coverage');

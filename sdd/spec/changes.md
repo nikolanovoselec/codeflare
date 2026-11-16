@@ -6,10 +6,11 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-16: Delivery proof, verified release and configuration refusals
 
-- REQ-OPERATOR-048 retains compact original per-delivery settlement, fencing and effect accounting before planner I/O; authorized delivery reads do not depend on unrelated later completion or collection. Original receipts, current authority and uncertain-effect protection remain mandatory.
-- REQ-OPERATOR-210 represents verified original-owner release as an exact-version vacancy, without exposing private prior state to a fresh authorized claimant. Retained audit/legacy lineage protects successor updates; package-written reset values do not authorize takeover. Recovery reports distinguish actual ownership and functional-proof gates without inventing missing evidence.
+- REQ-OPERATOR-048/062 preserve ordinary settlement for completed unassociated SDK model HTTP without inventing delivery association; unresolved effects remain blocking and historical recovery still requires its original proof.
+- REQ-OPERATOR-211 retains compact original per-delivery settlement, fencing and effect accounting before planner I/O; authorized delivery reads do not depend on unrelated later completion or collection. Original receipts, current authority and uncertain-effect protection remain mandatory.
+- REQ-OPERATOR-061/210 represent verified original-owner release as an exact-version vacancy without exposing private prior state to a fresh authorized claimant; retained audit/legacy lineage protects successor updates, and package-written reset values do not authorize takeover. Recovery reports distinguish actual ownership and functional-proof gates without inventing missing evidence.
 - REQ-OPERATOR-007/090/091 remove redundant full owner rediscovery from configuration-read liveness checks while retaining current read authorization, entry/return owner/source checks, original budgets and closed private refusal provenance. Credential refresh/persistence authorization is unchanged; source changes do not recover the historical missing abort reason.
-- REQ-OPERATOR-057 distinguishes absent decisions from unreadable supplied content and shows bounded application-reported reasons. No generated decision, runtime qualification, deployment or acceptance is implied.
+- REQ-OPERATOR-212 distinguishes absent decisions from unreadable supplied content and shows bounded application-reported reasons. No generated decision, runtime qualification, deployment or acceptance is implied.
 
 ## 2026-11-16: Functional recovery proof
 

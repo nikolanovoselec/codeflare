@@ -420,7 +420,7 @@ describe('generic completed facts are original SDK settlement, not application p
 describe('explicit owner recovery facts preserve original history', () => {
   const request = (f: Fixture) => ({ human: f.authority.current.human, deadline: f.authority.current.deadline,
     original: f.authority.original, ledger: f.authority.ledger });
-  it.each(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'orphan-response-cache', 'retained-result',
+  it.each(['zero', 'get-model', 'unbound-sdk-http', 'earlier-delivery-model', 'response-cache', 'orphan-response-cache', 'retained-result',
     'settlement-cache', 'orphan-settlement-cache', 'missing-settlement-chunk',
     'missing-journal', 'invalid-aggregate', 'invalid-lease', 'lease-generation', 'lease-artifact', 'lease-input',
     'missing-fence', 'incomplete', 'write', 'unknown-kind', 'foreign-owner',
@@ -448,6 +448,11 @@ describe('explicit owner recovery facts preserve original history', () => {
           deliveryBinding: { resource: 'inference', submissionId: 'original-submission' },
           sdkHttp: { permitId: 'original-permit', attempts: 1 } },
       ] as Array<Record<string, any>>;
+      if (name === 'unbound-sdk-http') {
+        delete operations[1].deliveryBinding;
+        operations[1].responseDigest = createHash('sha256').update('completed-model-response').digest('hex');
+        operations[1].sdkHttp = { ...operations[1].sdkHttp, phase: 'completed', responseKey: 'dispatcher:response:1:op-1' };
+      }
       if (name === 'incomplete') operations[0].phase = 'unknown';
       if (name === 'write') operations[0].request.method = 'POST';
       if (name === 'unknown-kind') delete operations[0].request;
@@ -468,6 +473,7 @@ describe('explicit owner recovery facts preserve original history', () => {
         ...(name === 'response-cache' ? { 'dispatcher:response:op-0': { body: 'retained source bytes' },
           'dispatcher:response:1:op-1': { body: 'retained model bytes' } } : {}),
         ...(name === 'orphan-response-cache' ? { 'dispatcher:response:unaccounted': { body: 'unbound bytes' } } : {}),
+        ...(name === 'unbound-sdk-http' ? { 'dispatcher:response:1:op-1': { body: 'completed-model-response' } } : {}),
         ...(name === 'retained-result' ? { 'dispatcher:result:1': { original: 'retained result' } } : {}),
         ...(['settlement-cache', 'orphan-settlement-cache'].includes(name)
           ? { 'dispatcher:application-settlement:1:0': settlement } : {}),
@@ -477,6 +483,7 @@ describe('explicit owner recovery facts preserve original history', () => {
       const before = structuredClone(await f.native.storage.list());
       const alarm = await f.native.storage.getAlarm();
       const result = await f.activity.readRecoveryFacts(authority);
+      if (name === 'unbound-sdk-http') expect(result).toEqual({ resettable: false, reason: 'unknown-operation' });
       expect(result.resettable).toBe(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'retained-result', 'settlement-cache'].includes(name));
       if (result.resettable) expect(result).toMatchObject({ reason: 'fenced-no-write', proofDigest: expect.stringMatching(/^[a-f0-9]{64}$/) });
       expect(await f.native.storage.list()).toEqual(before);

@@ -55,8 +55,11 @@ async function denied(response: Response) {
 
 /** Preserve each actual Activity's native context across the historical RPC seam. */
 function routeHistoricalActivity(current: DispatcherFixture, original: DispatcherFixture) {
+  const namespace = current.environment.OPERATOR_ACTIVITY!;
   current.environment.OPERATOR_ACTIVITY = {
-    idFromName: () => { throw Error('Registry must not select a native identity'); },
+    // This Activity may later become the historical target. Keep its own
+    // native identity check intact while routing the separate historical RPC.
+    idFromName: (id: string) => namespace.idFromName(id),
     getByName: (id: string) => {
       if (id === current.activityId) return current.activity;
       if (id !== original.activityId) throw Error('Unexpected historical target');
@@ -608,7 +611,8 @@ describe('generic application decisions on the existing normal control lifecycle
       await original.activity.reconcileDispatcherLease();
       expect(await original.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       const originalWrites = original.sent.filter(request => request.method !== 'GET').map(request => request.url);
-      await fixture(async current => {
+      const originalFetch = globalThis.fetch;
+      try { await fixture(async current => {
         routeHistoricalActivity(current, original);
         r.attach(current); await start(current);
         const delivery = plans(current)[0].delivery as { token: string };
@@ -622,7 +626,8 @@ describe('generic application decisions on the existing normal control lifecycle
         expect(await read(current, ['target-reservation'])).toEqual([{ key: 'target-reservation', status: 'value',
           version, value: { work: 'original-target', activityId: original.activityId } }]);
         expect(original.sent.filter(request => request.method !== 'GET').map(request => request.url)).toEqual(originalWrites);
-      }, { ...workflowOptions, registryAdapter: r.adapter });
+      }, { ...workflowOptions, registryAdapter: r.adapter, preserveGlobalMocks: true }); }
+      finally { vi.stubGlobal('fetch', originalFetch); r.attach(original); }
     }, { ...workflowOptions, registryAdapter: r.adapter, applicationPlan: remote.plan,
       applicationConfiguration: { ...configuration, repository: 'acme/updates' }, applicationWriteRepositoriesPath: '/repository' });
   }));
@@ -647,7 +652,8 @@ describe('generic application decisions on the existing normal control lifecycle
       if (updated.status !== 'value') throw Error('Updated claim unavailable');
       original.normalTransport!.settleSubmission(second.receipt.submissionId, 'completed');
       await original.activity.reconcileDispatcherLease();
-      await fixture(async current => {
+      const originalFetch = globalThis.fetch;
+      try { await fixture(async current => {
         routeHistoricalActivity(current, original); r.attach(current); await planned(current);
         const execution = (f: DispatcherFixture, activityId: string, version: string) => f.inOwnContext(() =>
           f.installationCapability.fetch(normalCallback(f.activityId, 'execution', {
@@ -664,14 +670,17 @@ describe('generic application decisions on the existing normal control lifecycle
         const newReceipt = accepted(current)[0].receipt;
         current.normalTransport!.settleSubmission(newReceipt.submissionId, 'completed');
         await current.activity.reconcileDispatcherLease();
-        await fixture(async reader => {
+        const currentFetch = globalThis.fetch;
+        try { await fixture(async reader => {
           routeHistoricalActivity(reader, current); r.attach(reader); await planned(reader);
           const evidence = await execution(reader, current.activityId, rebound.version);
           expect(evidence.status).toBe(200);
           expect(await evidence.json()).toMatchObject({ status: 'delivery', activityId: current.activityId,
             sdkSubmissionId: newReceipt.submissionId, noExternalWrites: true });
-        }, { ...workflowOptions, registryAdapter: r.adapter });
-      }, { ...workflowOptions, registryAdapter: r.adapter });
+        }, { ...workflowOptions, registryAdapter: r.adapter, preserveGlobalMocks: true }); }
+        finally { vi.stubGlobal('fetch', currentFetch); r.attach(current); }
+      }, { ...workflowOptions, registryAdapter: r.adapter, preserveGlobalMocks: true }); }
+      finally { vi.stubGlobal('fetch', originalFetch); r.attach(original); }
     }, { ...workflowOptions, registryAdapter: r.adapter,
       applicationConfiguration: { ...configuration, repository: 'acme/updates' }, applicationWriteRepositoriesPath: '/repository' });
   }));

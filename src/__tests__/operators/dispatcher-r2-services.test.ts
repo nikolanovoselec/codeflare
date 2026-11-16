@@ -1400,6 +1400,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   it.each(configurationFences)('REQ-OPERATOR-007/048: %s change while the saved-settings R2 body is pending refuses configuration without credential reads, writes or effects', (name, fence) => lane(async (f, store) => {
     await admitted(f);
     const original = (await f.activity.getRuntimePlan())!;
+    const originalEncryptionKey = f.environment.ENCRYPTION_KEY;
     const settings = store.value(settingsKey);
     const auth = store.value(authKey);
     const versions = [store.etag(settingsKey), store.etag(authKey)];
@@ -1429,6 +1430,8 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       expect(store.escapedReads).toEqual([]);
       expect(f.sent).toEqual([]);
     } finally {
+      // Teardown must decrypt the original connection to abort its exact job.
+      if (name === 'key') f.environment.ENCRYPTION_KEY = originalEncryptionKey;
       if (name === 'owner metadata') await runInDurableObject(
         (env as unknown as Env).CONTAINER.getByName('bucket-owner:owner-bucket'), async (_instance, state) => {
           await state.storage.put('bucketOwnerEmail', original.executionContext.owner.email);
@@ -1560,6 +1563,37 @@ describe('REQ-OPERATOR-057: trusted native authentication evidence', () => {
 
 // REQ-OPERATOR-102: Native Dispatcher profile authority.
 describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent model execution', () => {
+  it('REQ-OPERATOR-048/062: completed tokenless model HTTP work permits the application settlement and terminal result', () => lane(async f => {
+    await admitted(f);
+    const receipt = [...f.normalTransport!.admissions.values()][0].receipt;
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (request.url !== 'https://custom.example.test/native/stream') return original(request);
+      return new Response(managedSse, { headers: { 'content-type': 'text/event-stream' } });
+    });
+    // The optional admission-body proof is omitted: ordinary SDK requests
+    // must settle without borrowing the application's current delivery.
+    const permit = await json(await modelAdmission(f));
+    expect(permit).not.toHaveProperty('deliveryToken');
+    const response = await modelFetch(f, permit.permitId, {
+      url: 'https://custom.example.test/native/stream', method: 'POST',
+      headers: [['content-type', 'application/json'], ['authorization', `Bearer ${oldOAuth.access}`]],
+      bodyBase64: encodeBody(sdkBody),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-codeflare-sdk-model-response')).toBe('1');
+    expect(await response.text()).toBe(managedSse);
+
+    f.normalTransport!.settleSubmission(receipt.submissionId, 'completed');
+    await f.activity.reconcileDispatcherLease();
+    const decision = f.normalTransport!.requests.filter(request => request.path === '/control/plan').at(-1)!;
+    expect(decision.body).toMatchObject({ checkpoint: { active: true }, settlement: {
+      receipt, reply: { uid: receipt.uid, submissionId: receipt.submissionId, text: '', data: {} },
+    } });
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: { completed: true } } });
+  }));
+
   it.each([401, 429, 503])('native custom API forwards SDK-prepared bytes and original HTTP%i failure without account credential injection', status => lane(async f => {
     await admitted(f);
     const outgoing: Request[] = [];
