@@ -11,7 +11,7 @@ import { inferencePolicySchema } from '../operators/policy';
 import { recoveryEntries, parseRecoveryCursor, RECOVERY_CURSOR_MAX_CHARS } from '../operators/application-recovery';
 import { OperatorInferenceSelectionError, resolveOperatorInference } from '../operators/inference-selection';
 import { DispatcherSdkSettingsUnconfiguredError, readDispatcherSdkFiles } from '../operators/dispatcher-sdk-storage';
-import { provisionDispatcherDeployment, verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
+import { cleanupDispatcherDeployments, provisionDispatcherDeployment, verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
 import { MAX_INFERENCE_REQUEST_BYTES } from '../operators/dispatcher-inference-limits';
 import { pickDispatcherCapacities } from '../operators/dispatcher-capacity-limits';
@@ -491,6 +491,7 @@ app.post('/installations/:installationId/enable', async c => {
   const { installation, operator } = await managedInstallation(c);
   if (input.enabled) withinCeiling(c.get('operatorHuman'), installation.policy);
   let verification: DispatcherDeploymentVerification | undefined;
+  let cleanup: ((active: ManagementInstallation) => Promise<void>) | undefined;
   let expectedRevision = input.revision;
   if (input.enabled && operator.profile === 'dispatcher') {
     const registry = c.get('registry');
@@ -550,9 +551,39 @@ app.post('/installations/:installationId/enable', async c => {
         verification = candidate.verification;
       }
       await reauthorize();
+      cleanup = async active => {
+        if (!active.dispatcherConnection) throw new Error('Selected Dispatcher unavailable');
+        await cleanupDispatcherDeployments(c.env, active.dispatcherConnection, reauthorize, async workerName => {
+          let after: string | undefined;
+          do {
+            await reauthorize();
+            const page = await registry.listManagementDispatcherAdmissions(installation.id, workerName, after);
+            for (const original of page.items) {
+              await reauthorize();
+              if (!c.env.OPERATOR_ACTIVITY
+                || !await c.env.OPERATOR_ACTIVITY.getByName(original.activityId)
+                  .retireDispatcherDeployment(original.activityId, original.connection)) {
+                throw new Error('Original Dispatcher admission could not be fenced');
+              }
+              await reauthorize();
+            }
+            after = page.next ?? undefined;
+          } while (after !== undefined);
+        });
+        await reauthorize();
+      };
     }
   }
   const enabled = result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, expectedRevision, authority(c, operator), verification));
+  expectedRevision = enabled.revision;
+  if (cleanup) {
+    try { await cleanup(enabled); }
+    catch (error) {
+      if (error instanceof AppError) throw error;
+      logger.warn('Obsolete Dispatcher deployment cleanup incomplete', { installationId: installation.id });
+      throw new AppError('CONFLICT', 409, 'Dispatcher activated; obsolete deployment cleanup incomplete. Re-read the installation and retry Enable.');
+    }
+  }
   return c.json(presentInstallation(enabled));
 });
 

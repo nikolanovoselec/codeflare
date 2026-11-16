@@ -1669,6 +1669,26 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     });
   }
 
+  /** REQ-OPERATOR-107 AC5: immutable original admissions across every connection revision.
+   * The Root caller owns current management authorization; this inventory grants no execution authority.
+   */
+  async listManagementDispatcherAdmissions(installationId: string, workerName: string, after?: string): Promise<{
+    items: Array<{ activityId: string; connection: DispatcherConnectionMetadata }>; next: string | null;
+  }> {
+    if (!scanId.test(installationId) || !workerName || workerName.length > 128
+      || (after !== undefined && !scanId.test(after))) throw new ValidationError('Invalid Dispatcher admission inventory');
+    this.managementSchema();
+    const rows = this.ctx.storage.sql.exec<{ activity_id: string; connection: string }>(
+      `SELECT activity_id,json_extract(data,'$.selection.installation.dispatcherConnection') AS connection
+       FROM operator_admissions WHERE activity_id>?
+       AND json_extract(data,'$.installationId')=?
+       AND json_extract(data,'$.selection.installation.dispatcherConnection.workerName')=?
+       ORDER BY activity_id LIMIT 33`, after ?? '', installationId, workerName).toArray();
+    const items = rows.slice(0, 32).map(row => ({ activityId: row.activity_id,
+      connection: JSON.parse(row.connection) as DispatcherConnectionMetadata }));
+    return { items, next: rows.length > 32 ? items[items.length - 1].activityId : null };
+  }
+
   /** Reconciliation is read-only and grants no new human authority. */
   async getManagementAdmission(activityId: string, observation?: ProspectiveObservationCapture): Promise<ManagementAdmissionReceipt | null> {
     const archive = this.prospectiveObservationCapture(observation);

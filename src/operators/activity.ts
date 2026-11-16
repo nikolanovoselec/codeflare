@@ -54,7 +54,7 @@ import { readDispatcherSdkDiagnostics, sdkUnavailable, operationsUnavailable, ty
   type DispatcherOperationDiagnostics, type DispatcherSqlFacet } from './dispatcher-runtime-diagnostics';
 import { createDispatcherPhaseState, dispatcherPhaseContext, type DispatcherPhaseState, type DispatcherPhaseAuthority } from './dispatcher-phases';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt,
-  ManagementAdmissionReceipt, ProspectiveAdmission, ProspectiveObservationCapture } from './registry';
+  ManagementAdmissionReceipt, DispatcherConnectionMetadata, ProspectiveAdmission, ProspectiveObservationCapture } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -124,6 +124,8 @@ const normalDispatcherConnectionSchema = z.object({
       && !url.port && url.origin === value && url.hostname.includes('.'); } catch { return false; }
   }),
 });
+const dispatcherDeploymentMetadataSchema = normalDispatcherConnectionSchema.omit({ connectionSecretCiphertext: true, controlOrigin: true }).strict();
+const DISPATCHER_DEPLOYMENT_RETIREMENT = 'dispatcher-deployment-retirement';
 type NormalDispatcherConnection = z.infer<typeof normalDispatcherConnectionSchema>;
 type NormalDispatcherDeployment = Omit<NormalDispatcherConnection, 'connectionSecretCiphertext'>;
 const normalDispatcherReceiptSchema = z.strictObject({ submissionId: z.string().min(1).max(128),
@@ -958,7 +960,9 @@ export class OperatorActivity extends Agent {
     }
     try {
       const result = await this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
-        if (await tx.get('prospective-retirement')) return { ok: false, reason: 'admission-denied' };
+        if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+          return { ok: false, reason: 'admission-denied' };
+        }
         if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
         if (prospectiveAdmissionId !== undefined) {
           const previous = await tx.get<string>('prospective-admission');
@@ -1960,7 +1964,9 @@ export class OperatorActivity extends Agent {
   async prepare(intent: OperatorActivityPreparation): Promise<ActivityAdmissionResult> {
     this.#resumeDispatcherOnEntry();
     return this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
-      if (await tx.get('prospective-retirement')) return { ok: false, reason: 'admission-denied' };
+      if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+        return { ok: false, reason: 'admission-denied' };
+      }
       if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
       await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null });
       return { ok: true, phase: 'prepared' };
@@ -1983,7 +1989,9 @@ export class OperatorActivity extends Agent {
     if (!/^[A-Za-z0-9_-]{43,128}$/.test(capability)) return { ok: false, reason: 'invalid-capability' };
     const verifier = await capabilityVerifier(capability);
     const pending = await this.ctx.storage.transaction<AdmissionFailure | { ok: true; intent: OperatorActivityPreparation }>(async tx => {
-      if (await tx.get('prospective-retirement')) return { ok: false, reason: 'admission-denied' };
+      if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+        return { ok: false, reason: 'admission-denied' };
+      }
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-prepared' };
       const denied = checkStart(state, verifier);
@@ -2026,7 +2034,9 @@ export class OperatorActivity extends Agent {
     const readCapability = issueRead ? randomCapability() : null;
     const readVerifier = readCapability ? await capabilityVerifier(readCapability) : null;
     const queued = await this.ctx.storage.transaction<ActivityAdmissionResult | WebhookStartResult>(async tx => {
-      if (await tx.get('prospective-retirement')) return { ok: false, reason: 'admission-denied' };
+      if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+        return { ok: false, reason: 'admission-denied' };
+      }
       const state = await tx.get<AdmissionState>('admission');
       if (!state) return { ok: false, reason: 'not-prepared' };
       const denied = checkStart(state, verifier);
@@ -2405,7 +2415,9 @@ export class OperatorActivity extends Agent {
   async beginDrive(expectedGeneration?: number): Promise<OperatorDriveResult> {
     this.#resumeDispatcherOnEntry();
     const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
-      if (await tx.get('prospective-retirement')) return { ok: false, reason: 'drive-settled' };
+      if (await tx.get('prospective-retirement') || await tx.get(DISPATCHER_DEPLOYMENT_RETIREMENT)) {
+        return { ok: false, reason: 'drive-settled' };
+      }
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
       if (!Number.isFinite(record.intent.deadline) || record.intent.deadline <= Date.now()
@@ -2557,9 +2569,83 @@ export class OperatorActivity extends Agent {
     return committed;
   }
 
+  /** REQ-OPERATOR-107 AC5: authorized Root retires only the immutable original deployment.
+   * A durable lifecycle fence is not never-started proof, SDK settlement or permission to replay.
+   * Never enter cold recovery here; abort uses only the original frozen public transport.
+   */
+  async retireDispatcherDeployment(activityId: string, connection: DispatcherConnectionMetadata): Promise<boolean> {
+    const parsed = dispatcherDeploymentMetadataSchema.safeParse(connection);
+    if (!syncIdentity.safeParse(activityId).success || !parsed.success) return false;
+    const original = parsed.data;
+    const sameConnection = (value: DispatcherConnectionMetadata | undefined): boolean => !!value
+      && (Object.keys(original) as Array<keyof DispatcherConnectionMetadata>).every(key => value[key] === original[key]);
+    let ledger: ManagementAdmissionReceipt | null;
+    try { ledger = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getManagementAdmission(activityId); }
+    catch { return false; }
+    if (!ledger || ledger.activityId !== activityId || ledger.installationId !== original.installationId) return false;
+    const { installation, operator, release, controlsRevision } = ledger.selection;
+    if (operator.profile !== 'dispatcher' || installation.id !== original.installationId
+      || installation.operatorId !== operator.operatorId || release.operatorId !== operator.operatorId
+      || installation.revision !== ledger.expectedInstallationRevision || operator.revision !== ledger.expectedOperatorRevision
+      || controlsRevision !== ledger.expectedControlsRevision || !sameConnection(installation.dispatcherConnection)
+      || installation.releaseId !== original.releaseId || release.id !== original.releaseId
+      || release.bundleDigest !== original.bundleDigest || release.manifestDigest !== original.manifestDigest
+      || release.sourceCommit !== original.sourceCommit || release.provenance?.compilerCommit !== original.compilerCommit) return false;
+    const receipt = ledger;
+    const accepted = await this.ctx.storage.transaction(async tx => {
+      const marker = await tx.get<{ activityId: string; connection: DispatcherConnectionMetadata }>(DISPATCHER_DEPLOYMENT_RETIREMENT);
+      if (marker && (marker.activityId !== activityId || !sameConnection(marker.connection))) return false;
+      const state = await tx.get<AdmissionState>('admission');
+      const leases = [await tx.get<DispatcherLease>(DISPATCHER_LEASE), await tx.get<DispatcherLease>(DISPATCHER_PROFILE_LEASE)];
+      if (state) {
+        const intent = state.intent;
+        if (!('installationId' in intent) || intent.activityId !== activityId || intent.installationId !== original.installationId
+          || intent.operatorId !== operator.operatorId || intent.intentDigest !== receipt.intentDigest || intent.deadline !== receipt.deadline
+          || intent.expectedInstallationRevision !== receipt.expectedInstallationRevision
+          || intent.expectedRevision !== receipt.expectedOperatorRevision || intent.expectedControlsRevision !== receipt.expectedControlsRevision
+          || (state.receipt !== null && (!isManagementReceipt(state.receipt) || !sameDispatcherPhaseValue(state.receipt, receipt)))
+          || (state.phase === 'queued' && !state.receipt)) return false;
+        if (state.executionContext && (state.executionContext.activityId !== activityId
+          || state.executionContext.operatorId !== operator.operatorId || state.executionContext.artifactDigest !== original.bundleDigest
+          || state.executionContext.policyDigest !== await sha256(JSON.stringify(installation.policy)))) return false;
+      }
+      for (const lease of leases) {
+        if (!lease) continue;
+        if (!state || lease.hosting !== 'normal' || !sameConnection(lease.deployment)
+          || lease.inputDigest !== receipt.intentDigest || lease.artifactDigest !== original.bundleDigest
+          || (lease.wire && (lease.wire.activityId !== activityId || lease.wire.installationId !== original.installationId
+            || lease.wire.releaseId !== original.releaseId || lease.wire.connectionRevision !== original.connectionRevision
+            || lease.wire.workerVersionId !== original.workerVersionId))) return false;
+      }
+      // Outside dispatcher:*: unknown SDK/runtime keys must still block recovery.
+      if (!marker) await tx.put(DISPATCHER_DEPLOYMENT_RETIREMENT, { activityId, connection: original });
+      if (state && state.phase !== 'queued' && state.phase !== 'cancelled') {
+        await tx.put<AdmissionState>('admission', { ...state, phase: 'cancelled', updatedAt: Date.now() });
+      }
+      // Exact retries need no more abort I/O once durable state already denies execution.
+      return marker && (!state || state.phase === 'cancelled'
+        || state.drive && !['running', 'waiting'].includes(state.drive.status)) ? 'closed' : 'fence';
+    });
+    if (!accepted) return false;
+    if (accepted === 'closed') return true;
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (!state || state.phase === 'cancelled') return true;
+    // Preserve terminal results/checkpoints byte-for-byte; never rewrite them as cancellation.
+    if (state.drive?.status === 'completed' || state.drive?.status === 'failed') return true;
+    try { await this.#cancelDrive(); }
+    catch { /* Abort failure cannot undo a durable Root generation fence. */ }
+    const fenced = await this.ctx.storage.get<AdmissionState>('admission');
+    return fenced?.phase === 'queued' && !!fenced.drive
+      && !['running', 'waiting'].includes(fenced.drive.status);
+  }
+
   /** Fence future commits, then retire owned intent4 compute without recreating it. */
   async cancelDrive(): Promise<OperatorDriveResult> {
     this.#resumeDispatcherOnEntry();
+    return this.#cancelDrive();
+  }
+
+  async #cancelDrive(): Promise<OperatorDriveResult> {
     let result = await this.fenceDrive('cancel-requested');
     if (!result.ok && result.reason === 'drive-settled') {
       const [record, lease] = await Promise.all([

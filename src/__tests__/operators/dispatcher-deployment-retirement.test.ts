@@ -1,9 +1,10 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
+// Register the established Activity/auth fixture before loading production dependencies.
+import { fixture, start, digest, type DispatcherFixture, writableApplication } from './fixtures/dispatcher-production';
 import { describe, expect, it } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorActivity } from '../../operators/activity';
 import { OperatorRegistry, type DispatcherConnectionMetadata, type ManagementAdmissionReceipt } from '../../operators/registry';
-import { fixture, start, digest, type DispatcherFixture, writableApplication } from './fixtures/dispatcher-production';
 import { normalCallback } from './fixtures/normal-dispatcher';
 import { within } from '../helpers/pending-recipient';
 import { bindDurableObjectContext } from '../helpers/durable-object-context';
@@ -201,7 +202,9 @@ describe('REQ-OPERATOR-107/017: private durable original-deployment fence', () =
   }));
 
   it('REQ-OPERATOR-107/017: running original loses callback/commit authority before public abort202; abort intent is not settlement', () => withRetirement(async f => {
-    await start(f);
+    expect(await start(f)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+    expect(f.normalTransport!.requests.some(request => request.path === '/control/plan')).toBe(true);
+    expect(f.normalTransport!.admissions.size).toBe(1);
     const original = structuredClone([...f.normalTransport!.admissions.values()]);
     const fetcher = globalThis.fetch;
     let abortReceipt: unknown;
@@ -289,7 +292,9 @@ describe('REQ-OPERATOR-107/017: private durable original-deployment fence', () =
   }));
 
   it('REQ-OPERATOR-107: unknown external write/journal and original SDK receipt survive retirement; deletion permission never becomes retry/settlement proof', () => withRetirement(async f => {
-    await start(f);
+    expect(await start(f)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+    expect(f.normalTransport!.requests.some(request => request.path === '/control/plan')).toBe(true);
+    expect(f.normalTransport!.admissions.size).toBe(1);
     const operation = { operationId: 'original-unknown-write', method: 'POST',
       url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"Original intended comment"}' };
     f.loseResponse();
