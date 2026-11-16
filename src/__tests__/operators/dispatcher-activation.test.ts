@@ -10,6 +10,7 @@ import { parseDispatcherBundle } from '../../operators/distribution';
 import { verifyDispatcherDeployment } from '../../operators/dispatcher-deployment';
 import { openOperatorSecret } from '../../operators/protected-secrets';
 import { createMockKV } from '../helpers/mock-kv';
+import { bindDurableObjectContext } from '../helpers/durable-object-context';
 import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture';
 import { createDispatcherCloudflareFixture, type DispatcherPlatformFault, type UploadedDispatcher } from '../helpers/dispatcher-cloudflare-fixture';
 
@@ -53,11 +54,12 @@ type Api = (path: string, method?: string, body?: unknown, csrf?: boolean) => Pr
 async function withActivation(test: (f: {
   request: Api; detail: () => Promise<Detail>; installation: Installation; release: Release; operatorId: string;
   platform: ReturnType<typeof createDispatcherCloudflareFixture>; github: Awaited<ReturnType<typeof createOperatorGitHubFixture>>;
-  registry: OperatorRegistry; ctx: DurableObjectState; kv: ReturnType<typeof createMockKV>;
+  registry: OperatorRegistry; registryStub: DurableObjectStub; ctx: DurableObjectState; kv: ReturnType<typeof createMockKV>;
   bindings: Record<string, unknown>; beforeAccountRead: (hook: () => Promise<void>) => void;
 }) => Promise<void>, options: { profile?: 'conductor' | 'dispatcher'; historical?: boolean; promote?: boolean } = {}) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
-  await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
+  const registryStub = namespace.get(namespace.newUniqueId());
+  await runInDurableObject(registryStub, async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, encryption);
     const platform = createDispatcherCloudflareFixture();
     const github = await createOperatorGitHubFixture({ profile: options.profile ?? 'dispatcher',
@@ -112,7 +114,7 @@ async function withActivation(test: (f: {
       expect(promoted.status).toBe(200); installation = await promoted.json() as Installation;
     }
     callerRole = 'user'; // Exercise both eligibility and Operator ACL, not only an admin bypass.
-    await test({ request, detail, installation, release, operatorId: operator.operatorId, platform, github, registry, ctx, kv,
+    await test({ request, detail, installation, release, operatorId: operator.operatorId, platform, github, registry, registryStub, ctx, kv,
       bindings, beforeAccountRead: hook => { accountHook = hook; } });
   });
 }
@@ -161,41 +163,54 @@ function seedCandidate(f: Activation, original: UploadedDispatcher,
 }
 // Real Root Activity + immutable Registry receipt, without executing a Worker bundle.
 async function withOriginalActivity(f: Activation, active: Installation,
-  test: (original: { activity: OperatorActivity; restart: () => OperatorActivity; activityId: string;
+  test: (original: { activity: OperatorActivity; restart: () => Promise<OperatorActivity>; activityId: string;
     receipt: Awaited<ReturnType<OperatorRegistry['getManagementAdmission']>> }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   const activityId = `activity-${crypto.randomUUID()}`;
-  await runInDurableObject(namespace.getByName(activityId), async (_instance, ctx) => {
-    let activity = new OperatorActivity(ctx, f.bindings as unknown as ConstructorParameters<typeof OperatorActivity>[1]);
-    const previous = f.bindings.OPERATOR_ACTIVITY as { getByName: (id: string) => OperatorActivity } | undefined;
-    f.bindings.OPERATOR_ACTIVITY = { getByName: (id: string) => {
-      if (id === activityId) return activity;
-      if (previous) return previous.getByName(id);
-      throw new Error('Unknown Root Activity');
-    }, idFromName: namespace.idFromName.bind(namespace) };
-    const selected = await f.registry.resolveManagementExecution(active.id);
-    expect(selected.ok).toBe(true);
-    if (!selected.ok) throw new Error('Expected enabled original');
-    const invocationJson = '{}'; const startCapability = 's'.repeat(43);
-    const hash = async (text: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
-      .map(byte => byte.toString(16).padStart(2, '0')).join('');
-    const now = Math.floor(Date.now() / 1000);
-    const execution = await createOperatorExecutionContext({ activityId, operatorId: f.operatorId,
-      artifactDigest: selected.value.release.bundleDigest, policyDigest: await hash(JSON.stringify(active.policy)),
-      human: { subject: 'original-owner', email: 'manager@example.test', issuer: 'https://access.example.test',
-        audiences: ['audience'], issuedAt: now - 1, expiresAt: now + 300 }, accessJwt: 'fixture-original-access' }, encryption);
-    expect(await activity.prepareAuthorized({ activityId, operatorId: f.operatorId, installationId: active.id,
-      expectedRevision: selected.value.operator.revision, expectedInstallationRevision: active.revision,
-      expectedControlsRevision: selected.value.controlsRevision,
-      intentDigest: await createOperatorIntentDigest(f.operatorId, activityId, invocationJson),
-      deadline: (now + 300) * 1000, startExpiresAt: (now + 300) * 1000, startVerifier: await hash(startCapability),
-    }, execution, invocationJson)).toEqual({ ok: true, phase: 'prepared' });
-    expect(await activity.start(startCapability)).toEqual({ ok: true, phase: 'queued' });
+  const stub = namespace.getByName(activityId);
+  const selected = await f.registry.resolveManagementExecution(active.id);
+  expect(selected.ok).toBe(true);
+  if (!selected.ok) throw new Error('Expected enabled original');
+  const registry = bindDurableObjectContext(f.registryStub, () => f.registry);
+  let instance!: OperatorActivity;
+  const activity = bindDurableObjectContext(stub, () => instance);
+  const previous = f.bindings.OPERATOR_ACTIVITY as { getByName: (id: string) => OperatorActivity } | undefined;
+  f.bindings.OPERATOR_ACTIVITY = { getByName: (id: string) => {
+    if (id === activityId) return activity;
+    if (previous) return previous.getByName(id);
+    throw new Error('Unknown Root Activity');
+  }, idFromName: namespace.idFromName.bind(namespace) };
+  const activityEnv = { ...f.bindings, OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as ConstructorParameters<typeof OperatorActivity>[1];
+  try {
+    await runInDurableObject(stub, async (_instance, ctx) => {
+      instance = new OperatorActivity(ctx, activityEnv);
+      const invocationJson = '{}';
+      const startCapability = 's'.repeat(43);
+      const hash = async (text: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
+        .map(byte => byte.toString(16).padStart(2, '0')).join('');
+      const now = Math.floor(Date.now() / 1000);
+      const execution = await createOperatorExecutionContext({ activityId, operatorId: f.operatorId,
+        artifactDigest: selected.value.release.bundleDigest, policyDigest: await hash(JSON.stringify(active.policy)),
+        human: { subject: 'original-owner', email: 'manager@example.test', issuer: 'https://access.example.test',
+          audiences: ['audience'], issuedAt: now - 1, expiresAt: now + 300 }, accessJwt: 'fixture-original-access' }, encryption);
+      expect(await instance.prepareAuthorized({ activityId, operatorId: f.operatorId, installationId: active.id,
+        expectedRevision: selected.value.operator.revision, expectedInstallationRevision: active.revision,
+        expectedControlsRevision: selected.value.controlsRevision,
+        intentDigest: await createOperatorIntentDigest(f.operatorId, activityId, invocationJson),
+        deadline: (now + 300) * 1000, startExpiresAt: (now + 300) * 1000, startVerifier: await hash(startCapability),
+      }, execution, invocationJson)).toEqual({ ok: true, phase: 'prepared' });
+      expect(await instance.start(startCapability)).toEqual({ ok: true, phase: 'queued' });
+    });
     const receipt = await f.registry.getManagementAdmission(activityId);
     expect(receipt).toMatchObject({ activityId, selection: { installation: { dispatcherConnection: active.dispatcherConnection } } });
-    await test({ activity, activityId, receipt,
-      restart: () => (activity = new OperatorActivity(ctx, f.bindings as unknown as ConstructorParameters<typeof OperatorActivity>[1])) });
-  });
+    await test({ activity, activityId, receipt, restart: async () => {
+      await runInDurableObject(stub, async (_instance, ctx) => { instance = new OperatorActivity(ctx, activityEnv); });
+      return activity;
+    } });
+  } finally {
+    if (previous) f.bindings.OPERATOR_ACTIVITY = previous;
+    else delete f.bindings.OPERATOR_ACTIVITY;
+  }
 }
 
 // REQ-OPERATOR-107 AC1 is the normal UI's existing Enable API contract; these tests do not add a deploy endpoint.
@@ -286,7 +301,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
-  // Task131: REQ-OPERATOR-107 AC4/5; original Root history remains retained.
+  // Task131: REQ-OPERATOR-107 AC4; original Root history remains retained.
   it('REQ-OPERATOR-107: upgrade deletes obsolete Worker and namespace while preserving selected deployment and Root history', () => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const originalInstallation = await first.json() as Installation;
@@ -395,7 +410,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
-  // Task131: REQ-OPERATOR-107 AC3/4/5; only a verified activation permits orphan cleanup.
+  // Task131: REQ-OPERATOR-107 AC3/4; only a verified activation permits orphan cleanup.
   it('REQ-OPERATOR-107: authorized retry after uncertain upload activates a fresh candidate and deletes the owned orphan', () => withActivation(async f => {
     f.platform.setFault('upload-uncertain');
     expect((await enable(f)).status).toBeGreaterThanOrEqual(400);
@@ -720,7 +735,7 @@ describe('REQ-OPERATOR-107: authorized obsolete deployment cleanup', () => {
           expect(f.platform.namespaces.has(old.namespaceId)).toBe(false);
           expect([...f.platform.scripts.keys()]).toEqual([replacement.dispatcherConnection!.workerName]);
           for (const original of originals) {
-            expect((await original.restart().beginDrive()).ok).toBe(false);
+            expect((await (await original.restart()).beginDrive()).ok).toBe(false);
             expect(await f.registry.getManagementAdmission(original.activityId)).toEqual(original.receipt);
           }
           expect(await f.registry.getManagementConfigurationHistory(active.id, active.revision)).toEqual(history);

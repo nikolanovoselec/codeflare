@@ -6,6 +6,7 @@ import { OperatorRegistry, type DispatcherConnectionMetadata, type ManagementAdm
 import { fixture, start, digest, type DispatcherFixture, writableApplication } from './fixtures/dispatcher-production';
 import { normalCallback } from './fixtures/normal-dispatcher';
 import { within } from '../helpers/pending-recipient';
+import { bindDurableObjectContext } from '../helpers/durable-object-context';
 
 // The Task131 parent-only contracts. Casts let RED reach the missing behavior
 // rather than failing TypeScript because the new RPCs do not exist yet.
@@ -47,18 +48,23 @@ function gate() {
 // Reuse the normal public HTTP transport fixture; it never loads/executes SDK
 // bundles. The immutable ledger and its reads below are the actual Registry.
 async function withRetirement(test: (f: DispatcherFixture & {
-  registry: OperatorRegistry; registryStorage: DurableObjectStorage; receipt: ManagementAdmissionReceipt;
+  registry: OperatorRegistry; inRegistry: <T>(action: (storage: DurableObjectStorage) => T | Promise<T>) => Promise<T>;
+  receipt: ManagementAdmissionReceipt;
   connection: DispatcherConnectionMetadata; afterRecorded: (hook: () => Promise<void>) => void;
 }) => Promise<void>, options: Parameters<typeof fixture>[1] = {}) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
-  await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, ctx) => {
-    const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('a'.repeat(32)) });
-    await registry.getManagementAdmission('initialize-schema');
+  const stub = namespace.get(namespace.newUniqueId());
+  await runInDurableObject(stub, async (_instance, ctx) => {
+    const instance = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('a'.repeat(32)) });
+    await instance.getManagementAdmission('initialize-schema');
+    const registry = bindDurableObjectContext(stub, () => instance);
+    const inRegistry = <T>(action: (storage: DurableObjectStorage) => T | Promise<T>) =>
+      runInDurableObject(stub, async () => action(ctx.storage));
     let receipt!: ManagementAdmissionReceipt;
     let connection!: DispatcherConnectionMetadata;
     let afterRecorded: (() => Promise<void>) | undefined;
     await fixture(async f => {
-      await test({ ...f, registry, registryStorage: ctx.storage, receipt, connection,
+      await test({ ...f, registry, inRegistry, receipt, connection,
         afterRecorded: hook => { afterRecorded = hook; } });
     }, { ...writableApplication, ...options, registryAdapter: base => {
       const authority = base as {
@@ -75,7 +81,9 @@ async function withRetirement(test: (f: DispatcherFixture & {
           const stored = await registry.getManagementAdmission(result.value.activityId);
           receipt = stored ?? structuredClone({ ...result.value, selection: { ...result.value.selection,
             installation: { ...result.value.selection.installation, dispatcherConnection: metadata } } });
-          if (!stored) ctx.storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', receipt.activityId, JSON.stringify(receipt));
+          if (!stored) await inRegistry(storage => {
+            storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', receipt.activityId, JSON.stringify(receipt));
+          });
           const hook = afterRecorded; afterRecorded = undefined;
           await hook?.();
           return { ok: true, value: structuredClone(receipt) };
@@ -95,28 +103,31 @@ describe('REQ-OPERATOR-107: immutable original admission inventory', () => {
   it('REQ-OPERATOR-107: bounded pages include every original connection revision by Worker NAME and exclude other installations/Workers', () => withRetirement(async f => {
     const expected = new Map<string, DispatcherConnectionMetadata>();
     // Exceeds a normal bounded management page without assuming its exact size.
-    for (let index = 0; index < 241; index++) {
-      const activityId = `original-${String(index).padStart(4, '0')}`;
-      const connection = { ...f.connection, connectionRevision: index % 3 + 1,
-        workerVersionId: index % 2 === 0 ? f.connection.workerVersionId : '22222222-2222-4222-8222-222222222222' };
-      const receipt = { ...structuredClone(f.receipt), activityId,
-        selection: { ...structuredClone(f.receipt.selection), installation: {
-          ...structuredClone(f.receipt.selection.installation), dispatcherConnection: connection } } };
-      f.registryStorage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', activityId, JSON.stringify(receipt));
-      expected.set(activityId, connection);
-    }
-    expected.set(f.activityId, f.connection);
-    for (const [activityId, installationId, workerName] of [
-      ['foreign-installation', 'other-installation', f.connection.workerName],
-      ['foreign-worker', f.connection.installationId, 'another-worker'],
-    ]) {
-      const receipt = structuredClone(f.receipt);
-      receipt.activityId = activityId; receipt.installationId = installationId;
-      receipt.selection.installation.id = installationId;
-      receipt.selection.installation.dispatcherConnection = { ...f.connection, installationId, workerName };
-      f.registryStorage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', activityId, JSON.stringify(receipt));
-    }
-    const before = f.registryStorage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions ORDER BY activity_id').toArray();
+    await f.inRegistry(storage => {
+      for (let index = 0; index < 241; index++) {
+        const activityId = `original-${String(index).padStart(4, '0')}`;
+        const connection = { ...f.connection, connectionRevision: index % 3 + 1,
+          workerVersionId: index % 2 === 0 ? f.connection.workerVersionId : '22222222-2222-4222-8222-222222222222' };
+        const receipt = { ...structuredClone(f.receipt), activityId,
+          selection: { ...structuredClone(f.receipt.selection), installation: {
+            ...structuredClone(f.receipt.selection.installation), dispatcherConnection: connection } } };
+        storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', activityId, JSON.stringify(receipt));
+        expected.set(activityId, connection);
+      }
+      expected.set(f.activityId, f.connection);
+      for (const [activityId, installationId, workerName] of [
+        ['foreign-installation', 'other-installation', f.connection.workerName],
+        ['foreign-worker', f.connection.installationId, 'another-worker'],
+      ]) {
+        const receipt = structuredClone(f.receipt);
+        receipt.activityId = activityId;
+        receipt.installationId = installationId;
+        receipt.selection.installation.id = installationId;
+        receipt.selection.installation.dispatcherConnection = { ...f.connection, installationId, workerName };
+        storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', activityId, JSON.stringify(receipt));
+      }
+    });
+    const before = await f.inRegistry(storage => storage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions ORDER BY activity_id').toArray());
     const found = new Map<string, DispatcherConnectionMetadata>();
     const cursors = new Set<string>();
     let after: string | undefined;
@@ -138,7 +149,7 @@ describe('REQ-OPERATOR-107: immutable original admission inventory', () => {
     expect(found).toEqual(expected);
     expect(await admissions(f.registry).listManagementDispatcherAdmissions('unrelated-installation', f.connection.workerName))
       .toEqual({ items: [], next: null });
-    expect(f.registryStorage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions ORDER BY activity_id').toArray()).toEqual(before);
+    expect(await f.inRegistry(storage => storage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions ORDER BY activity_id').toArray())).toEqual(before);
     expect(f.normalTransport!.admissions.size).toBe(0); // A ledger read must not dispatch SDK work.
   }));
 });
@@ -158,7 +169,9 @@ describe('REQ-OPERATOR-107/017: private durable original-deployment fence', () =
       if (variant === 'manifest') connection.manifestDigest = 'f'.repeat(64);
       if (variant === 'source') connection.sourceCommit = 'f'.repeat(40);
       if (variant === 'compiler') connection.compilerCommit = 'f'.repeat(40);
-      if (variant === 'missing-ledger') f.registryStorage.sql.exec('DELETE FROM operator_admissions WHERE activity_id=?', f.activityId);
+      if (variant === 'missing-ledger') await f.inRegistry(storage => {
+        storage.sql.exec('DELETE FROM operator_admissions WHERE activity_id=?', f.activityId);
+      });
       if (variant === 'local-identity') {
         // Registry proof for A cannot authorize mutation of a local Activity for B.
         await f.mutateEvidence(async storage => {
