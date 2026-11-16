@@ -62,6 +62,8 @@ const supportedApplicationDefinitionSchema = z.strictObject({
   controlVersion: z.literal(1),
   configurationSchema: z.record(z.string(), z.json()).optional(),
   githubWriteRepositoriesPath: z.string().min(2).max(512).optional(),
+  recovery: z.strictObject({ label: z.string().min(1).max(256), description: z.string().min(1).max(1024),
+    prefix: z.string().min(1).max(1024) }).optional(),
   schedule: z.strictObject({ enabledPath: z.string().min(2).max(512), intervalSecondsPath: z.string().min(2).max(512) }).optional(),
 });
 export const applicationDefinitionSchema = z.preprocess(value => {
@@ -127,6 +129,31 @@ export const replaceOperatorSource = (operatorId: string, input: { revision: num
 export interface GatewaySelection { operatorRevision: number; routeId: string | null; reasoningLevel: PiReasoningLevel | null }
 export const configureInstallation = (installationId: string, input: { revision: number; policy: ManagementPolicy; configuration: unknown; piReasoningOverride?: PiReasoningLevel; gatewaySelection?: GatewaySelection }) =>
   request(`/installations/${segment(installationId)}/configure`, installationSchema, input);
+export const APPLICATION_RECOVERY_BATCH_SIZE = 64;
+const recoveryEntrySchema = z.strictObject({ key: z.string().min(1).max(1024), version: digest });
+const recoverySkippedSchema = z.strictObject({ key: z.string().min(1).max(1024), reason: z.string().max(256) });
+export const applicationRecoveryPreviewSchema = z.strictObject({
+  items: z.array(recoveryEntrySchema.extend({ label: z.string().max(256),
+    status: z.enum(['resettable', 'blocked']), reason: z.string().max(256) })).max(APPLICATION_RECOVERY_BATCH_SIZE),
+  nextCursor: z.string().min(1).nullable(),
+});
+export const applicationRecoveryResetInputSchema = z.strictObject({ revision, requestId: z.uuid(),
+  entries: z.array(recoveryEntrySchema).min(1).max(APPLICATION_RECOVERY_BATCH_SIZE)
+    .refine(entries => new Set(entries.map(entry => entry.key)).size === entries.length),
+});
+export const applicationRecoveryResetSchema = z.strictObject({ requestId: z.uuid(),
+  reset: z.number().int().nonnegative().max(APPLICATION_RECOVERY_BATCH_SIZE),
+  skipped: z.array(recoverySkippedSchema).max(APPLICATION_RECOVERY_BATCH_SIZE),
+});
+export type ApplicationRecoveryItem = z.infer<typeof applicationRecoveryPreviewSchema>['items'][number];
+export type ApplicationRecoveryResetInput = z.infer<typeof applicationRecoveryResetInputSchema>;
+export const previewApplicationRecovery = (installationId: string, input: { revision: number; after?: string }) =>
+  request(`/installations/${segment(installationId)}/recovery/preview`, applicationRecoveryPreviewSchema,
+    z.strictObject({ revision, after: z.string().min(1).optional() }).parse(input));
+export const resetApplicationRecovery = (installationId: string, input: ApplicationRecoveryResetInput) =>
+  request(`/installations/${segment(installationId)}/recovery/reset`, applicationRecoveryResetSchema,
+    applicationRecoveryResetInputSchema.parse(input));
+
 export const registerManagedOperator = (input: RegistrationInput) => request('/operators', operatorSchema, input);
 export const refreshManagedReleases = (operatorId: string, revision: number) =>
   request(`/operators/${segment(operatorId)}/releases/refresh`, z.object({ items: z.array(releaseSchema) }), { revision });

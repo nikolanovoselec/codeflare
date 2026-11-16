@@ -16,7 +16,7 @@
   <a href="#deploy-codeflare"><img src="https://img.shields.io/badge/deployment-self--operated-2563eb" alt="Self-operated deployment"></a>
   <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/tenancy-single--tenant-7c3aed" alt="Single-tenant architecture"></a>
   <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/runtime-Workers%20%2B%20Containers-F38020?logo=cloudflare&amp;logoColor=white" alt="Cloudflare Workers and Containers"></a>
-  <a href="sdd/README.md"><img src="https://img.shields.io/badge/delivery-spec--driven-059669" alt="Spec-driven delivery"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/delivery-spec--driven-059669" alt="Spec-driven delivery"></a>
   <a href="documentation/lanes/security.md"><img src="https://img.shields.io/badge/security-Zero%20Trust-0891B2" alt="Zero Trust security"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-BE185D" alt="PolyForm Noncommercial license"></a>
 </p>
@@ -30,7 +30,7 @@
 
 ![Codeflare product overview](assets/documentation/og.png)
 
-This page is the product synopsis and default deployment entry point. Exact contracts, limits, implementation mechanics, and operator recovery procedures belong to the linked documentation lanes.
+This page is the product synopsis and default deployment entry point. Exact contracts, limits, implementation mechanics, and deployment recovery procedures belong to the linked documentation lanes.
 
 Most engineering agents stop at code. The awkward work remains with you: prepare the environment, watch the process, chase CI, handle review, deploy the result, and collect enough evidence to trust what happened. Infrastructure work is usually left out altogether.
 
@@ -88,7 +88,7 @@ When configured, Strict Gateway Egress sends direct-internet HTTP, HTTPS, and We
 
 ![Codeflare orchestration and agent observability](assets/documentation/observability.gif)
 
-Operators can follow parallel agents, current work, review outcomes, CI state, session health, synchronization, and supported model usage without taking execution away from the engineer directing it.
+Engineers can follow parallel agents, current work, review outcomes, CI state, session health, synchronization, and supported model usage without taking execution away from the engineer directing it.
 
 ![Codeflare attributed cost and usage ledger](assets/documentation/cost-ledger.gif)
 
@@ -96,13 +96,13 @@ Operators can follow parallel agents, current work, review outcomes, CI state, s
 
 Every session arrives with organizational rules, reusable skills, specialist agents, approved tools, and repository context. Context loads when needed instead of occupying every prompt. Persistent notes and knowledge graphs carry decisions across disposable runtimes.
 
-Managed Environment curation makes that content manageable out of band. A deployment points at a private release repository, a scoped read token, and a signing key; the operator publishes a signed, immutable release on its own schedule and each user's environment converges to it before the next session starts. Skills, rules, agents, and required Browser IDE extensions change without rebuilding Codeflare, and the image-baked preseed remains an independent fallback. The Worker verifies repository identity, asset digests, signature, and release sequence before any content reaches user storage; credentials never enter a session container. See [Managed Environment data flow](documentation/lanes/architecture.md#managed-environment-data-flow).
+Managed Environment curation makes that content manageable out of band. A deployment points at a private release repository, a scoped read token, and a signing key; the deployment administrator publishes a signed, immutable release on its own schedule and each user's environment converges to it before the next session starts. Skills, rules, agents, and required Browser IDE extensions change without rebuilding Codeflare, and the image-baked preseed remains an independent fallback. The Worker verifies repository identity, asset digests, signature, and release sequence before any content reaches user storage; credentials never enter a session container. See [Managed Environment data flow](documentation/lanes/architecture.md#managed-environment-data-flow).
 
 Codeflare's managed content is maintained privately. Deployment owners configure their own managed release repository; public contributors do not need access to Codeflare's private curation or operator repositories.
 
 ![Codeflare session preload](assets/documentation/platform-preload.gif)
 
-The browser workspace defaults to Codeflare's classic six-terminal tabs and tiling. Users may opt future sessions into a single outer Herdr surface with Herdr-owned tabs and panes. Both modes support MultiView, GitHub repository and pull-request workflows, per-user R2 persistence, and mobile-oriented terminal access without a local agent toolchain ([AD146](documentation/decisions/README.md#ad146-terminal-mode-is-an-immutable-per-session-choice)).
+The browser workspace defaults to Codeflare's classic six-terminal tabs and tiling. Users may opt future sessions into a single outer Herdr surface with Herdr-owned tabs and panes. Both modes support MultiView, GitHub repository and pull-request workflows, per-user R2 persistence, and mobile-oriented terminal access without a local agent toolchain.
 
 Advanced users choose Terminal or VS Code as the default for new sessions. Terminal sessions keep lazy Browser VS Code startup; VS Code sessions stay on the dashboard while code-server warms, then open only when the user clicks **Open**. Pi sessions receive native Codeflare Chat, editor Inline Chat, and **Review with Codeflare**. Claude sessions use Anthropic's pinned official panel. A bounded snapshot preserves theme, the selected web keyboard layout, Explorer expansion, and open files. A separate bounded extension manifest preserves eligible extension-contributed global User settings and restores them after extension registration. Credentials, authentication, settings outside these persistence boundaries, extension state, editor databases, chat history, and logs remain temporary. See [Browser IDE architecture](documentation/lanes/architecture.md) for the owned state boundary.
 
@@ -132,18 +132,18 @@ Read [Security](documentation/lanes/security.md), [Authentication](documentation
 
 ### Before you begin
 
-Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and the established API token permissions from [Configuration](documentation/lanes/configuration.md#cloudflare-api-token-operator). Before deployment, licensed operators complete the private [deployment quick start](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/quickstarts.md) for their selected mode. Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
+Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and a Cloudflare API token with the [deployment permissions](documentation/lanes/configuration.md#cloudflare-api-token-operator). Before deployment, administrators of licensed installations complete the private [deployment quick start](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/quickstarts.md) for their selected mode. Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
 
 ### Default self-operated deployment
 
 The public path creates a private single-tenant instance in four steps:
 
 1. Fork this repository.
-2. Keep `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in their established repository or target-environment Actions secret scope. The API token needs D1 Edit for usage-database creation and migrations. Use the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator) and [REQ-OPS-056](sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
+2. Configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions secrets at the repository level or in the target deployment environment. The deployment API token needs **D1: Edit** for usage-database creation and migrations, alongside the [other deployment permissions](documentation/lanes/configuration.md#cloudflare-api-token-operator).
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 
-The workflow provisions the shared Worker, KV control plane, historical-usage D1 database, and session container image in the operator's account. The setup wizard creates the configured Cloudflare Access application and policies; each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
+The workflow provisions the shared Worker, KV control plane, historical-usage D1 database, and session container image in your Cloudflare account. The setup wizard creates the configured Cloudflare Access application and policies; each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
 
 ### Verify the deployment
 
@@ -151,9 +151,9 @@ Retain the successful Deploy run and commit, confirm public health and provider 
 
 ### Enterprise deployment
 
-Operators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive full-capability sessions under the deployment's active-agent policy ([Setup and administration](sdd/spec/setup.md), [Models & Routing](sdd/spec/models-and-routing.md), [Enterprise operator runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md)).
+Deployment administrators connect the customer's Cloudflare account, Access application and groups, GitHub organization, AI Gateway, storage regime, and optional Gateway egress policy. Subscription and billing surfaces are disabled; admitted users receive full-capability sessions under the deployment's active-agent policy. Licensed deployment administrators can follow the private [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md).
 
-Exact enterprise secrets, operator token permissions, environment layouts, promotion checks, and rollback procedures live in the private [Codeflare operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md) (access required). They are intentionally not copied into the public repository.
+Exact enterprise secrets, deployment API token permissions, environment layouts, promotion checks, and rollback procedures live in the private [Codeflare deployment library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md) (access required). They are intentionally not copied into the public repository.
 
 ## Verification and release discipline
 
@@ -171,11 +171,9 @@ Public contributions do not require access to private curation or operator repos
 
 ## Documentation
 
-- [Operator and developer documentation](documentation/README.md) covers configuration, deployment, authentication, storage, lifecycle, CI, troubleshooting, and internals.
-- [The specification](sdd/README.md) owns required behavior, acceptance criteria, implementation anchors, behavioral evidence, constraints, and change history.
+- [Deployment and developer documentation](documentation/README.md) covers configuration, deployment, authentication, storage, lifecycle, CI, troubleshooting, and internals.
 - [Getting Started](preseed/tutorials/Getting%20Started.md) introduces terminal sessions, persistence, and agent workflows.
 - [Worked examples](preseed/tutorials/Examples/) cover specification-driven changes from small tasks through a complete application.
-- [Architecture decisions](documentation/decisions/README.md) preserve the rationale and trade-offs behind consequential design choices.
 
 ## License
 

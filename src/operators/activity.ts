@@ -212,7 +212,11 @@ interface DispatcherLease {
   /** Future intent4 admission only; never inferred from a historical lease. */
   serial?: DispatcherPhaseState;
   /** Opaque application decisions on the existing normal control/receipt transport. */
-  application?: ApplicationWorkflow & { completed?: true; pending?: { delivery: ApplicationWorkflow['delivery']; idempotencyKey: string } };
+  application?: ApplicationWorkflow & { completed?: true; pending?: {
+    delivery: ApplicationWorkflow['delivery']; idempotencyKey: string;
+    /** One validated SDK settlement, bound to the delivery being advanced. Consumed with the decision. */
+    confirmed?: { delivery: ApplicationWorkflow['delivery']; settlement: ApplicationSettlement };
+  } };
   terminalAt?: number;
   inferenceRecovery?: { version: 1; attemptLimit: number };
   inferenceSelection?: NativeOperatorInference;
@@ -235,6 +239,9 @@ function applicationOperationProof(value: unknown): unknown {
     ...(record.native ? { native: { handle: record.native.handle, profileDigest: record.native.profileDigest } } : {}),
     ...(record.sdkHttp ? { sdkHttp: { permitId: record.sdkHttp.permitId, attempts: record.sdkHttp.attempts } } : {}) };
 }
+type OriginalExecutionProof = Pick<ApplicationExecutionAuthority, 'original' | 'ledger'> & {
+  current: Pick<ApplicationExecutionAuthority['current'], 'deadline'>;
+};
 interface ApplicationExecutionSnapshot {
   state: AdmissionState | undefined;
   bound: string | undefined;
@@ -727,7 +734,8 @@ export class OperatorActivity extends Agent {
   #resumeDispatcherOnEntry(reconciliationStarting = false, expectedGeneration?: number): void {
     const lease = this.#coldDispatcherLease;
     this.#coldDispatcherLease = undefined;
-    if (lease?.status === 'admitting') {
+    if (lease?.status === 'admitting'
+      || lease?.hosting === 'normal' && lease.status === 'running' && lease.application?.pending !== undefined) {
       if (!lease.serial && lease.hosting !== 'normal') this.ctx.waitUntil(this.interruptDrive(lease.generation));
       else if (!reconciliationStarting || expectedGeneration !== undefined && expectedGeneration !== lease.generation) {
         this.ctx.waitUntil(this.reconcileDispatcherLease({ generation: lease.generation }));
@@ -995,6 +1003,104 @@ export class OperatorActivity extends Agent {
     }
   }
 
+  /** Explicit owner recovery is read-only: no resume, SDK observation, retirement,
+   * lease change or fabricated active execution. The original ledger and local
+   * owner binding, not application payloads, select the inspected Activity. */
+  async readRecoveryFacts(input: import('./application-recovery').RecoveryFactsRequest): Promise<import('./application-recovery').RecoveryFacts> {
+    try {
+      const request = structuredClone(input);
+      const { original, human } = request;
+      if (request.deadline <= Date.now() || human.expiresAt * 1000 < request.deadline
+        || original.pins === null || !request.ledger.ok || request.ledger.receipt === null
+        || original.ownerKey !== await operatorOwnerKey(human)
+        || original.ownerKey !== await operatorOwnerKey(original.owner)
+        || !syncIdentity.safeParse(original.activityId).success
+        || !request.ledger.ok || !this.#appEnv.OPERATOR_ACTIVITY
+        || this.#appEnv.OPERATOR_ACTIVITY.idFromName(original.activityId).toString() !== this.ctx.id.toString()) {
+        return { resettable: false, reason: 'owner-or-ledger-mismatch' };
+      }
+      return await this.ctx.storage.transaction<import('./application-recovery').RecoveryFacts>(async tx => {
+        const snapshot = await this.#applicationExecutionSnapshot(tx);
+        // These existing local predicates only read original/ledger and the
+        // authority deadline. No runtime binding or active Activity is invented.
+        const proof: OriginalExecutionProof = { original, ledger: request.ledger, current: { deadline: request.deadline } };
+        if (!await this.#applicationExecutionBinding(proof, snapshot)) return { resettable: false, reason: 'original-binding-mismatch' };
+        const state = snapshot.state;
+        const success = async (reason: string): Promise<import('./application-recovery').RecoveryFacts> => ({
+          resettable: true, reason, proofDigest: await this.#applicationExecutionVersion(proof, snapshot),
+          origin: { generation: state?.diagnosticBinding?.generation ?? state?.drive?.generation ?? 1,
+            deadline: state?.intent.deadline ?? request.deadline },
+          ...(state?.invocationJson === undefined ? {} : { invocation: JSON.parse(state.invocationJson) }),
+        });
+        if (await this.#applicationNeverStarted(proof, snapshot)
+          && (snapshot.retirement === original.activityId || state?.drive?.status === 'unknown'
+            && state.drive.generation > (state.diagnosticBinding?.generation ?? Number.MAX_SAFE_INTEGER))) return success('never-started');
+        const entries = snapshot.entries;
+        const journal = entries.get(DISPATCHER_JOURNAL) as DispatcherJournal | undefined;
+        if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.executionContext
+          || snapshot.publication !== undefined || snapshot.ownedSession !== undefined) return { resettable: false, reason: 'effect-state-present' };
+        if (!journal || !Number.isSafeInteger(journal.generation) || journal.generation < 1
+          || !Number.isSafeInteger(journal.count) || journal.count < 0
+          || journal.nextOrdinal !== journal.count || journal.unresolved !== 0) return { resettable: false, reason: 'journal-unaccounted' };
+        if (!state.drive || state.drive.generation <= journal.generation
+          || !['unknown', 'cancel-requested'].includes(state.drive.status)
+          || !state.diagnosticFence || state.diagnosticFence.generation < journal.generation
+          || state.diagnosticBinding?.generation !== journal.generation
+          || state.diagnosticBinding.artifactDigest !== state.executionContext.artifactDigest
+          || state.diagnosticBinding.inputDigest !== state.receipt.intentDigest) return { resettable: false, reason: 'active-or-unfenced' };
+        const lease = entries.get(DISPATCHER_LEASE) as DispatcherLease | undefined;
+        const profile = entries.get(DISPATCHER_PROFILE_LEASE) as DispatcherLease | undefined;
+        if (entries.has(DISPATCHER_LEASE) && !lease || entries.has(DISPATCHER_PROFILE_LEASE) && !profile) {
+          return { resettable: false, reason: 'lease-binding-mismatch' };
+        }
+        for (const value of [lease, profile]) {
+          if (value && (value.generation !== journal.generation
+            || value.artifactDigest !== state.executionContext.artifactDigest
+            || value.inputDigest !== state.receipt.intentDigest
+            || value.expiresAt !== Math.floor(state.receipt.deadline / 1000) * 1000)) return { resettable: false, reason: 'lease-binding-mismatch' };
+        }
+        const aggregate = entries.get(DISPATCHER_OPERATIONS) as Record<string, DispatcherOperationRecord> | undefined;
+        const records = [...entries].filter(([key]) => key.startsWith('dispatcher:operation:'));
+        if (entries.has(DISPATCHER_OPERATIONS) && (!aggregate || typeof aggregate !== 'object' || Array.isArray(aggregate) || records.length)
+          || records.some(([key]) => !key.startsWith(`dispatcher:operation:${journal.generation}:`))
+          || [...entries.keys()].some(key => ![DISPATCHER_LEASE, DISPATCHER_PROFILE_LEASE, DISPATCHER_JOURNAL, DISPATCHER_OPERATIONS].includes(key)
+            && !key.startsWith('dispatcher:operation:') && !key.startsWith('dispatcher:response:')
+            && key !== `dispatcher:result:${journal.generation}`)) return { resettable: false, reason: 'journal-unaccounted' };
+        const operationIds = aggregate ? Object.keys(aggregate)
+          : records.map(([key]) => key.slice(`dispatcher:operation:${journal.generation}:`.length));
+        const responseKeys = new Set(operationIds.flatMap(id => [
+          `dispatcher:response:${id}`, `dispatcher:response:${journal.generation}:${id}`,
+        ]));
+        if ([...entries.keys()].some(key => key.startsWith('dispatcher:response:') && !responseKeys.has(key))) {
+          return { resettable: false, reason: 'unbound-response-cache' };
+        }
+        const operations = aggregate ? Object.values(aggregate) : records.map(([, value]) => value as DispatcherOperationRecord);
+        if (operations.length !== journal.count) return { resettable: false, reason: 'journal-unaccounted' };
+        const ordinals = new Set<number>();
+        for (const operation of operations) {
+          if (!operation || operation.generation !== journal.generation || operation.phase !== 'completed'
+            || !syncDigest.safeParse(operation.requestDigest).success || !Number.isSafeInteger(operation.ordinal)
+            || operation.ordinal! < 0 || operation.ordinal! >= journal.count || ordinals.has(operation.ordinal!)) return { resettable: false, reason: 'journal-incomplete' };
+          ordinals.add(operation.ordinal!);
+          if (operation.request) {
+            let url: URL;
+            try { url = new URL(operation.request.url); } catch { return { resettable: false, reason: 'unknown-operation' }; }
+            if (operation.request.method !== 'GET' || url.protocol !== 'https:') return { resettable: false, reason: 'source-write' };
+          } else {
+            const binding = operation.deliveryBinding ?? operation.phaseBinding;
+            // Completed model work may belong to an earlier application delivery,
+            // not the current SDK receipt. Its original journal binding remains authoritative.
+            if (!binding || binding.resource !== 'inference' || !syncIdentity.safeParse(binding.submissionId).success
+              || !(operation.inference?.version === 1 && Number.isSafeInteger(operation.inference.attempt) && operation.inference.attempt >= 1
+                || operation.native && typeof operation.native.handle === 'string' && syncDigest.safeParse(operation.native.profileDigest).success
+                || operation.sdkHttp && typeof operation.sdkHttp.permitId === 'string' && Number.isSafeInteger(operation.sdkHttp.attempts))) return { resettable: false, reason: 'unknown-operation' };
+          }
+        }
+        return success('fenced-no-write');
+      });
+    } catch { return { resettable: false, reason: 'facts-unavailable' }; }
+  }
+
   /** Recheck the same complete snapshot and fence in the prepare/start/drive
    * transaction order. No caller-supplied eligibility or safe-to-retry flags. */
   async retireApplicationExecution(input: ApplicationExecutionAuthority): Promise<ApplicationExecutionRetirement> {
@@ -1158,7 +1264,10 @@ export class OperatorActivity extends Agent {
             entries.set(key, Object.fromEntries(Object.entries(value).map(([id, operation]) => [id, applicationOperationProof(operation)])));
           } else if (key === DISPATCHER_LEASE || key === DISPATCHER_PROFILE_LEASE || key === DISPATCHER_JOURNAL
             || key === `dispatcher:result:${state?.drive?.generation}`) entries.set(key, value);
-          else entries.set('unexpected-runtime-state', true); // One presence bit fences work; payloads and their keys add no proof.
+          else if (key.startsWith('dispatcher:response:') || /^dispatcher:result:[1-9][0-9]*$/.test(key)) {
+            // Cache bodies are retained separately; recovery only needs their original-key association.
+            entries.set(key, true);
+          } else entries.set('unexpected-runtime-state', true); // One presence bit fences work; payloads and their keys add no proof.
         }
         if (page.size === 0) break;
       }
@@ -1170,7 +1279,7 @@ export class OperatorActivity extends Agent {
     }
   }
 
-  async #applicationExecutionBinding(authority: ApplicationExecutionAuthority,
+  async #applicationExecutionBinding(authority: OriginalExecutionProof,
     snapshot: ApplicationExecutionSnapshot): Promise<boolean> {
     const { original, ledger } = authority;
     if (!ledger.ok || ledger.receipt === undefined || snapshot.bound !== undefined && snapshot.bound !== original.activityId
@@ -1229,7 +1338,7 @@ export class OperatorActivity extends Agent {
       && (!pins || selection.release.id === pins.releaseId);
   }
 
-  async #applicationNeverStarted(authority: ApplicationExecutionAuthority,
+  async #applicationNeverStarted(authority: OriginalExecutionProof,
     snapshot: ApplicationExecutionSnapshot): Promise<boolean> {
     const { state, entries } = snapshot;
     const ledger = authority.ledger.ok ? authority.ledger.receipt : undefined;
@@ -1288,7 +1397,7 @@ export class OperatorActivity extends Agent {
         })) : profile.serial === undefined);
   }
 
-  async #applicationExecutionVersion(authority: ApplicationExecutionAuthority, snapshot: ApplicationExecutionSnapshot): Promise<string> {
+  async #applicationExecutionVersion(authority: OriginalExecutionProof, snapshot: ApplicationExecutionSnapshot): Promise<string> {
     return sha256(JSON.stringify([authority.original, authority.ledger, snapshot.state, snapshot.bound,
       snapshot.retirement, snapshot.publication, snapshot.ownedSession, [...snapshot.entries]]));
   }
@@ -2757,17 +2866,44 @@ export class OperatorActivity extends Agent {
       let lease = original;
       const plan = await this.#normalDispatcherCurrent(lease);
       if (!lease.application || lease.application.completed || !lease.wire || !isManagementReceipt(plan.receipt)) throw new Error('Application plan unavailable');
-      if (confirmed) {
-        if (lease.status !== 'running' || !lease.receipt || lease.submissionId !== lease.receipt.submissionId
-          || !this.#normalReceiptMatches(lease.receipt, confirmed.receipt)
-          || 'reply' in confirmed && (confirmed.reply.uid !== lease.receipt.uid
-            || confirmed.reply.submissionId !== lease.receipt.submissionId)) {
+      const deliverySchema = z.strictObject({ token: z.string().min(1), ordinal: z.number().int().positive().safe() });
+      const settlementSchema = z.union([
+        z.strictObject({ receipt: normalDispatcherReceiptSchema,
+          reply: z.strictObject({ text: z.string(), data: z.record(z.string(), z.array(z.json())),
+            metadata: z.record(z.string(), z.json()).optional(), uid: z.string(), submissionId: z.string() }) }),
+        z.strictObject({ receipt: normalDispatcherReceiptSchema, status: z.literal('failed'),
+          data: z.record(z.string(), z.array(z.json())) }),
+      ]);
+      const savedPending = lease.application.pending === undefined ? undefined : z.strictObject({
+        delivery: deliverySchema, idempotencyKey: z.string().min(1),
+        confirmed: z.strictObject({ delivery: deliverySchema, settlement: settlementSchema }).optional(),
+      }).parse(lease.application.pending);
+      if (confirmed && savedPending && !sameDispatcherPhaseValue(savedPending.confirmed?.settlement, confirmed)) {
+        throw new Error('Application pending settlement changed');
+      }
+      const settlement = savedPending?.confirmed?.settlement ?? (confirmed ? settlementSchema.parse(confirmed) : undefined);
+      if (settlement) {
+        if (lease.status !== 'running' || !lease.application.planned || !lease.receipt
+          || lease.submissionId !== lease.receipt.submissionId
+          || !this.#normalReceiptMatches(lease.receipt, settlement.receipt)
+          || 'reply' in settlement && (settlement.reply.uid !== lease.receipt.uid
+            || settlement.reply.submissionId !== lease.receipt.submissionId)
+          || savedPending && (!sameDispatcherPhaseValue(savedPending.confirmed?.delivery, lease.application.delivery)
+            || savedPending.delivery.ordinal !== lease.application.delivery.ordinal + 1
+            || savedPending.delivery.token === lease.application.delivery.token
+            || savedPending.idempotencyKey === lease.application.idempotencyKey)) {
           throw new Error('Application previous receipt mismatch');
         }
+        if (new TextEncoder().encode(JSON.stringify(settlement)).byteLength
+          > dispatcherCapacities(plan.receipt.selection.operator.policy).assessmentBytes + 64 * 1024) {
+          throw new Error('Application settlement exceeds admitted capacity');
+        }
       } else if (lease.application.planned || lease.receipt || lease.submissionId !== null
-        || lease.application.delivery.ordinal !== 1) throw new Error('Application initial plan mismatch');
-      // The next delivery identity is durable before planner I/O. A lost plan or
-      // dispatch acknowledgement cannot replace the exact key or application input.
+        || lease.application.delivery.ordinal !== 1
+        || savedPending && (!sameDispatcherPhaseValue(savedPending.delivery, lease.application.delivery)
+          || savedPending.idempotencyKey !== lease.application.idempotencyKey)) throw new Error('Application initial plan mismatch');
+      // Persist the exact validated planner input with its next delivery identity.
+      // A lost response must not cause another SDK read or replace its settlement.
       lease = await this.ctx.storage.transaction(async tx => {
         const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
         if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, lease.generation)
@@ -2776,8 +2912,9 @@ export class OperatorActivity extends Agent {
         await this.#retireUnsentModelPermits(tx, live!);
         await this.#requireAccountedDispatcherJournal(tx, live!);
         const app = live!.application!;
-        const pending = app.pending ?? (confirmed ? { delivery: { token: crypto.randomUUID(), ordinal: app.delivery.ordinal + 1 },
-          idempotencyKey: crypto.randomUUID() } : { delivery: app.delivery, idempotencyKey: app.idempotencyKey });
+        const pending = app.pending ?? (settlement ? { delivery: { token: crypto.randomUUID(), ordinal: app.delivery.ordinal + 1 },
+          idempotencyKey: crypto.randomUUID(), confirmed: { delivery: app.delivery, settlement } }
+          : { delivery: app.delivery, idempotencyKey: app.idempotencyKey });
         if (!Number.isSafeInteger(pending.delivery.ordinal)) throw new Error('Application delivery bound exceeded');
         const next = { ...live!, application: { ...app, pending } };
         await tx.put(DISPATCHER_LEASE, next);
@@ -2789,7 +2926,7 @@ export class OperatorActivity extends Agent {
       const response = await this.#normalDispatcherControl(lease, plan, 'plan', {
         id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId,
         initialData: app.initialData, checkpoint: app.checkpoint, delivery: pending.delivery,
-        ...(confirmed ? { settlement: confirmed } : {}),
+        ...(pending.confirmed ? { settlement: pending.confirmed.settlement } : {}),
       });
       if (response.status !== 200) throw new Error('Application decision unavailable');
       const decision = parseApplicationDecision(response.value, dispatcherCapacities(plan.receipt.selection.operator.policy).assessmentBytes);
@@ -2806,7 +2943,7 @@ export class OperatorActivity extends Agent {
         if (decision.kind === 'complete') {
           // Initial no-work completion needs no SDK job. Once work was admitted,
           // a failed job may inform another decision but cannot certify success.
-          if (confirmed && 'status' in confirmed) throw new Error('Successful final SDK settlement required');
+          if (settlement && 'status' in settlement) throw new Error('Successful final SDK settlement required');
           const prior = await tx.get(`dispatcher:result:${generation}`);
           if (prior !== undefined && !sameDispatcherPhaseValue(prior, decision.result)) throw new Error('Application immutable result changed');
           await tx.put(`dispatcher:result:${generation}`, decision.result);
@@ -2817,7 +2954,7 @@ export class OperatorActivity extends Agent {
             checkpoint: decision.checkpoint, context: decision.context, planned: true };
           const wire: NormalDispatcherWire = { id, installationId, activityId, generation, releaseId, connectionRevision,
             workerVersionId, idempotencyKey: pending.idempotencyKey, message: decision.message,
-            ...(confirmed ? { uid: confirmed.receipt.uid } : { initialData: { ...(app.initialData as Record<string, ApplicationValue>),
+            ...(settlement ? { uid: settlement.receipt.uid } : { initialData: { ...(app.initialData as Record<string, ApplicationValue>),
               applicationContext: decision.context } }) };
           await tx.put(DISPATCHER_LEASE, { ...live!, application, wire, receipt: undefined, observation: undefined,
             settledSubmissionId: undefined, submissionId: null, status: 'admitting' });
@@ -3641,7 +3778,7 @@ export class OperatorActivity extends Agent {
     }
   }
 
-  async #continueApplication(lease: DispatcherLease, settlement: ApplicationSettlement): Promise<void> {
+  async #continueApplication(lease: DispatcherLease, settlement?: ApplicationSettlement): Promise<void> {
     await this.#planApplication(lease, settlement);
     const next = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
     if (next?.application?.planned && next.status === 'admitting') {
@@ -3662,6 +3799,10 @@ export class OperatorActivity extends Agent {
         const committed = await this.commitDrive(lease.generation, { schemaVersion: 1, status: 'completed',
           checkpoint: lease.application.checkpoint, result });
         if (!committed.ok) throw new Error('Application completion recovery refused');
+        return;
+      }
+      if (lease.status === 'running' && lease.application?.pending !== undefined) {
+        await this.#continueApplication(lease);
         return;
       }
       if (lease.status === 'admitting') {

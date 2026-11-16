@@ -6,6 +6,7 @@ import OperatorManagementActivity from './OperatorManagementActivity';
 import { activateApplicationRuns } from '../api/operator-activities';
 import { runSettingsHelp, runSettingsSaved } from './OperatorRunSettings';
 import OperatorApplicationFields from './OperatorApplicationFields';
+import OperatorRecovery from './OperatorRecovery';
 import { applicationSchedule } from '../../../src/operators/application-configuration';
 import '../styles/administration.css';
 import '../styles/ai-routing-workspace.css';
@@ -98,6 +99,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
   const [choicesError, setChoicesError] = createSignal(false);
   const [registering, setRegistering] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
+  const [recoveryPending, setRecoveryPending] = createSignal(false);
   const [stale, setStale] = createSignal(false);
   const [error, setError] = createSignal('');
   const [notice, setNotice] = createSignal('');
@@ -117,7 +119,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
   let searchInput: HTMLInputElement | undefined;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   const cancelSearch = () => { if (searchTimer) clearTimeout(searchTimer); searchTimer = undefined; };
-  const locked = () => busy() || stale() || detailLoading();
+  const locked = () => busy() || recoveryPending() || stale() || detailLoading();
   const canRegister = () => !!choices() && !locked() && registrationPolicy().capabilities.length > 0
     && (profile() === 'dispatcher' ? validSourceBytes(registrationPolicy().sourceResponseBytes, sourceBytes(choices()?.ceiling.sourceResponseBytes)) : !!registrationPolicy().resourceProfileId)
     && !hasUnavailablePolicy(registrationPolicy(), choices()!.ceiling.capabilities,
@@ -134,6 +136,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
     window.history[push ? 'pushState' : 'replaceState']({}, '', url);
   }
   function navigate(id: string) {
+    if (recoveryPending()) return;
     cancelSearch(); setRegistering(false); setPat(''); setError(''); setNotice(''); setStale(false);
     setSelected(id); syncUrl(); queueMicrotask(() => heading?.focus());
   }
@@ -220,6 +223,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
   const register = () => { setRegistering(true); setPat(''); queueMicrotask(() => sourceInput?.focus()); };
   const closeRegistration = () => { setRegistering(false); setPat(''); queueMicrotask(() => registerButton?.focus()); };
   const showInvocation = (event: MouseEvent, id: string) => {
+    if (recoveryPending()) { event.preventDefault(); return; }
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     const url = new URL((event.currentTarget as HTMLAnchorElement).href);
@@ -227,6 +231,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
     setInvocationId(id); setActivityView(true); setSelected('');
   };
   const showSection = (event: MouseEvent, activity: boolean) => {
+    if (recoveryPending()) { event.preventDefault(); return; }
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     cancelSearch(); setActivityView(activity); setSelected(''); setInvocationId(''); setRegistering(false); setPat('');
@@ -249,11 +254,11 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
       {feedback('')}
       <Show when={choicesError() && !catalogError()}><p role="alert" class="operator-message">Identity choices and limits are unavailable. <a href="/admin/environment/access">Manage identities in Environment</a> or <button type="button" class="admin-secondary-button" onClick={() => void loadChoices()}>Retry choices</button>.</p></Show>
       <Show when={!selected()} fallback={<>
-        <button class="admin-secondary-button" disabled={busy()} onClick={() => navigate('')}>Back to catalog</button>
+        <button class="admin-secondary-button" disabled={busy() || recoveryPending()} onClick={() => navigate('')}>Back to catalog</button>
         <Show when={detailLoading()}><p class="admin-status-text" role="status">Loading operator details…</p></Show>
         <Show when={detailError()}><div role="alert" class="operator-message"><p class="admin-help-text">{failure(detailError())}</p>
           <button class="admin-secondary-button" disabled={busy()} onClick={() => void refresh()}>Retry details</button></div></Show>
-        <Show when={detail()}>{value => <OperatorDetail detail={value()} choices={choices()} isAdmin={props.isAdmin} locked={locked()} perform={perform} feedback={feedback} onInvoke={showInvocation} />}</Show>
+        <Show when={detail()}>{value => <OperatorDetail detail={value()} choices={choices()} isAdmin={props.isAdmin} locked={locked()} recoveryPending={setRecoveryPending} perform={perform} feedback={feedback} onInvoke={showInvocation} />}</Show>
       </>}>
         <section class="admin-panel operator-panel" aria-label="Operator catalog">
           <div class="operator-section-heading"><h2>Available operators</h2><div class="operator-actions">
@@ -445,6 +450,7 @@ const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatche
 </fieldset>;
 
 const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.ManagementChoices; isAdmin?: boolean; locked: boolean;
+  recoveryPending: (pending: boolean) => void;
   perform: (action: () => Promise<unknown>, message: string, section?: string) => Promise<void>;
   feedback: (section: string) => JSX.Element; onInvoke: (event: MouseEvent, id: string) => void }> = props => {
   const [section, setSection] = createSignal<'installed' | 'versions' | 'permissions'>('installed');
@@ -638,6 +644,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const selectedRelease = () => props.detail.releases.find(item => item.id === releaseId());
   const canChoose = () => !!props.choices && !props.locked;
   function openSection(next: 'installed' | 'versions' | 'permissions') {
+    if (props.locked) return;
     setSection(next); setReleaseId(''); setInstallOpen(false);
     queueMicrotask(() => document.getElementById(`operator-${next}`)?.scrollIntoView?.({ block: 'start' }));
   }
@@ -672,7 +679,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     </nav>
     <section id="operator-installed" hidden={section() !== 'installed'} class="admin-panel operator-panel admin-routing-pane" aria-label="Installed version">
       <h2>Installed version</h2>
-      <Show when={props.detail.installations.length > 1}><label class="admin-form-field"><span>Installed configuration</span><select aria-label="Installed configuration" value={installation()?.id ?? ''} onChange={event => setInstallationId(event.currentTarget.value)}>
+      <Show when={props.detail.installations.length > 1}><label class="admin-form-field"><span>Installed configuration</span><select aria-label="Installed configuration" disabled={props.locked} value={installation()?.id ?? ''} onChange={event => setInstallationId(event.currentTarget.value)}>
         <option value="">Choose an installed configuration</option>
         <For each={props.detail.installations}>{item => <option value={item.id}>{item.name} · {item.enabled ? 'enabled for new runs' : item.releaseId ? 'installed, not enabled' : 'no version installed'}</option>}</For>
       </select><small class="admin-help-text">Each configuration has its own pinned release and enablement.</small></label></Show>
@@ -706,6 +713,9 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           <button type="button" class="admin-secondary-button" onClick={() => { setInstallOpen(false); setReleaseId(''); }}>Cancel</button></div>
       </div></Show>
       {props.feedback('installed-install')}
+      <Show when={installation() && application()?.recovery}><OperatorRecovery
+        installationId={installation()!.id} revision={installation()!.revision} recovery={application()!.recovery!}
+        blocked={props.locked} onPending={props.recoveryPending} /></Show>
 <Show when={configuredRuns() && installation()}><form onSubmit={event => {
   event.preventDefault();
   const selected = installation();

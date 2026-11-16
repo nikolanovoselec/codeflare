@@ -470,9 +470,157 @@ async function planned(f: DispatcherFixture) {
 }
 const workflowOptions = { ...normal, applicationConfiguration: configuration, applicationPlan: dispatchDecision };
 
+/** The remote planner has received the input, but its response is unavailable
+ * until explicitly restored. No SDK or Root method is replaced. */
+function interruptedSettlementPlan(decide: (body: Record<string, unknown>) => unknown = dispatchDecision) {
+  let unavailable = true;
+  return {
+    plan: (body: Record<string, unknown>) => {
+      const decision = decide(body);
+      if (body.settlement && unavailable) throw new Error('External planner response lost');
+      return decision;
+    },
+    restore: () => { unavailable = false; },
+  };
+}
+
 // The external application supplies only opaque decisions. SDK receipts, frozen
 // input/identity, dispatch keys and terminal collection remain real Root behavior.
 describe('generic application decisions on the existing normal control lifecycle', () => {
+  it.each(['completed', 'failed', 'failed-empty'] as const)(
+    'cold planner retry preserves exact %s settlement without another SDK observation or target effect', async outcome => {
+      const remote = interruptedSettlementPlan();
+      await fixture(async f => {
+        await start(f);
+        const originalPlan = await f.activity.getRuntimePlan();
+        const first = accepted(f)[0];
+        const delivery = plans(f)[0].delivery as { token: string; ordinal: number };
+        const mutation = { operationId: 'original-target-effect', method: 'POST',
+          url: 'https://api.github.com/repos/acme/updates/issues/17/comments', body: '{"body":"Original target effect"}' };
+        const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'source', mutation,
+          { 'x-codeflare-dispatcher-delivery': delivery.token }));
+        expect(response.status).toBe(200);
+        const effects = f.sent.filter(request => request.method !== 'GET').map(request => request.url);
+        expect(effects).toEqual([mutation.url]);
+        const data = outcome === 'failed-empty' ? {} : { 'opaque-work': [{ text: '秘密🧪'.repeat(12000), complete: outcome === 'completed' }] };
+        f.normalTransport!.settleSubmission(first.receipt.submissionId, outcome === 'completed' ? 'completed' : 'failed',
+          Object.entries(data).flatMap(([name, values]) => values.map(value => ({ name, data: value }))));
+        if (outcome === 'completed') f.normalTransport!.changeReply({ text: 'Original SDK text', metadata: { opaque: [null, false, 'β'] } });
+        await f.activity.reconcileDispatcherLease();
+        const interrupted = structuredClone(plans(f).at(-1)!);
+        expect(interrupted).toMatchObject({ checkpoint: firstCheckpoint, initialData: plans(f)[0].initialData,
+          settlement: outcome === 'completed'
+            ? { receipt: first.receipt, reply: { text: 'Original SDK text', data, metadata: { opaque: [null, false, 'β'] },
+              uid: first.receipt.uid, submissionId: first.receipt.submissionId } }
+            : { receipt: first.receipt, status: 'failed', data } });
+        let pendingProof: unknown;
+        await f.mutateEvidence(async storage => {
+          const lease = await storage.get<{ application: { pending: unknown } }>('dispatcher:lease');
+          pendingProof = lease!.application.pending;
+          expect(pendingProof).toMatchObject({ delivery: interrupted.delivery,
+            confirmed: { delivery, settlement: interrupted.settlement } });
+          expect(new TextEncoder().encode(JSON.stringify(pendingProof)).byteLength).toBeLessThan(128 * 1024 + 64 * 1024);
+        });
+        expect(accepted(f)).toEqual([first]);
+        expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+        const observed = f.normalTransport!.requests.filter(request => request.path === '/control/read');
+        // A later SDK view is neither needed nor allowed to replace the saved input.
+        f.normalTransport!.changeReceipt({ uid: 'foreign-later-view' });
+        f.normalTransport!.changeReply({ text: 'Changed later SDK data', data: { changed: [true] } });
+        f.restart(); await f.drainBackground();
+        await f.activity.getAdmission(); await f.drainBackground();
+        expect(plans(f).at(-1)).toEqual(interrupted);
+        expect(accepted(f)).toEqual([first]);
+        await f.mutateEvidence(async storage => {
+          const lease = await storage.get<{ application: { pending: unknown } }>('dispatcher:lease');
+          expect(lease!.application.pending).toEqual(pendingProof);
+        });
+        remote.restore();
+        f.restart(); await f.drainBackground();
+        await f.activity.getAdmission(); await f.drainBackground();
+        expect(plans(f).at(-1)).toEqual(interrupted);
+        expect(f.normalTransport!.requests.filter(request => request.path === '/control/read')).toEqual(observed);
+        expect(accepted(f)).toHaveLength(2);
+        const successor = accepted(f)[1];
+        expect(JSON.parse(successor.wire)).toMatchObject({ uid: first.receipt.uid, message: secondInput });
+        expect((await f.activity.getRuntimePlan())!.deadline).toBe(originalPlan!.deadline);
+        expect((await f.activity.getRuntimePlan())!.invocationJson).toBe(originalPlan!.invocationJson);
+        await f.mutateEvidence(async storage => {
+          const lease = await storage.get<{ application: Record<string, unknown> }>('dispatcher:lease');
+          expect(lease!.application).not.toHaveProperty('pending');
+        });
+        f.normalTransport!.changeReceipt({}); f.normalTransport!.changeReply({});
+        f.normalTransport!.settleSubmission(successor.receipt.submissionId, 'completed');
+        await f.activity.reconcileDispatcherLease();
+        expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: finalOutput } });
+        expect(accepted(f)).toEqual([first, successor]);
+        expect(f.sent.filter(request => request.method !== 'GET').map(request => request.url)).toEqual(effects);
+        await f.mutateEvidence(async storage => {
+          const lease = await storage.get<{ application: Record<string, unknown> }>('dispatcher:lease');
+          expect(lease!.application).not.toHaveProperty('pending');
+        });
+      }, { ...workflowOptions, applicationPlan: remote.plan, capacityPolicy: { assessmentBytes: 128 * 1024 },
+        applicationConfiguration: { ...configuration, repository: 'acme/updates' }, applicationWriteRepositoriesPath: '/repository' });
+    });
+
+  it('a saved failed settlement cannot certify successful completion after a lost planner response', async () => {
+    const remote = interruptedSettlementPlan(body => body.checkpoint === null
+      ? dispatchDecision(body) : { kind: 'complete', checkpoint: { done: true }, result: { inventedSuccess: true } });
+    await fixture(async f => {
+      await planned(f);
+      const original = accepted(f);
+      f.normalTransport!.settleSubmission(original[0].receipt.submissionId, 'failed', [{ name: 'failure', data: { exact: true } }]);
+      await f.activity.reconcileDispatcherLease();
+      const interrupted = structuredClone(plans(f).at(-1)!);
+      remote.restore(); f.restart(); await f.drainBackground();
+      await f.activity.getAdmission(); await f.drainBackground();
+      expect(plans(f).at(-1)).toEqual(interrupted);
+      expect(accepted(f)).toEqual(original);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+      await f.mutateEvidence(async storage => { expect(await storage.get('dispatcher:result:1')).toBeUndefined(); });
+    }, { ...workflowOptions, applicationPlan: remote.plan });
+  });
+
+  it.each(['receipt', 'delivery', 'missing-settlement', 'malformed-settlement', 'oversized-settlement',
+    'expired', 'revoked', 'cancelled', 'already-fenced'] as const)(
+    'saved settlement cannot reopen work across the %s fence', async fault => {
+      const remote = interruptedSettlementPlan();
+      await fixture(async f => {
+        await planned(f);
+        const original = accepted(f);
+        f.normalTransport!.settleSubmission(original[0].receipt.submissionId, 'completed');
+        await f.activity.reconcileDispatcherLease();
+        if (fault === 'expired') f.expire();
+        else if (fault === 'revoked') f.revoke();
+        else if (fault === 'cancelled') await f.activity.cancelDrive();
+        else if (fault === 'already-fenced') await f.activity.interruptDrive(1);
+        else await f.mutateEvidence(async storage => {
+          const lease = (await storage.get<{ receipt: Record<string, unknown>; application: {
+            delivery: { token: string }; pending: { confirmed?: { settlement: Record<string, unknown> } } } }>('dispatcher:lease'))!;
+          if (fault === 'receipt') lease.receipt.submissionId = 'foreign-submission';
+          if (fault === 'delivery') lease.application.delivery.token = 'foreign-delivery';
+          if (fault === 'missing-settlement') delete lease.application.pending.confirmed;
+          if (fault === 'malformed-settlement') lease.application.pending.confirmed!.settlement = { status: 'completed' };
+          if (fault === 'oversized-settlement') lease.application.pending.confirmed!.settlement = {
+            receipt: lease.receipt, reply: { text: 'x'.repeat(128 * 1024 + 64 * 1024), data: {},
+              uid: lease.receipt.uid, submissionId: lease.receipt.submissionId } };
+          await storage.put('dispatcher:lease', lease);
+        });
+        const submittedPlans = structuredClone(plans(f));
+        const observed = f.normalTransport!.requests.filter(request => request.path === '/control/read');
+        remote.restore(); f.restart(); await f.drainBackground();
+        await f.activity.getAdmission(); await f.drainBackground();
+        await f.activity.reconcileDispatcherLease();
+        expect(plans(f)).toEqual(submittedPlans);
+        expect(f.normalTransport!.requests.filter(request => request.path === '/control/read')).toEqual(observed);
+        expect(accepted(f)).toEqual(original);
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        expect((await f.activity.getBrowserDetail())!.result).toBeNull();
+        expect(f.sent.filter(request => request.method !== 'GET')).toEqual([]);
+      }, { ...workflowOptions, applicationPlan: remote.plan, capacityPolicy: { assessmentBytes: 128 * 1024 } });
+    });
+
   it.each([false, true])('collects an admitted checkpoint above64KiB within its allowance, cold=%s', cold => fixture(async f => {
     const checkpoint = { retained: 'x'.repeat(96 * 1024) };
     const result = { complete: true };

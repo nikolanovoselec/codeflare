@@ -104,7 +104,7 @@ async function buildBundle(raw) {
 
 function applicationMetadata(value) {
   const application = object(value, 'manifest.application');
-  exactKeys(application, ['controlVersion', 'configurationSchema', 'githubWriteRepositoriesPath', 'schedule'], 'manifest.application');
+  exactKeys(application, ['controlVersion', 'configurationSchema', 'githubWriteRepositoriesPath', 'schedule', 'recovery'], 'manifest.application');
   if (application.controlVersion !== 1) fail('application control version is incompatible');
   if (application.configurationSchema !== undefined) object(application.configurationSchema, 'application configuration schema');
   const validPointer = path => typeof path === 'string' && path.length >= 2 && path.length <= 512 && path.startsWith('/')
@@ -122,6 +122,15 @@ function applicationMetadata(value) {
         fail('application schedule path is invalid');
       }
     }
+  }
+  if (application.recovery !== undefined) {
+    const recovery = object(application.recovery, 'application recovery');
+    exactKeys(recovery, ['label', 'description', 'prefix'], 'application recovery');
+    const text = (value, max) => typeof value === 'string' && value.trim().length > 0
+      && value.length <= max && !/[\u0000-\u001f\u007f]/u.test(value);
+    if (!text(recovery.label, 80) || !text(recovery.description, 512)
+      || typeof recovery.prefix !== 'string' || recovery.prefix.length > 128
+      || !/^[A-Za-z0-9][A-Za-z0-9:_-]*:$/u.test(recovery.prefix)) fail('application recovery metadata is invalid');
   }
   return application;
 }

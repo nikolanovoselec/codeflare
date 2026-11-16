@@ -38,7 +38,24 @@ async function digest(bytes: Uint8Array): Promise<string> {
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
- describe('REQ-OPERATOR-010: operator discovery boundary', () => {
+describe('application recovery metadata is bounded package display data', () => {
+  const recovery = { label: 'Reset Locks', description: 'Reset the selected fenced records.', prefix: 'renovate:head:' };
+  it('preserves the optional package-owned descriptor', () => {
+    const input = { ...manifest(), application: { controlVersion: 1, recovery } };
+    expect(parseOperatorManifest(JSON.stringify(input), ENDPOINT).application?.recovery).toEqual(recovery);
+    expect(parseOperatorManifest(JSON.stringify(manifest()), ENDPOINT).application).toBeUndefined();
+  });
+  it.each([{ label: ' ' }, { label: 'x'.repeat(81) }, { label: 'bad\nlabel' },
+    { description: ' ' }, { description: 'x'.repeat(513) }, { description: 'bad\u007fdescription' },
+    { prefix: ':' }, { prefix: 'bad/slash:' }, { prefix: 'no-colon' }, { prefix: `${'a'.repeat(128)}:` },
+    { authority: true }])('rejects invalid descriptor %j', patch => {
+    expect(() => parseOperatorManifest(JSON.stringify({ ...manifest(), application: {
+      controlVersion: 1, recovery: { ...recovery, ...patch },
+    } }), ENDPOINT)).toThrow(ValidationError);
+  });
+});
+
+describe('REQ-OPERATOR-010: operator discovery boundary', () => {
   it('returns compatible metadata and resolves the artifact only within the registered origin', () => {
     const input = manifest();
     expect(parseOperatorManifest(JSON.stringify(input), ENDPOINT)).toEqual({

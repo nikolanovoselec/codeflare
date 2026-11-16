@@ -8,6 +8,7 @@ import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
 import { inferencePolicySchema } from '../operators/policy';
+import { recoveryEntries } from '../operators/application-recovery';
 import { OperatorInferenceSelectionError, resolveOperatorInference } from '../operators/inference-selection';
 import { DispatcherSdkSettingsUnconfiguredError, readDispatcherSdkFiles } from '../operators/dispatcher-sdk-storage';
 import { provisionDispatcherDeployment, verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
@@ -47,6 +48,8 @@ const configuration = z.record(z.string().max(256), z.json());
 const piReasoningOverride = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional();
 const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256), policy, revision, configuration: configuration.default({}), piReasoningOverride });
 const revisionBody = z.strictObject({ revision });
+const recoveryPreviewBody = z.strictObject({ revision, after: z.string().min(1).max(4096).optional() });
+const recoveryResetBody = z.strictObject({ revision, requestId: z.string().uuid(), entries: recoveryEntries });
 const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
 const dispatcherConnectionBody = z.strictObject({ revision, connectionSecret: githubPat.max(4096),
@@ -440,6 +443,31 @@ async function managedInstallation(c: Context<RouteEnv>) {
   const operator = await managed(c, installation.operatorId);
   return { installation, operator };
 }
+
+async function recoverInstallation(c: Context<RouteEnv>, operation: 'preview' | 'reset') {
+  const input = operation === 'preview' ? await parseJsonBody(c, recoveryPreviewBody) : await parseJsonBody(c, recoveryResetBody);
+  const { installation, operator } = await managedInstallation(c);
+  withinCeiling(c.get('operatorHuman'), installation.policy);
+  const reauthorize = acquisitionContext(c, operator).reauthorize;
+  const human = await reauthorize();
+  try {
+    const value = await c.get('registry').recoverApplication({ ...input, operation, installationId: installation.id,
+      human, platformAdmin: c.get('operatorHuman').platformAdmin, authority: authority(c, operator) });
+    await reauthorize();
+    c.header('Cache-Control', 'no-store');
+    return c.json(value as Record<string, unknown>);
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    // Durable Object RPC does not preserve custom error classes/fields.
+    if (error instanceof Error && error.message === 'Application recovery conflict') {
+      throw new AppError('CONFLICT', 409, 'Application recovery conflict');
+    }
+    if (error instanceof Error && error.message === 'Operator not found') denied();
+    throw new AppError('UNAVAILABLE', 503, 'Application recovery unavailable');
+  }
+}
+app.post('/installations/:installationId/recovery/preview', c => recoverInstallation(c, 'preview'));
+app.post('/installations/:installationId/recovery/reset', c => recoverInstallation(c, 'reset'));
 
 app.post('/installations/:installationId/promote', async c => {
   const input = await parseJsonBody(c, promoteBody);

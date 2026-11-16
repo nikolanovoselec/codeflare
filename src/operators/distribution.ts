@@ -37,12 +37,16 @@ export interface OperatorApplicationDefinition {
   configurationSchema?: Record<string, unknown>;
   githubWriteRepositoriesPath?: string;
   schedule?: { enabledPath: string; intervalSecondsPath: string };
+  recovery?: { label: string; description: string; prefix: string };
 }
 const applicationSchema: z.ZodType<OperatorApplicationDefinition> = z.strictObject({
   controlVersion: z.literal(1),
   configurationSchema: z.record(z.string(), z.json()).optional(),
   githubWriteRepositoriesPath: configurationPointer.optional(),
   schedule: z.strictObject({ enabledPath: configurationPointer, intervalSecondsPath: configurationPointer }).optional(),
+  recovery: z.strictObject({ label: z.string().min(1).max(80).refine(value => !!value.trim() && !/[\u0000-\u001f\u007f]/u.test(value)),
+    description: z.string().min(1).max(512).refine(value => !!value.trim() && !/[\u0000-\u001f\u007f]/u.test(value)),
+    prefix: z.string().min(2).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9:_-]*:$/) }).optional(),
 });
 
 const manifestSchema = z.strictObject({

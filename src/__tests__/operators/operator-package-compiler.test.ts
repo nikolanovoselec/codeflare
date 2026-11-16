@@ -36,6 +36,17 @@ describe('shared operator package compiler', () => {
       .resolves.toEqual(normalDispatcherBundle());
   });
 
+  it('REQ-OPERATOR-210: preserves optional package-owned recovery metadata through compilation and acquisition', async () => {
+    const recovery = { label: 'Reset Locks', description: 'Release failed work without removing its history.', prefix: 'example:claim:' };
+    const application = { controlVersion: 1, recovery };
+    const result = await compileOperatorPackage({ manifest: { ...manifest('dispatcher'), id: 'independent-application', application },
+      bundle: normalDispatcherBundle() });
+    const published = parseOperatorManifest(new TextDecoder().decode(bytes(result, 'operator-manifest.json')), 'https://operators.example.test/');
+    expect(published.application?.recovery).toEqual(recovery);
+    await expect(parseDispatcherBundle(bytes(result, 'operator-bundle.json'), published.artifact.sha256))
+      .resolves.toEqual(normalDispatcherBundle());
+  });
+
   it.each([
     { controlVersion: 2 },
     { controlVersion: 1, configurationSchema: [] },
@@ -44,6 +55,16 @@ describe('shared operator package compiler', () => {
     { controlVersion: 1, schedule: { enabledPath: '/timer/enabled', intervalSecondsPath: '/constructor/prototype' } },
     { controlVersion: 1, schedule: { enabledPath: '/timer/~2enabled', intervalSecondsPath: '/timer/every' } },
     { controlVersion: 1, schedule: { enabledPath: '/timer/enabled', intervalSecondsPath: '/timer/every', authority: 'caller' } },
+    ...[
+      { label: '', description: 'Explain recovery', prefix: 'claim:' },
+      { label: 'x'.repeat(81), description: 'Explain recovery', prefix: 'claim:' },
+      { label: 'Reset', description: '', prefix: 'claim:' },
+      { label: 'Reset', description: 'x'.repeat(513), prefix: 'claim:' },
+      { label: 'Reset\nNow', description: 'Explain recovery', prefix: 'claim:' },
+      { label: 'Reset', description: 'Explain recovery', prefix: '../private:' },
+      { label: 'Reset', description: 'Explain recovery', prefix: '' },
+      { label: 'Reset', description: 'Explain recovery', prefix: 'claim:', ownerKey: 'caller' },
+    ].map(recovery => ({ controlVersion: 1, recovery })),
     { controlVersion: 1, ownerKey: 'caller' },
     { controlVersion: 1, githubWriteRepositoriesPath: '/__proto__/repositories' },
   ])('REQ-OPERATOR-030: rejects invalid application descriptors at compilation and acquisition: %j', async application => {

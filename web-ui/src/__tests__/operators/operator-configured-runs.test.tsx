@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import OperatorManagement from '../../components/OperatorManagement';
-import type { ApplicationDefinition, ManagementDetail } from '../../api/operator-management';
+import OperatorActivityButton from '../../components/OperatorActivityButton';
+import type { ApplicationDefinition, ApplicationRecoveryItem, ApplicationRecoveryResetInput, ManagementDetail } from '../../api/operator-management';
 
 // The incumbent active-session facade and the owner catalog remain separate read projections.
 const activeSession = vi.hoisted(() => ({
@@ -70,6 +71,15 @@ let hostError: boolean;
 let canInvoke: boolean;
 let automaticStatus: 'inactive' | 'active' | 'expired' | 'unconfirmed';
 let activate: (body: unknown) => Promise<Response>;
+let recoveryPreview: (body: { revision: number; after?: string }) => Promise<Response>;
+let recoveryReset: (body: ApplicationRecoveryResetInput) => Promise<Response>;
+const recovery = { label: 'Reset Locks',
+  description: 'Reset failed PR processing locks so they can be retried. Previous runs and completed GitHub actions are preserved.',
+  prefix: 'renovate:head:' };
+const recoveryRow = (index: number, status: 'resettable' | 'blocked' = 'resettable'): ApplicationRecoveryItem => ({
+  key: `${recovery.prefix}${index}`, version: index.toString(16).padStart(64, '0'), label: `PR ${index}`, status,
+  reason: status === 'blocked' ? 'Processing is still active.' : 'Failed processing.',
+});
 const activationPath = '/api/operator-activities/automatic/activation';
 const cutoff = '2026-11-11T00:00:00.000Z';
 beforeEach(() => {
@@ -78,6 +88,8 @@ beforeEach(() => {
   state = fixture(); writes = []; reads = []; conflict = false;
   activeSession.list(undefined); activeSession.set(undefined);
   automaticStatus = 'inactive';
+  recoveryPreview = async () => json({ items: [recoveryRow(1), recoveryRow(2, 'blocked')], nextCursor: null });
+  recoveryReset = async body => json({ requestId: body.requestId, reset: body.entries.length, skipped: [] });
   activate = async () => { automaticStatus = 'active'; return json({ activatedAt: cutoff }, 202); };
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, window.location.origin);
@@ -88,6 +100,8 @@ beforeEach(() => {
     if (init?.method === 'POST') {
       const body = JSON.parse(String(init.body));
       writes.push({ path, body });
+      if (path.endsWith('/recovery/preview')) return recoveryPreview(body);
+      if (path.endsWith('/recovery/reset')) return recoveryReset(body);
       if (path === activationPath) return activate(body);
       const item = state.installations.find(value => path.includes(`/installations/${value.id}/`));
       if (item && path.endsWith('/configure')) {
@@ -111,14 +125,14 @@ beforeEach(() => {
       id: item.id, operatorId: item.operatorId, name: 'Synthetic Application', installationName: item.name,
       revision: item.revision, enabled: item.enabled, approved: state.releases[0].approved, version: 'v0.1.3',
       profile: 'dispatcher', canManage: true, canInvoke: canInvoke, canActivateAutomaticRuns: canInvoke, automaticRunStatus: automaticStatus,
-      application, guidedMode: null, repository: (item.configuration?.renovate as any)?.repository ?? null,
+      application: state.releases[0].application, guidedMode: null, repository: (item.configuration?.renovate as any)?.repository ?? null,
       automaticRuns: (item.configuration?.renovate as any)?.automaticRuns ?? false,
       repetitionIntervalSeconds: (item.configuration?.renovate as any)?.repetitionIntervalSeconds ?? 3600,
     })), cursor: null });
     if (path.endsWith('/preview')) return json({ name: 'Synthetic Application', version: 'v0.1.3',
       application, inputSchema: { type: 'object', properties: {} }, description: 'Runs with the saved application configuration.',
       guidedAssessment: false, guidedMode: null, requiresSourceHost: false });
-    if (path === '/api/operator-activities') return json({ items: [] });
+    if (path === '/api/operator-activities') return json({ items: [], nextCursor: null, workingCount: 0, unreadCount: 0, latestSequence: 0 });
     return json({ error: 'Not found' }, 404);
   }));
 });
@@ -592,4 +606,201 @@ describe('Task101 Administration automatic-off parity', () => {
       expect(state.installations[0].enabled).toBe(false);
       expect(writes.map(write => write.path)).toEqual(['/api/operator-management/installations/installation-1/configure']);
     });
+});
+
+async function recoverySurface(surface: 'settings' | 'dropdown', declared = true) {
+  state.releases[0].application = { ...application, ...(declared ? { recovery } : {}) };
+  if (surface === 'settings') return open();
+  render(() => <OperatorActivityButton enabled />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Operator activity' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+  return screen.findByRole('article', { name: 'Primary' });
+}
+const previewPath = '/api/operator-management/installations/installation-1/recovery/preview';
+const resetPath = '/api/operator-management/installations/installation-1/recovery/reset';
+
+describe('application-owned lock recovery', () => {
+  it.each(['settings', 'dropdown'] as const)('%s omits undeclared recovery', async surface => {
+    const panel = await recoverySurface(surface, false);
+    expect(within(panel).queryByRole('button', { name: 'Reset Locks' })).not.toBeInTheDocument();
+    expect(writes).toEqual([]);
+  });
+
+  it.each(['settings', 'dropdown'] as const)('%s previews read-only and confirms only exact eligible versions', async surface => {
+    const panel = await recoverySurface(surface);
+    const before = structuredClone(state);
+    const button = within(panel).getByRole('button', { name: 'Reset Locks' });
+    expect(button).toHaveAttribute('title', recovery.description);
+    button.focus();
+    expect(button).toHaveFocus();
+    expect(button).toHaveAccessibleDescription(recovery.description);
+    fireEvent.mouseOver(button);
+    fireEvent.click(button);
+    await within(panel).findByText('1 eligible locks.');
+    expect(within(panel).getByText('PR 2 — Blocked: Processing is still active.')).toBeVisible();
+    expect(writes).toEqual([{ path: previewPath, body: { revision: 4 } }]);
+    expect(state).toEqual(before);
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reset 1 locks' }));
+    await within(panel).findByText('1 locks reset; 0 skipped. No run or settings change was requested.');
+    expect(writes).toEqual([
+      { path: previewPath, body: { revision: 4 } },
+      { path: resetPath, body: { revision: 4, requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        entries: [{ key: recoveryRow(1).key, version: recoveryRow(1).version }] } },
+    ]);
+    expect(state).toEqual(before);
+  });
+
+  it('cancels a read-only preview and returns keyboard focus without changing settings', async () => {
+    const panel = await recoverySurface('settings');
+    const before = structuredClone(state);
+    const button = within(panel).getByRole('button', { name: 'Reset Locks' });
+    fireEvent.click(button);
+    await within(panel).findByText('1 eligible locks.');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
+    expect(button).toHaveFocus();
+    expect(within(panel).queryByRole('button', { name: 'Reset 1 locks' })).not.toBeInTheDocument();
+    expect(writes).toEqual([{ path: previewPath, body: { revision: 4 } }]);
+    expect(state).toEqual(before);
+  });
+
+  it.each(['oversized-page', 'invalid-version', 'oversized-key', 'oversized-reason', 'oversized-label'] as const)(
+    'refuses an invalid %s wire preview rather than making it resettable', async invalid => {
+      const row = recoveryRow(1);
+      const items = invalid === 'oversized-page' ? Array.from({ length: 65 }, (_, index) => recoveryRow(index)) : [{
+        ...row,
+        ...(invalid === 'invalid-version' ? { version: 'not-a-version' } : {}),
+        ...(invalid === 'oversized-key' ? { key: 'k'.repeat(1025) } : {}),
+        ...(invalid === 'oversized-reason' ? { reason: 'r'.repeat(257) } : {}),
+        ...(invalid === 'oversized-label' ? { label: 'l'.repeat(257) } : {}),
+      }];
+      recoveryPreview = async () => json({ items, nextCursor: null });
+      const panel = await recoverySurface('settings');
+      fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
+      await within(panel).findByText(/Preview unavailable or incomplete/);
+      expect(within(panel).getByRole('button', { name: 'Reset 0 locks' })).toBeDisabled();
+      expect(writes).toEqual([{ path: previewPath, body: { revision: 4 } }]);
+    });
+
+  it('uses arbitrary package copy rather than operator identity to expose recovery', async () => {
+    state.releases[0].application = { controlVersion: 1, recovery: {
+      label: 'Repair queue', description: 'Inspect failed queue entries.', prefix: 'queue:' } };
+    await open();
+    expect(screen.getByRole('button', { name: 'Repair queue' })).toHaveAccessibleDescription('Inspect failed queue entries.');
+    expect(screen.queryByRole('button', { name: 'Reset Locks' })).not.toBeInTheDocument();
+    expect(writes).toEqual([]);
+  });
+
+  it('loads every page before enabling confirmation, chunks at 64 and preserves versions and revision', async () => {
+    const rows = Array.from({ length: 65 }, (_, index) => recoveryRow(index));
+    recoveryPreview = async body => json({ items: body.after ? rows.slice(64) : rows.slice(0, 64),
+      nextCursor: body.after ? null : 'page-two' });
+    const panel = await recoverySurface('settings');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
+    expect(await within(panel).findByRole('button', { name: 'Reset 64 locks' })).toBeDisabled();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Load more locks' }));
+    const confirm = await within(panel).findByRole('button', { name: 'Reset 65 locks' });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    await within(panel).findByText('65 locks reset; 0 skipped. No run or settings change was requested.');
+    const requests = writes.filter(write => write.path === resetPath).map(write => write.body as ApplicationRecoveryResetInput);
+    expect(requests.map(({ revision, entries }) => ({ revision, entries }))).toEqual([
+      { revision: 4, entries: rows.slice(0, 64).map(({ key, version }) => ({ key, version })) },
+      { revision: 4, entries: rows.slice(64).map(({ key, version }) => ({ key, version })) },
+    ]);
+    expect(requests[0].requestId).not.toBe(requests[1].requestId);
+    expect(writes.filter(write => write.path === previewPath).map(write => write.body)).toEqual([
+      { revision: 4 }, { revision: 4, after: 'page-two' },
+    ]);
+    expect(writes.every(write => [previewPath, resetPath].includes(write.path))).toBe(true);
+  });
+
+  it.each(['stale', 'unavailable', 'duplicate-cursor'] as const)('refuses incomplete %s previews', async failure => {
+    recoveryPreview = async () => failure === 'duplicate-cursor'
+      ? json({ items: [], nextCursor: 'repeat' })
+      : json({ error: 'Not available' }, failure === 'stale' ? 409 : 503);
+    const panel = await recoverySurface('settings');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
+    if (failure === 'duplicate-cursor') {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Load more locks' }));
+    }
+    await within(panel).findByText(failure === 'stale' ? /This preview is stale/ : /Preview unavailable or incomplete/);
+    expect(within(panel).getByRole('button', { name: 'Reset 0 locks' })).toBeDisabled();
+    expect(writes.every(write => write.path === previewPath)).toBe(true);
+  });
+
+  it('requires a new preview after a stale reset, without automatically resetting newer claims', async () => {
+    recoveryReset = async () => json({ error: 'New claim' }, 409);
+    const panel = await recoverySurface('settings');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Reset 1 locks' }));
+    await within(panel).findByText(/0 locks confirmed reset.*This preview is stale/);
+    expect(within(panel).getByRole('button', { name: 'Reset 1 locks' })).toBeDisabled();
+    expect(writes.map(write => write.path)).toEqual([previewPath, resetPath]);
+  });
+
+  it('shows skipped outcomes and their reasons without resetting them again', async () => {
+    recoveryReset = async body => json({ requestId: body.requestId, reset: 0,
+      skipped: [{ key: body.entries[0].key, reason: 'Claim version changed.' }] });
+    const panel = await recoverySurface('settings');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Reset 1 locks' }));
+    await within(panel).findByText('0 locks reset; 1 skipped. No run or settings change was requested.');
+    expect(within(panel).getByText(`${recoveryRow(1).key} — Skipped: Claim version changed.`)).toBeVisible();
+    expect(within(panel).getByRole('button', { name: 'Reset 1 locks' })).toBeDisabled();
+  });
+
+  it.each([0, 64])('keeps %i prior successes truthful after a lost response and permits inspection only', async confirmed => {
+    const rows = Array.from({ length: confirmed ? 129 : 1 }, (_, index) => recoveryRow(index));
+    recoveryPreview = async body => {
+      const offset = Number(body.after ?? 0);
+      return json({ items: rows.slice(offset, offset + 64), nextCursor: offset + 64 < rows.length ? String(offset + 64) : null });
+    };
+    recoveryReset = async body => {
+      if (confirmed && body.entries[0].key === rows[0].key) return json({ requestId: body.requestId, reset: 64, skipped: [] });
+      throw new TypeError('Response lost');
+    };
+    const panel = await recoverySurface('settings');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
+    await within(panel).findByText(/eligible locks/);
+    if (confirmed) {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Load more locks' }));
+      await within(panel).findByRole('button', { name: 'Reset 128 locks' });
+      fireEvent.click(within(panel).getByRole('button', { name: 'Load more locks' }));
+    }
+    const confirm = await within(panel).findByRole('button', { name: `Reset ${rows.length} locks` });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    await within(panel).findByText(new RegExp(`${confirmed} locks confirmed reset.*Reset outcome unconfirmed.*${confirmed ? 1 : 0} not submitted`));
+    const operations = writes.filter(write => write.path === resetPath);
+    for (const operation of operations) expect(panel).toHaveTextContent((operation.body as ApplicationRecoveryResetInput).requestId);
+    fireEvent.click(within(panel).getByRole('button', { name: 'Inspect current locks' }));
+    await waitFor(() => expect(within(panel).getByRole('button', { name: `Reset ${confirmed ? 64 : 1} locks` })).toBeDisabled());
+    expect(writes.filter(write => write.path === resetPath)).toEqual(operations);
+    const lostRequest = operations[operations.length - 1].body as ApplicationRecoveryResetInput;
+    recoveryReset = async body => {
+      expect(body).toEqual(lostRequest);
+      return json({ requestId: body.requestId, reset: body.entries.length, skipped: [] });
+    };
+    fireEvent.click(within(panel).getByRole('button', { name: 'Check reset result' }));
+    await within(panel).findByText(new RegExp(`${confirmed + lostRequest.entries.length} locks confirmed reset.*${confirmed ? 1 : 0} not submitted.*explicitly confirm`));
+    expect(writes.filter(write => write.path === resetPath)).toEqual([...operations, operations[operations.length - 1]]);
+    expect(within(panel).queryByRole('button', { name: 'Check reset result' })).not.toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: `Reset ${confirmed ? 64 : 1} locks` })).toBeDisabled();
+  });
+
+  it('holds dropdown navigation and other actions while confirmation is pending', async () => {
+    let resolve!: (response: Response) => void;
+    let request!: ApplicationRecoveryResetInput;
+    recoveryReset = body => { request = body; return new Promise(done => { resolve = done; }); };
+    const panel = await recoverySurface('dropdown');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Reset 1 locks' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close operators' })).toBeDisabled());
+    expect(within(panel).getByRole('button', { name: 'Run once' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: 'Configure' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh installations' })).toBeDisabled();
+    resolve(json({ requestId: request.requestId, reset: 1, skipped: [] }));
+    await within(panel).findByText('1 locks reset; 0 skipped. No run or settings change was requested.');
+    expect(screen.getByRole('button', { name: 'Close operators' })).toBeEnabled();
+  });
 });

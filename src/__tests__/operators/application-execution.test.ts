@@ -417,6 +417,76 @@ describe('generic completed facts are original SDK settlement, not application p
     }));
 });
 
+describe('explicit owner recovery facts preserve original history', () => {
+  const request = (f: Fixture) => ({ human: f.authority.current.human, deadline: f.authority.current.deadline,
+    original: f.authority.original, ledger: f.authority.ledger });
+  it.each(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'orphan-response-cache', 'retained-result',
+    'missing-journal', 'invalid-aggregate', 'invalid-lease', 'incomplete', 'write', 'unknown-kind', 'foreign-owner',
+    'foreign-generation', 'ordinal-gap', 'count-mismatch', 'active', 'publication', 'session'] as const)(
+    'classifies %s without SDK receipt, mutation or new execution', name => fixture(async f => {
+      const lease = { ...f.profile, status: 'unknown',
+        submissionId: name === 'earlier-delivery-model' ? 'later-submission' : 'original-submission' };
+      const state = structuredClone(f.state) as Record<string, any>;
+      const authority = request(f);
+      const operations = name === 'zero' ? [] : [
+        { generation: 1, ordinal: 0, phase: 'completed', requestDigest: 'a'.repeat(64),
+          request: { method: 'GET', url: 'https://api.github.com/repos/acme/updates' } },
+        { generation: 1, ordinal: 1, phase: 'completed', requestDigest: 'b'.repeat(64),
+          deliveryBinding: { resource: 'inference', submissionId: 'original-submission' },
+          sdkHttp: { permitId: 'original-permit', attempts: 1 } },
+      ] as Array<Record<string, any>>;
+      if (name === 'incomplete') operations[0].phase = 'unknown';
+      if (name === 'write') operations[0].request.method = 'POST';
+      if (name === 'unknown-kind') delete operations[0].request;
+      if (name === 'foreign-generation') operations[0].generation = 3;
+      if (name === 'ordinal-gap') operations[0].ordinal = 5;
+      if (name === 'foreign-owner') authority.human = { ...authority.human, subject: 'foreign' };
+      if (name === 'active') state.drive = { ...state.drive, generation: 1, status: 'running' };
+      await f.native.storage.put({ admission: state, 'dispatcher:lease': name === 'invalid-lease' ? null : lease,
+        ...(name === 'invalid-aggregate' ? { 'dispatcher:operations': null } : {}),
+        ...(name === 'missing-journal' ? {} : { 'dispatcher:journal': {
+          generation: 1, count: operations.length + (name === 'count-mismatch' ? 1 : 0),
+          nextOrdinal: operations.length, unresolved: 0 } }),
+        ...Object.fromEntries(operations.map((value, index) => [`dispatcher:operation:1:op-${index}`, value])),
+        ...(name === 'response-cache' ? { 'dispatcher:response:op-0': { body: 'retained source bytes' },
+          'dispatcher:response:1:op-1': { body: 'retained model bytes' } } : {}),
+        ...(name === 'orphan-response-cache' ? { 'dispatcher:response:unaccounted': { body: 'unbound bytes' } } : {}),
+        ...(name === 'retained-result' ? { 'dispatcher:result:1': { original: 'retained result' } } : {}),
+        ...(name === 'publication' ? { 'renovate:publication': { effect: true } } : {}),
+        ...(name === 'session' ? { ownedSession: { sessionId: 'old-session' } } : {}),
+      });
+      const before = structuredClone(await f.native.storage.list());
+      const alarm = await f.native.storage.getAlarm();
+      const result = await f.activity.readRecoveryFacts(authority);
+      expect(result.resettable).toBe(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'retained-result'].includes(name));
+      if (result.resettable) expect(result).toMatchObject({ reason: 'fenced-no-write', proofDigest: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      expect(await f.native.storage.list()).toEqual(before);
+      expect(await f.native.storage.getAlarm()).toBe(alarm);
+      expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(f.receipt);
+      expect(f.unsafe).toEqual([]);
+    }));
+  it('recovers the retained 42-operation failure without terminal SDK receipt or history mutation', () => fixture(async f => {
+    const { serial: _serial, ...profile } = f.profile;
+    const entries: Record<string, unknown> = {};
+    for (let ordinal = 0; ordinal < 42; ordinal++) {
+      const id = `operation-${ordinal}`;
+      entries[`dispatcher:operation:1:${id}`] = { generation: 1, ordinal, phase: 'completed', requestDigest: hash(id),
+        ...(ordinal < 40 ? { request: { method: 'GET', url: `https://api.github.com/repos/acme/updates/pulls/${ordinal + 1}` } }
+          : { deliveryBinding: { resource: 'inference', submissionId: 'earlier-discovery' },
+            sdkHttp: { permitId: `permit-${ordinal}`, attempts: 1 } }) };
+      entries[`dispatcher:response:${ordinal < 40 ? '' : '1:'}${id}`] = { retained: `original-response-${ordinal}` };
+    }
+    await f.native.storage.put({ admission: f.state, ...entries,
+      'dispatcher:lease': { ...profile, status: 'unknown', submissionId: 'final-submission' },
+      'dispatcher:journal': { generation: 1, count: 42, nextOrdinal: 42, unresolved: 0 } });
+    const before = await f.native.storage.list();
+    expect(await f.activity.readRecoveryFacts(request(f))).toMatchObject({ resettable: true, reason: 'fenced-no-write' });
+    expect(await f.native.storage.list()).toEqual(before);
+    expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(f.receipt);
+    expect(f.unsafe).toEqual([]);
+  }));
+});
+
 // REQ-OPERATOR-090/091: original immutable admission AND current observation
 // authorize historical raw bytes, independently of the execution safety verdict.
 describe('generic historical execution private capture', () => {

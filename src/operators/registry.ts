@@ -9,7 +9,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, openOperatorSecret, sealOperatorSecret } from './protected-secrets';
 import { parseOperatorManifest, parseDispatcherBundle, validateOperatorEndpoint, type OperatorManifest } from './distribution';
-import { ValidationError } from '../lib/error-types';
+import { AppError, ValidationError } from '../lib/error-types';
 import type { DispatcherDeploymentVerification } from './dispatcher-deployment';
 import { isPiReasoningLevel, type PiReasoningLevel } from '../lib/reasoning-profiles';
 import { createLogger } from '../lib/logger';
@@ -29,7 +29,10 @@ import { ApplicationStateStore, ApplicationStateError, type ApplicationStateBind
 import { hasApplicationWorkflow, type RuntimeApplicationStateBinding, type ApplicationExecutionAuthority,
   type ApplicationExecutionRequest, type ApplicationExecutionFacts, type ApplicationExecutionRetirement } from './application-workflow';
 import { activateApplicationSchedule as activateSchedule, applicationScheduleStatus as scheduleStatus, runApplicationSchedules } from './application-schedule';
-import { canInvokeOperator, resolveBucketName } from '../lib/access';
+import { canInvokeOperator, canManageOperator, resolveBucketName } from '../lib/access';
+import { callApplicationRecovery, inspectRecoveryRecord, recoveryInventoryPage, applicationRecoveryPrefix,
+  recoveryDigest, recoveryEntries, type RecoveryInspection, type RecoveryFactsRequest, type RecoveryFacts } from './application-recovery';
+import type { StateRecord } from './application-state';
 import { createRawCapture, createOwnerRawCaptureStorage, captureRawInteraction, type RawCapture, type RawCaptureBinding, type RawCaptureReceipt } from './raw-capture-storage';
 import { captureError, hashDiagnostic } from './dispatcher-diagnostics-wire';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -1785,6 +1788,222 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       const failure = error instanceof ApplicationStateError ? error : new ApplicationStateError('unavailable');
       return { error: { status: failure.status, code: `application-state-${failure.code}` } };
     }
+  }
+
+  /** Human-only recovery; no admission, scheduling, cancellation or SDK runtime calls. */
+  async recoverApplication(input: { installationId: string; revision: number; human: VerifiedHumanAccessClaims;
+    authority: ManagementAuthority; platformAdmin: boolean;
+    operation: 'preview' | 'reset'; after?: string; requestId?: string; entries?: Array<{ key: string; version: string }> }): Promise<unknown> {
+    this.managementSchema();
+    const conflict = (): never => { throw new AppError('CONFLICT', 409, 'Application recovery conflict'); };
+    const denied = (): never => { throw new AppError('NOT_FOUND', 404, 'Operator not found'); };
+    const human = structuredClone(input.human);
+    const ownerKey = await operatorOwnerKey(human);
+    const selected = this.managementSelection(input.installationId);
+    if (!selected.ok) return conflict();
+    const selection = selected.value;
+    const manifestValue = JSON.parse(selection.manifestJson);
+    const { url: _artifactUrl, ...artifact } = manifestValue.artifact;
+    const manifest = parseOperatorManifest(JSON.stringify({ ...manifestValue, artifact }), 'https://recovery.invalid');
+    const descriptor = manifest.application?.recovery;
+    if (!descriptor) return conflict();
+    const currentLocal = (requireRevision = true) => {
+      const latest = this.managementSelection(input.installationId);
+      if (!latest.ok) return denied();
+      if (Date.now() >= input.authority.expiresAt || human.expiresAt * 1000 <= Date.now()) denied();
+      if (!input.platformAdmin && !canManageOperator(human, latest.value.operator, this.managementControls().managers)) denied();
+      if (requireRevision && latest.value.installation.revision !== input.revision
+        || latest.value.operator.revision !== input.authority.operatorRevision
+        || latest.value.controlsRevision !== input.authority.controlsRevision
+        || JSON.stringify(latest.value) !== JSON.stringify(selection)) conflict();
+    };
+    const current = async (requireRevision = true) => {
+      currentLocal(requireRevision);
+      if (input.platformAdmin) {
+        const raw = await (this.env as Env).KV.get(`user:${human.email.trim().toLowerCase()}`);
+        if (!raw || JSON.parse(raw).role !== 'admin') denied();
+      }
+      currentLocal(requireRevision);
+    };
+    // Inspecting an already-applied request requires current authority, but may
+    // return its original result after an installation revision has changed.
+    await current(false);
+    const sourceId = String(selection.operator.repositoryId);
+    const prefix = await applicationRecoveryPrefix(sourceId);
+    const requestId = input.operation === 'reset' ? z.string().uuid().parse(input.requestId) : crypto.randomUUID();
+    const entries = input.operation === 'reset' ? recoveryEntries.parse(input.entries) : [];
+    const requestDigest = await recoveryDigest(JSON.stringify({ installationId: input.installationId, revision: input.revision, entries }));
+    const requestKey = `${prefix}request:${await recoveryDigest(JSON.stringify([ownerKey, requestId]))}`;
+    type Result = { requestId: string; reset: number; skipped: Array<{ key: string; reason: string }> };
+    const replay = async (storage: Pick<DurableObjectStorage, 'get'>) => {
+      const previous = await storage.get<{ digest: string; result: Result }>(requestKey);
+      if (previous && previous.digest !== requestDigest) conflict();
+      return previous?.result;
+    };
+    if (input.operation === 'reset') {
+      const previous = await replay(this.ctx.storage);
+      if (previous) return previous;
+    }
+    await current();
+    const connection = await this.getManagementDispatcherConnection(input.installationId);
+    if (!connection || connection.releaseId !== selection.release.id
+      || connection.sourceCommit !== selection.release.sourceCommit || connection.bundleDigest !== selection.release.bundleDigest
+      || connection.manifestDigest !== selection.release.manifestDigest
+      || connection.compilerCommit !== selection.release.provenance.compilerCommit) return conflict();
+    const ownerBucket = await resolveBucketName(this.env as Env, human.email);
+    const inspect = (storage: Pick<DurableObjectStorage, 'get'>, key: string) => inspectRecoveryRecord(storage, key, sourceId, ownerKey, async record => {
+      if (typeof record.ownerKey !== 'string' || typeof record.installationId !== 'string' || typeof record.activityId !== 'string'
+        || !record.actor || typeof record.actor !== 'object' || Array.isArray(record.actor)) return 'malformed';
+      if (record.ownerKey !== ownerKey) return 'owner-mismatch';
+      const actor = record.actor as Record<string, unknown>;
+      if (actor.subject !== human.subject || actor.issuer !== human.issuer || typeof actor.email !== 'string'
+        || actor.email.toLowerCase() !== human.email.toLowerCase() || actor.bucket !== ownerBucket
+        || !Array.isArray(actor.audiences) || JSON.stringify([...actor.audiences].sort()) !== JSON.stringify([...human.audiences].sort())) return 'owner-mismatch';
+      const installation = this.managementInstallation(record.installationId);
+      const operator = installation && this.managementState(installation.operatorId);
+      return !operator || String(operator.repositoryId) !== sourceId ? 'source-mismatch' : null;
+    });
+    const originalLedgers = new Map<string, string>();
+    const facts = async (item: RecoveryInspection): Promise<RecoveryFacts> => {
+      if (!item.original || item.record.status !== 'owned') return { resettable: false, reason: item.record.reason };
+      const original = item.original;
+      const ledger = await this.getManagementAdmission(original.activityId);
+      originalLedgers.set(original.activityId, JSON.stringify(ledger));
+      const installation = this.managementInstallation(original.installationId);
+      const operator = ledger?.selection.operator ?? (installation && this.managementState(installation.operatorId));
+      if (!operator || String(operator.repositoryId) !== sourceId
+        || ledger && ledger.installationId !== original.installationId) return { resettable: false, reason: 'source-mismatch' };
+      if (!ledger && !original.legacy) return { resettable: false, reason: 'ledger-unavailable' };
+      const legacyPins = z.object({ operatorRevision: z.number().int().positive(), installationRevision: z.number().int().positive(),
+        controlsRevision: z.number().int().nonnegative(), releaseId: z.string().regex(scanId), bundleDigest: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(original.value);
+      const authority: RecoveryFactsRequest = { human, deadline: Math.min(human.expiresAt * 1000, input.authority.expiresAt),
+        original: { activityId: original.activityId, installationId: original.installationId, operatorId: operator.id,
+          sourceRepositoryId: operator.repositoryId, ownerKey, owner: { subject: human.subject, email: human.email,
+            issuer: human.issuer, audiences: [...human.audiences] }, binding: original.legacy ? 'legacy' : 'activity',
+          pins: ledger ? { operatorRevision: ledger.expectedOperatorRevision, installationRevision: ledger.expectedInstallationRevision,
+            controlsRevision: ledger.expectedControlsRevision, releaseId: ledger.selection.release.id,
+            bundleDigest: ledger.selection.release.bundleDigest } : legacyPins.success ? legacyPins.data : null },
+        ledger: { ok: true, receipt: ledger } };
+      const namespace = (this.env as Env).OPERATOR_ACTIVITY;
+      if (!namespace) return { resettable: false, reason: 'facts-unavailable' };
+      const activity = namespace.getByName(original.activityId);
+      return activity.readRecoveryFacts(authority);
+    };
+    // Scope selection sees ONLY original owned records. Paginate until the
+    // installed package identifies an owned anchor for its current configuration.
+    let scope: { prefix: string; anchorKey: string } | undefined;
+    let anchorVersion: string | undefined;
+    let cursor: string | undefined;
+    do {
+      const page = await recoveryInventoryPage(this.ctx.storage, sourceId, cursor);
+      const owned: RecoveryInspection[] = [];
+      for (const key of page.keys) {
+        if (!key.startsWith(descriptor.prefix)) continue;
+        const item = await inspect(this.ctx.storage, key);
+        if (item.record.status === 'owned') owned.push(item);
+      }
+      if (owned.length) {
+        const response = await callApplicationRecovery(this.env as Env, connection, 'scope', JSON.parse(selection.installation.configurationJson),
+          owned.map(item => item.record), requestId, current);
+        if (response.scope) {
+          if (!response.scope.prefix.startsWith(descriptor.prefix) || response.scope.prefix.length <= descriptor.prefix.length
+            || !response.scope.anchorKey.startsWith(response.scope.prefix)
+            || !owned.some(item => item.record.key === response.scope!.anchorKey)) return conflict();
+          scope = response.scope;
+          anchorVersion = owned.find(item => item.record.key === scope!.anchorKey)!.record.version;
+        }
+      }
+      cursor = page.nextCursor ?? undefined;
+    } while (!scope && cursor);
+    if (!scope) return input.operation === 'preview' ? { items: [], nextCursor: null } : conflict();
+    const approvedScope = scope;
+    const page = input.operation === 'preview' ? await recoveryInventoryPage(this.ctx.storage, sourceId, input.after) : { keys: entries.map(item => item.key), nextCursor: null };
+    const inspected: RecoveryInspection[] = [];
+    const proofs = new Map<string, RecoveryFacts>();
+    for (const key of page.keys) {
+      if (!key.startsWith(scope.prefix)) {
+        if (input.operation === 'reset') return conflict();
+        continue;
+      }
+      const item = await inspect(this.ctx.storage, key);
+      const proof = await facts(item);
+      proofs.set(key, proof);
+      if (item.record.status === 'owned') {
+        item.record = { ...item.record, resettable: proof.resettable, reason: proof.reason,
+          ...(proof.resettable && proof.invocation !== undefined ? { invocation: proof.invocation } : {}) };
+      }
+      inspected.push(item);
+    }
+    const response = inspected.length ? await callApplicationRecovery(this.env as Env, connection, 'reset', JSON.parse(selection.installation.configurationJson),
+      inspected.map(item => item.record), requestId, current) : { items: [] };
+    const choices = new Map(response.items.map(item => [item.key, item]));
+    if (input.operation === 'preview') {
+      await current();
+      return { items: inspected.map(item => {
+        const choice = choices.get(item.record.key);
+        return { key: item.record.key, version: item.record.version, label: choice?.label ?? item.record.key,
+          status: item.record.resettable && choice?.disposition === 'reset' ? 'resettable' : 'blocked',
+          reason: item.record.resettable ? choice?.reason ?? 'package-declined' : item.record.reason };
+      }), nextCursor: page.nextCursor };
+    }
+    // The old generation is already irreversibly fenced. Re-read its proof before
+    // entering the local CAS transaction; the transaction never calls an actor.
+    for (const item of inspected) {
+      const original = proofs.get(item.record.key);
+      if (original?.resettable) {
+        const fresh = await facts(item);
+        if (!fresh.resettable || fresh.proofDigest !== original.proofDigest) proofs.set(item.record.key, { resettable: false, reason: 'facts-changed' });
+      }
+    }
+    await current();
+    return this.ctx.storage.transaction(async tx => {
+      currentLocal();
+      const previous = await replay(tx);
+      if (previous) return previous;
+      const anchor = await inspect(tx, approvedScope.anchorKey);
+      if (anchor.record.status !== 'owned' || anchor.record.version !== anchorVersion) return conflict();
+      const result: Result = { requestId, reset: 0, skipped: [] };
+      let bytes = 0;
+      for (const entry of entries) {
+        const old = inspected.find(item => item.record.key === entry.key)!;
+        const latest = await inspect(tx, entry.key);
+        const proof = proofs.get(entry.key);
+        const choice = choices.get(entry.key);
+        const ledgerRow = latest.original && this.ctx.storage.sql.exec<{ data: string }>(
+          'SELECT data FROM operator_admissions WHERE activity_id=?', latest.original.activityId).toArray()[0];
+        if (entry.version !== old.record.version || latest.record.version !== entry.version
+          || latest.record.status !== 'owned' || !latest.original
+          || JSON.stringify(ledgerRow ? JSON.parse(ledgerRow.data) : null) !== originalLedgers.get(latest.original.activityId)) { result.skipped.push({ key: entry.key, reason: 'version-or-owner-changed' }); continue; }
+        if (!proof?.resettable || choice?.disposition !== 'reset' || choice.value === undefined) {
+          result.skipped.push({ key: entry.key, reason: proof?.resettable ? choice?.reason ?? 'package-declined' : proof?.reason ?? 'facts-unavailable' }); continue;
+        }
+        let origin = latest.raw;
+        if (!origin) {
+          const legacy = latest.original!.value as ProspectiveAdmission;
+          // Preserve the historical last-writer, never manufacture an active run.
+          origin = { schemaVersion: 1, sourceId, ownerKey, installationId: legacy.installationId,
+            activityId: legacy.activityId, generation: proof.origin.generation, deadline: proof.origin.deadline,
+            key: entry.key, legacy: latest.legacy, value: null };
+        }
+        const record: StateRecord = { ...origin, value: choice.value, legacy: latest.legacy };
+        const originalRecord = latest.raw ?? latest.original.value;
+        const auditId = await recoveryDigest(JSON.stringify([requestId, entry.key]));
+        const originalKey = `${prefix}original:${auditId}`;
+        const audit = { originalVersion: entry.version, originalKey, requestId,
+          actorHash: ownerKey, time: Date.now(), proofDigest: proof.proofDigest };
+        const size = new TextEncoder().encode(JSON.stringify(record)).byteLength;
+        const originalSize = new TextEncoder().encode(JSON.stringify(originalRecord)).byteLength;
+        bytes += size + originalSize + new TextEncoder().encode(JSON.stringify(audit)).byteLength;
+        if (size > 64 * 1024 || originalSize > 64 * 1024 || bytes > 1024 * 1024) return conflict();
+        await tx.put(originalKey, originalRecord);
+        await tx.put(latest.storageKey, record);
+        await tx.put(`${prefix}audit:${auditId}`, audit);
+        result.reset++;
+      }
+      currentLocal();
+      await tx.put(requestKey, { digest: requestDigest, result });
+      return result;
+    });
   }
 
   /** Read/fence an original owned execution, never wake or observe an old SDK job. */

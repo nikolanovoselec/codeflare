@@ -3,6 +3,7 @@ import { mdiChevronLeft, mdiMagnify } from '@mdi/js';
 import Icon from './Icon';
 import { runSettingsHelp, runSettingsSaved } from './OperatorRunSettings';
 import OperatorApplicationFields from './OperatorApplicationFields';
+import OperatorRecovery from './OperatorRecovery';
 import OperatorActivityPages from './OperatorActivityPages';
 import { ApiError } from '../api/fetch-helper';
 import { sessionStore } from '../stores/session';
@@ -66,7 +67,7 @@ const RoleHelp: Component<{ profile: InstalledOperator['profile'] }> = props => 
 };
 
 /** REQ-OPERATOR-209: Installed edits only saved settings; Administration owns explicit activation. */
-const Scheduling: Component<{ item: InstalledOperator; blocked: boolean; saved: (message: string) => void }> = props => {
+const Scheduling: Component<{ item: InstalledOperator; blocked: boolean; onPending: (pending: boolean) => void; saved: (message: string) => void }> = props => {
   const configId = createUniqueId();
   const [expanded, setExpanded] = createSignal(false);
   const [details] = createResource(() => expanded() && props.item.canManage ? props.item.operatorId : false, getManagedOperator);
@@ -84,7 +85,7 @@ const Scheduling: Component<{ item: InstalledOperator; blocked: boolean; saved: 
     if (props.blocked || pending() || saveUnconfirmed() || !props.item.canManage || !dirty()) return;
     const item = props.item;
     const currentScope = () => alive && props.item.id === item.id && props.item.revision === item.revision && props.item.canManage;
-    setPending(true); setMessage('');
+    setPending(true); props.onPending(true); setMessage('');
     try {
       const current = installation();
       if (!current || current.revision !== item.revision) throw new ApiError('Revision changed', 409, 'Conflict');
@@ -96,11 +97,11 @@ const Scheduling: Component<{ item: InstalledOperator; blocked: boolean; saved: 
         setMessage(error instanceof ApiError && error.status === 409 ? 'Installation revision changed. Refresh before saving again.'
           : 'Run settings save not confirmed. Refresh before acting.');
       }
-    } finally { if (currentScope()) setPending(false); }
+    } finally { if (alive) { setPending(false); props.onPending(false); } }
   };
   return <section class="operator-scheduling" aria-label="Automatic runs">
     <div class="operator-dropdown-heading"><span>Automatic runs: {props.item.automaticRuns ? 'saved on' : 'off'}</span>
-      <Show when={props.item.canManage}><button type="button" aria-expanded={expanded()} aria-controls={configId}
+      <Show when={props.item.canManage}><button type="button" disabled={props.blocked} aria-expanded={expanded()} aria-controls={configId}
         onClick={() => setExpanded(value => !value)}>Configure</button></Show>
     </div>
     <Show when={!props.item.canManage}><p>Management permission required to change scheduling.</p></Show>
@@ -119,10 +120,10 @@ const Scheduling: Component<{ item: InstalledOperator; blocked: boolean; saved: 
   </section>;
 };
 
-const InstalledSettings: Component<{ item: InstalledOperator; saved: (message: string) => void }> = props =>
+const InstalledSettings: Component<{ item: InstalledOperator; blocked: boolean; onPending: (pending: boolean) => void; saved: (message: string) => void }> = props =>
   <Show when={props.item.application?.controlVersion === 1 && props.item.automaticRuns !== null}
     fallback={<p>Automatic runs: <strong>Not configurable</strong></p>}>
-    <Scheduling item={props.item} blocked={false} saved={props.saved} />
+    <Scheduling item={props.item} blocked={props.blocked} onPending={props.onPending} saved={props.saved} />
   </Show>;
 
 /** Capabilities stay in this request's closure, never in markup or persistent UI state. */
@@ -208,14 +209,16 @@ const OperatorInstalled: Component<Props> = props => {
   };
   const loading = () => page.loading;
   const error = () => page.error;
-  const refresh = () => { void refetch(); };
+  const [pending, setPending] = createSignal(false);
+  const changePending = (value: boolean) => { setPending(value); props.locked(value); };
+  const refresh = () => { if (!pending()) void refetch(); };
   const [notice, setNotice] = createSignal('');
   const [selected, setSelected] = createSignal<InstalledOperator>();
   onCleanup(() => props.locked(false));
   return <Show when={selected()} fallback={<div class="operator-dropdown-body">
-    <div class="operator-dropdown-heading"><h3>Installed operators</h3><button type="button" onClick={refresh}>Refresh installations</button></div>
+    <div class="operator-dropdown-heading"><h3>Installed operators</h3><button type="button" disabled={pending()} onClick={refresh}>Refresh installations</button></div>
     <p class="operator-dropdown-muted">Run once when needed. Automatic runs are optional and configured separately.</p>
-    <label class="operator-run-search"><Icon path={mdiMagnify} size={18} aria-hidden="true" /><input type="search" aria-label="Find an installed operator" placeholder="Find an installed operator…" value={search()}
+    <label class="operator-run-search"><Icon path={mdiMagnify} size={18} aria-hidden="true" /><input type="search" disabled={pending()} aria-label="Find an installed operator" placeholder="Find an installed operator…" value={search()}
       onInput={event => setSearch(event.currentTarget.value)} /></label>
     <small class="operator-dropdown-muted">Search applies to the current page.</small>
     <Show when={notice()}><p role="status">{notice()}</p></Show>
@@ -230,12 +233,15 @@ const OperatorInstalled: Component<Props> = props => {
               </div>
               <RoleHelp profile={item.profile} />
             </header>
-            <InstalledSettings item={item} saved={message => { setNotice(message); refresh(); }} />
+            <InstalledSettings item={item} blocked={pending()} onPending={changePending} saved={message => { setNotice(message); queueMicrotask(refresh); }} />
+            <Show when={item.canManage && item.application?.recovery}><OperatorRecovery
+              installationId={item.id} revision={item.revision} recovery={item.application!.recovery!}
+              blocked={pending()} onPending={changePending} /></Show>
             <footer class="operator-installed-manual">
               <span>{item.application?.controlVersion === 1 ? 'Review one invocation' : 'Install a compatible release before starting.'}</span>
               <Show when={item.application?.controlVersion === 1}>
-                <button type="button" class="operator-primary-action" disabled={!item.canInvoke || !item.enabled || !item.approved}
-                  onClick={() => { if (item.canInvoke && item.enabled && item.approved && item.application?.controlVersion === 1) setSelected(item); }}>Run once</button>
+                <button type="button" class="operator-primary-action" disabled={pending() || !item.canInvoke || !item.enabled || !item.approved}
+                  onClick={() => { if (!pending() && item.canInvoke && item.enabled && item.approved && item.application?.controlVersion === 1) setSelected(item); }}>Run once</button>
               </Show>
             </footer>
             <Show when={!item.canInvoke}><small>Invocation permission required. Management access does not grant invocation.</small></Show>
@@ -243,8 +249,8 @@ const OperatorInstalled: Component<Props> = props => {
           </article>}</For>
         </Show>
         <OperatorActivityPages label="Installation pages" hasNewer={previous().length > 0} hasNext={!!current()?.cursor}
-          onNewer={() => { const values = previous(); setCursor(values[values.length - 1]); setPrevious(values.slice(0, -1)); }}
-          onNext={() => { setPrevious(values => [...values, cursor()]); setCursor(current()!.cursor); }} />
+          onNewer={() => { if (pending()) return; const values = previous(); setCursor(values[values.length - 1]); setPrevious(values.slice(0, -1)); }}
+          onNext={() => { if (pending()) return; setPrevious(values => [...values, cursor()]); setCursor(current()!.cursor); }} />
         <Show when={current()?.items.some(item => item.canManage)}>
           <footer><a href="/operators">Manage installations</a></footer>
         </Show>

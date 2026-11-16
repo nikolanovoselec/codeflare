@@ -110,7 +110,7 @@ function keysValid(keys: unknown): asserts keys is string[] {
     || !keys.every(identity) || new Set(keys).size !== keys.length) fail('invalid-request');
 }
 interface LegacySnapshot { storageKey: string; version: string | null }
-interface StateRecord extends ApplicationStateBinding {
+export interface StateRecord extends ApplicationStateBinding {
   schemaVersion: 1;
   key: string;
   legacy: LegacySnapshot | null;
@@ -122,7 +122,7 @@ interface ObservedKey {
   legacy: LegacySnapshot | null;
   size: number;
 }
-function recordValid(value: unknown): value is StateRecord {
+export function applicationStateRecordValid(value: unknown): value is StateRecord {
   if (!fields(value, ['schemaVersion', 'sourceId', 'installationId', 'ownerKey', 'activityId',
     'generation', 'deadline', 'key', 'legacy', 'value']) || value.schemaVersion !== 1 || !identity(value.key)) return false;
   const { sourceId, installationId, ownerKey, activityId, generation, deadline } = value;
@@ -182,7 +182,7 @@ export class ApplicationStateStore {
     if (raw !== undefined) {
       encodedRecord = json(raw, RECORD_BYTES, 'unavailable');
       size += bytes(encodedRecord);
-      if (!recordValid(raw) || raw.key !== key || raw.sourceId !== this.binding.sourceId) fail('unavailable');
+      if (!applicationStateRecordValid(raw) || raw.key !== key || raw.sourceId !== this.binding.sourceId) fail('unavailable');
       if (raw.ownerKey !== this.binding.ownerKey) return { entry: { key, status: 'conflict' }, legacy, size };
     }
     if (alias) {
