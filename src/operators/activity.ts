@@ -2849,10 +2849,6 @@ export class OperatorActivity extends Agent {
     const token = request.headers.get('x-codeflare-dispatcher-delivery');
     const delivery = lease.application.pending?.delivery ?? lease.application.delivery;
     if (token !== delivery.token || !await this.operatorGenerationCurrent(generation)) return dispatcherRefusal('execution-inactive');
-    const plan = await this.#normalDispatcherCurrent(lease);
-    if (!isManagementReceipt(plan.receipt)) return dispatcherRefusal('execution-inactive');
-    const authorization = await authorizeDispatcherPlan(plan, this.#appEnv);
-    const { installation, operator, release, controlsRevision } = plan.receipt.selection;
     if (contextOnly) {
       if (request.method === 'POST') {
         const body = z.strictObject({ deliveryToken: z.string() })
@@ -2867,11 +2863,16 @@ export class OperatorActivity extends Agent {
         lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       }
       if (!lease?.application || !lease.receipt || !this.#phaseTokenMatches(lease, token)) return dispatcherRefusal('receipt-unavailable');
-      await this.#normalDispatcherCurrent(lease);
+      const plan = await this.#normalDispatcherCurrent(lease);
+      if (!isManagementReceipt(plan.receipt)) return dispatcherRefusal('execution-inactive');
       const value = { context: lease.application.context, delivery: lease.application.delivery, receipt: lease.receipt };
       if (trace) emitRaw(trace, 'dispatcher-application-context', () => value);
       return Response.json(value, { headers: noStore });
     }
+    const plan = await this.#normalDispatcherCurrent(lease);
+    if (!isManagementReceipt(plan.receipt)) return dispatcherRefusal('execution-inactive');
+    const authorization = await authorizeDispatcherPlan(plan, this.#appEnv);
+    const { installation, operator, release, controlsRevision } = plan.receipt.selection;
     if (request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') return dispatcherRefusal('request-invalid');
     const value: unknown = JSON.parse(await readDispatcherBody(request, request.signal, 1024 * 1024));
     if (trace) emitRaw(trace, 'dispatcher-application-request', () => ({ path: new URL(request.url).pathname, body: value }));

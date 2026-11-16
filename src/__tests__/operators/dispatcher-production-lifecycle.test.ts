@@ -2962,7 +2962,7 @@ describe('normal installed Dispatcher control', () => {
     } finally { acknowledgement.release(); await starting; if (pending) await pending; }
   }, applicationOptions));
 
-  it('REQ-OPERATOR-048: application context refuses a replaced pre-ACK authorization snapshot without replacing the receipt', () => fixture(async f => {
+  it('REQ-OPERATOR-048: application context joins the original ACK across authorization without replacing the receipt', () => fixture(async f => {
     const acknowledgement = f.normalTransport!.delayAcknowledgement(); const starting = start(f);
     let pending: Promise<Response> | undefined;
     try {
@@ -2979,13 +2979,41 @@ describe('normal installed Dispatcher control', () => {
       pending = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'context', { deliveryToken: token },
         { 'x-codeflare-dispatcher-delivery': token }), { method: 'POST', body }));
       const response = await within(pending, 'context across original ACK');
-      expect(response.status).toBe(403);
-      expect(await response.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
-      // A new read may use the now-bound receipt; the stale snapshot may not.
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ context: applicationContexts[0], delivery: { token, ordinal: 1 }, receipt });
       expect(await applicationContext(f)).toEqual({ context: applicationContexts[0], delivery: { token, ordinal: 1 }, receipt });
       expect(f.normalTransport!.admissions.size).toBe(1); expect(f.sent).toEqual([]); expect(f.ownerPortRequests).toEqual([]);
     } finally { acknowledgement.release(); await starting; if (pending) await pending; }
   }, applicationOptions));
+
+  it.each(['cancel', 'expiry', 'revocation', 'rotated-deployment'] as const)(
+    'REQ-OPERATOR-003/047/048: context retains %s denial after joining the original ACK', fault => fixture(async f => {
+      const acknowledgement = f.normalTransport!.delayAcknowledgement(); const starting = start(f);
+      let pending: Promise<Response> | undefined;
+      try {
+        await within(acknowledgement.entered, 'external acceptance before context');
+        const token = deliveryToken(f); const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+        const bytes = new TextEncoder().encode(JSON.stringify({ deliveryToken: token }));
+        const body = new ReadableStream<Uint8Array>({ async pull(controller) {
+          try {
+            acknowledgement.release(); await within(starting, 'original ACK before revocation');
+            if (fault === 'cancel') await f.activity.cancelDrive();
+            else if (fault === 'expiry') f.expire();
+            else if (fault === 'revocation') f.revoke();
+            else f.changeConnection({ workerVersionId: 'replacement-worker' });
+            controller.enqueue(bytes); controller.close();
+          } catch (error) { controller.error(error); }
+        } }, { highWaterMark: 0 });
+        pending = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'context', { deliveryToken: token },
+          { 'x-codeflare-dispatcher-delivery': token }), { method: 'POST', body }));
+        const response = await within(pending, 'context after original ACK and revocation');
+        expect(response.status).toBe(403);
+        expect(await response.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+        expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+        expect(f.sent).toEqual([]); expect(f.ownerPortRequests).toEqual([]);
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      } finally { acknowledgement.release(); await starting; if (pending) await pending; }
+    }, applicationOptions));
 
   it.each(['cancel', 'expiry', 'revocation', 'foreign-deployment', 'rotated-deployment', 'foreign-token', 'mismatched-token'] as const)(
     'REQ-OPERATOR-003/047/048: installed application context retains %s denial without effects', fault => fixture(async f => {
