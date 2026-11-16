@@ -17,6 +17,9 @@ export type RecoveryFacts = { resettable: false; reason: string } | {
   resettable: true; reason: string; proofDigest: string; invocation?: unknown;
   origin: { generation: number; deadline: number };
 };
+// JSON escaping can expand a valid 1-KiB key sixfold; reserve room for
+// its anchor metadata and the nested continuation cursor as well.
+export const RECOVERY_CURSOR_MAX_CHARS = 16 * 1024;
 const recoveryKey = z.string().min(1).max(1024);
 const recoveryVersion = z.string().regex(/^[a-f0-9]{64}$/);
 export const recoveryEntries = z.array(z.strictObject({ key: recoveryKey, version: recoveryVersion })).min(1).max(64)
@@ -89,7 +92,7 @@ const previewCursor = z.discriminatedUnion('phase', [
 ]);
 export function parseRecoveryCursor(value?: string): z.infer<typeof previewCursor> {
   try {
-    return value === undefined ? { phase: 'scope' } : previewCursor.parse(JSON.parse(z.string().max(4096).parse(value)));
+    return value === undefined ? { phase: 'scope' } : previewCursor.parse(JSON.parse(z.string().max(RECOVERY_CURSOR_MAX_CHARS).parse(value)));
   } catch { throw new ValidationError('Invalid recovery cursor'); }
 }
 

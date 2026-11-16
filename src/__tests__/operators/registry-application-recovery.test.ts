@@ -55,8 +55,8 @@ async function seed(state: DurableObjectState) {
   const storageKey = `${prefix}${await recoveryDigest(key)}`;
   const original = { schemaVersion: 1, sourceId: '23', ownerKey, installationId: 'install', activityId: 'old', generation: 1, deadline: 1,
     key, legacy: null, value: { original: 'PRIVATE_HISTORY' } };
-  const ledger = { installationId: 'install', activityId: 'old', expectedOperatorRevision: 1, expectedInstallationRevision: 1,
-    expectedControlsRevision: 1, selection: { operator, installation, release } };
+  const ledger = structuredClone({ installationId: 'install', activityId: 'old', expectedOperatorRevision: 1, expectedInstallationRevision: 1,
+    expectedControlsRevision: 1, selection: { operator, installation, release } });
   await state.storage.put(storageKey, original);
   state.storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', 'old', JSON.stringify(ledger));
   const callback: { alter?: () => Promise<void>; malformed?: boolean; declineKey?: string;
@@ -210,6 +210,28 @@ describe('real Registry recovery transaction', () => {
     expect(await f.state.storage.get(storageKey)).toMatchObject({ value: { reset: true } });
     await f.state.storage.put(f.storageKey, { ...f.original, ownerKey: 'f'.repeat(64) });
     await expect(f.preview(page.nextCursor ?? page.scopeCursor)).rejects.toThrow();
+  }));
+  it('round-trips escaped opaque anchors through preview continuation and reset', () => fixture(async f => {
+    const key = `opaque:scope:${'\u0001'.repeat(1000)}`;
+    await f.state.storage.put(`${f.prefix}${await recoveryDigest(key)}`, { ...f.original, key });
+    for (let index = 0; index < 70; index++) {
+      const other = `opaque:scope:escaped-${index}`;
+      await f.state.storage.put(`${f.prefix}${await recoveryDigest(other)}`, { ...f.original, key: other });
+    }
+    f.callback.scopeAnchor = key;
+    let page = await f.preview();
+    let selected: { key: string; version: string } | undefined;
+    let after: string | null;
+    do {
+      const found = page.items.find(item => item.key === key);
+      if (found) selected = { key: found.key, version: found.version };
+      after = page.nextCursor;
+      if (after) page = await f.preview(after);
+    } while (after !== null);
+    expect(selected).toBeDefined();
+    expect(page.scopeCursor!.length).toBeGreaterThan(4096);
+    expect(await f.registry.recoverApplication({ ...f.base, operation: 'reset', requestId: crypto.randomUUID(),
+      scopeCursor: page.scopeCursor, entries: [selected!] })).toMatchObject({ reset: 1, skipped: [] });
   }));
   it('previews more than 64 records through bounded callback pages', () => fixture(async f => {
     for (let index = 0; index < 70; index++) {

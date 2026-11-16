@@ -8,7 +8,7 @@ import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
 import { inferencePolicySchema } from '../operators/policy';
-import { recoveryEntries, parseRecoveryCursor } from '../operators/application-recovery';
+import { recoveryEntries, parseRecoveryCursor, RECOVERY_CURSOR_MAX_CHARS } from '../operators/application-recovery';
 import { OperatorInferenceSelectionError, resolveOperatorInference } from '../operators/inference-selection';
 import { DispatcherSdkSettingsUnconfiguredError, readDispatcherSdkFiles } from '../operators/dispatcher-sdk-storage';
 import { provisionDispatcherDeployment, verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
@@ -48,9 +48,9 @@ const configuration = z.record(z.string().max(256), z.json());
 const piReasoningOverride = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional();
 const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256), policy, revision, configuration: configuration.default({}), piReasoningOverride });
 const revisionBody = z.strictObject({ revision });
-const recoveryPreviewBody = z.strictObject({ revision, after: z.string().min(1).max(4096).optional() });
+const recoveryPreviewBody = z.strictObject({ revision, after: z.string().min(1).max(RECOVERY_CURSOR_MAX_CHARS).optional() });
 const recoveryResetBody = z.strictObject({ revision, requestId: z.string().uuid(), entries: recoveryEntries,
-  scopeCursor: z.string().min(1).max(4096).optional() });
+  scopeCursor: z.string().min(1).max(RECOVERY_CURSOR_MAX_CHARS).optional() });
 const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
 const dispatcherConnectionBody = z.strictObject({ revision, connectionSecret: githubPat.max(4096),

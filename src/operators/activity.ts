@@ -2930,7 +2930,7 @@ export class OperatorActivity extends Agent {
           }
         });
         if (createHash('sha256').update(encoded).digest('hex') !== digest) throw new Error('Application settlement changed');
-        savedSettlement = settlementSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(encoded)));
+        savedSettlement = settlementSchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(encoded)));
       } else if (retained) savedSettlement = retained.settlement; // Existing inline records remain replayable.
       if (confirmed && savedPending && !sameDispatcherPhaseValue(savedSettlement, confirmed)) {
         throw new Error('Application pending settlement changed');

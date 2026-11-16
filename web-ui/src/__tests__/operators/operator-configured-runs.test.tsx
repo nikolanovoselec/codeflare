@@ -676,7 +676,7 @@ describe('application-owned lock recovery', () => {
         ...(invalid === 'oversized-label' ? { label: 'l'.repeat(257) } : {}),
       }];
       recoveryPreview = async () => json({ items, nextCursor: null,
-        ...(invalid === 'oversized-scope' ? { scopeCursor: 's'.repeat(4097) } : {}),
+        ...(invalid === 'oversized-scope' ? { scopeCursor: 's'.repeat(16 * 1024 + 1) } : {}),
         ...(invalid === 'invalid-scope' ? { scopeCursor: 1 } : {}) });
       const panel = await recoverySurface('settings');
       fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
@@ -692,6 +692,28 @@ describe('application-owned lock recovery', () => {
     expect(screen.getByRole('button', { name: 'Repair queue' })).toHaveAccessibleDescription('Inspect failed queue entries.');
     expect(screen.queryByRole('button', { name: 'Reset Locks' })).not.toBeInTheDocument();
     expect(writes).toEqual([]);
+  });
+
+  it('preserves an escaped-key cursor through continuation and reset', async () => {
+    const row = { ...recoveryRow(1), key: `${recovery.prefix}${'\u0001'.repeat(1000)}` };
+    const anchor = { key: row.key, version: row.version };
+    const scopeCursor = JSON.stringify({ phase: 'records', anchor });
+    const nextCursor = JSON.stringify({ phase: 'records', anchor, after: '["l",""]' });
+    expect(scopeCursor.length).toBeGreaterThan(4096);
+    recoveryPreview = async body => json({ items: body.after ? [] : [row],
+      nextCursor: body.after ? null : nextCursor, scopeCursor });
+    const panel = await recoverySurface('settings');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Load more locks' }));
+    const confirm = await within(panel).findByRole('button', { name: 'Reset 1 locks' });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    await within(panel).findByText('1 locks reset; 0 skipped. No run or settings change was requested.');
+    expect(writes.filter(write => write.path === previewPath).map(write => write.body)).toEqual([
+      { revision: 4 }, { revision: 4, after: nextCursor },
+    ]);
+    expect(writes.find(write => write.path === resetPath)?.body).toEqual({ revision: 4,
+      requestId: expect.any(String), entries: [{ key: row.key, version: row.version }], scopeCursor });
   });
 
   it.each([undefined, 'opaque-owned-anchor'])('loads every page before enabling confirmation, chunks at 64 and preserves versions, revision and scope witness %s', async scopeCursor => {

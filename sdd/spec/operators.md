@@ -2785,6 +2785,8 @@ Relocated to [the Dispatcher application specification](https://github.com/nikol
 6. Package-declared recovery appears consistently in installation settings and the installed dropdown card, with the same hover and keyboard-accessible explanation. <!-- @impl: web-ui/src/components/OperatorRecovery.tsx::OperatorRecovery --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (%s previews read-only and confirms only exact eligible versions) --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (%s omits undeclared recovery) -->
 7. Partial recovery reports each skipped record and its reason without treating it as reset. <!-- @impl: src/operators/registry.ts::recoverApplication --> <!-- @test: src/__tests__/operators/registry-application-recovery.test.ts (reports partial application decisions and preserves every skipped original) -->
 
+**Notes:** [Application recovery and hosted qualification](../../documentation/lanes/operators.md#application-recovery).
+
 **Constraints:**
 
 - Application code owns record meaning and recovery policy; Root provides only verified identity, original execution facts, atomic storage and generic rendering.
@@ -2796,8 +2798,6 @@ Relocated to [the Dispatcher application specification](https://github.com/nikol
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-086](#req-operator-086-dropdown-runs-and-installed-workspace)
-
-**Notes:** [Application recovery and hosted qualification](../../documentation/lanes/operators.md#application-recovery).
 
 **Verification:** Automated: [application-execution.test.ts](../../src/__tests__/operators/application-execution.test.ts), [registry-application-recovery.test.ts](../../src/__tests__/operators/registry-application-recovery.test.ts), [application-recovery.test.ts](../../src/__tests__/operators/application-recovery.test.ts), [operator-management-recovery.test.ts](../../src/__tests__/routes/operator-management-recovery.test.ts), [operator-configured-runs.test.tsx](../../web-ui/src/__tests__/operators/operator-configured-runs.test.tsx)
 
