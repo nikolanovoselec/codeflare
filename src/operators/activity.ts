@@ -1029,15 +1029,16 @@ export class OperatorActivity extends Agent {
         const proof: OriginalExecutionProof = { original, ledger: request.ledger, current: { deadline: request.deadline } };
         if (!await this.#applicationExecutionBinding(proof, snapshot)) return { resettable: false, reason: 'original-binding-mismatch' };
         const state = snapshot.state;
-        const success = async (reason: string): Promise<import('./application-recovery').RecoveryFacts> => ({
+        const success = async (reason: string, generation: number): Promise<import('./application-recovery').RecoveryFacts> => ({
           resettable: true, reason, proofDigest: await this.#applicationExecutionVersion(proof, snapshot),
-          origin: { generation: state?.diagnosticBinding?.generation ?? state?.drive?.generation ?? 1,
-            deadline: state?.intent.deadline ?? request.deadline },
+          origin: { generation, deadline: state?.intent.deadline ?? request.deadline },
           ...(state?.invocationJson === undefined ? {} : { invocation: JSON.parse(state.invocationJson) }),
         });
         if (await this.#applicationNeverStarted(proof, snapshot)
           && (snapshot.retirement === original.activityId || state?.drive?.status === 'unknown'
-            && state.drive.generation > (state.diagnosticBinding?.generation ?? Number.MAX_SAFE_INTEGER))) return success('never-started');
+            && state.drive.generation > (state.diagnosticBinding?.generation ?? Number.MAX_SAFE_INTEGER))) {
+          return success('never-started', state?.diagnosticBinding?.generation ?? state?.drive?.generation ?? 1);
+        }
         const entries = snapshot.entries;
         const journal = entries.get(DISPATCHER_JOURNAL) as DispatcherJournal | undefined;
         if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.executionContext
@@ -1047,10 +1048,9 @@ export class OperatorActivity extends Agent {
           || journal.nextOrdinal !== journal.count || journal.unresolved !== 0) return { resettable: false, reason: 'journal-unaccounted' };
         if (!state.drive || state.drive.generation <= journal.generation
           || !['unknown', 'cancel-requested'].includes(state.drive.status)
-          || !state.diagnosticFence || state.diagnosticFence.generation < journal.generation
-          || state.diagnosticBinding?.generation !== journal.generation
-          || state.diagnosticBinding.artifactDigest !== state.executionContext.artifactDigest
-          || state.diagnosticBinding.inputDigest !== state.receipt.intentDigest) return { resettable: false, reason: 'active-or-unfenced' };
+          || !state.diagnosticFence || state.diagnosticFence.generation < journal.generation) {
+          return { resettable: false, reason: 'active-or-unfenced' };
+        }
         const lease = entries.get(DISPATCHER_LEASE) as DispatcherLease | undefined;
         const profile = entries.get(DISPATCHER_PROFILE_LEASE) as DispatcherLease | undefined;
         if (entries.has(DISPATCHER_LEASE) && !lease || entries.has(DISPATCHER_PROFILE_LEASE) && !profile) {
@@ -1119,7 +1119,7 @@ export class OperatorActivity extends Agent {
                 || operation.sdkHttp && typeof operation.sdkHttp.permitId === 'string' && Number.isSafeInteger(operation.sdkHttp.attempts))) return { resettable: false, reason: 'unknown-operation' };
           }
         }
-        return success('fenced-no-write');
+        return success('fenced-no-write', journal.generation);
       });
     } catch { return { resettable: false, reason: 'facts-unavailable' }; }
   }

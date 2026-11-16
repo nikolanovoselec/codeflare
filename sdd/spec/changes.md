@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-16: Functional recovery proof
+
+- Keep accounted no-write recovery eligibility and original generation independent of optional diagnostic bindings; retain original ownership, admission, generation-fence, lease and complete no-write journal checks ([REQ-OPERATOR-210](operators.md#req-operator-210-owner-authorized-application-state-recovery)).
+
 ## 2026-11-15: Conductor documentation ownership split
 
 - Move remaining packet/lane/reviewer, history/reassessment, publication-format and operating guidance to the existing Conductor requirements and its [canonical Review guide](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md), without duplicating requirements or moving local Pi `/review` policy.
