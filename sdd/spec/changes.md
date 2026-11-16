@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-16: Obsolete Dispatcher infrastructure cleanup
+
+- REQ-OPERATOR-107 replaces indefinite old Worker/SDK-namespace retention with proven-owned cleanup after verified replacement activation. Original admissions are fenced before deletion; Root history, receipts, journals and uncertain-write holds remain intact. Failed cleanup remains visible and retryable without replacing the serving Worker. Implementation, exact-head CI and authorized hosted cleanup verification remain separate gates.
+
 ## 2026-11-16: Delivery proof, verified release and configuration refusals
 
 - REQ-OPERATOR-048/062 preserve ordinary settlement for completed unassociated SDK model HTTP without inventing delivery association; unresolved effects remain blocking and historical recovery still requires its original proof.

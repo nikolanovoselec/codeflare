@@ -4,6 +4,8 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import type { Env } from '../../types';
 import { setLogLevel } from '../../lib/logger';
 import { OperatorRegistry, type DispatcherConnectionMetadata } from '../../operators/registry';
+import { OperatorActivity, createOperatorIntentDigest } from '../../operators/activity';
+import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { parseDispatcherBundle } from '../../operators/distribution';
 import { verifyDispatcherDeployment } from '../../operators/dispatcher-deployment';
 import { openOperatorSecret } from '../../operators/protected-secrets';
@@ -140,6 +142,62 @@ function deferred() {
   return { promise, resolve };
 }
 
+type Activation = Parameters<Parameters<typeof withActivation>[0]>[0];
+async function promoteNext(f: Activation, active: Installation): Promise<Installation> {
+  f.github.setReleaseCount(2);
+  const operator = (await f.detail()).operator;
+  const refreshed = await f.request(`/operators/${f.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+  expect(refreshed.status).toBe(200);
+  const next = (await refreshed.json() as { items: Release[] }).items.find(release => release.id !== f.release.id)!;
+  const promoted = await f.request(`/installations/${active.id}/promote`, 'POST', { revision: active.revision, releaseId: next.id });
+  expect(promoted.status).toBe(200);
+  return promoted.json() as Promise<Installation>;
+}
+function seedCandidate(f: Activation, original: UploadedDispatcher,
+  change: (script: UploadedDispatcher) => void = () => {}): UploadedDispatcher {
+  const candidate = { ...structuredClone(original), name: `dispatcher-${crypto.randomUUID()}`,
+    versionId: crypto.randomUUID(), deploymentId: crypto.randomUUID(), namespaceId: crypto.randomUUID().replaceAll('-', '') };
+  change(candidate); f.platform.seedDeployment(candidate); return candidate;
+}
+// Real Root Activity + immutable Registry receipt, without executing a Worker bundle.
+async function withOriginalActivity(f: Activation, active: Installation,
+  test: (original: { activity: OperatorActivity; restart: () => OperatorActivity; activityId: string;
+    receipt: Awaited<ReturnType<OperatorRegistry['getManagementAdmission']>> }) => Promise<void>) {
+  const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
+  const activityId = `activity-${crypto.randomUUID()}`;
+  await runInDurableObject(namespace.getByName(activityId), async (_instance, ctx) => {
+    let activity = new OperatorActivity(ctx, f.bindings as unknown as ConstructorParameters<typeof OperatorActivity>[1]);
+    const previous = f.bindings.OPERATOR_ACTIVITY as { getByName: (id: string) => OperatorActivity } | undefined;
+    f.bindings.OPERATOR_ACTIVITY = { getByName: (id: string) => {
+      if (id === activityId) return activity;
+      if (previous) return previous.getByName(id);
+      throw new Error('Unknown Root Activity');
+    }, idFromName: namespace.idFromName.bind(namespace) };
+    const selected = await f.registry.resolveManagementExecution(active.id);
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) throw new Error('Expected enabled original');
+    const invocationJson = '{}'; const startCapability = 's'.repeat(43);
+    const hash = async (text: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const now = Math.floor(Date.now() / 1000);
+    const execution = await createOperatorExecutionContext({ activityId, operatorId: f.operatorId,
+      artifactDigest: selected.value.release.bundleDigest, policyDigest: await hash(JSON.stringify(active.policy)),
+      human: { subject: 'original-owner', email: 'manager@example.test', issuer: 'https://access.example.test',
+        audiences: ['audience'], issuedAt: now - 1, expiresAt: now + 300 }, accessJwt: 'fixture-original-access' }, encryption);
+    expect(await activity.prepareAuthorized({ activityId, operatorId: f.operatorId, installationId: active.id,
+      expectedRevision: selected.value.operator.revision, expectedInstallationRevision: active.revision,
+      expectedControlsRevision: selected.value.controlsRevision,
+      intentDigest: await createOperatorIntentDigest(f.operatorId, activityId, invocationJson),
+      deadline: (now + 300) * 1000, startExpiresAt: (now + 300) * 1000, startVerifier: await hash(startCapability),
+    }, execution, invocationJson)).toEqual({ ok: true, phase: 'prepared' });
+    expect(await activity.start(startCapability)).toEqual({ ok: true, phase: 'queued' });
+    const receipt = await f.registry.getManagementAdmission(activityId);
+    expect(receipt).toMatchObject({ activityId, selection: { installation: { dispatcherConnection: active.dispatcherConnection } } });
+    await test({ activity, activityId, receipt,
+      restart: () => (activity = new OperatorActivity(ctx, f.bindings as unknown as ConstructorParameters<typeof OperatorActivity>[1])) });
+  });
+}
+
 // REQ-OPERATOR-107 AC1 is the normal UI's existing Enable API contract; these tests do not add a deploy endpoint.
 describe('approved normal Dispatcher activation through existing management Enable', () => {
   // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC1; REQ-OPERATOR-107 AC1.
@@ -228,8 +286,8 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
-  // Current split mapping (historical title unchanged): REQ-OPERATOR-046 AC3/AC4; REQ-OPERATOR-107 AC4; REQ-OPERATOR-048 unchanged.
-  it('REQ-OPERATOR-046/048: AC3/7 upgrade creates a distinct Worker and SQLite namespace while preserving original runtime and history', () => withActivation(async f => {
+  // Task131: REQ-OPERATOR-107 AC4/5; original Root history remains retained.
+  it('REQ-OPERATOR-107: upgrade deletes obsolete Worker and namespace while preserving selected deployment and Root history', () => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const originalInstallation = await first.json() as Installation;
     const original = structuredClone(f.platform.scripts.get(originalInstallation.dispatcherConnection!.workerName)!);
@@ -253,7 +311,12 @@ describe('approved normal Dispatcher activation through existing management Enab
     const selected = f.platform.scripts.get(upgraded.dispatcherConnection!.workerName)!;
     expect(selected.name).not.toBe(original.name);
     expect(selected.namespaceId).not.toBe(original.namespaceId);
-    expect(f.platform.scripts.get(original.name)).toEqual(original);
+    expect(f.platform.scripts.has(original.name)).toBe(false);
+    expect(f.platform.namespaces.has(original.namespaceId)).toBe(false);
+    expect(f.platform.namespaces.get(selected.namespaceId)).toMatchObject({ script: selected.name, use_sqlite: true });
+    expect(f.platform.writes.filter(write => write.method === 'DELETE')).toEqual([
+      { method: 'DELETE', path: `/client/v4/accounts/${f.platform.accountId}/workers/scripts/${original.name}`, query: '' },
+    ]);
     expect(await f.registry.getManagementConfigurationHistory(originalInstallation.id, originalInstallation.revision)).toEqual(historical);
     expect(await f.registry.getManagementDispatcherAbortConnection(originalInstallation.id,
       originalInstallation.dispatcherConnection!.connectionRevision)).toMatchObject({ workerName: original.name, workerVersionId: original.versionId });
@@ -298,6 +361,8 @@ describe('approved normal Dispatcher activation through existing management Enab
       expect(current.dispatcherConnection!.workerName).not.toBe(candidate.name);
       expect(current.dispatcherConnection!.workerVersionId).not.toBe(candidate.versionId);
       expect(f.platform.scripts.get(original.name)).toEqual(original);
+      expect(f.platform.namespaces.get(original.namespaceId)).toMatchObject({ script: original.name });
+      expect(f.platform.writes.filter(write => write.method === 'DELETE')).toEqual([]);
       expect(await f.registry.getManagementDispatcherAbortConnection(originalInstallation.id, connection.connectionRevision)).toEqual(abortConnection);
       expect(await f.registry.getManagementConfigurationHistory(originalInstallation.id, originalInstallation.revision)).toEqual(historical);
       expect((await f.registry.resolveManagementExecution(originalInstallation.id)).ok).toBe(false);
@@ -330,8 +395,8 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
-  // Current split mapping (historical title unchanged): REQ-OPERATOR-107 AC3; REQ-OPERATOR-048 unchanged.
-  it('REQ-OPERATOR-046/048: AC6 retry after uncertain upload creates a fresh candidate without mutating the retained orphan', () => withActivation(async f => {
+  // Task131: REQ-OPERATOR-107 AC3/4/5; only a verified activation permits orphan cleanup.
+  it('REQ-OPERATOR-107: authorized retry after uncertain upload activates a fresh candidate and deletes the owned orphan', () => withActivation(async f => {
     f.platform.setFault('upload-uncertain');
     expect((await enable(f)).status).toBeGreaterThanOrEqual(400);
     expect([...f.platform.scripts.values()]).toEqual([expect.objectContaining({ name: expect.any(String) })]);
@@ -345,7 +410,10 @@ describe('approved normal Dispatcher activation through existing management Enab
     const selected = f.platform.scripts.get(active.dispatcherConnection!.workerName)!;
     expect(selected.name).not.toBe(orphan.name);
     expect(selected.namespaceId).not.toBe(orphan.namespaceId);
-    expect(f.platform.scripts.get(orphan.name)).toEqual(orphan);
+    expect(f.platform.scripts.has(orphan.name)).toBe(false);
+    expect(f.platform.namespaces.has(orphan.namespaceId)).toBe(false);
+    expect(f.platform.scripts.size).toBe(1);
+    expect(f.platform.namespaces.get(selected.namespaceId)).toMatchObject({ script: selected.name });
     expect(active).toMatchObject({ enabled: true, configuration, policy });
     await expectNoActivity(f.ctx);
   }));
@@ -607,6 +675,208 @@ describe('approved normal Dispatcher activation through existing management Enab
       expect(f.platform.scripts.size).toBe(0);
       await expectNoActivity(f.ctx);
     }, options));
+});
+
+describe('REQ-OPERATOR-107: authorized obsolete deployment cleanup', () => {
+  it('REQ-OPERATOR-107: all original admissions across same-name connection revisions are fenced before platform deletion', () => withActivation(async f => {
+    const first = await enable(f); expect(first.status).toBe(200);
+    const active = await first.json() as Installation;
+    const old = structuredClone(f.platform.scripts.get(active.dispatcherConnection!.workerName)!);
+    await withOriginalActivity(f, active, async one => {
+      // Rotate credentials/connection revision without changing Worker NAME.
+      const { installationId: _installationId, connectionRevision: _connectionRevision, ...metadata } = active.dispatcherConnection!;
+      const configured = await f.request(`/installations/${active.id}/dispatcher-connection`, 'POST', {
+        ...metadata, revision: active.revision, connectionSecret: uploadedSecret(old),
+      });
+      expect(configured.status).toBe(200);
+      const rotated = await configured.json() as Installation;
+      const script = f.platform.scripts.get(old.name)!;
+      script.metadata.bindings.find(binding => binding.name === 'OPERATOR_CONNECTION_REVISION')!.text =
+        String(rotated.dispatcherConnection!.connectionRevision);
+      const reused = await enable(f, rotated); expect(reused.status).toBe(200);
+      const sameName = await reused.json() as Installation;
+      expect(sameName.dispatcherConnection!.workerName).toBe(old.name);
+      expect(f.platform.scripts.has(old.name)).toBe(true);
+      expect(f.platform.writes.filter(write => write.method === 'DELETE')).toEqual([]);
+      await withOriginalActivity(f, sameName, async two => {
+        await withOriginalActivity(f, sameName, async three => {
+          const originals = [one, two, three];
+          const history = await f.registry.getManagementConfigurationHistory(active.id, active.revision);
+          const pending = await promoteNext(f, sameName);
+          // Promotion revokes new authority but is not sufficient to fence queued generations.
+          for (const original of originals) expect(await original.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'queued' });
+          f.platform.beforeDelete(async name => {
+            expect(name).toBe(old.name);
+            expect((await f.detail()).installations[0]).toMatchObject({ enabled: true, releaseId: pending.releaseId });
+            for (const original of originals) {
+              expect((await original.activity.beginDrive()).ok).toBe(false);
+              expect(await original.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', result: null });
+              expect(await f.registry.getManagementAdmission(original.activityId)).toEqual(original.receipt);
+            }
+          });
+          const response = await enable(f, pending); expect(response.status).toBe(200);
+          const replacement = await response.json() as Installation;
+          expect(f.platform.scripts.has(old.name)).toBe(false);
+          expect(f.platform.namespaces.has(old.namespaceId)).toBe(false);
+          expect([...f.platform.scripts.keys()]).toEqual([replacement.dispatcherConnection!.workerName]);
+          for (const original of originals) {
+            expect((await original.restart().beginDrive()).ok).toBe(false);
+            expect(await f.registry.getManagementAdmission(original.activityId)).toEqual(original.receipt);
+          }
+          expect(await f.registry.getManagementConfigurationHistory(active.id, active.revision)).toEqual(history);
+          expect(await f.registry.getManagementDispatcherAbortConnection(active.id, active.dispatcherConnection!.connectionRevision))
+            .toMatchObject(active.dispatcherConnection!);
+        });
+      });
+    });
+  }));
+
+  it('REQ-OPERATOR-107: documented inventory removes every owned obsolete/orphaned upload but preserves selected and unproved ownership', () => withActivation(async f => {
+    const first = await enable(f); expect(first.status).toBe(200);
+    const active = await first.json() as Installation;
+    const selected = structuredClone(f.platform.scripts.get(active.dispatcherConnection!.workerName)!);
+    const owned = Array.from({ length: 5 }, () => seedCandidate(f, selected));
+    const foreign = [
+      seedCandidate(f, selected, script => { script.metadata.bindings.find(binding => binding.name === 'OPERATOR_INSTALLATION_ID')!.text = 'other-installation'; }),
+      seedCandidate(f, selected, script => { script.metadata.bindings.find(binding => binding.name === 'OPERATOR')!.service = 'other-parent'; }),
+      seedCandidate(f, selected, script => { script.metadata.bindings = script.metadata.bindings.filter(binding => binding.name !== 'OPERATOR_INSTALLATION_ID'); }),
+      seedCandidate(f, selected, script => { script.metadata.bindings = script.metadata.bindings.filter(binding => binding.name !== 'OPERATOR'); }),
+      seedCandidate(f, selected, script => { script.metadata.bindings.find(binding => binding.name === 'OPERATOR')!.entrypoint = 'UnrelatedCapability'; }),
+      seedCandidate(f, selected, script => { script.metadata.bindings.push({ name: 'OPERATOR_INSTALLATION_ID', type: 'plain_text', text: 'other-installation' }); }),
+      seedCandidate(f, selected, script => { script.name = `unrelated-${crypto.randomUUID()}`; }),
+    ];
+    const disabled = await f.request(`/installations/${active.id}/enable`, 'POST', { revision: active.revision, enabled: false });
+    expect(disabled.status).toBe(200);
+    const uploads = structuredClone(f.platform.uploads);
+    const response = await enable(f, await disabled.json() as Installation); expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ enabled: true, dispatcherConnection: active.dispatcherConnection });
+    for (const obsolete of owned) {
+      expect(f.platform.scripts.has(obsolete.name)).toBe(false);
+      expect(f.platform.namespaces.has(obsolete.namespaceId)).toBe(false);
+    }
+    expect(f.platform.scripts.get(selected.name)).toEqual(selected);
+    for (const unowned of foreign) {
+      expect(f.platform.scripts.get(unowned.name)).toEqual(unowned);
+      expect(f.platform.namespaces.get(unowned.namespaceId)).toMatchObject({ script: unowned.name });
+    }
+    expect(f.platform.uploads).toEqual(uploads); // Cleanup/reuse must not upload another runtime.
+    expect(f.platform.writes.filter(write => write.method === 'DELETE').map(write => write.path).sort())
+      .toEqual(owned.map(script => `/client/v4/accounts/${f.platform.accountId}/workers/scripts/${script.name}`).sort());
+    expect(f.platform.writes.filter(write => write.method === 'DELETE').every(write => write.query === '')).toBe(true);
+    expect(f.platform.unexpected).toEqual([]);
+    await expectNoActivity(f.ctx);
+  }));
+
+  it.each([200, 404])('REQ-OPERATOR-107: DELETE HTTP%s (including empty success/already absent) completes cleanup without disturbing replacement', status => withActivation(async f => {
+    const first = await enable(f); expect(first.status).toBe(200);
+    const active = await first.json() as Installation;
+    const old = structuredClone(f.platform.scripts.get(active.dispatcherConnection!.workerName)!);
+    f.platform.setDeleteResponse(old.name, status);
+    const response = await enable(f, await promoteNext(f, active)); expect(response.status).toBe(200);
+    const replacement = await response.json() as Installation;
+    expect(replacement).toMatchObject({ enabled: true });
+    expect(f.platform.scripts.has(old.name)).toBe(false);
+    expect(f.platform.namespaces.has(old.namespaceId)).toBe(false);
+    expect(f.platform.scripts.get(replacement.dispatcherConnection!.workerName)).toMatchObject({ versionId: replacement.dispatcherConnection!.workerVersionId });
+    expect(f.platform.writes.filter(write => write.method === 'DELETE')).toEqual([
+      { method: 'DELETE', path: `/client/v4/accounts/${f.platform.accountId}/workers/scripts/${old.name}`, query: '' },
+    ]);
+    expect(f.platform.unexpected).toEqual([]);
+  }));
+
+  it('REQ-OPERATOR-107: failed deletion reports incomplete cleanup, leaves verified replacement enabled and fresh Enable retries without uploading', () => withActivation(async f => {
+    const logs = captureLogs();
+    const first = await enable(f); expect(first.status).toBe(200);
+    const active = await first.json() as Installation;
+    const old = structuredClone(f.platform.scripts.get(active.dispatcherConnection!.workerName)!);
+    const history = await f.registry.getManagementConfigurationHistory(active.id, active.revision);
+    f.platform.setDeleteResponse(old.name, 403);
+    const response = await enable(f, await promoteNext(f, active)); expect(response.status).toBe(409);
+    const error = await response.text();
+    expect(error).toMatch(/activat/i); expect(error).toMatch(/cleanup/i); expect(error).toMatch(/incomplete|failed|pending/i);
+    const replacement = (await f.detail()).installations[0]!;
+    expect(replacement).toMatchObject({ enabled: true });
+    expect(replacement.dispatcherConnection!.workerName).not.toBe(old.name);
+    const selected = structuredClone(f.platform.scripts.get(replacement.dispatcherConnection!.workerName)!);
+    expect(selected.versionId).toBe(replacement.dispatcherConnection!.workerVersionId);
+    expect((await f.registry.resolveManagementExecution(active.id)).ok).toBe(true);
+    expect(f.platform.scripts.get(old.name)).toEqual(old);
+    expect(f.platform.namespaces.has(old.namespaceId)).toBe(true);
+    const uploads = structuredClone(f.platform.uploads);
+    // Neither stale nor unauthorized requests may use cleanup as an ambient write capability.
+    expect((await enable(f, active)).status).toBe(409);
+    callerEmail = 'outsider@example.test';
+    expect((await enable(f, replacement)).status).toBe(404);
+    callerEmail = 'manager@example.test';
+    expect(f.platform.writes.filter(write => write.method === 'DELETE')).toEqual([
+      { method: 'DELETE', path: `/client/v4/accounts/${f.platform.accountId}/workers/scripts/${old.name}`, query: '' },
+    ]);
+    f.platform.setDeleteResponse(old.name, 200);
+    const retried = await enable(f, replacement); expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({ enabled: true, dispatcherConnection: replacement.dispatcherConnection });
+    expect(f.platform.uploads).toEqual(uploads);
+    expect(f.platform.scripts.get(selected.name)).toEqual(selected);
+    expect(f.platform.scripts.has(old.name)).toBe(false); expect(f.platform.namespaces.has(old.namespaceId)).toBe(false);
+    expect(await f.registry.getManagementConfigurationHistory(active.id, active.revision)).toEqual(history);
+    for (const secret of [f.platform.token, uploadedSecret(old), uploadedSecret(selected), 'acquisition-only-pat']) {
+      expect(error).not.toContain(secret); expect(logs()).not.toContain(secret);
+    }
+  }));
+
+  it.each(['revoked', 'stale'] as const)('REQ-OPERATOR-107: %s replacement after upload cannot delete old serving infrastructure', variant => withActivation(async f => {
+    const first = await enable(f); expect(first.status).toBe(200);
+    const active = await first.json() as Installation;
+    const old = structuredClone(f.platform.scripts.get(active.dispatcherConnection!.workerName)!);
+    const pending = await promoteNext(f, active);
+    f.platform.afterUpload(async () => {
+      if (variant === 'revoked') identityCurrent = false;
+      else expect((await f.request(`/installations/${active.id}/configure`, 'POST', {
+        revision: pending.revision, policy, configuration: { concurrent: true } })).status).toBe(200);
+    });
+    expect((await enable(f, pending)).status).toBeGreaterThanOrEqual(400);
+    identityCurrent = true;
+    expect((await f.detail()).installations[0]).toMatchObject({ enabled: false, dispatcherConnection: active.dispatcherConnection });
+    expect(f.platform.scripts.get(old.name)).toEqual(old);
+    expect(f.platform.namespaces.get(old.namespaceId)).toMatchObject({ script: old.name });
+    expect(f.platform.writes.filter(write => write.method === 'DELETE')).toEqual([]);
+  }));
+
+  it.each(['authority-revoked', 'settings-unavailable'] as const)(
+    'REQ-OPERATOR-107: %s during candidate settings read cannot authorize deletion', fault => withActivation(async f => {
+    const first = await enable(f); expect(first.status).toBe(200);
+    const active = await first.json() as Installation;
+    const selected = structuredClone(f.platform.scripts.get(active.dispatcherConnection!.workerName)!);
+    const obsolete = seedCandidate(f, selected);
+    f.platform.beforeSettingsRead(async name => {
+      if (name !== obsolete.name) return;
+      if (fault === 'authority-revoked') identityCurrent = false;
+      else throw new Error('PRIVATE_CANDIDATE_SETTINGS_UNAVAILABLE');
+    });
+    const response = await enable(f, active);
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(await response.text()).not.toContain('PRIVATE_CANDIDATE_SETTINGS_UNAVAILABLE');
+    identityCurrent = true;
+    expect((await f.detail()).installations[0]).toMatchObject({ enabled: true, dispatcherConnection: active.dispatcherConnection });
+    expect(f.platform.writes.filter(write => write.method === 'DELETE')).toEqual([]);
+    expect(f.platform.scripts.get(obsolete.name)).toEqual(obsolete);
+    expect(f.platform.namespaces.has(obsolete.namespaceId)).toBe(true);
+    expect(f.platform.scripts.get(selected.name)).toEqual(selected);
+  }));
+
+  it('REQ-OPERATOR-107: unavailable original Root Activity prevents deletion without rolling back enabled replacement', () => withActivation(async f => {
+    const first = await enable(f); expect(first.status).toBe(200);
+    const active = await first.json() as Installation;
+    await withOriginalActivity(f, active, async original => {
+      const old = structuredClone(f.platform.scripts.get(active.dispatcherConnection!.workerName)!);
+      // Missing Root binding is an infrastructure failure, not permission to skip its receipt.
+      delete f.bindings.OPERATOR_ACTIVITY;
+      const response = await enable(f, await promoteNext(f, active)); expect(response.status).toBe(409);
+      expect((await f.detail()).installations[0]).toMatchObject({ enabled: true });
+      expect(f.platform.scripts.get(old.name)).toEqual(old); expect(f.platform.namespaces.has(old.namespaceId)).toBe(true);
+      expect(f.platform.writes.filter(write => write.method === 'DELETE')).toEqual([]);
+      expect(await f.registry.getManagementAdmission(original.activityId)).toEqual(original.receipt);
+    });
+  }));
 });
 
 // Public Cloudflare upload/settings wire, not a source-text assertion and not

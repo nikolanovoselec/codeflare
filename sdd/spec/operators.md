@@ -642,7 +642,7 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 <a id="req-operator-107-exact-normal-dispatcher-activation"></a>
 ### REQ-OPERATOR-107: Exact normal Dispatcher activation
 
-**Intent:** Enabling an approved normal Dispatcher provisions or reuses its exact verified deployment without overwriting a selected runtime or losing retained deployment state.
+**Intent:** Enabling an approved normal Dispatcher uses its exact verified deployment and removes obsolete infrastructure without losing Root-owned execution evidence.
 
 **Applies To:** User
 
@@ -651,19 +651,28 @@ Historical evidence is not current-head or deployment acceptance. The normative 
 1. Enabling an approved normal Dispatcher provisions its exact acquired deployment when no matching connection exists, protects the installation-only secret and independently verifies platform facts before enabling. <!-- @impl: src/operators/dispatcher-deployment.ts::provisionDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
 2. A matching existing connection is verified and reused without replacing its runtime. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (matching connection verifies and reuses) -->
 3. Stale or lost authority, upload uncertainty and verification failure cannot enable work or overwrite a previously selected runtime. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
-4. Upgrades retain original deployment endpoints, configuration history and SDK storage. <!-- @impl: src/operators/dispatcher-deployment.ts::provisionDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
+4. Successful activation removes obsolete installation Workers and their SDK namespaces while retaining Root configuration history and original execution receipts. <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (upgrade deletes obsolete Worker and namespace) -->
+5. Cleanup deletes only platform-verified resources of the same installation and Root parent, excluding the selected Worker by name, including same-name rotations. <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (documented inventory removes every owned obsolete/orphaned upload) --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (all original admissions across same-name connection revisions) -->
+6. Every original admission using an obsolete Worker is durably fenced before deletion, including recorded admissions that have not finished queuing. <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (all original admissions across same-name connection revisions) --> <!-- @test: src/__tests__/operators/dispatcher-deployment-retirement.test.ts (immutable admission recorded before retirement cannot queue) -->
+7. Incomplete cleanup is reported without disabling the verified replacement; a fresh authorized Enable retries cleanup without uploading another Worker. <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (failed deletion reports incomplete cleanup) -->
 
 **Notes:** Activation and its qualification boundary are documented in [Trusted Dispatcher hosting](../../documentation/lanes/operators.md#normal-dispatcher-hosting).
 
-**Constraints:** Promotion never expands installation policy or caller authority.
+**Constraints:**
+
+- Current management authority, revisions, release pins and original expiry remain mandatory across protected I/O; cleanup never expands authority.
+- Failed or unverified replacement cannot delete the previously selected infrastructure.
+- Root admissions, configuration history, checkpoints/results, receipts, effect journals, private archives and application holds remain intact. Deletion proves neither SDK settlement, absent writes nor retry eligibility.
+- Include all original connection revisions and proven-owned orphaned uploads; a name prefix alone proves no ownership.
+- Do not force deletion through unrelated references, resurrect old SDK jobs, add a daemon or introduce settings.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-044](#req-operator-044-github-immutable-package-acquisition)
 
-**Verification:** Automated: [dispatcher-activation.test.ts](../../src/__tests__/operators/dispatcher-activation.test.ts), [operator-promotion.test.ts](../../src/__tests__/operators/operator-promotion.test.ts)
+**Verification:** Automated: [dispatcher-activation.test.ts](../../src/__tests__/operators/dispatcher-activation.test.ts), [dispatcher-deployment-retirement.test.ts](../../src/__tests__/operators/dispatcher-deployment-retirement.test.ts), [operator-promotion.test.ts](../../src/__tests__/operators/operator-promotion.test.ts)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
