@@ -54,12 +54,13 @@ type Api = (path: string, method?: string, body?: unknown, csrf?: boolean) => Pr
 async function withActivation(test: (f: {
   request: Api; detail: () => Promise<Detail>; installation: Installation; release: Release; operatorId: string;
   platform: ReturnType<typeof createDispatcherCloudflareFixture>; github: Awaited<ReturnType<typeof createOperatorGitHubFixture>>;
-  registry: OperatorRegistry; registryStub: DurableObjectStub; ctx: DurableObjectState; kv: ReturnType<typeof createMockKV>;
+  registry: OperatorRegistry; registryStub: () => DurableObjectStub; ctx: DurableObjectState; kv: ReturnType<typeof createMockKV>;
   bindings: Record<string, unknown>; beforeAccountRead: (hook: () => Promise<void>) => void;
 }) => Promise<void>, options: { profile?: 'conductor' | 'dispatcher'; historical?: boolean; promote?: boolean } = {}) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
-  const registryStub = namespace.get(namespace.newUniqueId());
-  await runInDurableObject(registryStub, async (_instance, ctx) => {
+  const registryId = namespace.newUniqueId();
+  const registryStub = () => namespace.get(registryId);
+  await runInDurableObject(registryStub(), async (_instance, ctx) => {
     const registry = new OperatorRegistry(ctx, encryption);
     const platform = createDispatcherCloudflareFixture();
     const github = await createOperatorGitHubFixture({ profile: options.profile ?? 'dispatcher',
@@ -167,7 +168,7 @@ async function withOriginalActivity(f: Activation, active: Installation,
     receipt: Awaited<ReturnType<OperatorRegistry['getManagementAdmission']>> }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   const activityId = `activity-${crypto.randomUUID()}`;
-  const stub = namespace.getByName(activityId);
+  const stub = () => namespace.getByName(activityId);
   const selected = await f.registry.resolveManagementExecution(active.id);
   expect(selected.ok).toBe(true);
   if (!selected.ok) throw new Error('Expected enabled original');
@@ -182,7 +183,7 @@ async function withOriginalActivity(f: Activation, active: Installation,
   }, idFromName: namespace.idFromName.bind(namespace) };
   const activityEnv = { ...f.bindings, OPERATOR_REGISTRY: { getByName: () => registry } } as unknown as ConstructorParameters<typeof OperatorActivity>[1];
   try {
-    await runInDurableObject(stub, async (_instance, ctx) => {
+    await runInDurableObject(stub(), async (_instance, ctx) => {
       instance = new OperatorActivity(ctx, activityEnv);
       const invocationJson = '{}';
       const startCapability = 's'.repeat(43);
@@ -204,7 +205,7 @@ async function withOriginalActivity(f: Activation, active: Installation,
     const receipt = await f.registry.getManagementAdmission(activityId);
     expect(receipt).toMatchObject({ activityId, selection: { installation: { dispatcherConnection: active.dispatcherConnection } } });
     await test({ activity, activityId, receipt, restart: async () => {
-      await runInDurableObject(stub, async (_instance, ctx) => { instance = new OperatorActivity(ctx, activityEnv); });
+      await runInDurableObject(stub(), async (_instance, ctx) => { instance = new OperatorActivity(ctx, activityEnv); });
       return activity;
     } });
   } finally {

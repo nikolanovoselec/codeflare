@@ -53,13 +53,14 @@ async function withRetirement(test: (f: DispatcherFixture & {
   connection: DispatcherConnectionMetadata; afterRecorded: (hook: () => Promise<void>) => void;
 }) => Promise<void>, options: Parameters<typeof fixture>[1] = {}) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
-  const stub = namespace.get(namespace.newUniqueId());
-  await runInDurableObject(stub, async (_instance, ctx) => {
+  const id = namespace.newUniqueId();
+  const stub = () => namespace.get(id);
+  await runInDurableObject(stub(), async (_instance, ctx) => {
     const instance = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('a'.repeat(32)) });
     await instance.getManagementAdmission('initialize-schema');
     const registry = bindDurableObjectContext(stub, () => instance);
     const inRegistry = <T>(action: (storage: DurableObjectStorage) => T | Promise<T>) =>
-      runInDurableObject(stub, async () => action(ctx.storage));
+      runInDurableObject(stub(), async () => action(ctx.storage));
     let receipt!: ManagementAdmissionReceipt;
     let connection!: DispatcherConnectionMetadata;
     let afterRecorded: (() => Promise<void>) | undefined;
