@@ -31,7 +31,8 @@ export default function OperatorActivityResult(props: { result: unknown }) {
               <a href={prUrl!} target="_blank" rel="noopener noreferrer">PR #{number}</a>
             </Show></h5>
             <p><strong>Outcome: {readable(item?.outcome) || unavailableEvidence}</strong></p>
-            <p>Decision: {readable(item?.decision) || unavailableEvidence}</p>
+            <p>Decision: {item?.decision == null ? 'Not reported' : readable(item.decision) || unavailableEvidence}</p>
+            <Show when={item?.reason !== undefined}><p>Reason: {readable(item?.reason) || unavailableEvidence}</p></Show>
             <Show when={item?.comment !== undefined}><Show when={assessmentText(item?.comment)} fallback={<p>{unavailableEvidence}</p>}>
               {comment => <details><summary>Read full assessment</summary><p class="operator-full-assessment">{comment()}</p></details>}
             </Show></Show>

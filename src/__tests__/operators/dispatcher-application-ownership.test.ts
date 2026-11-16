@@ -53,6 +53,19 @@ async function denied(response: Response) {
   expect(await response.text()).not.toContain('PRIVATE_FOREIGN_VALUE');
 }
 
+/** Preserve each actual Activity's native context across the historical RPC seam. */
+function routeHistoricalActivity(current: DispatcherFixture, original: DispatcherFixture) {
+  current.environment.OPERATOR_ACTIVITY = {
+    idFromName: () => { throw Error('Registry must not select a native identity'); },
+    getByName: (id: string) => {
+      if (id === current.activityId) return current.activity;
+      if (id !== original.activityId) throw Error('Unexpected historical target');
+      return { readApplicationExecutionFacts: (authority: Parameters<typeof original.activity.readApplicationExecutionFacts>[0]) =>
+        original.inOwnContext(() => original.activity.readApplicationExecutionFacts(authority)) };
+    },
+  } as never;
+}
+
 /** Actual Registry SQLite owns state; only the existing fixture's identity,
  * deployment and bundle services remain controlled. No replacement CAS exists.
  * New Registry methods are reached through the real instance, in its own DO.
@@ -570,6 +583,99 @@ describe('generic application decisions on the existing normal control lifecycle
         applicationConfiguration: { ...configuration, repository: 'acme/updates' }, applicationWriteRepositoriesPath: '/repository' });
     });
 
+  it.each([false, true, 'malformed-binding'] as const)('REQ-OPERATOR-048: a failed delivery retains original proof before planner I/O, sourceWrite=%s', sourceWrite => withRegistry(async r => {
+    const remote = interruptedSettlementPlan();
+    await fixture(async original => {
+      r.attach(original); await planned(original);
+      const first = accepted(original)[0];
+      const version = await create(original, 'target-reservation', { work: 'original-target', activityId: original.activityId });
+      if (sourceWrite) {
+        const delivery = plans(original)[0].delivery as { token: string };
+        const response = await original.installationCapability.fetch(normalCallback(original.activityId, 'source', {
+          operationId: 'original-comment', method: 'POST',
+          url: 'https://api.github.com/repos/acme/updates/issues/17/comments', body: '{"body":"Original assessment"}',
+        }, { 'x-codeflare-dispatcher-delivery': delivery.token }));
+        expect(response.status).toBe(200);
+        if (sourceWrite === 'malformed-binding') await original.mutateEvidence(async storage => {
+          const operations = await storage.list<Record<string, any>>({ prefix: 'dispatcher:operation:' });
+          const source = [...operations].find(([, value]) => value.request?.method === 'POST');
+          if (!source) throw Error('Original source operation unavailable');
+          await storage.put(source[0], { ...source[1],
+            deliveryBinding: { resource: 'fetch', submissionId: 42, deliveryToken: {} } });
+        });
+      }
+      original.normalTransport!.settleSubmission(first.receipt.submissionId, 'failed', []);
+      await original.activity.reconcileDispatcherLease();
+      expect(await original.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      const originalWrites = original.sent.filter(request => request.method !== 'GET').map(request => request.url);
+      await fixture(async current => {
+        routeHistoricalActivity(current, original);
+        r.attach(current); await start(current);
+        const delivery = plans(current)[0].delivery as { token: string };
+        const response = await current.installationCapability.fetch(normalCallback(current.activityId, 'execution', {
+          operation: 'read-delivery', key: 'target-reservation', version, activityId: original.activityId,
+        }, { 'x-codeflare-dispatcher-delivery': delivery.token }));
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ status: 'delivery', activityId: original.activityId,
+          generation: 1, sdkSubmissionId: first.receipt.submissionId, settled: true, fenced: true,
+          outcome: 'failed', noExternalWrites: !sourceWrite });
+        expect(await read(current, ['target-reservation'])).toEqual([{ key: 'target-reservation', status: 'value',
+          version, value: { work: 'original-target', activityId: original.activityId } }]);
+        expect(original.sent.filter(request => request.method !== 'GET').map(request => request.url)).toEqual(originalWrites);
+      }, { ...workflowOptions, registryAdapter: r.adapter });
+    }, { ...workflowOptions, registryAdapter: r.adapter, applicationPlan: remote.plan,
+      applicationConfiguration: { ...configuration, repository: 'acme/updates' }, applicationWriteRepositoriesPath: '/repository' });
+  }));
+
+  it('REQ-OPERATOR-048: later delivery updates cannot relabel a claim, while a new Activity binds its own delivery', () => withRegistry(async r => {
+    await fixture(async original => {
+      r.attach(original); await planned(original);
+      const key = 'target-origin', first = accepted(original)[0];
+      const initialVersion = await create(original, key, { activityId: original.activityId });
+      const delivery = plans(original)[0].delivery as { token: string };
+      expect((await original.installationCapability.fetch(normalCallback(original.activityId, 'source', {
+        operationId: 'original-assessment', method: 'POST',
+        url: 'https://api.github.com/repos/acme/updates/issues/17/comments', body: '{"body":"Original assessment"}',
+      }, { 'x-codeflare-dispatcher-delivery': delivery.token }))).status).toBe(200);
+      original.normalTransport!.settleSubmission(first.receipt.submissionId, 'completed');
+      await original.activity.reconcileDispatcherLease();
+      const second = accepted(original)[1];
+      expect(second.receipt.submissionId).not.toBe(first.receipt.submissionId);
+      expect((await cas(original, [{ key, version: initialVersion }],
+        [{ key, value: { activityId: original.activityId, updated: true } }])).status).toBe(200);
+      const [updated] = await read(original, [key]);
+      if (updated.status !== 'value') throw Error('Updated claim unavailable');
+      original.normalTransport!.settleSubmission(second.receipt.submissionId, 'completed');
+      await original.activity.reconcileDispatcherLease();
+      await fixture(async current => {
+        routeHistoricalActivity(current, original); r.attach(current); await planned(current);
+        const execution = (f: DispatcherFixture, activityId: string, version: string) => f.inOwnContext(() =>
+          f.installationCapability.fetch(normalCallback(f.activityId, 'execution', {
+            operation: 'read-delivery', key, activityId, version,
+          }, { 'x-codeflare-dispatcher-delivery': (plans(f).at(-1)!.delivery as { token: string }).token })));
+        const evidence = await execution(current, original.activityId, updated.version);
+        expect(evidence.status).toBe(200);
+        expect(await evidence.json()).toMatchObject({ status: 'delivery', activityId: original.activityId,
+          sdkSubmissionId: first.receipt.submissionId, noExternalWrites: false });
+        expect((await cas(current, [{ key, version: updated.version }],
+          [{ key, value: { activityId: current.activityId } }])).status).toBe(200);
+        const [rebound] = await read(current, [key]);
+        if (rebound.status !== 'value') throw Error('New Activity claim unavailable');
+        const newReceipt = accepted(current)[0].receipt;
+        current.normalTransport!.settleSubmission(newReceipt.submissionId, 'completed');
+        await current.activity.reconcileDispatcherLease();
+        await fixture(async reader => {
+          routeHistoricalActivity(reader, current); r.attach(reader); await planned(reader);
+          const evidence = await execution(reader, current.activityId, rebound.version);
+          expect(evidence.status).toBe(200);
+          expect(await evidence.json()).toMatchObject({ status: 'delivery', activityId: current.activityId,
+            sdkSubmissionId: newReceipt.submissionId, noExternalWrites: true });
+        }, { ...workflowOptions, registryAdapter: r.adapter });
+      }, { ...workflowOptions, registryAdapter: r.adapter });
+    }, { ...workflowOptions, registryAdapter: r.adapter,
+      applicationConfiguration: { ...configuration, repository: 'acme/updates' }, applicationWriteRepositoriesPath: '/repository' });
+  }));
+
   // REQ-OPERATOR-048 AC2: independently valid current inputs must remain
   // replayable when their combined size exceeds SQLite's 8 MB key/value bound.
   it('replays a large settlement beside an existing checkpoint exceeding 8 MB combined', async () => {
@@ -907,16 +1013,7 @@ describe('historical execution callback capture policy', () => {
         const oldRequests = [...original.normalTransport!.requests];
         await fixture(async current => {
           r.attach(current); await start(current);
-          // Preserve real owner identity and native DO context across the RPC seam.
-          current.environment.OPERATOR_ACTIVITY = {
-            idFromName: () => { throw Error('Registry must not select a native identity'); },
-            getByName: (id: string) => {
-              if (id === current.activityId) return current.activity;
-              if (id !== original.activityId) throw Error('Unexpected historical target');
-              return { readApplicationExecutionFacts: (authority: Parameters<typeof original.activity.readApplicationExecutionFacts>[0]) =>
-                original.inOwnContext(() => original.activity.readApplicationExecutionFacts(authority)) };
-            },
-          } as never;
+          routeHistoricalActivity(current, original);
           r.attach(current);
           const version = await create(current, 'original', { activityId: original.activityId });
           const delivery = plans(current).at(-1)!.delivery as { token: string };

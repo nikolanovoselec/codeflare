@@ -1,6 +1,12 @@
 type ApplicationStateValue = null | boolean | number | string | ApplicationStateValue[]
   | { [key: string]: ApplicationStateValue };
 
+interface ApplicationStateOriginDelivery {
+  submissionId: string;
+  uid: string;
+  deliveryDigest: string;
+}
+
 /** Root-derived authority; never accept these fields from the application request. */
 export interface ApplicationStateBinding {
   readonly sourceId: string;
@@ -10,9 +16,11 @@ export interface ApplicationStateBinding {
   readonly generation: number;
   /** Unix milliseconds, retaining the original run deadline. */
   readonly deadline: number;
+  readonly originDelivery?: ApplicationStateOriginDelivery;
 }
 export type ApplicationStateEntry = { key: string; status: 'absent'; version: null }
   | { key: string; status: 'value'; version: string; value: ApplicationStateValue }
+  | { key: string; status: 'vacant'; version: string }
   | { key: string; status: 'conflict' };
 export interface ApplicationStateExchange {
   expected: Array<{ key: string; version: string | null }>;
@@ -69,8 +77,17 @@ function fields(value: unknown, names: string[]): value is Record<string, unknow
 function identity(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && bytes(value) <= 1024;
 }
+function optionalFields(value: unknown, required: string[], optional: string[]): value is Record<string, unknown> {
+  return object(value) && required.every(name => Object.hasOwn(value, name))
+    && Object.keys(value).every(name => required.includes(name) || optional.includes(name));
+}
+function originDeliveryValid(value: unknown): value is ApplicationStateOriginDelivery {
+  return fields(value, ['submissionId', 'uid', 'deliveryDigest']) && identity(value.submissionId)
+    && identity(value.uid) && typeof value.deliveryDigest === 'string' && versionPattern.test(value.deliveryDigest);
+}
 function bindingValid(value: unknown): value is ApplicationStateBinding {
-  return fields(value, ['sourceId', 'installationId', 'ownerKey', 'activityId', 'generation', 'deadline'])
+  return optionalFields(value, ['sourceId', 'installationId', 'ownerKey', 'activityId', 'generation', 'deadline'], ['originDelivery'])
+    && (!Object.hasOwn(value, 'originDelivery') || originDeliveryValid(value.originDelivery))
     && identity(value.sourceId) && identity(value.installationId) && identity(value.ownerKey)
     && identity(value.activityId) && Number.isSafeInteger(value.generation) && (value.generation as number) >= 1
     && Number.isSafeInteger(value.deadline) && (value.deadline as number) > 0;
@@ -115,22 +132,93 @@ export interface StateRecord extends ApplicationStateBinding {
   key: string;
   legacy: LegacySnapshot | null;
   value: ApplicationStateValue;
+  /** Root-authored reference, never copied from application JSON. */
+  recovery?: { auditId: string; phase: 'vacant' | 'claimed' };
+}
+export interface ApplicationStateRecoveryAudit {
+  sourceId: string;
+  key: string;
+  originalKind: 'record' | 'legacy';
+  originalVersion: string;
+  originalKey: string;
+  requestId: string;
+  actorHash: string;
+  time: number;
+  proofDigest: string;
+  releasedVersion: string;
+  legacy: StateRecord['legacy'];
 }
 interface LocatedKey { key: string; storageKey: string; alias: ApplicationStateLegacyAlias | null }
 interface ObservedKey {
   entry: ApplicationStateEntry;
   legacy: LegacySnapshot | null;
   size: number;
+  record?: StateRecord;
 }
 export function applicationStateRecordValid(value: unknown): value is StateRecord {
-  if (!fields(value, ['schemaVersion', 'sourceId', 'installationId', 'ownerKey', 'activityId',
-    'generation', 'deadline', 'key', 'legacy', 'value']) || value.schemaVersion !== 1 || !identity(value.key)) return false;
+  if (!optionalFields(value, ['schemaVersion', 'sourceId', 'installationId', 'ownerKey', 'activityId',
+    'generation', 'deadline', 'key', 'legacy', 'value'], ['originDelivery', 'recovery']) || value.schemaVersion !== 1 || !identity(value.key)) return false;
   const { sourceId, installationId, ownerKey, activityId, generation, deadline } = value;
-  if (!bindingValid({ sourceId, installationId, ownerKey, activityId, generation, deadline })) return false;
+  if (!bindingValid({ sourceId, installationId, ownerKey, activityId, generation, deadline,
+    ...(Object.hasOwn(value, 'originDelivery') ? { originDelivery: value.originDelivery } : {}) })) return false;
+  if (Object.hasOwn(value, 'recovery') && (!fields(value.recovery, ['auditId', 'phase'])
+    || typeof value.recovery.auditId !== 'string' || !versionPattern.test(value.recovery.auditId)
+    || !['vacant', 'claimed'].includes(value.recovery.phase as string))) return false;
   return value.legacy === null || fields(value.legacy, ['storageKey', 'version'])
     && typeof value.legacy.storageKey === 'string' && bytes(value.legacy.storageKey) > 0
     && bytes(value.legacy.storageKey) <= 2048 && !value.legacy.storageKey.startsWith(PREFIX)
     && (value.legacy.version === null || typeof value.legacy.version === 'string' && versionPattern.test(value.legacy.version));
+}
+
+/** Verify Root's retained release evidence, not an application reset marker or
+ * the mere presence of an audit reference. Reads stay inside the CAS transaction. */
+export async function verifyApplicationStateRecovery(storage: Pick<DurableObjectStorage, 'get'>,
+  record: StateRecord, legacy: StateRecord['legacy']): Promise<{ size: number } | null> {
+  if (!record.recovery) return null;
+  const sameLegacy = (a: StateRecord['legacy'], b: StateRecord['legacy']) =>
+    a?.storageKey === b?.storageKey && a?.version === b?.version;
+  if (!sameLegacy(record.legacy, legacy)) return null;
+  const prefix = `${PREFIX}${await digest(record.sourceId)}:`;
+  const auditId = record.recovery.auditId;
+  const raw = await storage.get<unknown>(`${prefix}audit:${auditId}`);
+  if (!fields(raw, ['sourceId', 'key', 'originalKind', 'originalVersion', 'originalKey', 'requestId',
+    'actorHash', 'time', 'proofDigest', 'releasedVersion', 'legacy'])) return null;
+  const encodedAudit = json(raw, RECORD_BYTES, 'unavailable');
+  if (raw.sourceId !== record.sourceId || raw.key !== record.key
+    || !['record', 'legacy'].includes(raw.originalKind as string)
+    || typeof raw.requestId !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(raw.requestId)
+    || !['originalVersion', 'actorHash', 'proofDigest', 'releasedVersion'].every(name =>
+      typeof raw[name] === 'string' && versionPattern.test(raw[name] as string))
+    || !Number.isSafeInteger(raw.time) || (raw.time as number) <= 0
+    || raw.originalKey !== `${prefix}original:${auditId}`
+    || auditId !== await digest(JSON.stringify([raw.actorHash, raw.requestId, record.key]))) return null;
+  // Validate the snapshot shape before using it as trusted lineage.
+  if (!(raw.legacy === null || fields(raw.legacy, ['storageKey', 'version'])
+    && typeof raw.legacy.storageKey === 'string'
+    && (raw.legacy.version === null || typeof raw.legacy.version === 'string' && versionPattern.test(raw.legacy.version)))) return null;
+  const audit = raw as unknown as ApplicationStateRecoveryAudit;
+  if (!sameLegacy(audit.legacy, legacy)) return null;
+  const original = await storage.get<unknown>(audit.originalKey);
+  if (!object(original)) return null;
+  const encodedOriginal = json(original, RECORD_BYTES, 'unavailable');
+  if (original.ownerKey !== audit.actorHash || !identity(original.activityId) || !identity(original.installationId)) return null;
+  if (audit.originalKind === 'record') {
+    if (!applicationStateRecordValid(original) || original.sourceId !== record.sourceId || original.key !== record.key
+      || !sameLegacy(original.legacy, legacy)
+      || await digest(`record:${encodedOriginal}`) !== audit.originalVersion) return null;
+  } else {
+    if (!legacy || legacy.version !== await digest(encodedOriginal)
+      || record.key !== `renovate:head:${original.repositoryId}:${original.pullRequest}:${original.head}`
+      || await digest(JSON.stringify(['legacy', record.sourceId, record.key, legacy])) !== audit.originalVersion) return null;
+  }
+  if (record.recovery.phase === 'vacant') {
+    if (record.ownerKey !== original.ownerKey || record.activityId !== original.activityId
+      || record.installationId !== original.installationId
+      || audit.originalKind === 'record' && (record.generation !== original.generation || record.deadline !== original.deadline
+        || JSON.stringify(record.originDelivery) !== JSON.stringify(original.originDelivery))
+      || await digest(`record:${json(record, RECORD_BYTES, 'unavailable')}`) !== audit.releasedVersion) return null;
+  }
+  return { size: bytes(encodedAudit) + bytes(encodedOriginal) };
 }
 
 /** One adapter over the existing Registry storage. It creates no DO namespace,
@@ -141,7 +229,8 @@ export class ApplicationStateStore {
   constructor(private readonly storage: Pick<DurableObjectStorage, 'transaction'>,
     binding: ApplicationStateBinding, authority: ApplicationStateAuthority) {
     if (!bindingValid(binding)) fail('denied');
-    this.binding = Object.freeze({ ...binding });
+    this.binding = Object.freeze({ ...binding,
+      ...(binding.originDelivery ? { originDelivery: Object.freeze({ ...binding.originDelivery }) } : {}) });
     this.authority = { ...authority };
   }
 
@@ -183,27 +272,41 @@ export class ApplicationStateStore {
       encodedRecord = json(raw, RECORD_BYTES, 'unavailable');
       size += bytes(encodedRecord);
       if (!applicationStateRecordValid(raw) || raw.key !== key || raw.sourceId !== this.binding.sourceId) fail('unavailable');
-      if (raw.ownerKey !== this.binding.ownerKey) return { entry: { key, status: 'conflict' }, legacy, size };
+      if (raw.ownerKey !== this.binding.ownerKey && raw.recovery?.phase !== 'vacant') {
+        return { entry: { key, status: 'conflict' }, legacy, size };
+      }
     }
+    const record = encodedRecord === undefined ? undefined : JSON.parse(encodedRecord) as StateRecord;
     if (alias) {
       const prior = await tx.get<unknown>(alias.storageKey);
       if (prior !== undefined) {
         const encoded = json(prior, RECORD_BYTES, 'unavailable');
         size += bytes(encoded);
-        const permission = alias.validate(prior, this.binding);
-        if (permission === 'conflict') return { entry: { key, status: 'conflict' }, legacy, size };
-        if (permission !== 'owned') fail('unavailable');
         legacy = { storageKey: alias.storageKey, version: await digest(encoded) };
-        legacyValue = JSON.parse(encoded) as ApplicationStateValue;
+        // A verified Root release carries the unchanged alias as history, not
+        // as the fresh claimant's identity. Ordinary records retain every gate.
+        if (!record?.recovery) {
+          const permission = alias.validate(prior, this.binding);
+          if (permission === 'conflict') return { entry: { key, status: 'conflict' }, legacy, size };
+          if (permission !== 'owned') fail('unavailable');
+          legacyValue = JSON.parse(encoded) as ApplicationStateValue;
+        }
       }
     }
-    if (encodedRecord !== undefined) {
-      const record = JSON.parse(encodedRecord) as StateRecord;
+    if (record) {
       // Once an overlay records an alias, losing/changing its mapping is not absence.
       if (record.legacy?.storageKey !== legacy?.storageKey) fail('unavailable');
       if (record.legacy?.version !== legacy?.version) return { entry: { key, status: 'conflict' }, legacy, size };
-      return { entry: { key, status: 'value', version: await digest(`record:${encodedRecord}`),
-        value: record.value }, legacy, size };
+      if (record.recovery) {
+        const proof = await verifyApplicationStateRecovery(tx, record, legacy);
+        if (!proof) fail('unavailable');
+        size += proof.size;
+      }
+      const version = await digest(`record:${encodedRecord}`);
+      if (record.recovery?.phase === 'vacant' && record.ownerKey !== this.binding.ownerKey) {
+        return { entry: { key, status: 'vacant', version }, legacy, size, record };
+      }
+      return { entry: { key, status: 'value', version, value: record.value }, legacy, size, record };
     }
     if (legacyValue !== undefined) return { entry: { key, status: 'value',
       version: await digest(JSON.stringify(['legacy', this.binding.sourceId, key, legacy])), value: legacyValue }, legacy, size };
@@ -271,8 +374,16 @@ export class ApplicationStateStore {
         const records: Record<string, StateRecord> = {};
         let writeSize = 0;
         for (const write of request.writes) {
+          const observed = observations.get(write.key)!;
+          const prior = observed.record;
+          const sameAttempt = prior?.ownerKey === this.binding.ownerKey
+            && prior.installationId === this.binding.installationId && prior.activityId === this.binding.activityId
+            && prior.generation === this.binding.generation;
+          const originDelivery = sameAttempt && prior?.originDelivery ? prior.originDelivery : this.binding.originDelivery;
           const record: StateRecord = { schemaVersion: 1, ...this.binding, key: write.key,
-            legacy: observations.get(write.key)!.legacy, value: write.value };
+            legacy: observed.legacy, value: write.value,
+            ...(originDelivery ? { originDelivery } : {}),
+            ...(prior?.recovery ? { recovery: { auditId: prior.recovery.auditId, phase: 'claimed' } } : {}) };
           writeSize += bytes(json(record, RECORD_BYTES, 'invalid-request'));
           if (writeSize > BATCH_BYTES) fail('invalid-request');
           records[located.find(item => item.key === write.key)!.storageKey] = record;

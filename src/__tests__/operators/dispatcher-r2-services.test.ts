@@ -572,6 +572,146 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     return { elapsed: () => clock.now - startedAt };
   }
 
+  // Model finite external authorization/R2 latency and the platform timeout
+  // signal on one clock. Date-only advances would not fire AbortSignal.timeout
+  // and could accidentally certify a read that already spent its 30s budget.
+  function configurationBoundaryClock(f: DispatcherFixture, store: Store, authorizationMs: number) {
+    let now = Date.now();
+    const startedAt = now;
+    const timers: Array<{ at: number; controller: AbortController }> = [];
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+      const controller = new AbortController();
+      timers.push({ at: now + milliseconds, controller });
+      return controller.signal;
+    });
+    const advance = (milliseconds: number) => {
+      now += milliseconds;
+      for (const timer of timers) if (timer.at <= now && !timer.controller.signal.aborted) {
+        timer.controller.abort(new DOMException('The operation timed out', 'TimeoutError'));
+      }
+    };
+    const authorityReply = async () => {
+      advance(authorizationMs);
+      f.afterRegistryResolve(authorityReply);
+    };
+    f.afterRegistryResolve(authorityReply);
+    const r2Fetch = store.fetcher;
+    store.fetcher = async (input, init) => { advance(25); return r2Fetch(input, init); };
+    return { advance, elapsed: () => now - startedAt };
+  }
+
+  it('REQ-OPERATOR-007/048: saved native configuration completes within the unchanged 30s budget and original deadline under finite authorization latency', () => lane(async (f, store) => {
+    await admitted(f);
+    const original = (await f.activity.getRuntimePlan())!;
+    const settings = store.value(settingsKey);
+    const auth = store.value(authKey);
+    const versions = [store.etag(settingsKey), store.etag(authKey)];
+    // One second per external current-grant resolution, not a delay charged to
+    // private helpers or a prescribed number of authorization invocations.
+    const clock = configurationBoundaryClock(f, store, 1000);
+    expect(await json(await config(f))).toMatchObject({ source: 'pi-native',
+      settings: { defaultProvider: providerId, defaultModel: logical.model }, reasoningOverride: 'low',
+      selection: original.configuredSelection });
+    expect(clock.elapsed()).toBeGreaterThan(0);
+    expect(clock.elapsed()).toBeLessThan(30_000);
+    expect(Date.now()).toBeLessThan(original.deadline);
+    expect((await f.activity.getRuntimePlan())!.deadline).toBe(original.deadline);
+    expect(store.value(settingsKey)).toEqual(settings);
+    expect(store.value(authKey)).toEqual(auth);
+    expect([store.etag(settingsKey), store.etag(authKey)]).toEqual(versions);
+    expect(store.touchedKeys).toEqual(new Set([`/owner-bucket/${settingsKey}`]));
+    expect(store.escapedReads).toEqual([]);
+    expect(f.sent).toEqual([]);
+  }));
+
+  // REQ-048 AC5/6 + REQ-090 AC2/4 + REQ-091 AC6/7. These are Root
+  // configuration refusals, not model, SDK or credential diagnoses. Inspect
+  // actual private archive readback, not just a console label or an HTTP403.
+  it.each((['incoming-abort', 'local-timeout', 'original-deadline'] as const).flatMap(category =>
+    (['before-r2', 'response-body'] as const).flatMap(boundary => [true, false].map(loggingEnabled =>
+      ({ category, boundary, loggingEnabled })))))('REQ-OPERATOR-048/090/091: configuration $category at $boundary retains closed private provenance with logging=$loggingEnabled before the same safe refusal', ({ category, boundary, loggingEnabled }) => lane(async (f, store) => {
+    await admitted(f); await f.drainBackground();
+    const original = (await f.activity.getRuntimePlan())!;
+    const auth = store.value(authKey);
+    const versions = [store.etag(settingsKey), store.etag(authKey)];
+    if (category === 'original-deadline') f.setClock(original.deadline - 5000);
+    const clock = configurationBoundaryClock(f, store, 0);
+    const logs: Array<{ module?: string; message?: string; data: { value?: unknown; captureId?: string } }> = [];
+    const output = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (typeof line === 'string') try { logs.push(JSON.parse(line)); } catch { /* Other logs. */ }
+    });
+    const abort = new AbortController();
+    let reachedBoundary = false; let cancelled = false;
+    const elapsedAtRefusal = category === 'local-timeout' ? 30_000 : category === 'original-deadline' ? 5000 : 250;
+    const stop = () => {
+      reachedBoundary = true;
+      clock.advance(elapsedAtRefusal);
+      if (category === 'incoming-abort') abort.abort(new DOMException(`${canary}_PRIVATE_ABORT_REASON`, 'AbortError'));
+    };
+    if (boundary === 'before-r2') vi.spyOn(regime, 'getRegimeState').mockImplementationOnce(async () => {
+      stop(); return { status: 'ready', regime: 'plain', generation: 1 };
+    });
+    else store.override(path => path === `/owner-bucket/${settingsKey}` ? new Response(new ReadableStream<Uint8Array>({
+      // HWM zero: the refusal occurs only after the protected GET returned
+      // headers and the consumer started its body read. Abort must release it.
+      pull() { stop(); }, cancel() { cancelled = true; },
+    }, { highWaterMark: 0 }), { headers: { etag: store.etag(settingsKey), 'content-type': 'application/json' } }) : undefined);
+    setLogLevel('info');
+    try {
+      const response = await f.installationCapability.fetch(new Request(
+        normalCallback(f.activityId, 'pi/config', { operation: 'read' }), { signal: abort.signal }));
+      expect(response.status).toBe(403);
+      const publicOutput = await response.json();
+      // Intentional existing refusal wire: private provenance does not widen
+      // public errors or imply the owner actually lost their grants.
+      expect(publicOutput).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'execution-inactive', disposition: 'authority-denied' });
+      expect(reachedBoundary).toBe(true);
+      if (boundary === 'response-body') expect(cancelled).toBe(true);
+      expect(store.touchedKeys).toEqual(new Set(boundary === 'before-r2' ? [] : [`/owner-bucket/${settingsKey}`]));
+      await f.drainBackground();
+      const privateFailures: unknown[] = [];
+      await f.mutateEvidence(async storage => {
+        for (const record of logs.filter(record => record.message === 'raw-capture-receipt')) {
+          if (!record.data.captureId) throw new Error('Missing raw capture identity');
+          const capture = await readRawCapture({ binding: { ownerKey: f.proof.ownerKey, installationId: 'installation',
+            releaseId: 'release', captureId: record.data.captureId,
+            scope: { kind: 'activity', activityId: f.activityId, generation: 1 } },
+          storage: await createOwnerRawCaptureStorage(f.environment, storage, async () => {}) });
+          for (const observation of capture.records) if (observation.stage === 'sdk-service-failure') privateFailures.push(observation.value);
+        }
+      });
+      if (loggingEnabled) {
+        // Intentional closed private liveness wire. No raw signal.reason,
+        // credentials, arbitrary exception text or provider classification.
+        expect(privateFailures).toContainEqual(expect.objectContaining({ status: 403, cause: {
+          category, boundary, elapsedMs: expect.any(Number),
+        } }));
+        for (const failure of privateFailures as Array<{ cause?: { elapsedMs?: number } }>) {
+          expect(failure.cause?.elapsedMs).toBeGreaterThanOrEqual(elapsedAtRefusal);
+          expect(failure.cause?.elapsedMs).toBeLessThanOrEqual(clock.elapsed());
+        }
+      } else {
+        expect(privateFailures).toEqual([]);
+        expect(logs.filter(record => record.message === 'sdk-service-failure' || record.message === 'raw-capture-receipt')).toEqual([]);
+      }
+      expect(store.value(authKey)).toEqual(auth);
+      expect([store.etag(settingsKey), store.etag(authKey)]).toEqual(versions);
+      expect(store.escapedReads).toEqual([]);
+      expect(f.sent).toEqual([]);
+      // Immutable admission deadline remains evidence even when live execution
+      // authority has expired and getRuntimePlan may no longer be available.
+      await f.mutateEvidence(async storage => {
+        const admission = await storage.get<{ intent: { deadline: number } }>('admission');
+        expect(admission?.intent.deadline).toBe(original.deadline);
+      });
+      for (const evidence of [publicOutput, logs, privateFailures, await f.activity.getBrowserDetail(),
+        await diagnosticTraversal(diagnosticsBrowser(f))]) {
+        expect(inspect(evidence, { depth: null, maxStringLength: null, customInspect: false, getters: false })).not.toContain(canary);
+      }
+    } finally { abort.abort(); setLogLevel('silent'); output.mockRestore(); }
+  }, true, false, { loggingEnabled }));
+
   it.each(['fresh', 'expired'] as const)(
     '%s OAuth resolves within the existing 30s credential budget under authority and R2 latency', state => lane(async (f, store) => {
       await admitted(f);
@@ -1239,6 +1379,63 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     }],
     ['owner', () => { vi.spyOn(access, 'resolveBucketName').mockResolvedValue('foreign-bucket'); }],
   ];
+  const configurationFences: typeof fences = [...fences,
+    ['connection revision', f => f.changeConnection({ connectionRevision: 2 })],
+    ['current source grant', async f => {
+      const plan = (await f.activity.getRuntimePlan())!;
+      if (!('selection' in plan.receipt)) throw new Error('Expected management receipt');
+      const current = await f.environment.OPERATOR_REGISTRY!.getByName('registry')
+        .resolveManagementExecution(plan.receipt.selection.installation.id);
+      if (!current.ok) throw new Error('Expected current grants');
+      current.value.installation.policy.inference!.allowedSources = ['managed'];
+    }],
+    ['owner metadata', async () => runInDurableObject(
+      (env as unknown as Env).CONTAINER.getByName('bucket-owner:owner-bucket'), async (_instance, state) => {
+        await state.storage.put('bucketOwnerEmail', 'foreign@example.test');
+      })],
+    ['migration', () => { vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'migrating', regime: 'plain', generation: 1 }); }],
+    ['regime', () => { vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 2 }); }],
+    ['key', f => { f.environment.ENCRYPTION_KEY = btoa('b'.repeat(32)); }],
+  ];
+  it.each(configurationFences)('REQ-OPERATOR-007/048: %s change while the saved-settings R2 body is pending refuses configuration without credential reads, writes or effects', (name, fence) => lane(async (f, store) => {
+    await admitted(f);
+    const original = (await f.activity.getRuntimePlan())!;
+    const settings = store.value(settingsKey);
+    const auth = store.value(authKey);
+    const versions = [store.etag(settingsKey), store.etag(authKey)];
+    configurationBoundaryClock(f, store, 100);
+    let bodyConsumed = false;
+    store.override(path => path === `/owner-bucket/${settingsKey}` ? new Response(new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        // Mutate the real public-fixture authority after headers, while the
+        // consumer awaits saved settings. No late DTO may be declassified.
+        bodyConsumed = true;
+        await fence(f);
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(settings)));
+        controller.close();
+      },
+    }, { highWaterMark: 0 }), { headers: { etag: store.etag(settingsKey), 'content-type': 'application/json' } }) : undefined);
+    try {
+      const response = await config(f);
+      expect([403, 409, 503]).toContain(response.status);
+      const publicOutput = await response.text();
+      expect(publicOutput).not.toContain('defaultProvider');
+      expect(publicOutput).not.toContain(canary);
+      expect(bodyConsumed).toBe(true);
+      expect(store.value(settingsKey)).toEqual(settings);
+      expect(store.value(authKey)).toEqual(auth);
+      expect([store.etag(settingsKey), store.etag(authKey)]).toEqual(versions);
+      expect(store.touchedKeys).toEqual(new Set([`/owner-bucket/${settingsKey}`]));
+      expect(store.escapedReads).toEqual([]);
+      expect(f.sent).toEqual([]);
+    } finally {
+      if (name === 'owner metadata') await runInDurableObject(
+        (env as unknown as Env).CONTAINER.getByName('bucket-owner:owner-bucket'), async (_instance, state) => {
+          await state.storage.put('bucketOwnerEmail', original.executionContext.owner.email);
+        });
+    }
+  }));
+
   it.each(fences)('%s fence during started SDK refresh grants no late write or auth', (_name, fence) => lane(async (f, store) => {
     await admitted(f);
     const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };

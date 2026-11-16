@@ -84,6 +84,9 @@ export interface ApplicationExecutionAuthority {
     invocationJson?: string;
     /** Only the historical codec may select legacy binding/absent release pins. */
     binding: 'legacy' | 'activity';
+    /** Private Root claim origin, selected from the stored envelope, never its JSON value. */
+    delivery?: { submissionId: string; uid: string; deliveryDigest: string };
+    generation?: number;
     pins: null | { operatorRevision: number; installationRevision: number; controlsRevision: number;
       releaseId: string; bundleDigest: string };
   };
@@ -93,8 +96,11 @@ export interface ApplicationExecutionAuthority {
   observationLoggingEnabled?: boolean;
   proofVersion?: string;
 }
-export type ApplicationExecutionRequest = { operation: 'read' | 'retire'; key: string; activityId: string; version: string };
+export type ApplicationExecutionRequest = { operation: 'read' | 'read-delivery' | 'retire'; key: string; activityId: string; version: string };
 export type ApplicationExecutionFacts = { status: 'unavailable' }
+  | { status: 'delivery'; activityId: string; generation: number; releaseDigest: string; inputDigest: string;
+    terminalAt: number; sdkSubmissionId: string; settled: true; fenced: true;
+    noExternalWrites: boolean; outcome: 'completed' | 'failed' }
   | { status: 'never-started'; activityId: string; proofVersion: string; retired: boolean }
   | { status: 'value'; activityId: string; generation: number; releaseDigest: string; inputDigest: string;
     terminalAt: number; collected: true; settled: true; sdkSubmissionId: string; unknownEffects: false;

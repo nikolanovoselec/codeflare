@@ -32,7 +32,7 @@ import { activateApplicationSchedule as activateSchedule, applicationScheduleSta
 import { canInvokeOperator, canManageOperator, resolveBucketName } from '../lib/access';
 import { callApplicationRecovery, inspectRecoveryRecord, recoveryInventoryPage, applicationRecoveryPrefix,
   recoveryDigest, recoveryEntries, parseRecoveryCursor, type RecoveryInspection, type RecoveryFactsRequest, type RecoveryFacts } from './application-recovery';
-import type { StateRecord } from './application-state';
+import type { ApplicationStateRecoveryAudit, StateRecord } from './application-state';
 import { createRawCapture, createOwnerRawCaptureStorage, captureRawInteraction, type RawCapture, type RawCaptureBinding, type RawCaptureReceipt } from './raw-capture-storage';
 import { captureError, hashDiagnostic } from './dispatcher-diagnostics-wire';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -1737,7 +1737,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         legacyOwnerBucket = await resolveBucketName(this.env as Env, binding.human.email);
       }
       const base: ApplicationStateBinding = { sourceId: binding.sourceId, installationId: binding.installationId,
-        ownerKey: binding.ownerKey, activityId: binding.activityId, generation: binding.generation, deadline: binding.deadline };
+        ownerKey: binding.ownerKey, activityId: binding.activityId, generation: binding.generation, deadline: binding.deadline,
+        ...(binding.originDelivery ? { originDelivery: binding.originDelivery } : {}) };
       const store = new ApplicationStateStore(this.ctx.storage, base, {
         authorize: async () => {
           if (binding.ownerKey !== await operatorOwnerKey(binding.human) || !this.applicationStateCurrent(binding)) return false;
@@ -1856,11 +1857,20 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     const inspect = (storage: Pick<DurableObjectStorage, 'get'>, key: string) => inspectRecoveryRecord(storage, key, sourceId, ownerKey, async record => {
       if (typeof record.ownerKey !== 'string' || typeof record.installationId !== 'string' || typeof record.activityId !== 'string'
         || !record.actor || typeof record.actor !== 'object' || Array.isArray(record.actor)) return 'malformed';
-      if (record.ownerKey !== ownerKey) return 'owner-mismatch';
       const actor = record.actor as Record<string, unknown>;
-      if (actor.subject !== human.subject || actor.issuer !== human.issuer || typeof actor.email !== 'string'
-        || actor.email.toLowerCase() !== human.email.toLowerCase() || actor.bucket !== ownerBucket
-        || !Array.isArray(actor.audiences) || JSON.stringify([...actor.audiences].sort()) !== JSON.stringify([...human.audiences].sort())) return 'owner-mismatch';
+      if (typeof actor.subject !== 'string' || typeof actor.issuer !== 'string' || typeof actor.email !== 'string'
+        || typeof actor.bucket !== 'string' || !Array.isArray(actor.audiences)
+        || !actor.audiences.every(item => typeof item === 'string')) return 'malformed';
+      // Closed failure categories only. Recompute internally using the unchanged
+      // canonical algorithm; neither identity values nor hashes leave this gate.
+      const canonical = await operatorOwnerKey({ subject: actor.subject, issuer: actor.issuer,
+        email: actor.email, audiences: actor.audiences });
+      if (record.ownerKey !== canonical) return 'legacy-owner-key-inconsistent';
+      if (actor.subject !== human.subject || actor.issuer !== human.issuer) return 'legacy-owner-identity-mismatch';
+      if (actor.email.toLowerCase() !== human.email.toLowerCase()) return 'legacy-owner-email-mismatch';
+      if (JSON.stringify([...actor.audiences].sort()) !== JSON.stringify([...human.audiences].sort())) return 'legacy-owner-audience-mismatch';
+      if (actor.bucket !== ownerBucket) return 'legacy-owner-bucket-mismatch';
+      if (record.ownerKey !== ownerKey) return 'legacy-owner-identity-mismatch';
       const installation = this.managementInstallation(record.installationId);
       const operator = installation && this.managementState(installation.operatorId);
       return !operator || String(operator.repositoryId) !== sourceId ? 'source-mismatch' : null;
@@ -2013,12 +2023,15 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
             activityId: legacy.activityId, generation: proof.origin.generation, deadline: proof.origin.deadline,
             key: entry.key, legacy: latest.legacy, value: null };
         }
-        const record: StateRecord = { ...origin, value: choice.value, legacy: latest.legacy };
         const originalRecord = latest.raw ?? latest.original.value;
-        const auditId = await recoveryDigest(JSON.stringify([requestId, entry.key]));
+        const auditId = await recoveryDigest(JSON.stringify([ownerKey, requestId, entry.key]));
         const originalKey = `${prefix}original:${auditId}`;
-        const audit = { originalVersion: entry.version, originalKey, requestId,
-          actorHash: ownerKey, time: Date.now(), proofDigest: proof.proofDigest };
+        const record: StateRecord = { ...origin, value: choice.value, legacy: latest.legacy,
+          recovery: { auditId, phase: 'vacant' } };
+        const audit: ApplicationStateRecoveryAudit = { sourceId, key: entry.key,
+          originalKind: latest.raw ? 'record' : 'legacy', originalVersion: entry.version, originalKey, requestId,
+          actorHash: ownerKey, time: Date.now(), proofDigest: proof.proofDigest,
+          releasedVersion: await recoveryDigest(`record:${JSON.stringify(record)}`), legacy: latest.legacy };
         const size = new TextEncoder().encode(JSON.stringify(record)).byteLength;
         const originalSize = new TextEncoder().encode(JSON.stringify(originalRecord)).byteLength;
         bytes += size + originalSize + new TextEncoder().encode(JSON.stringify(audit)).byteLength;
@@ -2040,16 +2053,43 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     try {
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(request.activityId) || request.activityId === binding.activityId
         || !/^[a-f0-9]{64}$/.test(request.version)) return unavailable();
+      if (!['read', 'read-delivery', 'retire'].includes(request.operation)) return unavailable();
+      const storageKey = `${await applicationRecoveryPrefix(binding.sourceId)}${await recoveryDigest(request.key)}`;
       const readCurrent = async () => {
+        if (!this.applicationStateCurrent(binding)) return null;
         const read = await this.#applyApplicationState(binding, { operation: 'read', keys: [request.key] });
         if (!('entries' in read) || !read.entries) return null;
         const entry = read.entries[0];
-        return entry?.status === 'value' && entry.version === request.version ? entry : null;
+        if (entry?.status !== 'value' || entry.version !== request.version) return null;
+        // The public value is application-authored. Only the actual private
+        // envelope, in this same current/version guard, can select a delivery.
+        return this.ctx.storage.transaction(async tx => {
+          if (!this.applicationStateCurrent(binding)) return null;
+          const summary = await tx.get<OperatorBrowserSummary>(`owner-activity:${binding.ownerKey}:${binding.activityId}`);
+          if (!summary || summary.operatorId !== binding.operatorId || !['queued', 'running'].includes(summary.executionStatus)) return null;
+          const raw = await tx.get<import('./application-state').StateRecord>(storageKey);
+          if (raw !== undefined) {
+            if (await recoveryDigest(`record:${JSON.stringify(raw)}`) !== request.version
+              || raw.schemaVersion !== 1 || raw.sourceId !== binding.sourceId || raw.key !== request.key
+              || raw.ownerKey !== binding.ownerKey) return null;
+          } else {
+            if (request.operation === 'read-delivery' || !request.key.startsWith('renovate:head:')) return null;
+            const aliasKey = `renovate-admission:${request.key.slice('renovate:head:'.length)}`;
+            const alias = await tx.get(aliasKey);
+            if (alias === undefined || await recoveryDigest(JSON.stringify(['legacy', binding.sourceId, request.key,
+              { storageKey: aliasKey, version: await recoveryDigest(JSON.stringify(alias)) }])) !== request.version) return null;
+          }
+          return this.applicationStateCurrent(binding) ? { entry, raw } : null;
+        });
       };
-      const entry = await readCurrent();
-      if (!entry) return { status: 'conflict' as const, activityId: request.activityId };
+      const current = await readCurrent();
+      if (!current) return { status: 'conflict' as const, activityId: request.activityId };
+      const { entry, raw: actualStateRecord } = current;
       const value = entry.value;
-      if (!value || typeof value !== 'object' || Array.isArray(value) || value.activityId !== request.activityId) return unavailable();
+      if (request.operation === 'read-delivery') {
+        if (!actualStateRecord || actualStateRecord.activityId !== request.activityId
+          || !actualStateRecord.originDelivery) return unavailable();
+      } else if (!value || typeof value !== 'object' || Array.isArray(value) || value.activityId !== request.activityId) return unavailable();
       const ledger = await this.getManagementAdmission(request.activityId);
       let legacy: Record<string, unknown> | undefined;
       if (request.key.startsWith('renovate:head:')) {
@@ -2060,11 +2100,16 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       // Only a verified immutable legacy record may prove a never-admitted ID.
       // An application-written activityId is not authority over an absent Activity.
       if (!ledger && !legacy) return unavailable();
+      if (request.operation === 'read-delivery' && (!ledger || actualStateRecord?.installationId !== ledger.installationId)) return unavailable();
       const installationId = ledger?.installationId ?? legacy?.installationId;
       if (typeof installationId !== 'string' || request.operation === 'retire' && installationId !== binding.installationId) return unavailable();
-      const installation = this.managementInstallation(installationId);
+      const installation = request.operation === 'read-delivery' && ledger
+        ? ledger.selection.installation : this.managementInstallation(installationId);
       const operator = ledger?.selection.operator ?? (installation && this.managementState(installation.operatorId));
       if (!installation || !operator || operator.repositoryId !== binding.sourceRepositoryId) return unavailable();
+      if (request.operation === 'read-delivery' && (ledger!.activityId !== request.activityId
+        || installation.id !== installationId || installation.operatorId !== operator.id
+        || ledger!.selection.release.operatorId !== operator.id)) return unavailable();
       const pins = ledger ? {
         operatorRevision: ledger.expectedOperatorRevision, installationRevision: ledger.expectedInstallationRevision,
         controlsRevision: ledger.expectedControlsRevision, releaseId: ledger.selection.release.id,
@@ -2078,7 +2123,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           sourceRepositoryId: operator.repositoryId, ownerKey: binding.ownerKey,
           owner: { subject: binding.human.subject, email: binding.human.email, issuer: binding.human.issuer,
             audiences: [...binding.human.audiences] }, binding: legacy ? 'legacy' : 'activity',
-          pins: pins ?? (legacyPins?.success ? legacyPins.data : null) },
+          pins: pins ?? (legacyPins?.success ? legacyPins.data : null),
+          ...(request.operation === 'read-delivery' ? { delivery: actualStateRecord!.originDelivery!,
+            generation: actualStateRecord!.generation } : {}) },
         ledger: { ok: true, receipt: ledger } };
       // Only the current immutable admission may enable observation. This flag
       // is not original policy and never grants execution or historical capture.
@@ -2094,8 +2141,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         retireApplicationExecution(authority: ApplicationExecutionAuthority): Promise<ApplicationExecutionRetirement>;
       } | undefined = (this.env as Env).OPERATOR_ACTIVITY?.getByName(request.activityId);
       if (!activity) return unavailable();
+      if (!await readCurrent()) return { status: 'conflict' as const, activityId: request.activityId };
       const facts = await activity.readApplicationExecutionFacts(authority);
       if (!await readCurrent()) return { status: 'conflict' as const, activityId: request.activityId };
+      if (request.operation === 'read-delivery') return facts.status === 'delivery' ? facts : unavailable();
       if (request.operation === 'read') {
         if (facts.status === 'never-started') return { status: 'value' as const, activityId: request.activityId, terminal: null };
         if (facts.status !== 'value') return unavailable();

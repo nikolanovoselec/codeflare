@@ -1,11 +1,13 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { env, reset, runInDurableObject } from 'cloudflare:test';
-import { OperatorRegistry } from '../../operators/registry';
+import { OperatorRegistry, type ProspectiveAdmission } from '../../operators/registry';
 import { applicationRecoveryPrefix, recoveryDigest, type RecoveryFacts } from '../../operators/application-recovery';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import { sealOperatorSecret } from '../../operators/protected-secrets';
 import type { Env } from '../../types';
+import { getBucketName } from '../../lib/access';
+import type { RuntimeApplicationStateBinding } from '../../operators/application-workflow';
 
 afterEach(async () => { vi.restoreAllMocks(); await reset(); });
 async function fixture(run: (f: Awaited<ReturnType<typeof seed>>) => Promise<void>) {
@@ -60,7 +62,7 @@ async function seed(state: DurableObjectState) {
   await state.storage.put(storageKey, original);
   state.storage.sql.exec('INSERT INTO operator_admissions VALUES(?,?)', 'old', JSON.stringify(ledger));
   const callback: { alter?: () => Promise<void>; malformed?: boolean; declineKey?: string;
-    scopeAnchor?: string | null; records: unknown[] } = { records: [] };
+    scopeAnchor?: string | null; scopePrefix?: string; resetValue?: unknown; records: unknown[] } = { records: [] };
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     if (String(url) !== 'https://worker.example.test/control/recovery') { unsafe.push('SDK-runtime'); throw Error('Forbidden endpoint'); }
     const body = JSON.parse(String(init?.body));
@@ -71,10 +73,10 @@ async function seed(state: DurableObjectState) {
     const scopeAnchor = callback.scopeAnchor === undefined ? body.records[0]
       : body.records.find((record: { key: string }) => record.key === callback.scopeAnchor);
     return Response.json(body.operation === 'scope' ? { ...(scopeAnchor
-      ? { scope: { prefix: 'opaque:scope:', anchorKey: scopeAnchor.key } } : {}), items: [] }
+      ? { scope: { prefix: callback.scopePrefix ?? 'opaque:scope:', anchorKey: scopeAnchor.key } } : {}), items: [] }
       : { items: body.records.map((record: { key: string }) => record.key === callback.declineKey
         ? { key: record.key, label: 'Preserved record', disposition: 'skip', reason: 'Already processed' }
-        : { key: record.key, label: 'Owned record', disposition: 'reset', reason: 'owner-reset', value: { reset: true } }) });
+        : { key: record.key, label: 'Owned record', disposition: 'reset', reason: 'owner-reset', value: callback.resetValue ?? { reset: true } }) });
   });
   const base = { installationId: 'install', revision: 1, human, platformAdmin: false,
     authority: { operatorRevision: 1, controlsRevision: 1, expiresAt: human.expiresAt * 1000 } };
@@ -82,14 +84,91 @@ async function seed(state: DurableObjectState) {
     items: Array<{ key: string; version: string; status: string }>; nextCursor: string | null; scopeCursor?: string }>;
   const resetRequest = async () => ({ ...base, operation: 'reset' as const, requestId: crypto.randomUUID(),
     entries: (await preview()).items.map(({ key, version }) => ({ key, version })) });
-  return { registry, state, base, preview, resetRequest, callback, original, ledger, installation, operator, facts, saveOperator, storageKey, unsafe, prefix };
+  return { registry, state, base, preview, resetRequest, callback, original, ledger, installation, operator, facts, saveOperator, storageKey, unsafe, prefix,
+    manifest, environment };
+}
+
+type StateEntry = { key: string; status: 'absent'; version: null }
+  | { key: string; status: 'vacant'; version: string }
+  | { key: string; status: 'value'; version: string; value: unknown }
+  | { key: string; status: 'conflict' };
+
+// Use the actual Registry recovery transaction and state adapter. Only the
+// established functional-facts service is stubbed: it proves fenced no-write,
+// not owner permission. In particular, the old owner's alias remains present.
+async function headFixture(run: (f: Awaited<ReturnType<typeof seedHead>>) => Promise<void>) {
+  return fixture(async base => run(await seedHead(base)));
+}
+async function seedHead(f: Awaited<ReturnType<typeof seed>>) {
+  const other = { ...f.base.human, subject: 'other-owner', email: 'other@example.test' };
+  f.operator.invokers = { users: [f.base.human.email, other.email], groups: [] };
+  f.saveOperator();
+  f.installation.enabled = true;
+  f.state.storage.sql.exec('UPDATE operator_installations SET data=? WHERE id=?', JSON.stringify(f.installation), 'install');
+  f.manifest.application.recovery.prefix = 'renovate:head:';
+  f.state.storage.sql.exec('UPDATE operator_releases SET manifest=? WHERE id=?', JSON.stringify(f.manifest), 'release');
+  f.callback.scopePrefix = 'renovate:head:44:';
+  f.callback.resetValue = { state: 'reset', activityId: 'old', private: 'PRIVATE_RESET' };
+  await f.state.storage.delete(f.storageKey);
+  const head = 'b'.repeat(40), key = `renovate:head:44:17:${head}`;
+  const aliasKey = `renovate-admission:44:17:${head}`;
+  const legacy = { activityId: 'old', installationId: 'install', ownerKey: f.original.ownerKey,
+    repositoryId: 44, repository: 'acme/project', baseBranch: 'main', pullRequest: 17, head,
+    createdAt: '2026-11-01T00:00:00Z', activatedAt: '2026-11-01T00:00:00Z',
+    operatorRevision: 1, installationRevision: 1, controlsRevision: 1,
+    releaseId: 'release', bundleDigest: 'd'.repeat(64), private: 'PRIVATE_HISTORY',
+    actor: { registrationId: 'old-registration', bucket: getBucketName(f.base.human.email),
+      sessionId: 'old-session', sessionGeneration: 1, subject: f.base.human.subject,
+      issuer: f.base.human.issuer, email: f.base.human.email, audiences: f.base.human.audiences } } satisfies ProspectiveAdmission & { private: string };
+  const original = { ...f.original, key, value: legacy,
+    legacy: { storageKey: aliasKey, version: await recoveryDigest(JSON.stringify(legacy)) } };
+  const storageKey = `${f.prefix}${await recoveryDigest(key)}`;
+  await f.state.storage.put({ [storageKey]: original, [aliasKey]: legacy, 'renovate-activity:old': legacy });
+  const live = async (human: typeof other, activityId: string): Promise<RuntimeApplicationStateBinding> => {
+    const deadline = Math.floor(Date.now() / 1000) * 1000 + 60_000;
+    const intentDigest = await recoveryDigest(activityId);
+    expect(await f.registry.admitManagement({ installationId: 'install', activityId, intentDigest, deadline,
+      expectedInstallationRevision: 1, expectedOperatorRevision: 1, expectedControlsRevision: 1 })).toMatchObject({ ok: true });
+    const ownerKey = await operatorOwnerKey(human);
+    await f.state.storage.put(`owner-activity:${ownerKey}:${activityId}`, { operatorId: 'operator', executionStatus: 'running' });
+    return { principal: 'operator', sourceId: '23', sourceRepositoryId: 23, installationId: 'install',
+      ownerKey, human, activityId, generation: 2, deadline, operatorId: 'operator', releaseId: 'release',
+      bundleDigest: 'd'.repeat(64), installationRevision: 1, operatorRevision: 1, controlsRevision: 1,
+      intentDigest, deliveryToken: `delivery-${activityId}` };
+  };
+  const a = await live(f.base.human, 'new-a'), b = await live(other, 'new-b');
+  const read = async (binding: RuntimeApplicationStateBinding): Promise<StateEntry> => {
+    const response = await f.registry.applyApplicationState(binding, { operation: 'read', keys: [key] }) as { entries?: StateEntry[] };
+    expect(response).toHaveProperty('entries');
+    expect(response.entries).toHaveLength(1);
+    return response.entries![0];
+  };
+  const cas = (binding: RuntimeApplicationStateBinding, version: string | null, value: unknown) =>
+    f.registry.applyApplicationState(binding, { operation: 'compare-exchange', expected: [{ key, version }], writes: [{ key, value }] });
+  const history = async () => ({
+    alias: await f.state.storage.get(aliasKey), activity: await f.state.storage.get('renovate-activity:old'),
+    ledger: await f.registry.getManagementAdmission('old'), facts: structuredClone(f.facts.value),
+    originals: await f.state.storage.list({ prefix: `${f.prefix}original:` }),
+    audits: await f.state.storage.list({ prefix: `${f.prefix}audit:` }),
+  });
+  return { ...f, original, storageKey, key, aliasKey, legacy, a, b, read, cas, history };
+}
+
+async function refusedState(response: unknown, key: string) {
+  // Corrupt evidence may be opaque conflict or unavailable, never a vacant/value
+  // record, nor an error containing the old owner's private bytes or identity.
+  expect([
+    JSON.stringify({ entries: [{ key, status: 'conflict' }] }),
+    JSON.stringify({ error: { status: 503, code: 'application-state-unavailable' } }),
+    JSON.stringify({ error: { status: 403, code: 'application-state-denied' } }),
+  ]).toContain(JSON.stringify(response));
 }
 
 describe('real Registry recovery transaction', () => {
   it('resets a disabled approved installation, preserves origin/settings/ledger and replays without rewriting', () => fixture(async f => {
     const request = await f.resetRequest();
     expect(await f.registry.recoverApplication(request)).toEqual({ requestId: request.requestId, reset: 1, skipped: [] });
-    expect(await f.state.storage.get(f.storageKey)).toEqual({ ...f.original, value: { reset: true } });
+    expect(await f.state.storage.get(f.storageKey)).toMatchObject({ ...f.original, value: { reset: true } });
     const audits = await f.state.storage.list<{ originalKey: string; originalVersion: string }>({ prefix: `${f.prefix}audit:` });
     const audit = [...audits.values()][0];
     expect(audit.originalVersion).toBe(request.entries[0].version);
@@ -148,7 +227,7 @@ describe('real Registry recovery transaction', () => {
     const storageKey = `${f.prefix}${await recoveryDigest(key)}`;
     await f.state.storage.put(storageKey, original);
     const page = await f.preview();
-    expect(page.items).toContainEqual(expect.objectContaining({ key, label: 'Owned record', status: 'blocked', reason: 'owner-mismatch' }));
+    expect(page.items).toContainEqual(expect.objectContaining({ key, label: 'Owned record', status: 'blocked', reason: 'record-owner-mismatch' }));
     expect(JSON.stringify(f.callback.records)).not.toContain('PRIVATE_FOREIGN');
     expect(await f.state.storage.get(storageKey)).toEqual(original);
   }));
@@ -242,5 +321,220 @@ describe('real Registry recovery transaction', () => {
     do { const page = await f.preview(after); items.push(...page.items.map(item => item.key)); after = page.nextCursor ?? undefined; } while (after);
     expect(new Set(items).size).toBe(71);
     expect(items).toHaveLength(71);
+  }));
+});
+
+// REQ-OPERATOR-210 AC3–5; REQ-DISPATCHER-003 AC1/2/7: a
+// Root-verified release is not a transfer of the original private history.
+describe('Root-authenticated exact-head vacancy', () => {
+  it('only the original owner can release the retained head, even when the other invoker is an admin', () => headFixture(async f => {
+    const request = await f.resetRequest();
+    const before = await f.state.storage.list();
+    expect(await f.read(f.b)).toEqual({ key: f.key, status: 'conflict' });
+    await expect(f.registry.recoverApplication({ ...request, human: f.b.human, platformAdmin: true })).rejects.toThrow();
+    expect(await f.cas(f.b, request.entries[0].version, { state: 'active', activityId: f.b.activityId })).toEqual({ status: 'conflict' });
+    expect(await f.state.storage.list()).toEqual(before);
+    expect(f.unsafe).toEqual([]);
+  }));
+
+  it('exposes only a non-null versioned vacancy to B, then supports B claim assertion and result CAS over A’s retained alias', () => headFixture(async f => {
+    const before = await f.history();
+    const request = await f.resetRequest();
+    const result = await f.registry.recoverApplication(request);
+    expect(result).toEqual({ requestId: request.requestId, reset: 1, skipped: [] });
+    const releasedHistory = await f.history();
+    expect(releasedHistory).toMatchObject({ alias: before.alias, activity: before.activity, ledger: before.ledger, facts: before.facts });
+    expect([...releasedHistory.originals.values()]).toContainEqual(f.original);
+    expect(releasedHistory.audits.size).toBe(1);
+    const vacancy = await f.read(f.b);
+    // This exact public wire contract also excludes old payload, activity,
+    // identity, legacy mapping and Root's private release provenance.
+    expect(vacancy).toEqual({ key: f.key, status: 'vacant', version: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    if (vacancy.status !== 'vacant') throw Error('Released head must be versioned vacant');
+    const own = await f.read(f.a);
+    if (own.status === 'value') expect(own.value).toEqual(f.callback.resetValue);
+    else expect(own).toEqual(vacancy);
+    const claim = { state: 'active', activityId: f.b.activityId, target: { repositoryId: 44, pullRequest: 17, head: 'b'.repeat(40) } };
+    expect(await f.cas(f.b, null, claim)).toEqual({ status: 'conflict' });
+    expect(await f.read(f.b)).toEqual(vacancy);
+    expect(await f.cas(f.b, vacancy.version, claim)).toEqual({ status: 'committed' });
+    expect(await f.state.storage.get(f.storageKey)).toMatchObject({ ownerKey: f.b.ownerKey,
+      installationId: f.b.installationId, activityId: f.b.activityId, generation: f.b.generation, deadline: f.b.deadline, value: claim });
+    const active = await f.read(f.b);
+    expect(active).toEqual({ key: f.key, status: 'value', version: expect.stringMatching(/^[a-f0-9]{64}$/), value: claim });
+    if (active.status !== 'value') throw Error('Winning owner must be able to assert its current claim');
+    expect(await f.read(f.a)).toEqual({ key: f.key, status: 'conflict' });
+    const completed = { ...claim, state: 'result', result: { outcome: 'NOT_MERGED' } };
+    expect(await f.cas(f.b, active.version, completed)).toEqual({ status: 'committed' });
+    const finished = await f.read(f.b);
+    expect(finished).toEqual({ key: f.key, status: 'value', version: expect.stringMatching(/^[a-f0-9]{64}$/), value: completed });
+    expect(await f.cas(f.b, vacancy.version, claim)).toEqual({ status: 'conflict' });
+    expect(await f.registry.recoverApplication(request)).toEqual(result);
+    await expect(f.registry.recoverApplication({ ...request, requestId: crypto.randomUUID() })).rejects.toThrow();
+    expect(await f.read(f.b)).toEqual(finished);
+    expect(await f.history()).toEqual(releasedHistory);
+    expect(f.unsafe).toEqual([]);
+  }));
+
+  it.each(['A-first', 'B-first'] as const)('%s concurrent original-owner/new-owner claims elect one owner without exposing the loser’s history', order => headFixture(async f => {
+    const request = await f.resetRequest();
+    const result = await f.registry.recoverApplication(request);
+    const history = await f.history();
+    const vacancy = await f.read(f.b);
+    expect(vacancy).toEqual({ key: f.key, status: 'vacant', version: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    if (vacancy.status !== 'vacant') throw Error('Expected authenticated vacancy');
+    const contenders = order === 'A-first' ? [f.a, f.b] : [f.b, f.a];
+    const claims = contenders.map(binding => ({ state: 'active', activityId: binding.activityId }));
+    const results = await Promise.all(contenders.map((binding, index) => f.cas(binding, vacancy.version, claims[index])));
+    expect(results).toContainEqual({ status: 'committed' });
+    expect(results).toContainEqual({ status: 'conflict' });
+    const winner = results.findIndex(value => (value as { status: string }).status === 'committed');
+    const winning = await f.read(contenders[winner]);
+    expect(winning).toEqual({ key: f.key, status: 'value', version: expect.stringMatching(/^[a-f0-9]{64}$/), value: claims[winner] });
+    if (winning.status !== 'value') throw Error('Winner lost its active claim');
+    expect(await f.read(contenders[1 - winner])).toEqual({ key: f.key, status: 'conflict' });
+    expect(await f.state.storage.get(f.storageKey)).toMatchObject({ ownerKey: contenders[winner].ownerKey,
+      activityId: contenders[winner].activityId, generation: contenders[winner].generation });
+    expect(await f.cas(contenders[1 - winner], vacancy.version, claims[1 - winner])).toEqual({ status: 'conflict' });
+    expect(await f.registry.recoverApplication(request)).toEqual(result);
+    expect(await f.read(contenders[winner])).toEqual(winning);
+    expect(await f.history()).toEqual(history);
+  }));
+
+  it('does not treat an ordinary package-written reset marker as a Root-authorized vacancy', () => headFixture(async f => {
+    const initial = await f.read(f.a);
+    if (initial.status !== 'value') throw Error('Owner must be able to read its original claim');
+    expect(await f.cas(f.a, initial.version, { state: 'reset', activityId: 'old' })).toEqual({ status: 'committed' });
+    const reset = await f.read(f.a);
+    expect(reset).toMatchObject({ status: 'value', value: { state: 'reset', activityId: 'old' } });
+    if (reset.status !== 'value') throw Error('Package marker lost');
+    const before = await f.state.storage.list();
+    expect(await f.read(f.b)).toEqual({ key: f.key, status: 'conflict' });
+    expect(await f.cas(f.b, reset.version, { state: 'active', activityId: f.b.activityId })).toEqual({ status: 'conflict' });
+    expect(await f.cas(f.b, null, { state: 'active', activityId: f.b.activityId })).toEqual({ status: 'conflict' });
+    expect(await f.state.storage.list()).toEqual(before);
+  }));
+
+  it('consuming a verified vacancy with another package reset value does not leave it available to B', () => headFixture(async f => {
+    await f.registry.recoverApplication(await f.resetRequest());
+    const vacancy = await f.read(f.b);
+    expect(vacancy).toMatchObject({ status: 'vacant' });
+    if (vacancy.status !== 'vacant') throw Error('Expected authenticated vacancy');
+    const history = await f.history();
+    const marker = { state: 'reset', activityId: f.a.activityId };
+    expect(await f.cas(f.a, vacancy.version, marker)).toEqual({ status: 'committed' });
+    expect(await f.read(f.a)).toEqual({ key: f.key, status: 'value', version: expect.stringMatching(/^[a-f0-9]{64}$/), value: marker });
+    expect(await f.read(f.b)).toEqual({ key: f.key, status: 'conflict' });
+    expect(await f.cas(f.b, vacancy.version, { state: 'active', activityId: f.b.activityId })).toEqual({ status: 'conflict' });
+    expect(await f.history()).toEqual(history);
+  }));
+
+  it.each(['vacant', 'claimed'] as const)('legacy alias drift after release while %s stays refused and never rewrites history', phase => headFixture(async f => {
+    await f.registry.recoverApplication(await f.resetRequest());
+    const vacancy = await f.read(f.b);
+    expect(vacancy).toMatchObject({ status: 'vacant' });
+    if (vacancy.status !== 'vacant') throw Error('Expected authenticated vacancy');
+    let version = vacancy.version;
+    if (phase === 'claimed') {
+      expect(await f.cas(f.b, version, { state: 'active', activityId: f.b.activityId })).toEqual({ status: 'committed' });
+      const active = await f.read(f.b);
+      if (active.status !== 'value') throw Error('Expected own active state');
+      version = active.version;
+    }
+    await f.state.storage.put(f.aliasKey, { ...f.legacy, private: 'CHANGED_PRIVATE_HISTORY' });
+    const before = await f.state.storage.list();
+    await refusedState(await f.registry.applyApplicationState(f.b, { operation: 'read', keys: [f.key] }), f.key);
+    const exchange = await f.cas(f.b, version, { state: 'active', activityId: f.b.activityId });
+    expect(exchange).not.toEqual({ status: 'committed' });
+    expect([JSON.stringify({ status: 'conflict' }), JSON.stringify({ error: { status: 503, code: 'application-state-unavailable' } })]).toContain(JSON.stringify(exchange));
+    expect(await f.state.storage.list()).toEqual(before);
+  }));
+
+  it('revoked invoker authority cannot read or consume a previously observed vacancy', () => headFixture(async f => {
+    await f.registry.recoverApplication(await f.resetRequest());
+    const vacancy = await f.read(f.b);
+    expect(vacancy).toMatchObject({ status: 'vacant' });
+    if (vacancy.status !== 'vacant') throw Error('Expected authenticated vacancy');
+    f.operator.invokers.users = [f.a.human.email]; f.saveOperator();
+    const before = await f.state.storage.list();
+    const denied = { error: { status: 403, code: 'application-state-denied' } };
+    expect(await f.registry.applyApplicationState(f.b, { operation: 'read', keys: [f.key] })).toEqual(denied);
+    expect(await f.cas(f.b, vacancy.version, { state: 'active', activityId: f.b.activityId })).toEqual(denied);
+    expect(await f.state.storage.list()).toEqual(before);
+  }));
+});
+
+type HeadFixture = Awaited<ReturnType<typeof seedHead>>;
+async function legacyOnlyFixture(run: (f: HeadFixture) => Promise<void>) {
+  return headFixture(async f => {
+    await f.state.storage.delete(f.storageKey);
+    // A separate owned scope anchor keeps blocked legacy rows discoverable;
+    // its ownership is never used as authority over the selected claim.
+    const key = `renovate:head:44:99:${'b'.repeat(40)}`;
+    await f.state.storage.put(`${f.prefix}${await recoveryDigest(key)}`, { ...f.original, key,
+      legacy: { storageKey: `renovate-admission:44:99:${'b'.repeat(40)}`, version: null }, value: { scope: true } });
+    f.callback.scopeAnchor = key;
+    await run(f);
+  });
+}
+async function legacyPreview(f: HeadFixture) {
+  let page = await f.preview();
+  const pages = [page];
+  while (!page.items.some(item => item.key === f.key) && page.nextCursor) {
+    page = await f.preview(page.nextCursor); pages.push(page);
+  }
+  const item = page.items.find(item => item.key === f.key);
+  expect(item).toBeDefined();
+  if (!item) throw Error('Configured legacy head was omitted from recovery preview');
+  return { item, pages, scopeCursor: page.scopeCursor };
+}
+function opaqueLegacy(f: HeadFixture, pages: unknown, forbidden: string[] = []) {
+  const records = f.callback.records.filter(record => (record as { key?: string }).key === f.key);
+  expect(records).toContainEqual(expect.objectContaining({ key: f.key }));
+  for (const record of records) {
+    expect(record).not.toHaveProperty('value');
+    expect(record).not.toHaveProperty('activityId');
+    expect(record).not.toHaveProperty('invocation');
+  }
+  for (const value of ['PRIVATE_HISTORY', ...forbidden]) {
+    expect(JSON.stringify(pages)).not.toContain(value);
+    expect(JSON.stringify(records)).not.toContain(value);
+  }
+}
+// REQ-OPERATOR-210 AC2–5: closed classifications are information, not
+// authority. A self-consistent different canonical principal is not an alias.
+describe('privacy-safe recovery ownership classifications', () => {
+  it.each([
+    ['overlay-owner', 'record-owner-mismatch'],
+    ['legacy-key', 'legacy-owner-key-inconsistent'],
+    ['subject', 'legacy-owner-identity-mismatch'],
+    ['issuer', 'legacy-owner-identity-mismatch'],
+    ['email', 'legacy-owner-email-mismatch'],
+    ['audiences', 'legacy-owner-audience-mismatch'],
+    ['bucket', 'legacy-owner-bucket-mismatch'],
+    ['source', 'source-mismatch'],
+    ['alias-drift', 'legacy-version-drift'],
+    ['malformed', 'malformed'],
+  ] as const)('%s returns only the required %s category, never private evidence', (kind, reason) => legacyOnlyFixture(async f => {
+    await f.state.storage.delete('renovate-activity:old');
+    const record = structuredClone(f.legacy);
+    const privateIdentity = `PRIVATE_CLASSIFIED_${kind}`;
+    if (kind === 'legacy-key') record.ownerKey = 'f'.repeat(64);
+    if (kind === 'subject' || kind === 'issuer' || kind === 'email' || kind === 'bucket') record.actor[kind] = privateIdentity;
+    if (kind === 'audiences') record.actor.audiences = [privateIdentity];
+    if (['subject', 'issuer', 'email', 'audiences'].includes(kind)) record.ownerKey = await operatorOwnerKey(record.actor);
+    if (kind === 'source') record.installationId = privateIdentity;
+    await f.state.storage.put(f.aliasKey, kind === 'malformed' ? { ...record, actor: null } : record);
+    if (kind === 'overlay-owner' || kind === 'alias-drift') {
+      await f.state.storage.put(f.storageKey, { ...f.original,
+        ownerKey: kind === 'overlay-owner' ? 'f'.repeat(64) : f.a.ownerKey,
+        legacy: { storageKey: f.aliasKey, version: kind === 'alias-drift' ? 'e'.repeat(64) : await recoveryDigest(JSON.stringify(record)) } });
+    }
+    const before = await f.state.storage.list();
+    const preview = await legacyPreview(f);
+    expect(preview.item).toMatchObject({ key: f.key, status: 'blocked', reason });
+    opaqueLegacy(f, preview.pages, [privateIdentity, ...(kind === 'overlay-owner' ? ['f'.repeat(64)] : []),
+      ...(record.ownerKey === f.a.ownerKey ? [] : [record.ownerKey])]);
+    expect(await f.state.storage.list()).toEqual(before);
   }));
 });

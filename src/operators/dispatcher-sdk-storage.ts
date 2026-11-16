@@ -51,7 +51,7 @@ function scopeValid(scope: SdkStorageScope): void {
     || !Number.isSafeInteger(scope.generation) || scope.generation < 0 || !Number.isSafeInteger(scope.deadline)) deny();
 }
 function active(scope: SavedSettingsScope): void { if (Date.now() >= scope.deadline) deny(); }
-async function bounded(response: Response, signal: AbortSignal): Promise<Uint8Array> {
+async function bounded(response: Response, signal: AbortSignal, check: () => void): Promise<Uint8Array> {
   if (Number(response.headers.get('content-length')) > LIMIT) {
     void response.body?.cancel().catch(() => undefined); deny(413);
   }
@@ -63,15 +63,16 @@ async function bounded(response: Response, signal: AbortSignal): Promise<Uint8Ar
   signal.addEventListener('abort', abort, { once: true });
   try {
     for (;;) {
-      if (signal.aborted) deny();
+      check();
       const chunk = await reader.read();
-      if (signal.aborted) deny();
+      check();
       if (chunk.done) break;
       length += chunk.value.byteLength;
       if (length > LIMIT) { abort(); deny(413); }
       chunks.push(chunk.value);
     }
-  } finally { signal.removeEventListener('abort', abort); reader.releaseLock(); }
+  } catch (error) { abort(); check(); throw error; }
+  finally { signal.removeEventListener('abort', abort); reader.releaseLock(); }
   const result = new Uint8Array(length);
   let offset = 0;
   for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; }
@@ -94,12 +95,30 @@ async function privateOperation<T>(operation: () => Promise<T>): Promise<T> {
 /** Snapshot the actual bucket regime and key; no setup discovery or repair. */
 async function transport(env: Env, scope: SavedSettingsScope, authorize: () => Promise<void>, until: number,
   externalSignal?: AbortSignal) {
-  const signal = AbortSignal.any([...(externalSignal ? [externalSignal] : []),
-    AbortSignal.timeout(Math.max(1, Math.min(30_000, until - Date.now())))]);
-  const live = async () => {
-    if (signal.aborted || Date.now() >= until) deny();
-    await authorize();
-    if (signal.aborted || Date.now() >= until) deny();
+  const startedAt = Date.now();
+  const timeoutMs = Math.max(1, Math.min(30_000, until - startedAt));
+  const signal = AbortSignal.any([...(externalSignal ? [externalSignal] : []), AbortSignal.timeout(timeoutMs)]);
+  type Boundary = 'before-r2' | 'response-body';
+  type Category = 'incoming-abort' | 'local-timeout' | 'original-deadline';
+  let abortedBy: Category | undefined;
+  const classifyAbort = () => {
+    // Snapshot the first composed abort, never its potentially private reason.
+    abortedBy = externalSignal?.aborted ? 'incoming-abort'
+      : until <= startedAt + timeoutMs ? 'original-deadline' : 'local-timeout';
+  };
+  if (signal.aborted) classifyAbort();
+  else signal.addEventListener('abort', classifyAbort, { once: true });
+  const check = (boundary: Boundary) => {
+    if (signal.aborted || Date.now() >= until) {
+      throw new DispatcherSdkStorageError(403, 'Private SDK storage unavailable', { cause: {
+        category: abortedBy ?? 'original-deadline', boundary, elapsedMs: Math.max(0, Date.now() - startedAt),
+      } });
+    }
+  };
+  const live = async (boundary: Boundary = 'before-r2') => {
+    check(boundary);
+    try { await authorize(); } catch (error) { check(boundary); throw error; }
+    check(boundary);
   };
   await live();
   const key = env.ENCRYPTION_KEY;
@@ -108,10 +127,10 @@ async function transport(env: Env, scope: SavedSettingsScope, authorize: () => P
   if (state.regime === 'sse-c' && (!key || state.keyMd5 && computeKeyMd5(key) !== state.keyMd5)) deny();
   const snapshot = JSON.stringify(state);
   const headers = getSseHeaders({ ENCRYPTION_KEY: key }, state.regime === 'plain');
-  const guard = async () => {
-    await live();
+  const guard = async (boundary: Boundary = 'before-r2') => {
+    await live(boundary);
     if (env.ENCRYPTION_KEY !== key || JSON.stringify(await getRegimeState(env, scope.bucket)) !== snapshot) deny(409);
-    await live();
+    await live(boundary);
   };
   const accountId = env.R2_ACCOUNT_ID || await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
   const endpoint = env.R2_ENDPOINT || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : '');
@@ -125,13 +144,14 @@ async function transport(env: Env, scope: SavedSettingsScope, authorize: () => P
     const pending = client.fetch(new Request(url, { ...init, headers: { ...headers, ...Object.fromEntries(new Headers(init?.headers)) }, redirect: 'manual', signal }));
     let abort: (() => void) | undefined;
     const cancelled = new Promise<never>((_, reject) => {
-      abort = () => reject(new DispatcherSdkStorageError(403));
+      abort = () => { try { check('response-body'); } catch (error) { reject(error); } };
       signal.addEventListener('abort', abort, { once: true });
       if (signal.aborted) abort();
     });
     void pending.then(response => { if (signal.aborted) void response.body?.cancel().catch(() => undefined); }, () => {});
     let response: Response;
     try { response = await Promise.race([pending, cancelled]); }
+    catch (error) { check('response-body'); throw error; }
     finally { if (abort) signal.removeEventListener('abort', abort); }
     // Only read/write consume this response; both revalidate after handling it,
     // before returning bytes or confirming persistence.
@@ -142,9 +162,9 @@ async function transport(env: Env, scope: SavedSettingsScope, authorize: () => P
   const read = async (path: string) => {
     const response = await request(getR2Url(endpoint, scope.bucket, path));
     if (response.status !== 200 && response.status !== 404) { void response.body?.cancel().catch(() => undefined); deny(); }
-    const bytes = response.status === 200 ? await bounded(response, signal) : null;
+    const bytes = response.status === 200 ? await bounded(response, signal, () => check('response-body')) : null;
     if (!bytes) void response.body?.cancel().catch(() => undefined);
-    await guard();
+    await guard('response-body');
     return { bytes, etag: response.headers.get('etag') };
   };
   const write = async (path: string, value: JsonObject, etag: string) => {
@@ -164,7 +184,7 @@ async function transport(env: Env, scope: SavedSettingsScope, authorize: () => P
     void response.body?.cancel().catch(() => undefined);
     if (response.status === 412) deny(409);
     if (!response.ok) deny();
-    await guard();
+    await guard('response-body');
   };
   return { guard, read, write, signal };
 }

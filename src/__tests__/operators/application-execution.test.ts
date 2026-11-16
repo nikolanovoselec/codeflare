@@ -758,3 +758,175 @@ it('retains complete supported large responses without exceeding the source live
   expect(await f.native.storage.get('admission')).toEqual(f.state);
   expect(f.unsafe).toEqual([]);
 }), 30_000);
+
+/** REQ-OPERATOR-048: the retained Root delivery proof, not the application row,
+ * establishes settlement and exclusion of its original SDK submission. */
+async function settledDelivery(f: Fixture) {
+  const submissionId = 'settled-target-submission';
+  const deliveryDigest = createHash('sha256').update('settled-target-token').digest('hex');
+  const origin = { submissionId, uid: 'original-sdk-uid', deliveryDigest };
+  const proof = { version: 1, activityId: f.activityId, ownerKey: f.state.ownerKey,
+    generation: 1, artifactDigest: f.context.artifactDigest, inputDigest: f.receipt.intentDigest,
+    receipt: { submissionId, uid: origin.uid, acceptedAt: new Date(Date.now() - 2000).toISOString() },
+    delivery: { digest: deliveryDigest, ordinal: 2 }, terminalAt: Date.now() - 1,
+    outcome: 'failed', noExternalWrites: true };
+  const key = `dispatcher:application-delivery:1:${createHash('sha256').update(submissionId).digest('hex')}`;
+  const state = { ...structuredClone(f.state), browserCollectionConsumed: false,
+    drive: { generation: 1, status: 'running', checkpoint: { later: 'unfinished' }, result: null } };
+  const { serial: _serial, ...profile } = f.profile;
+  const lease = { ...profile, status: 'running', submissionId: 'later-target-submission',
+    receipt: { submissionId: 'later-target-submission', uid: origin.uid, acceptedAt: new Date().toISOString() },
+    application: { version: 1, initialData: {}, checkpoint: {}, context: {}, planned: true,
+      delivery: { token: 'later-target-token', ordinal: 3 }, idempotencyKey: 'later-key' } };
+  await f.native.storage.put({ admission: state, 'dispatcher:lease': lease, [key]: proof });
+  return { key, proof, state, lease,
+    authority: { ...f.authority, original: { ...f.authority.original, delivery: origin } } };
+}
+
+describe('Root-owned individual delivery facts', () => {
+  it.each(['running', 'failed', 'unknown', 'pending-plan'] as const)(
+    'REQ-OPERATOR-048: a settled target remains provable while its unrelated run is %s and uncollected', later => fixture(async f => {
+      const saved = await settledDelivery(f);
+      const state = saved.state as Record<string, any>, lease = saved.lease as Record<string, any>;
+      if (later === 'pending-plan') {
+        lease.submissionId = saved.proof.receipt.submissionId; lease.receipt = saved.proof.receipt;
+        lease.application.delivery = { token: 'settled-target-token', ordinal: 2 };
+        lease.application.pending = { delivery: { token: 'later-target-token', ordinal: 3 }, idempotencyKey: 'next-key',
+          confirmed: { delivery: lease.application.delivery, settlement: { receipt: lease.receipt, status: 'failed', data: {} } } };
+      } else state.drive.status = later;
+      await f.native.storage.put({ admission: state, 'dispatcher:lease': lease,
+        'dispatcher:journal': { generation: 1, count: 1, nextOrdinal: 1, unresolved: 1 },
+        'dispatcher:operation:1:later-write': { generation: 1, ordinal: 0, phase: 'unknown', requestDigest: 'a'.repeat(64),
+          deliveryBinding: { resource: 'fetch', submissionId: 'later-target-submission', deliveryToken: 'later-target-token' },
+          request: { method: 'POST', url: 'https://api.github.com/repos/acme/updates/issues/2/comments' } } });
+      const before = await f.native.storage.list();
+      expect(await f.activity.readApplicationExecutionFacts(saved.authority)).toMatchObject({ status: 'delivery',
+        activityId: f.activityId, generation: 1, releaseDigest: f.context.artifactDigest,
+        inputDigest: f.receipt.intentDigest, sdkSubmissionId: saved.proof.receipt.submissionId,
+        terminalAt: saved.proof.terminalAt, settled: true, fenced: true, outcome: 'failed', noExternalWrites: true });
+      expect(await f.native.storage.list()).toEqual(before);
+      expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(f.receipt);
+      expect(f.unsafe).toEqual([]);
+    }));
+
+  it('REQ-OPERATOR-048: reports source writes rather than inventing safe retry from a settled delivery', () => fixture(async f => {
+    const saved = await settledDelivery(f);
+    await f.native.storage.put(saved.key, { ...saved.proof, noExternalWrites: false });
+    expect(await f.activity.readApplicationExecutionFacts(saved.authority)).toMatchObject({ status: 'delivery',
+      settled: true, fenced: true, noExternalWrites: false });
+    expect(f.unsafe).toEqual([]);
+  }));
+
+  it.each(['missing', 'foreign-owner', 'foreign-generation', 'foreign-artifact', 'foreign-input',
+    'foreign-submission', 'foreign-uid', 'foreign-token', 'future-terminal', 'unfenced', 'missing-ledger'] as const)(
+    'REQ-OPERATOR-048: %s delivery evidence cannot authorize a retry or disclose another result', name => fixture(async f => {
+      const saved = await settledDelivery(f), proof = saved.proof as Record<string, any>;
+      if (name === 'foreign-owner') proof.ownerKey = 'e'.repeat(64);
+      if (name === 'foreign-generation') proof.generation = 2;
+      if (name === 'foreign-artifact') proof.artifactDigest = 'e'.repeat(64);
+      if (name === 'foreign-input') proof.inputDigest = 'e'.repeat(64);
+      if (name === 'foreign-submission') proof.receipt.submissionId = 'another-submission';
+      if (name === 'foreign-uid') proof.receipt.uid = 'another-incarnation';
+      if (name === 'foreign-token') proof.delivery.digest = 'e'.repeat(64);
+      if (name === 'future-terminal') proof.terminalAt = Date.now() + 60_000;
+      if (name === 'unfenced') await f.native.storage.put('dispatcher:lease', { ...saved.lease,
+        application: { ...saved.lease.application, delivery: { token: 'settled-target-token', ordinal: 2 } } });
+      if (name === 'missing-ledger') saved.authority.ledger = { ok: false };
+      if (name === 'missing') await f.native.storage.delete(saved.key);
+      else await f.native.storage.put(saved.key, proof);
+      const before = await f.native.storage.list();
+      expect(await f.activity.readApplicationExecutionFacts(saved.authority)).toEqual({ status: 'unavailable' });
+      expect(await f.native.storage.list()).toEqual(before);
+      expect(f.unsafe).toEqual([]);
+    }));
+});
+
+describe('source-proven historical recovery formats', () => {
+  it.each(['empty', 'read', 'write', 'unresolved', 'missing-ordinal', 'mixed-records'] as const)(
+    'REQ-OPERATOR-210 AC3: %s legacy aggregate is decoded read-only without inventing a modern journal', name => fixture(async f => {
+      const operations = name === 'empty' ? {} : { original: { generation: 1, ordinal: 0,
+        phase: name === 'unresolved' ? 'unknown' : 'completed', requestDigest: 'a'.repeat(64),
+        request: { method: name === 'write' ? 'POST' : 'GET', url: 'https://api.github.com/repos/acme/updates' } } };
+      if (name === 'missing-ordinal') delete (operations as Record<string, any>).original.ordinal;
+      await f.native.storage.put({ 'dispatcher:lease': { ...f.profile, status: 'unknown', submissionId: 'old-sdk-submission' },
+        'dispatcher:operations': operations,
+        ...(name === 'mixed-records' ? { 'dispatcher:operation:1:other': { generation: 1, ordinal: 1,
+          phase: 'completed', requestDigest: 'b'.repeat(64), request: { method: 'GET', url: 'https://api.github.com/repos/acme/other' } } } : {}) });
+      const before = await f.native.storage.list();
+      const result = await f.activity.readRecoveryFacts({ human: f.authority.current.human,
+        deadline: f.authority.current.deadline, original: f.authority.original, ledger: f.authority.ledger });
+      expect(result.resettable).toBe(name === 'empty' || name === 'read');
+      if (result.resettable) expect(result).toMatchObject({ reason: 'fenced-no-write', origin: { generation: 1 } });
+      expect(await f.native.storage.list()).toEqual(before);
+      expect(f.unsafe).toEqual([]);
+    }));
+
+  it.each(['complete', 'missing-attempt', 'duplicate-charge', 'foreign-generation', 'orphan-response'] as const)(
+    'REQ-OPERATOR-210 AC3: %s charged model attempts require complete original ordinal and cache accounting', name => fixture(async f => {
+      const firstBody = JSON.stringify({ error: { type: 'server_error' } });
+      const finalBody = JSON.stringify({ choices: [{ finish_reason: 'stop' }] });
+      const firstKey = 'dispatcher:inference-attempt:1:model:1';
+      const secondKey = 'dispatcher:inference-attempt:1:model:2';
+      const operation = { generation: 1, ordinal: 0, phase: 'completed', requestDigest: 'a'.repeat(64),
+        responseDigest: createHash('sha256').update(finalBody).digest('hex'),
+        deliveryBinding: { resource: 'inference', submissionId: 'old-sdk-submission', deliveryToken: 'old-token' },
+        inference: { version: 1, attempt: 2 } };
+      await f.native.storage.put({ 'dispatcher:lease': { ...f.profile, status: 'unknown', submissionId: 'old-sdk-submission' },
+        'dispatcher:journal': { generation: 1, count: 2, nextOrdinal: 2, unresolved: 0 },
+        'dispatcher:operation:1:model': operation,
+        [firstKey]: { index: 1, ordinal: 0, phase: 'completed', notBefore: 0, successor: 2, classification: 'retryable',
+          responseKey: `${firstKey}:response`, responseDigest: createHash('sha256').update(firstBody).digest('hex') },
+        [secondKey]: { index: 2, ordinal: name === 'duplicate-charge' ? 0 : 1, phase: 'completed', notBefore: 0,
+          classification: 'usable', responseKey: 'dispatcher:response:model', responseDigest: operation.responseDigest },
+        [`${firstKey}:response`]: { status: 503, contentType: 'application/json', body: firstBody },
+        'dispatcher:response:model': { status: 200, contentType: 'application/json', body: finalBody },
+        ...(name === 'orphan-response' ? { 'dispatcher:inference-attempt:1:other:1:response': { body: 'unbound' } } : {}) });
+      if (name === 'missing-attempt') await f.native.storage.delete(firstKey);
+      if (name === 'foreign-generation') {
+        await f.native.storage.put('dispatcher:inference-attempt:2:model:1', await f.native.storage.get(firstKey));
+        await f.native.storage.delete(firstKey);
+      }
+      const before = await f.native.storage.list();
+      const result = await f.activity.readRecoveryFacts({ human: f.authority.current.human,
+        deadline: f.authority.current.deadline, original: f.authority.original, ledger: f.authority.ledger });
+      expect(result.resettable).toBe(name === 'complete');
+      expect(await f.native.storage.list()).toEqual(before);
+      expect(f.unsafe).toEqual([]);
+    }));
+
+  it.each([true, false])('REQ-OPERATOR-210 AC3: legacy missing admission requires a committed non-start retirement, retired=%s', retired => fixture(async f => {
+    await f.native.storage.delete('admission');
+    await f.setLedger();
+    f.authority.original.pins = null;
+    f.authority.ledger = { ok: true, receipt: null };
+    if (retired) {
+      const original = await f.activity.readApplicationExecutionFacts(f.authority);
+      if (original.status !== 'never-started') throw Error('Missing verified original non-admission proof');
+      expect(await f.activity.retireApplicationExecution({ ...f.authority, proofVersion: original.proofVersion }))
+        .toMatchObject({ status: 'retired', activityId: f.activityId });
+    }
+    const before = await f.native.storage.list();
+    const result = await f.activity.readRecoveryFacts({ human: f.authority.current.human,
+      deadline: f.authority.current.deadline, original: f.authority.original, ledger: f.authority.ledger });
+    expect(result.resettable).toBe(retired);
+    if (result.resettable) expect(result.reason).toBe('never-started');
+    expect(await f.native.storage.list()).toEqual(before);
+    expect(f.unsafe).toEqual([]);
+  }));
+});
+
+it('REQ-OPERATOR-210: equivalent audience order keeps original owner binding without rewriting retained identity', () => fixture(async f => {
+  const human = { ...f.authority.current.human, audiences: ['audience', 'second-audience'] };
+  const context = await createOperatorExecutionContext({ activityId: f.activityId, operatorId: 'dispatcher',
+    artifactDigest: f.context.artifactDigest, policyDigest: f.context.policyDigest, human, accessJwt: 'z-jwt' }, f.environment);
+  const ownerKey = await operatorOwnerKey(human);
+  const state = { ...f.state, ownerKey, executionContext: context };
+  const authority = { ...f.authority,
+    current: { ...f.authority.current, human: { ...human, audiences: [...human.audiences].reverse() }, ownerKey },
+    original: { ...f.authority.original, ownerKey, owner: { ...context.owner, audiences: [...context.owner.audiences].reverse() } } };
+  await f.native.storage.put('admission', state);
+  const before = await f.native.storage.list();
+  expect(await f.activity.readApplicationExecutionFacts(authority)).toMatchObject({ status: 'never-started', activityId: f.activityId });
+  expect(await f.native.storage.list()).toEqual(before);
+  expect(f.unsafe).toEqual([]);
+}));

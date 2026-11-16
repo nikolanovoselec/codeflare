@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import type { ApplicationExecutionAuthority } from './application-workflow';
-import { applicationStateRecordValid, type StateRecord } from './application-state';
+import { applicationStateRecordValid, verifyApplicationStateRecovery, type StateRecord } from './application-state';
 import { openOperatorSecret } from './protected-secrets';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { AppError, ValidationError } from '../lib/error-types';
@@ -63,13 +63,20 @@ export async function inspectRecoveryRecord(storage: Pick<DurableObjectStorage, 
   const blocked = (reason: string, status: RecoveryRecord['status'] = 'conflict'): RecoveryInspection => ({ ...base, record: { ...base.record, status, reason } });
   if (raw !== undefined) {
     if (!bounded(raw) || !applicationStateRecordValid(raw) || raw.key !== key) return blocked('malformed', 'unavailable');
-    if (raw.ownerKey !== ownerKey) return blocked('owner-mismatch');
+    if (raw.ownerKey !== ownerKey) return blocked('record-owner-mismatch');
     if (raw.sourceId !== sourceId) return blocked('source-mismatch');
+  }
+  const retainedRelease = raw !== undefined && applicationStateRecordValid(raw) && raw.recovery !== undefined;
+  if (retainedRelease) {
+    if (raw.legacy?.storageKey !== legacy?.storageKey || raw.legacy?.version !== legacy?.version) return blocked('legacy-version-drift');
+    if (!await verifyApplicationStateRecovery(storage, raw, legacy)) return blocked('malformed', 'unavailable');
   }
   if (prior !== undefined) {
     if (!bounded(prior) || !object(prior)) return blocked('malformed', 'unavailable');
-    const reason = await legacyOwnership(prior);
-    if (reason) return blocked(reason, reason === 'malformed' ? 'unavailable' : 'conflict');
+    if (!retainedRelease) {
+      const reason = await legacyOwnership(prior);
+      if (reason) return blocked(reason, reason === 'malformed' ? 'unavailable' : 'conflict');
+    }
     if (`${prior.repositoryId}:${prior.pullRequest}:${prior.head}` !== key.slice('renovate:head:'.length)) return blocked('malformed', 'unavailable');
   }
   if (raw !== undefined && applicationStateRecordValid(raw)) {

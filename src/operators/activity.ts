@@ -227,17 +227,19 @@ interface DispatcherLease {
 }
 /** Recovery retains only journal proof, never historical request/response bodies. */
 function applicationOperationProof(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as DispatcherOperationRecord;
   return { generation: record.generation, requestDigest: record.requestDigest, phase: record.phase,
-    ordinal: record.ordinal,
+    ordinal: record.ordinal, responseDigest: record.responseDigest, terminalOutcome: record.terminalOutcome,
     ...(record.request ? { request: { method: record.request.method, url: record.request.url } } : {}),
     ...(record.deliveryBinding ? { deliveryBinding: { resource: record.deliveryBinding.resource,
-      submissionId: record.deliveryBinding.submissionId } } : {}),
+      submissionId: record.deliveryBinding.submissionId, deliveryToken: record.deliveryBinding.deliveryToken } } : {}),
     ...(record.phaseBinding ? { phaseBinding: { resource: record.phaseBinding.resource,
-      submissionId: record.phaseBinding.submissionId } } : {}),
+      submissionId: record.phaseBinding.submissionId, deliveryToken: record.phaseBinding.deliveryToken } } : {}),
     ...(record.inference ? { inference: { version: record.inference.version, attempt: record.inference.attempt } } : {}),
-    ...(record.native ? { native: { handle: record.native.handle, profileDigest: record.native.profileDigest } } : {}),
+    ...(record.native ? { native: { handle: record.native.handle, profileDigest: record.native.profileDigest,
+      attempt: record.native.attempt, phase: record.native.phase, outcome: record.native.outcome,
+      wireDigest: record.native.wireDigest, deliveryToken: record.native.deliveryToken } } : {}),
     ...(record.sdkHttp ? { sdkHttp: { permitId: record.sdkHttp.permitId, attempts: record.sdkHttp.attempts } } : {}) };
 }
 type OriginalExecutionProof = Pick<ApplicationExecutionAuthority, 'original' | 'ledger'> & {
@@ -277,6 +279,15 @@ const DISPATCHER_PROFILE_LEASE = 'dispatcher:profile-lease';
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
 const DISPATCHER_JOURNAL = 'dispatcher:journal';
+const APPLICATION_DELIVERY_PREFIX = 'dispatcher:application-delivery:';
+const applicationDeliveryKey = (generation: number, submissionId: string) =>
+  `${APPLICATION_DELIVERY_PREFIX}${generation}:${createHash('sha256').update(submissionId).digest('hex')}`;
+const applicationDeliveryProofSchema = z.strictObject({ version: z.literal(1), activityId: z.string().min(1).max(128),
+  ownerKey: z.string().regex(/^[a-f0-9]{64}$/), generation: z.number().int().positive().safe(),
+  artifactDigest: z.string().regex(/^[a-f0-9]{64}$/), inputDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  receipt: normalDispatcherReceiptSchema,
+  delivery: z.strictObject({ digest: z.string().regex(/^[a-f0-9]{64}$/), ordinal: z.number().int().positive().safe() }),
+  terminalAt: z.number().int().positive().safe(), outcome: z.enum(['completed', 'failed']), noExternalWrites: z.boolean() });
 const APPLICATION_SETTLEMENT_PREFIX = 'dispatcher:application-settlement:';
 const APPLICATION_SETTLEMENT_CHUNK_BYTES = 1024 * 1024;
 interface DispatcherJournal { generation: number; count: number; nextOrdinal: number; unresolved: number }
@@ -298,6 +309,133 @@ export interface RetiredEffectReceipts {
 type DispatcherJournalTx = Pick<DurableObjectTransaction, 'get' | 'put' | 'delete'>;
 const dispatcherEntryKey = (journal: DispatcherJournal, operationId: string) =>
   `dispatcher:operation:${journal.generation}:${operationId}`;
+
+/** Read-only accounting shared by settlement proof and explicit recovery. Ordinals
+ * count charged attempts, not just logical operations. No cache body is retained. */
+function applicationJournalAccounting(entries: Map<string, unknown>, generation: number,
+  delivery?: { submissionId: string; token: string }):
+  { ok: true; noExternalWrites: boolean } | { ok: false; reason: string } {
+  const fail = (reason: string) => ({ ok: false as const, reason });
+  const digest = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  const integer = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+  const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+  const aggregate = entries.get(DISPATCHER_OPERATIONS);
+  const records = [...entries].filter(([key]) => key.startsWith('dispatcher:operation:'));
+  const prefix = `dispatcher:operation:${generation}:`;
+  if (entries.has(DISPATCHER_OPERATIONS) && !object(aggregate)) return fail('journal-aggregate-malformed');
+  if (entries.has(DISPATCHER_OPERATIONS) && (records.length || entries.has(DISPATCHER_JOURNAL))) return fail('journal-mixed-layout');
+  if (records.some(([key]) => !key.startsWith(prefix))) return fail('journal-operation-generation');
+  const operations = object(aggregate) ? Object.entries(aggregate) : records.map(([key, value]) => [key.slice(prefix.length), value] as const);
+  const journal = entries.get(DISPATCHER_JOURNAL);
+  if (journal === undefined && !object(aggregate)) return fail('journal-missing');
+  if (journal !== undefined && (!object(journal) || journal.generation !== generation
+    || !integer(journal.count) || !integer(journal.nextOrdinal) || !integer(journal.unresolved))) return fail('journal-header-malformed');
+  if (object(journal) && journal.unresolved !== 0) return fail('journal-unresolved');
+  const count = object(journal) ? journal.count as number : operations.length;
+  if (object(journal) && journal.nextOrdinal !== count) return fail('journal-count-ordinal-mismatch');
+  const ordinals = new Set<number>(), allowed = new Set<string>([
+    DISPATCHER_LEASE, DISPATCHER_PROFILE_LEASE, DISPATCHER_JOURNAL, DISPATCHER_OPERATIONS, `dispatcher:result:${generation}`,
+  ]);
+  let noExternalWrites = true, hasInference = false;
+  const charge = (ordinal: unknown) => {
+    if (!integer(ordinal) || ordinal >= count || ordinals.has(ordinal)) return false;
+    ordinals.add(ordinal); return true;
+  };
+  for (const [id, value] of operations) {
+    if (!id || !object(value) || value.generation !== generation || !digest(value.requestDigest)) return fail('journal-operation-malformed');
+    const operation = value as unknown as DispatcherOperationRecord;
+    if (operation.phase !== 'completed') return fail('journal-operation-unsettled');
+    allowed.add(`${prefix}${id}`);
+    if (!operation.inference && !operation.native) {
+      allowed.add(`dispatcher:response:${id}`); allowed.add(`dispatcher:response:${generation}:${id}`);
+    }
+    if (operation.request) {
+      let url: URL;
+      try { url = new URL(operation.request.url); } catch { return fail('unknown-operation'); }
+      if (url.protocol !== 'https:' || !['GET', 'POST', 'PUT'].includes(operation.request.method)
+        || operation.inference || operation.native || operation.sdkHttp) return fail('unknown-operation');
+      if (operation.request.method !== 'GET') {
+        const binding = operation.deliveryBinding;
+        if (!delivery || !binding || binding.resource !== 'fetch'
+          || typeof binding.submissionId !== 'string' || !binding.submissionId
+          || typeof binding.deliveryToken !== 'string' || !binding.deliveryToken
+          || binding.submissionId === delivery.submissionId || binding.deliveryToken === delivery.token) noExternalWrites = false;
+      }
+    } else {
+      hasInference = true;
+      const binding = operation.deliveryBinding ?? operation.phaseBinding;
+      if (!binding || binding.resource !== 'inference' || typeof binding.submissionId !== 'string' || !binding.submissionId
+        || !(operation.inference?.version === 1 && integer(operation.inference.attempt) && operation.inference.attempt >= 1
+          || operation.native && typeof operation.native.handle === 'string' && digest(operation.native.profileDigest)
+          || operation.sdkHttp && typeof operation.sdkHttp.permitId === 'string'
+            && integer(operation.sdkHttp.attempts) && operation.sdkHttp.attempts <= 1)) return fail('unknown-operation');
+    }
+    if (!operation.inference && !operation.native) {
+      if (!charge(operation.ordinal)) return fail('journal-ordinal-coverage');
+      continue;
+    }
+    if (operation.inference && operation.native || operation.sdkHttp) return fail('journal-model-layout');
+    const attempts = operation.inference?.attempt ?? operation.native?.attempt;
+    if (!integer(attempts) || attempts < 1 || attempts > count) return fail('journal-attempt-count');
+    for (let index = 1; index <= attempts; index++) {
+      const key = inferenceAttemptKey(generation, id, index);
+      const attempt = entries.get(key);
+      if (!object(attempt) || attempt.index !== index || !integer(attempt.notBefore) || !charge(attempt.ordinal)) return fail('journal-attempt-coverage');
+      allowed.add(key);
+      if (operation.inference && index === 1 && attempt.ordinal !== operation.ordinal
+        || operation.native && index === attempts && attempt.ordinal !== operation.ordinal) return fail('journal-attempt-binding');
+      const last = index === attempts;
+      // The original managed writer can retain a charged transport failure
+      // without a cache. Its explicit successor still has to cover the charge.
+      if (operation.inference && !last && attempt.phase === 'unknown' && attempt.classification === 'transport'
+        && attempt.successor === index + 1 && attempt.responseKey === undefined && attempt.responseDigest === undefined) continue;
+      if (attempt.phase !== 'completed' || !digest(attempt.responseDigest) || typeof attempt.responseKey !== 'string') return fail('journal-attempt-unsettled');
+      if (operation.inference) {
+        if (last ? !['usable', 'final-error'].includes(String(attempt.classification)) || attempt.successor !== undefined
+          : attempt.classification !== 'retryable' || attempt.successor !== index + 1) return fail('journal-attempt-chain');
+        if (attempt.responseKey !== (last ? `dispatcher:response:${id}` : `${key}:response`)) return fail('unbound-attempt-cache');
+      } else {
+        const handle = attempt.responseKey.slice('dispatcher:native-response:'.length);
+        if (attempt.responseKey !== `dispatcher:native-response:${handle}` || !handle) return fail('unbound-native-cache');
+        const handleKey = `dispatcher:native-handle:${handle}`, reference = entries.get(handleKey);
+        if (!object(reference) || reference.generation !== generation || reference.operationId !== id
+          || reference.deliveryToken !== (operation.deliveryBinding ?? operation.phaseBinding)?.deliveryToken) return fail('unbound-native-handle');
+        allowed.add(handleKey);
+        const native = operation.native!;
+        if (!digest(native.wireDigest) || native.phase !== 'committed' || !['completed', 'failed'].includes(native.outcome ?? '')
+          || last && native.handle !== handle || (last ? attempt.classification !== (native.outcome === 'completed' ? 'usable' : 'retryable')
+            : attempt.classification !== 'retryable')) return fail('journal-native-attempt-binding');
+        const wireKey = `dispatcher:native-wire:${generation}:${reference.deliveryToken}:${native.wireDigest}`;
+        if (entries.get(wireKey) !== id) return fail('unbound-native-wire');
+        allowed.add(wireKey);
+      }
+      const cached = entries.get(attempt.responseKey);
+      if (!object(cached) || cached.sha256 !== attempt.responseDigest) return fail('unbound-attempt-cache');
+      allowed.add(attempt.responseKey);
+      if (last && operation.responseDigest !== attempt.responseDigest) return fail('journal-attempt-response-binding');
+    }
+  }
+  if (ordinals.size !== count) return fail('journal-ordinal-coverage');
+  const ownerKey = `dispatcher:inference-owner:${generation}`;
+  if (entries.has(ownerKey)) {
+    if (!hasInference || !integer(entries.get(ownerKey)) || (entries.get(ownerKey) as number) < 1) return fail('journal-inference-owner-malformed');
+    allowed.add(ownerKey);
+  }
+  for (const [key, value] of entries) {
+    if (allowed.has(key) || key.startsWith(APPLICATION_SETTLEMENT_PREFIX)) continue;
+    if (key.startsWith(APPLICATION_DELIVERY_PREFIX)) {
+      const proof = applicationDeliveryProofSchema.safeParse(value);
+      if (!proof.success || proof.data.generation !== generation
+        || key !== applicationDeliveryKey(generation, proof.data.receipt.submissionId)) return fail('delivery-proof-malformed');
+      continue;
+    }
+    if (key.startsWith('dispatcher:response:')) return fail('unbound-response-cache');
+    if (key.startsWith('dispatcher:inference-attempt:')) return fail('unbound-attempt-metadata');
+    if (key.startsWith('dispatcher:native-')) return fail('unbound-native-metadata');
+    return fail('unsupported-runtime-state');
+  }
+  return { ok: true, noExternalWrites };
+}
 
 /** Migrate the bounded legacy aggregate atomically; never discard uncertain entries. */
 async function loadDispatcherJournal(tx: DispatcherJournalTx, generation: number): Promise<DispatcherJournal> {
@@ -983,6 +1121,7 @@ export class OperatorActivity extends Agent {
     try {
       const authority = structuredClone(input);
       await this.#validateApplicationExecutionAuthority(authority);
+      if (authority.original.delivery) return await this.#readApplicationDelivery(authority);
       const observation = await this.#applicationExecutionCapture(authority);
       capture = observation.capture; observedFingerprint = observation.fingerprint;
       return await this.ctx.storage.transaction<ApplicationExecutionFacts>(async tx => {
@@ -1006,6 +1145,59 @@ export class OperatorActivity extends Agent {
     }
   }
 
+  /** Compact private proof is sufficient after its delivery is retired. Later
+   * deliveries/journals/results are deliberately not prerequisites for this read. */
+  async #readApplicationDelivery(authority: ApplicationExecutionAuthority): Promise<ApplicationExecutionFacts> {
+    return this.ctx.storage.transaction<ApplicationExecutionFacts>(async tx => {
+      const snapshot: ApplicationExecutionSnapshot = { state: await tx.get<AdmissionState>('admission'),
+        bound: await tx.get<string>('prospective-admission'), retirement: await tx.get<string>('prospective-retirement'),
+        ownedSession: await tx.get<unknown>('ownedSession'), publication: undefined, entries: new Map() };
+      if (!authority.ledger.ok || !authority.ledger.receipt || !authority.original.pins
+        || !await this.#applicationExecutionBinding(authority, snapshot)) return { status: 'unavailable' };
+      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      const generation = authority.original.generation ?? lease?.generation;
+      const origin = authority.original.delivery!;
+      if (!Number.isSafeInteger(generation) || generation! < 1) return { status: 'unavailable' };
+      const parsed = applicationDeliveryProofSchema.safeParse(await tx.get(applicationDeliveryKey(generation!, origin.submissionId)));
+      if (!parsed.success) return { status: 'unavailable' };
+      const proof = parsed.data, state = snapshot.state!;
+      if (proof.activityId !== authority.original.activityId || proof.ownerKey !== authority.original.ownerKey
+        || proof.generation !== generation || proof.artifactDigest !== authority.original.pins.bundleDigest
+        || proof.artifactDigest !== state.executionContext?.artifactDigest || proof.inputDigest !== state.receipt?.intentDigest
+        || proof.receipt.submissionId !== origin.submissionId || proof.receipt.uid !== origin.uid
+        || proof.delivery.digest !== origin.deliveryDigest || proof.terminalAt > Date.now()
+        || Date.parse(proof.receipt.acceptedAt) > proof.terminalAt) return { status: 'unavailable' };
+      if (lease?.generation === proof.generation && (lease.artifactDigest !== proof.artifactDigest
+        || lease.inputDigest !== proof.inputDigest || lease.expiresAt !== Math.floor(state.receipt!.deadline / 1000) * 1000)) return { status: 'unavailable' };
+      const app = lease?.application;
+      const deliverySchema = z.strictObject({ token: z.string().min(1), ordinal: z.number().int().positive().safe() });
+      const currentDelivery = deliverySchema.safeParse(app?.delivery);
+      const currentDigest = currentDelivery.success && createHash('sha256').update(currentDelivery.data.token).digest('hex');
+      const confirmed = app?.pending?.confirmed;
+      const pendingFence = !!app?.pending && !!confirmed
+        && lease?.submissionId === origin.submissionId && !!lease.receipt
+        && this.#normalReceiptMatches(lease.receipt, proof.receipt)
+        && confirmed.delivery.ordinal === proof.delivery.ordinal
+        && createHash('sha256').update(confirmed.delivery.token).digest('hex') === origin.deliveryDigest
+        && app.pending.delivery.ordinal === proof.delivery.ordinal + 1
+        && app.pending.delivery.token !== confirmed.delivery.token;
+      const advanced = currentDelivery.success && currentDigest !== origin.deliveryDigest
+        && currentDelivery.data.ordinal > proof.delivery.ordinal;
+      const completedFence = app?.completed === true && currentDigest === origin.deliveryDigest
+        && lease?.settledSubmissionId === origin.submissionId && !!lease.receipt
+        && this.#normalReceiptMatches(lease.receipt, proof.receipt);
+      const generationFence = !!state.drive && Number.isSafeInteger(state.drive.generation) && state.drive.generation > proof.generation
+        && !!state.diagnosticFence && Number.isSafeInteger(state.diagnosticFence.generation) && state.diagnosticFence.generation >= proof.generation
+        && ['unknown', 'cancel-requested', 'failed'].includes(state.drive.status);
+      if (!(lease?.generation === proof.generation && (advanced || pendingFence || completedFence) || generationFence)
+        || authority.current.deadline <= Date.now()) return { status: 'unavailable' };
+      return { status: 'delivery', activityId: proof.activityId, generation: proof.generation,
+        releaseDigest: proof.artifactDigest, inputDigest: proof.inputDigest, terminalAt: proof.terminalAt,
+        sdkSubmissionId: proof.receipt.submissionId, settled: true, fenced: true,
+        outcome: proof.outcome, noExternalWrites: proof.noExternalWrites };
+    });
+  }
+
   /** Explicit owner recovery is read-only: no resume, SDK observation, retirement,
    * lease change or fabricated active execution. The original ledger and local
    * owner binding, not application payloads, select the inspected Activity. */
@@ -1013,20 +1205,30 @@ export class OperatorActivity extends Agent {
     try {
       const request = structuredClone(input);
       const { original, human } = request;
-      if (request.deadline <= Date.now() || human.expiresAt * 1000 < request.deadline
-        || original.pins === null || !request.ledger.ok || request.ledger.receipt === null
-        || original.ownerKey !== await operatorOwnerKey(human)
-        || original.ownerKey !== await operatorOwnerKey(original.owner)
-        || !syncIdentity.safeParse(original.activityId).success
-        || !request.ledger.ok || !this.#appEnv.OPERATOR_ACTIVITY
+      if (request.deadline <= Date.now() || human.expiresAt * 1000 < request.deadline) return { resettable: false, reason: 'authority-expired' };
+      if (original.ownerKey !== await operatorOwnerKey(human)) return { resettable: false, reason: 'original-owner-mismatch' };
+      if (original.ownerKey !== await operatorOwnerKey(original.owner)) return { resettable: false, reason: 'original-owner-binding-mismatch' };
+      if (!syncIdentity.safeParse(original.activityId).success || !this.#appEnv.OPERATOR_ACTIVITY
         || this.#appEnv.OPERATOR_ACTIVITY.idFromName(original.activityId).toString() !== this.ctx.id.toString()) {
-        return { resettable: false, reason: 'owner-or-ledger-mismatch' };
+        return { resettable: false, reason: 'original-activity-mismatch' };
       }
+      if (!request.ledger.ok || request.ledger.receipt === undefined) return { resettable: false, reason: 'ledger-unavailable' };
       return await this.ctx.storage.transaction<import('./application-recovery').RecoveryFacts>(async tx => {
         const snapshot = await this.#applicationExecutionSnapshot(tx);
         // These existing local predicates only read original/ledger and the
         // authority deadline. No runtime binding or active Activity is invented.
         const proof: OriginalExecutionProof = { original, ledger: request.ledger, current: { deadline: request.deadline } };
+        if (snapshot.state && snapshot.state.ownerKey !== original.ownerKey) return { resettable: false, reason: 'original-stored-owner-mismatch' };
+        if (snapshot.publication !== undefined) return { resettable: false, reason: 'publication-present' };
+        if (snapshot.ownedSession !== undefined) return { resettable: false, reason: 'owned-session-present' };
+        if (request.ledger.ok && request.ledger.receipt === null && snapshot.state?.phase === 'queued') {
+          return { resettable: false, reason: 'ledger-missing' };
+        }
+        if (request.ledger.ok && request.ledger.receipt) {
+          if (request.ledger.receipt.activityId !== original.activityId) return { resettable: false, reason: 'ledger-activity-mismatch' };
+          if (request.ledger.receipt.installationId !== original.installationId) return { resettable: false, reason: 'ledger-installation-mismatch' };
+          if (!sameDispatcherPhaseValue(snapshot.state?.receipt, request.ledger.receipt)) return { resettable: false, reason: 'ledger-local-receipt-mismatch' };
+        }
         if (!await this.#applicationExecutionBinding(proof, snapshot)) return { resettable: false, reason: 'original-binding-mismatch' };
         const state = snapshot.state;
         const success = async (reason: string, generation: number): Promise<import('./application-recovery').RecoveryFacts> => ({
@@ -1034,30 +1236,41 @@ export class OperatorActivity extends Agent {
           origin: { generation, deadline: state?.intent.deadline ?? request.deadline },
           ...(state?.invocationJson === undefined ? {} : { invocation: JSON.parse(state.invocationJson) }),
         });
-        if (await this.#applicationNeverStarted(proof, snapshot)
-          && (snapshot.retirement === original.activityId || state?.drive?.status === 'unknown'
-            && state.drive.generation > (state.diagnosticBinding?.generation ?? Number.MAX_SAFE_INTEGER))) {
+        const neverStarted = await this.#applicationNeverStarted(proof, snapshot);
+        // The old retirement transaction already proved non-start. A missing
+        // admission by itself is never equivalent to this persisted fence.
+        if (neverStarted && snapshot.retirement === original.activityId) {
           return success('never-started', state?.diagnosticBinding?.generation ?? state?.drive?.generation ?? 1);
+        }
+        if (!original.pins) return { resettable: false, reason: 'original-pins-missing' };
+        if (!request.ledger.ok || !request.ledger.receipt) return { resettable: false, reason: 'ledger-missing' };
+        if (neverStarted && state?.drive?.status === 'unknown'
+          && state.drive.generation > (state.diagnosticBinding?.generation ?? Number.MAX_SAFE_INTEGER)) {
+          return success('never-started', state.diagnosticBinding!.generation);
         }
         const entries = snapshot.entries;
         const journal = entries.get(DISPATCHER_JOURNAL) as DispatcherJournal | undefined;
-        if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.executionContext
-          || snapshot.publication !== undefined || snapshot.ownedSession !== undefined) return { resettable: false, reason: 'effect-state-present' };
-        if (!journal || !Number.isSafeInteger(journal.generation) || journal.generation < 1
-          || !Number.isSafeInteger(journal.count) || journal.count < 0
-          || journal.nextOrdinal !== journal.count || journal.unresolved !== 0) return { resettable: false, reason: 'journal-unaccounted' };
-        if (!state.drive || state.drive.generation <= journal.generation
-          || !['unknown', 'cancel-requested'].includes(state.drive.status)
-          || !state.diagnosticFence || state.diagnosticFence.generation < journal.generation) {
-          return { resettable: false, reason: 'active-or-unfenced' };
-        }
+        if (!state?.receipt || !isManagementReceipt(state.receipt) || !state.executionContext) return { resettable: false, reason: 'original-admission-missing' };
         const lease = entries.get(DISPATCHER_LEASE) as DispatcherLease | undefined;
         const profile = entries.get(DISPATCHER_PROFILE_LEASE) as DispatcherLease | undefined;
+        if (!entries.has(DISPATCHER_JOURNAL) && !entries.has(DISPATCHER_OPERATIONS)) return { resettable: false, reason: 'journal-missing' };
+        const generation = entries.has(DISPATCHER_JOURNAL) ? journal?.generation : (lease ?? profile)?.generation;
+        if (!Number.isSafeInteger(generation) || generation! < 1) return { resettable: false,
+          reason: entries.has(DISPATCHER_JOURNAL) ? 'journal-header-malformed' : 'legacy-generation-unavailable' };
+        const accounting = applicationJournalAccounting(entries, generation!);
+        if (!accounting.ok) return { resettable: false, reason: accounting.reason };
+        if (!state.drive) return { resettable: false, reason: 'drive-missing' };
+        if (!Number.isSafeInteger(state.drive.generation) || state.drive.generation < 1) return { resettable: false, reason: 'drive-generation-malformed' };
+        if (state.drive.generation <= generation!) return { resettable: false, reason: 'drive-generation-current' };
+        if (!['unknown', 'cancel-requested'].includes(state.drive.status)) return { resettable: false, reason: 'drive-status-unfenced' };
+        if (!state.diagnosticFence) return { resettable: false, reason: 'generation-fence-missing' };
+        if (!Number.isSafeInteger(state.diagnosticFence.generation) || state.diagnosticFence.generation < 0) return { resettable: false, reason: 'generation-fence-malformed' };
+        if (state.diagnosticFence.generation < generation!) return { resettable: false, reason: 'generation-fence-stale' };
         if (entries.has(DISPATCHER_LEASE) && !lease || entries.has(DISPATCHER_PROFILE_LEASE) && !profile) {
           return { resettable: false, reason: 'lease-binding-mismatch' };
         }
         for (const value of [lease, profile]) {
-          if (value && (value.generation !== journal.generation
+          if (value && (value.generation !== generation
             || value.artifactDigest !== state.executionContext.artifactDigest
             || value.inputDigest !== state.receipt.intentDigest
             || value.expiresAt !== Math.floor(state.receipt.deadline / 1000) * 1000)) return { resettable: false, reason: 'lease-binding-mismatch' };
@@ -1072,54 +1285,19 @@ export class OperatorActivity extends Agent {
             return { resettable: false, reason: 'unbound-settlement-cache' };
           }
           for (const [key, value] of chunks) {
-            const index = Number(key.slice(`${APPLICATION_SETTLEMENT_PREFIX}${journal.generation}:`.length));
+            const index = Number(key.slice(`${APPLICATION_SETTLEMENT_PREFIX}${generation}:`.length));
             const chunk = z.strictObject({ bytes: z.number().int().positive(), sha256: syncDigest }).safeParse(value);
             if (!Number.isSafeInteger(index) || index < 0 || index >= chunks.length
-              || key !== `${APPLICATION_SETTLEMENT_PREFIX}${journal.generation}:${index}` || !chunk.success
+              || key !== `${APPLICATION_SETTLEMENT_PREFIX}${generation}:${index}` || !chunk.success
               || chunk.data.bytes !== Math.min(APPLICATION_SETTLEMENT_CHUNK_BYTES,
                 reference.data.bytes - index * APPLICATION_SETTLEMENT_CHUNK_BYTES)) {
               return { resettable: false, reason: 'unbound-settlement-cache' };
             }
           }
         } else if (chunks.length) return { resettable: false, reason: 'unbound-settlement-cache' };
-        const aggregate = entries.get(DISPATCHER_OPERATIONS) as Record<string, DispatcherOperationRecord> | undefined;
-        const records = [...entries].filter(([key]) => key.startsWith('dispatcher:operation:'));
-        if (entries.has(DISPATCHER_OPERATIONS) && (!aggregate || typeof aggregate !== 'object' || Array.isArray(aggregate) || records.length)
-          || records.some(([key]) => !key.startsWith(`dispatcher:operation:${journal.generation}:`))
-          || [...entries.keys()].some(key => ![DISPATCHER_LEASE, DISPATCHER_PROFILE_LEASE, DISPATCHER_JOURNAL, DISPATCHER_OPERATIONS].includes(key)
-            && !key.startsWith('dispatcher:operation:') && !key.startsWith('dispatcher:response:')
-            && !key.startsWith(APPLICATION_SETTLEMENT_PREFIX) && key !== `dispatcher:result:${journal.generation}`)) return { resettable: false, reason: 'journal-unaccounted' };
-        const operationIds = aggregate ? Object.keys(aggregate)
-          : records.map(([key]) => key.slice(`dispatcher:operation:${journal.generation}:`.length));
-        const responseKeys = new Set(operationIds.flatMap(id => [
-          `dispatcher:response:${id}`, `dispatcher:response:${journal.generation}:${id}`,
-        ]));
-        if ([...entries.keys()].some(key => key.startsWith('dispatcher:response:') && !responseKeys.has(key))) {
-          return { resettable: false, reason: 'unbound-response-cache' };
-        }
-        const operations = aggregate ? Object.values(aggregate) : records.map(([, value]) => value as DispatcherOperationRecord);
-        if (operations.length !== journal.count) return { resettable: false, reason: 'journal-unaccounted' };
-        const ordinals = new Set<number>();
-        for (const operation of operations) {
-          if (!operation || operation.generation !== journal.generation || operation.phase !== 'completed'
-            || !syncDigest.safeParse(operation.requestDigest).success || !Number.isSafeInteger(operation.ordinal)
-            || operation.ordinal! < 0 || operation.ordinal! >= journal.count || ordinals.has(operation.ordinal!)) return { resettable: false, reason: 'journal-incomplete' };
-          ordinals.add(operation.ordinal!);
-          if (operation.request) {
-            let url: URL;
-            try { url = new URL(operation.request.url); } catch { return { resettable: false, reason: 'unknown-operation' }; }
-            if (operation.request.method !== 'GET' || url.protocol !== 'https:') return { resettable: false, reason: 'source-write' };
-          } else {
-            const binding = operation.deliveryBinding ?? operation.phaseBinding;
-            // Completed model work may belong to an earlier application delivery,
-            // not the current SDK receipt. Its original journal binding remains authoritative.
-            if (!binding || binding.resource !== 'inference' || !syncIdentity.safeParse(binding.submissionId).success
-              || !(operation.inference?.version === 1 && Number.isSafeInteger(operation.inference.attempt) && operation.inference.attempt >= 1
-                || operation.native && typeof operation.native.handle === 'string' && syncDigest.safeParse(operation.native.profileDigest).success
-                || operation.sdkHttp && typeof operation.sdkHttp.permitId === 'string' && Number.isSafeInteger(operation.sdkHttp.attempts))) return { resettable: false, reason: 'unknown-operation' };
-          }
-        }
-        return success('fenced-no-write', journal.generation);
+        if (!accounting.noExternalWrites) return { resettable: false, reason: 'source-write' };
+        if (request.deadline <= Date.now()) return { resettable: false, reason: 'authority-expired' };
+        return success('fenced-no-write', generation!);
       });
     } catch { return { resettable: false, reason: 'facts-unavailable' }; }
   }
@@ -1185,7 +1363,9 @@ export class OperatorActivity extends Agent {
       deadline: z.number().int().positive().safe(), human: owner.extend({ expiresAt: z.number().int().positive() }) }),
     original: z.strictObject({ activityId: syncIdentity, installationId: syncIdentity, operatorId: syncIdentity,
       sourceRepositoryId: z.number().int().positive().safe(), ownerKey: syncDigest, owner,
-      invocationJson: z.string().optional(), binding: z.enum(['legacy', 'activity']), pins: z.strictObject({
+      invocationJson: z.string().optional(), binding: z.enum(['legacy', 'activity']),
+      delivery: z.strictObject({ submissionId: z.string().min(1).max(128), uid: z.string().min(1).max(512),
+        deliveryDigest: syncDigest }).optional(), generation: z.number().int().positive().safe().optional(), pins: z.strictObject({
         operatorRevision: z.number().int().positive().safe(), installationRevision: z.number().int().positive().safe(),
         controlsRevision: z.number().int().nonnegative().safe(), releaseId: syncIdentity, bundleDigest: syncDigest }).nullable() }),
     ledger: z.union([z.strictObject({ ok: z.literal(false) }),
@@ -1283,15 +1463,39 @@ export class OperatorActivity extends Agent {
           // Diagnostics are not execution/effect evidence and may arrive after a fence.
           if (key.startsWith('dispatcher:diagnostics:')) continue;
           if (key.startsWith('dispatcher:operation:')) entries.set(key, applicationOperationProof(value));
-          else if (key === DISPATCHER_OPERATIONS && value && typeof value === 'object' && !Array.isArray(value)) {
-            entries.set(key, Object.fromEntries(Object.entries(value).map(([id, operation]) => [id, applicationOperationProof(operation)])));
+          else if (key === DISPATCHER_OPERATIONS) {
+            entries.set(key, value && typeof value === 'object' && !Array.isArray(value)
+              ? Object.fromEntries(Object.entries(value).map(([id, operation]) => [id, applicationOperationProof(operation)])) : null);
           } else if (key === DISPATCHER_LEASE || key === DISPATCHER_PROFILE_LEASE || key === DISPATCHER_JOURNAL
             || key === `dispatcher:result:${state?.drive?.generation}`) entries.set(key, value);
           else if (key.startsWith(APPLICATION_SETTLEMENT_PREFIX)) {
             entries.set(key, value instanceof Uint8Array
               ? { bytes: value.byteLength, sha256: createHash('sha256').update(value).digest('hex') } : null);
-          } else if (key.startsWith('dispatcher:response:') || /^dispatcher:result:[1-9][0-9]*$/.test(key)) {
-            // Cache bodies are retained separately; recovery only needs their original-key association.
+          } else if (key.startsWith('dispatcher:inference-attempt:') && !key.endsWith(':response')) {
+            // Actual functional writer format, not diagnostic attempt counters.
+            const attempt = value as DispatcherInferenceAttempt | null;
+            entries.set(key, attempt && typeof attempt === 'object' ? { index: attempt.index, ordinal: attempt.ordinal,
+              phase: attempt.phase, notBefore: attempt.notBefore, successor: attempt.successor,
+              classification: attempt.classification, responseKey: attempt.responseKey, responseDigest: attempt.responseDigest } : null);
+          } else if (key.startsWith('dispatcher:native-handle:')) {
+            const reference = value as { generation?: unknown; operationId?: unknown; deliveryToken?: unknown } | null;
+            entries.set(key, reference && typeof reference === 'object' ? { generation: reference.generation,
+              operationId: reference.operationId, deliveryToken: reference.deliveryToken } : null);
+          } else if (key.startsWith('dispatcher:native-wire:')) {
+            entries.set(key, typeof value === 'string' ? value : null);
+          } else if (key.startsWith('dispatcher:inference-owner:')) {
+            entries.set(key, typeof value === 'number' ? value : null);
+          } else if (key.startsWith(APPLICATION_DELIVERY_PREFIX)) {
+            const proof = applicationDeliveryProofSchema.safeParse(value);
+            entries.set(key, proof.success ? proof.data : null);
+          } else if (key.startsWith('dispatcher:response:') || key.startsWith('dispatcher:native-response:')
+            || key.startsWith('dispatcher:inference-attempt:') && key.endsWith(':response')) {
+            const response = value as { body?: unknown; bytes?: unknown } | null;
+            const body = response && typeof response === 'object' ? response.body : undefined;
+            const bytes = response && typeof response === 'object' ? response.bytes : undefined;
+            entries.set(key, typeof body === 'string' ? { sha256: createHash('sha256').update(body).digest('hex') }
+              : bytes instanceof Uint8Array ? { sha256: createHash('sha256').update(bytes).digest('hex') } : true);
+          } else if (/^dispatcher:result:[1-9][0-9]*$/.test(key)) {
             entries.set(key, true);
           } else entries.set('unexpected-runtime-state', true); // One presence bit fences work; payloads and their keys add no proof.
         }
@@ -1337,7 +1541,7 @@ export class OperatorActivity extends Agent {
       || state.executionContext.owner.subject !== original.owner.subject
       || state.executionContext.owner.issuer !== original.owner.issuer
       || state.executionContext.owner.email.toLowerCase() !== original.owner.email.toLowerCase()
-      || !sameDispatcherPhaseValue(state.executionContext.owner.audiences, original.owner.audiences)) return false;
+      || !sameDispatcherPhaseValue([...state.executionContext.owner.audiences].sort(), [...original.owner.audiences].sort())) return false;
     const pins = original.pins;
     if (pins && (state.intent.expectedRevision !== pins.operatorRevision
       || state.intent.expectedInstallationRevision !== pins.installationRevision
@@ -2972,6 +3176,7 @@ export class OperatorActivity extends Agent {
             for (let offset = 0, index = 0; offset < encoded.byteLength; offset += chunkBytes, index++) {
               await tx.put(chunkKey(index), encoded.slice(offset, offset + chunkBytes));
             }
+            await this.#persistApplicationDeliveryProof(tx, live!, settlement);
             pending = { delivery: { token: crypto.randomUUID(), ordinal: app.delivery.ordinal + 1 },
               idempotencyKey: crypto.randomUUID(), confirmed: { delivery: { ...app.delivery },
                 settlementRef: { bytes: encoded.byteLength, sha256: createHash('sha256').update(encoded).digest('hex') } } };
@@ -3043,6 +3248,28 @@ export class OperatorActivity extends Agent {
     return work;
   }
 
+  async #persistApplicationDeliveryProof(tx: DurableObjectTransaction, lease: DispatcherLease,
+    settlement: ApplicationSettlement): Promise<void> {
+    const snapshot = await this.#applicationExecutionSnapshot(tx);
+    const state = snapshot.state;
+    if (!state?.ownerKey || !lease.application || !lease.receipt || !lease.wire
+      || !this.#normalReceiptMatches(lease.receipt, settlement.receipt)) throw new Error('Application delivery receipt unavailable');
+    const accounting = applicationJournalAccounting(snapshot.entries, lease.generation,
+      { submissionId: settlement.receipt.submissionId, token: lease.application.delivery.token });
+    if (!accounting.ok) throw new Error(`Application delivery ${accounting.reason}`);
+    const key = applicationDeliveryKey(lease.generation, settlement.receipt.submissionId);
+    const prior = await tx.get(key);
+    const parsed = prior === undefined ? undefined : applicationDeliveryProofSchema.parse(prior);
+    const proof = applicationDeliveryProofSchema.parse({ version: 1, activityId: lease.wire.activityId,
+      ownerKey: state.ownerKey, generation: lease.generation, artifactDigest: lease.artifactDigest, inputDigest: lease.inputDigest,
+      receipt: lease.receipt, delivery: { digest: createHash('sha256').update(lease.application.delivery.token).digest('hex'),
+        ordinal: lease.application.delivery.ordinal }, terminalAt: parsed?.terminalAt ?? Date.now(),
+      outcome: 'status' in settlement ? 'failed' : 'completed', noExternalWrites: accounting.noExternalWrites });
+    if (Date.parse(proof.receipt.acceptedAt) > proof.terminalAt
+      || parsed && !sameDispatcherPhaseValue(parsed, proof)) throw new Error('Application delivery proof changed');
+    if (!parsed) await tx.put(key, proof);
+  }
+
   /** Already authenticated installation callback. Derive scope exclusively from
    * current pinned runtime state; Registry never calls back into this Activity. */
   async #applicationCallback(generation: number, request: Request, contextOnly: boolean, execution = false,
@@ -3083,6 +3310,7 @@ export class OperatorActivity extends Agent {
     const key = z.string().min(1).refine(value => new TextEncoder().encode(value).byteLength <= 1024);
     const executionRequest: ApplicationExecutionRequest | undefined = execution ? z.discriminatedUnion('operation', [
       z.strictObject({ operation: z.literal('read'), key, activityId: syncIdentity, version: syncDigest }),
+      z.strictObject({ operation: z.literal('read-delivery'), key, activityId: syncIdentity, version: syncDigest }),
       z.strictObject({ operation: z.literal('retire'), key, activityId: syncIdentity, version: syncDigest }),
     ]).parse(value) : undefined;
     const parsed = !execution ? z.discriminatedUnion('operation', [
@@ -3099,6 +3327,9 @@ export class OperatorActivity extends Agent {
       activityId: plan.activityId, generation, deadline: lease.expiresAt, releaseId: release.id,
       bundleDigest: release.bundleDigest, installationRevision: installation.revision, operatorRevision: operator.revision,
       controlsRevision, intentDigest: lease.inputDigest, deliveryToken: delivery.token,
+      ...(!lease.application!.pending && lease.receipt && lease.receipt.submissionId === lease.submissionId
+        ? { originDelivery: { submissionId: lease.receipt.submissionId, uid: lease.receipt.uid,
+          deliveryDigest: createHash('sha256').update(lease.application!.delivery.token).digest('hex') } } : {}),
     };
     await this.#normalDispatcherCurrent(lease);
     if (request.signal.aborted) return dispatcherRefusal('execution-inactive');

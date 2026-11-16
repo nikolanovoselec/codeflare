@@ -115,8 +115,10 @@ export async function readDispatcherSdkConfiguration(input: SdkInput): Promise<R
     }
     const scope = storageScope(input, owner);
     if (await metadata(input, scope).claimBucketOwner(scope.email, false) !== 'owned') throw new Error('SDK storage owner denied');
+    // Full owner/source checks enclose the read; each protected R2 boundary
+    // still checks current grants, connection and generation without rediscovery.
     const files = await readDispatcherSdkFiles({ ...scope, env: input.env, signal: input.signal,
-      current: async () => { await sameOwner(input, owner); return true; } });
+      current: () => input.current() });
     await sameOwner(input, owner);
     return { source: 'pi-native', ...files,
       ...(input.plan.configuredSelection ? { selection: input.plan.configuredSelection } : {}) };

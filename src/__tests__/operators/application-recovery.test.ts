@@ -24,7 +24,7 @@ describe('recovery inventory preserves ownership and state-version contracts', (
     if (name === 'legacy-drift') record.legacy!.version = 'd'.repeat(64);
     await storage.put(`${prefix}${await recoveryDigest(key)}`, name === 'malformed' ? { value: 'FOREIGN_PRIVATE' } : record);
     const result = await inspectRecoveryRecord(storage, key, sourceId, ownerKey, async () => null);
-    expect(result.record.reason).toBe({ owned: 'proof-required', owner: 'owner-mismatch', source: 'source-mismatch',
+    expect(result.record.reason).toBe({ owned: 'proof-required', owner: 'record-owner-mismatch', source: 'source-mismatch',
       'legacy-drift': 'legacy-version-drift', malformed: 'malformed' }[name]);
     if (name !== 'owned') {
       expect(result.record.value).toBeUndefined();

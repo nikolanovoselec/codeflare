@@ -784,6 +784,39 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
 
 
 describe('REQ-OPERATOR-027: repository-only Dispatcher result presentation', () => {
+  it('REQ-OPERATOR-057: distinguishes absent decisions from unreadable content and shows the reported deferral reason', async () => {
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
+      result: { repository: 'authorized/project', results: [1500, 1499, 1476].map(pullRequest => ({
+        pullRequest, outcome: 'DEFERRED', reason: 'response-failed', privateData: 'do-not-render',
+      })) } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    for (const number of [1500, 1499, 1476]) {
+      const row = (await screen.findByRole('link', { name: `PR #${number}` })).closest('article')!;
+      expect(within(row).getByText('Outcome: DEFERRED')).toBeTruthy();
+      expect(within(row).getByText('Decision: Not reported')).toBeTruthy();
+      expect(within(row).getByText('Reason: response-failed')).toBeTruthy();
+      expect(within(row).queryByText(/Content unavailable/)).toBeNull();
+    }
+    expect(screen.queryByText('do-not-render')).toBeNull();
+  });
+
+  it.each(['x'.repeat(1001), 'unsafe\u0000decision'])('REQ-OPERATOR-057: supplied unreadable decision and reason remain unavailable rather than absent', async unsafe => {
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
+      result: { repository: 'authorized/project', results: [{ pullRequest: 17,
+        outcome: 'DEFERRED', decision: unsafe, reason: unsafe }] } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    expect(await screen.findByText('Decision: Content unavailable (not safely readable)')).toBeTruthy();
+    expect(screen.getByText('Reason: Content unavailable (not safely readable)')).toBeTruthy();
+    expect(screen.queryByText('Decision: Not reported')).toBeNull();
+    expect(document.body.textContent).not.toContain(unsafe);
+  });
+
   it.each([{ results: [] }, { results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', comment: 'Migration evidence is incomplete', outcome: 'NOT_MERGED' }] }])('REQ-OPERATOR-086 AC4: shows reported repository outcomes without inferring discovery', async ({ results }) => {
     listMock.mockResolvedValue({ items: [active] });
     detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
