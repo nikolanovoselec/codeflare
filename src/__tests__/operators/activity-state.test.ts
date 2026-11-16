@@ -177,12 +177,120 @@ describe('REQ-OPERATOR-007/047: durable Conductor native recovery without loggin
 });
 
 describe('REQ-OPERATOR-086 AC3: safe owner run metadata', () => {
+  const counts = { assessed: 10, merged: 1, notMerged: 2, deferred: 3, unknown: 4 };
+  const zeroCounts = { assessed: 0, merged: 0, notMerged: 0, deferred: 0, unknown: 0 };
+  const countFields = ['assessed', 'merged', 'notMerged', 'deferred', 'unknown'] as const;
+  const ownerKey = 'a'.repeat(64);
+  // Reuse the native Activity fixture, seeding retained application metadata only: no SDK execution.
+  async function seedApplicationResult(ctx: DurableObjectState, deadline: number, result: unknown,
+    status = 'completed', consumed = false) {
+    const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+    if (!admission) throw new Error('Fixture admission missing');
+    const manifestJson = JSON.stringify({ name: 'Independent Application', version: '1.2.3', application: { controlVersion: 1 } });
+    await ctx.storage.put('admission', { ...admission, ownerKey, browserCollectionConsumed: consumed,
+      invocationJson: JSON.stringify({ repository: 'acme/updates' }),
+      receipt: { ...admission.receipt, intentDigest: 'b'.repeat(64), selection: {
+        controlsRevision: 1, manifestJson,
+        operator: { operatorId: 'operator', name: 'Independent Application', profile: 'dispatcher', revision: 1,
+          policy: { capabilities: ['fetch'], resourceProfileId: null, loggingEnabled: false } },
+        installation: { id: 'installation', operatorId: 'operator', revision: 1, enabled: true,
+          configurationJson: '{}', releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
+        release: { id: 'release', operatorId: 'operator', bundleDigest: 'a'.repeat(64), sourceCommit: 'd'.repeat(40) },
+      } }, drive: { generation: 1, status, checkpoint: { private: 'PRIVATE_CHECKPOINT' }, result } });
+    await ctx.storage.put('dispatcher:lease', { generation: 1, inputDigest: 'b'.repeat(64), artifactDigest: 'a'.repeat(64),
+      expiresAt: deadline, hosting: 'normal', submissionId: 'original-submission',
+      settledSubmissionId: status === 'completed' ? 'original-submission' : undefined,
+      status: status === 'completed' || status === 'failed' ? 'settled' : 'running',
+      application: { version: 1, initialData: null, checkpoint: null, context: null,
+        delivery: { token: 'private-delivery', ordinal: 1 }, idempotencyKey: 'original-plan', planned: true,
+        ...(status === 'completed' ? { completed: true } : {}) } });
+  }
+
+  it.each([{ resultSummary: counts, consumed: false }, { resultSummary: zeroCounts, consumed: true },
+    { resultSummary: { ...zeroCounts, assessed: 1024, unknown: 1024 }, consumed: false }])(
+    'projects only completed application metadata through cold reconstruction and registry retention: %j', ({ resultSummary, consumed }) =>
+      withActivity(async ({ activity, registry, ctx, activityEnv, deadline }) => {
+        // Deliberately contradictory legacy rows must neither override nor supply generic counts.
+        const result = { resultSummary, body: 'PRIVATE_APPLICATION_RESULT', ...(consumed ? {} : {
+          repository: 'unrelated/opaque', results: [{ pullRequest: 1, outcome: 'MERGED' }],
+        }) };
+        await seedApplicationResult(ctx, deadline, result, 'completed', consumed);
+        const saved = await ctx.storage.list();
+        const summary = await activity.getBrowserSummary(ownerKey);
+        expect(summary).toMatchObject({ version: '1.2.3', resultSummary, executionStatus: 'completed',
+          cleanupStatus: 'unknown', collectionStatus: consumed ? 'consumed' : 'ready', attention: !consumed });
+        expect(summary).not.toHaveProperty('result');
+        expect(summary).not.toHaveProperty('checkpoint');
+        expect(JSON.stringify(summary)).not.toContain('PRIVATE_');
+        expect(await activity.getBrowserSummary('f'.repeat(64))).toBeNull();
+        const cold = new OperatorActivity(ctx, activityEnv);
+        expect(await cold.getBrowserSummary(ownerKey)).toEqual(summary);
+        expect(await ctx.storage.list()).toEqual(saved);
+        if (!summary) throw new Error('Fixture owner summary missing');
+        await registry.upsertOwnedActivity(ownerKey, summary);
+        const coldRegistry = new OperatorRegistry(ctx, env as ConstructorParameters<typeof OperatorRegistry>[1]);
+        expect(await coldRegistry.getOwnedActivity(ownerKey, 'activity')).toEqual(summary);
+        expect(await coldRegistry.listOwnedActivityPage(ownerKey, null)).toMatchObject({
+          unreadCount: 1, workingCount: 0, items: [summary] });
+        expect(await coldRegistry.getOwnedActivity('f'.repeat(64), 'activity')).toBeNull();
+        expect((await ctx.storage.get<{ drive: { result: unknown } }>('admission'))!.drive.result).toEqual(result);
+      }));
+
+  const invalidMetadata: { name: string; metadata: unknown }[] = [
+    { name: 'absent', metadata: undefined }, { name: 'null', metadata: null },
+    { name: 'array', metadata: [counts] }, { name: 'string', metadata: 'PRIVATE_METADATA' },
+    { name: 'extra field', metadata: { ...counts, private: 'PRIVATE_METADATA' } },
+    { name: 'contradictory total', metadata: { ...counts, assessed: 9 } },
+    { name: 'assessed over bound', metadata: { ...zeroCounts, assessed: 1025, unknown: 1025 } },
+    { name: 'integer overflow', metadata: { ...zeroCounts, assessed: Number.MAX_SAFE_INTEGER + 1,
+      merged: Number.MAX_SAFE_INTEGER + 1 } },
+    ...countFields.flatMap(field => [
+      { name: `missing ${field}`, metadata: Object.fromEntries(Object.entries(counts).filter(([key]) => key !== field)) },
+      ...[-1, 0.5, '1', null, true, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1].map(value => ({
+        name: `${field} invalid ${String(value)}`, metadata: { ...counts, [field]: value } })),
+    ]),
+  ];
+  it.each(invalidMetadata)('omits $name application metadata without fallback or lifecycle/result changes', ({ metadata }) =>
+    withActivity(async ({ activity, ctx, deadline }) => {
+      const report = { repository: 'acme/updates', results: [{ pullRequest: 1, outcome: 'MERGED' }],
+        body: 'PRIVATE_APPLICATION_RESULT' };
+      await seedApplicationResult(ctx, deadline, report);
+      const baseline = await activity.getBrowserSummary(ownerKey);
+      expect(baseline).not.toHaveProperty('resultSummary');
+      const result = metadata === undefined ? report : { ...report, resultSummary: metadata };
+      await seedApplicationResult(ctx, deadline, result);
+      const saved = await ctx.storage.list();
+      expect(await activity.getBrowserSummary(ownerKey)).toEqual(baseline);
+      expect(await ctx.storage.list()).toEqual(saved);
+    }));
+
+  it.each([null, [], 'PRIVATE_APPLICATION_RESULT', 0])(
+    'omits metadata for nonobject application result %j', result => withActivity(async ({ activity, ctx, deadline }) => {
+      await seedApplicationResult(ctx, deadline, result);
+      const saved = await ctx.storage.list();
+      expect(await activity.getBrowserSummary(ownerKey)).not.toHaveProperty('resultSummary');
+      expect(await ctx.storage.list()).toEqual(saved);
+    }));
+
+  it.each(['running', 'waiting', 'failed', 'cancel-requested', 'unknown'])(
+    'does not treat valid metadata as completion or authorization for %s application work', status =>
+      withActivity(async ({ activity, ctx, deadline }) => {
+        await seedApplicationResult(ctx, deadline, { body: 'PRIVATE_APPLICATION_RESULT' }, status);
+        const baseline = await activity.getBrowserSummary(ownerKey);
+        await seedApplicationResult(ctx, deadline, { body: 'PRIVATE_APPLICATION_RESULT', resultSummary: counts }, status);
+        const saved = await ctx.storage.list();
+        expect(await activity.getBrowserSummary(ownerKey)).toEqual(baseline);
+        expect(baseline).toMatchObject({ executionStatus: status });
+        expect(baseline).not.toHaveProperty('resultSummary');
+        expect(await ctx.storage.list()).toEqual(saved);
+      }));
+
   it('projects pinned version and complete outcome quantities without exposing result bodies', () => withActivity(async ({ activity, ctx }) => {
     const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test', audiences: ['aud'] });
     const admission = await ctx.storage.get<Record<string, unknown>>('admission');
     await ctx.storage.put('admission', { ...admission, ownerKey, invocationJson: JSON.stringify({ repository: 'acme/updates' }),
       receipt: { ...(admission!.receipt as Record<string, unknown>), manifestJson: JSON.stringify({ name: 'Pinned Dispatcher', version: '0.1.27' }) },
-      drive: { generation: 1, status: 'completed', checkpoint: null, result: { repository: 'acme/updates', results: [
+      drive: { generation: 1, status: 'completed', checkpoint: null, result: { resultSummary: zeroCounts, repository: 'acme/updates', results: [
         { pullRequest: 1, outcome: 'MERGED', comment: 'PRIVATE_ASSESSMENT' },
         { pullRequest: 2, outcome: 'NOT_MERGED' }, { pullRequest: 3, outcome: 'DEFERRED' },
         { pullRequest: 4, outcome: 'EXECUTION_FAILED' },

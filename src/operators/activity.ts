@@ -64,7 +64,7 @@ import { emitRaw, captureRawValue } from '../../host/src/operator-raw-logging';
 import { canInvokeOperator, operatorAccessSessionCurrent, requireOperatorHumanContext, resolveOperatorGroupIdentity, resolveBucketName } from '../lib/access';
 import { openOperatorExecutionAccess, projectOperatorExecution, reauthenticateOperatorExecution,
   type OperatorExecutionContext, type OperatorExecutionProjection } from './execution-context';
-import { operatorOwnerKey, type OperatorBrowserSummary } from './browser-activity';
+import { operatorOwnerKey, parseOperatorResultSummary, type OperatorBrowserSummary } from './browser-activity';
 import { parseOperatorContainerProfile } from '../container/operator-context';
 import type { OwnedOperatorSessionState } from './owned-session';
 import { parseOperatorPackageResourceProjection, type OperatorPackageResourceProjection } from './package-resources';
@@ -5744,9 +5744,13 @@ export class OperatorActivity extends Agent {
         : phase.kind === 'target' ? `PR #${phase.target.pullRequest} - target ${phase.index + 1}${total ? `/${total}` : ''}`
           : phase.kind === 'discovery' ? 'Discovery phase' : 'Final assessment phase';
     }
-    // Only summarize a complete, admitted-repository report. No body bytes enter the owner index.
+    // Application results stay opaque: only validated optional display metadata enters the owner index.
     let resultSummary: OperatorBrowserSummary['resultSummary'];
     const result = state.drive?.result;
+    if (lease?.application && executionStatus === 'completed' && result && typeof result === 'object' && !Array.isArray(result)) {
+      resultSummary = parseOperatorResultSummary((result as Record<string, unknown>).resultSummary);
+    }
+    // Historical nonapplication reports retain their admitted-repository interpretation.
     if (!lease?.application && terminal && repository && result && typeof result === 'object' && !Array.isArray(result)) {
       const report = result as Record<string, unknown>;
       if (report.repository === repository && Array.isArray(report.results) && report.results.length <= 1024
