@@ -21,7 +21,7 @@ import type { OperatorRuntimePlan } from './activity';
 import type { OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 import { hasApplicationWorkflow } from './application-workflow';
 import { applicationWriteRepositories } from './application-configuration';
-import { parseOperatorManifest } from './distribution';
+import { parsePinnedOperatorManifest } from './distribution';
 
 const DEFAULT_DISPATCHER_BODY_BYTES = dispatcherCapacities().dispatcherRequestBytes;
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -375,7 +375,7 @@ export async function createDispatcherOperation(input: {
         throw new DispatcherRefusal('policy-denied', 'Mutation transport denied');
       }
       const { selection } = plan.receipt;
-      const definition = parseOperatorManifest(selection.manifestJson, 'https://operator.invalid/').application;
+      const definition = parsePinnedOperatorManifest(selection.manifestJson, selection.operator.repositoryUrl).application;
       const repositories = applicationWriteRepositories(definition, JSON.parse(selection.installation.configurationJson));
       const path = url.pathname.toLowerCase();
       if (url.search || !repositories.some(repository => path.startsWith(`/repos/${repository}/`))) {

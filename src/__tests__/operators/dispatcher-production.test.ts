@@ -3750,6 +3750,38 @@ describe('REQ-OPERATOR-047/048/061/062/071: registered application parent author
   }, { ...applicationOptions, applicationInput: { repository: 'other/project', createdAfter: '2000-01-01', actor: 'other-human',
     OPERATOR_ADMITTED_TARGET: { repository: 'other/project', pullRequest: 18, headSha: 'c'.repeat(40) } } }));
 
+  it.each(['foreign-url', 'different-path', 'extra-artifact-field', 'missing-url'])(
+    'REQ-OPERATOR-010/035: %s stored artifact cannot authorize a configured GitHub write', fault => fixture(async f => {
+      await startApplication(f);
+      // Establish that the acquisition-shaped pin permits the configured resource.
+      expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment('before-corruption')))).status).toBe(200);
+      const before = [...f.sent];
+      const selected = await f.environment.OPERATOR_REGISTRY!.getByName('registry').resolveManagementExecution(f.proof.installationId);
+      if (!selected.ok) throw Error('Fixture installation unavailable');
+      const stored = JSON.parse(selected.value.manifestJson);
+      if (fault === 'foreign-url') stored.artifact.url = 'https://foreign.example.test/operator-bundle.json';
+      if (fault === 'different-path') stored.artifact.url = 'https://github.com/other-bundle.json';
+      if (fault === 'extra-artifact-field') stored.artifact.authority = 'PRIVATE_ARTIFACT_AUTHORITY';
+      if (fault === 'missing-url') delete stored.artifact.url;
+      const manifestJson = JSON.stringify(stored);
+      const plan = (await f.activity.getRuntimePlan())!;
+      if (!('selection' in plan.receipt)) throw Error('Fixture management receipt unavailable');
+      const receipt = { ...plan.receipt, selection: { ...plan.receipt.selection, manifestJson } };
+      // Corrupt both trusted copies so rejection proves manifest validation,
+      // rather than merely the independent current-versus-admitted pin fence.
+      selected.value.manifestJson = manifestJson;
+      await f.mutateEvidence(async storage => {
+        const admission = await storage.get<Record<string, unknown>>('admission');
+        await storage.put('admission', { ...admission, receipt });
+      });
+      f.restart();
+      const denied = await f.capability.fetch(applicationWire(f, 'source', applicationComment('after-corruption')));
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect(f.sent).toEqual(before);
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+    }, applicationOptions));
+
   it('requires an explicit saved write-repository selector while retaining authorized research', () => fixture(async f => {
     await startApplication(f);
     expect((await f.capability.fetch(applicationWire(f, 'source', applicationComment()))).status).toBe(403);

@@ -157,6 +157,24 @@ export function parseOperatorManifest(json: string, endpoint: string): OperatorM
   };
 }
 
+/** Revalidate stored approved metadata, including its parent-derived artifact URL. */
+export function parsePinnedOperatorManifest(manifestJson: string, endpoint: string): OperatorManifest {
+  let stored: Record<string, unknown>;
+  try {
+    const value = JSON.parse(manifestJson) as unknown;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid manifest');
+    stored = value as Record<string, unknown>;
+  } catch { throw new ValidationError('Invalid pinned operator manifest'); }
+  const storedArtifact = stored.artifact;
+  if (!storedArtifact || typeof storedArtifact !== 'object' || Array.isArray(storedArtifact)) {
+    throw new ValidationError('Invalid pinned operator manifest');
+  }
+  const { url, ...artifact } = storedArtifact as Record<string, unknown>;
+  const manifest = parseOperatorManifest(JSON.stringify({ ...stored, artifact }), endpoint);
+  if (url !== manifest.artifact.url) throw new ValidationError('Invalid pinned operator manifest');
+  return manifest;
+}
+
 /** Shared lexical endpoint boundary, checked before protected I/O; not DNS authorization. */
 export function validateOperatorEndpoint(endpoint: string): URL {
   let url: URL;

@@ -6,7 +6,7 @@ import { canInvokeOperator, loadEnterpriseRouteConfig, requireOperatorHumanConte
   resolveBucketName, resolveSessionAccessGroup } from '../lib/access';
 import { createOperatorExecutionContext, openOperatorExecutionAccess, type OperatorExecutionAuthority } from './execution-context';
 import { openOperatorSecret } from './protected-secrets';
-import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
+import { parseDispatcherBundle, parseOperatorBundle, parsePinnedOperatorManifest } from './distribution';
 import { fetchOperatorBundle } from './distribution-client';
 import { driveDispatcherRuntime, driveOperatorRuntime } from './runtime';
 import { dispatcherCapacities, pickDispatcherCapacities } from './dispatcher-capacity-limits';
@@ -208,23 +208,6 @@ export async function prepareOperatorActivity(input: unknown, authority: Operato
   return { activityId, startCapability, startExpiresAt };
 }
 
-function parsePinnedManifest(manifestJson: string, endpoint: string) {
-  let stored: Record<string, unknown>;
-  try {
-    const value = JSON.parse(manifestJson) as unknown;
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid manifest');
-    stored = value as Record<string, unknown>;
-  } catch { throw new ValidationError('Invalid pinned operator manifest'); }
-  const storedArtifact = stored.artifact;
-  if (!storedArtifact || typeof storedArtifact !== 'object' || Array.isArray(storedArtifact)) {
-    throw new ValidationError('Invalid pinned operator manifest');
-  }
-  const { url, ...artifact } = storedArtifact as Record<string, unknown>;
-  const manifest = parseOperatorManifest(JSON.stringify({ ...stored, artifact }), endpoint);
-  if (url !== manifest.artifact.url) throw new ValidationError('Invalid pinned operator manifest');
-  return manifest;
-}
-
 export type OperatorCapabilityBinder = (activityId: string, generation: number, driveDeadline: number) => Fetcher;
 type OperatorRuntimeExports = { OperatorRuntimeCapability(input: {
   props: { activityId: string; generation: number; driveDeadline: number };
@@ -290,7 +273,7 @@ export async function runOperatorActivity(
       const authority = await openOperatorExecutionAccess(plan.executionContext, env);
       const connectionSecret = await openOperatorSecret(distribution.connectionSecretCiphertext, env,
         { purpose: 'connection', recordId: plan.receipt.operatorId });
-      const manifest = parsePinnedManifest(plan.receipt.manifestJson, distribution.endpoint);
+      const manifest = parsePinnedOperatorManifest(plan.receipt.manifestJson, distribution.endpoint);
       if (manifest.id !== plan.receipt.operatorId || manifest.artifact.sha256 !== plan.receipt.artifactDigest) {
         throw new Error('Pinned runtime identity mismatch');
       }

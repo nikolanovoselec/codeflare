@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
-import { parseOperatorManifest, parseOperatorBundle, parseDispatcherBundle } from '../../operators/distribution';
+import { parseOperatorManifest, parsePinnedOperatorManifest, parseOperatorBundle, parseDispatcherBundle } from '../../operators/distribution';
 import { normalDispatcherBundle, normalHosting } from './fixtures/normal-dispatcher';
 
 const ENDPOINT = 'https://operator.example.test/discovery';
@@ -57,6 +57,8 @@ async function digest(bytes: Uint8Array): Promise<string> {
     ['duplicate capability', { requiredCapabilities: ['session', 'session'] }],
     ['caller identity', { principalId: 'other-user' }],
     ['caller bindings', { bindings: { BUCKET: 'other' } }],
+    ['wire-supplied artifact URL', { artifact: { path: '/bundles/example.json', sha256: 'a'.repeat(64),
+      url: 'https://operator.example.test/bundles/example.json' } }],
     ['invalid input metadata', { inputSchema: [] }],
     ['missing core version', { coreVersion: undefined }],
   ])('rejects %s', (_label, patch) => {
@@ -110,6 +112,39 @@ async function digest(bytes: Uint8Array): Promise<string> {
     expect(() => parseOperatorManifest(JSON.stringify({
       ...manifest(), description: 'é'.repeat(33 * 1024),
     }), ENDPOINT)).toThrow(ValidationError);
+  });
+});
+
+describe('REQ-OPERATOR-010/035: pinned normalized manifest boundary', () => {
+  it.each([ENDPOINT, 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'])(
+    'revalidates acquisition-normalized metadata against the actual registered source %s without changing the pin', endpoint => {
+      const approved = parseOperatorManifest(JSON.stringify(manifest()), endpoint);
+      const stored = JSON.stringify(approved);
+      expect(parsePinnedOperatorManifest(stored, endpoint)).toEqual(approved);
+    });
+
+  it.each([
+    ['foreign origin', 'https://foreign.example.test/bundles/example.json'],
+    ['same-origin different path', 'https://operator.example.test/bundles/other.json'],
+    ['noncanonical same resource', 'https://operator.example.test/bundles/../bundles/example.json'],
+    ['query', 'https://operator.example.test/bundles/example.json?private=value'],
+    ['missing derived URL', undefined],
+  ])('rejects %s instead of replacing the stored URL with a derived value', (_name, url) => {
+    const approved = parseOperatorManifest(JSON.stringify(manifest()), ENDPOINT);
+    expect(() => parsePinnedOperatorManifest(JSON.stringify({ ...approved, artifact: { ...approved.artifact, url } }), ENDPOINT))
+      .toThrow(ValidationError);
+  });
+
+  it('retains strict artifact and top-level validation for stored metadata', () => {
+    const approved = parseOperatorManifest(JSON.stringify(manifest()), ENDPOINT);
+    for (const changed of [
+      { ...approved, artifact: { ...approved.artifact, authority: 'PRIVATE_STORED_AUTHORITY' } },
+      { ...approved, principalId: 'other-user' },
+      { ...approved, artifact: { ...approved.artifact, path: '/../secret' } },
+      { ...approved, artifact: { ...approved.artifact, sha256: 'invalid-digest' } },
+    ]) {
+      expect(() => parsePinnedOperatorManifest(JSON.stringify(changed), ENDPOINT)).toThrow(ValidationError);
+    }
   });
 });
 

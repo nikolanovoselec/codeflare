@@ -7,6 +7,7 @@ import { createMockKV } from '../helpers/mock-kv';
 import routes from '../../routes/operator-activities';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import { SETUP_KEYS } from '../../lib/kv-keys';
+import { parseOperatorManifest } from '../../operators/distribution';
 
 const claims = {
   subject: 'owner-subject', email: 'owner@example.test', issuer: 'https://route-identity.cloudflareaccess.com',
@@ -62,10 +63,12 @@ const application = { controlVersion: 1, configurationSchema: { type: 'object', 
     enabled: { type: 'boolean', default: false }, interval: { type: 'integer', default: 900 },
   } },
 } }, schedule: { enabledPath: '/automation/enabled', intervalSecondsPath: '/automation/interval' } };
-const manifest = (overrides: Record<string, unknown> = {}) => ({ schemaVersion: 1, interfaceVersion: 1,
+const repositoryUrl = 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
+// Match acquisition's serialized normalized manifest, not the release asset's raw wire.
+const manifest = (overrides: Record<string, unknown> = {}) => parseOperatorManifest(JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
   id: 'test-application', name: 'Test application', description: 'Package-owned workflow',
   coreVersion: '1', intentVersion: '1', profile: 'dispatcher', inputSchema: { type: 'object' },
-  requiredCapabilities: ['fetch'], artifact: { path: '/bundle.json', sha256: 'a'.repeat(64) }, ...overrides });
+  requiredCapabilities: ['fetch'], artifact: { path: '/bundle.json', sha256: 'a'.repeat(64) }, ...overrides }), 'https://github.com/');
 
 function fixture() {
   const activity = {
@@ -143,7 +146,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
   it.each([undefined, application])('previews authorized pinned schema and optional application metadata %j without interpreting business inputs', async metadata => {
     const f = fixture();
     const inputSchema = { type: 'object', properties: { request: { type: 'string' } } };
-    const selected = { operator: { id: 'operator-1', profile: 'dispatcher',
+    const selected = { operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl,
       invokers: { users: [claims.email], groups: [] } },
       release: { tagName: 'v0.1.47' }, manifestJson: JSON.stringify(manifest({ inputSchema, application: metadata })),
       installation: { id: 'installation-1', configurationJson: JSON.stringify({ private: 'DO_NOT_PROJECT' }) } };
@@ -523,7 +526,7 @@ describe('REQ-OPERATOR-061: generic application controls', () => {
     const selected = { installation: { id: 'application-install', revision: 2, enabled: true,
       policy: { capabilities: ['fetch'], resourceProfileId: null },
       configurationJson: JSON.stringify({ automation: { enabled: true, interval: 900 } }) },
-      operator: { operatorId: 'application', revision: 1, profile: 'dispatcher',
+      operator: { operatorId: 'application', revision: 1, profile: 'dispatcher', repositoryUrl,
         invokers: { users: [claims.email], groups: [] } },
       release: { id: 'release', bundleDigest: 'a'.repeat(64) }, controlsRevision: 1,
       manifestJson: JSON.stringify(manifest({ application })) };
@@ -554,6 +557,21 @@ describe('REQ-OPERATOR-061: generic application controls', () => {
       accessJwt: 'private.access.jwt', delegation: { version: 1, routingGroups: [] } } }]);
     expect(f.effects).toEqual([]);
   });
+
+  it.each(['foreign-url', 'different-path', 'extra-artifact-field', 'missing-url'])(
+    'REQ-OPERATOR-010/035: refuses automatic activation for %s stored artifact without registering work', async fault => {
+      const f = activationFixture();
+      const stored = JSON.parse(f.selected.manifestJson);
+      if (fault === 'foreign-url') stored.artifact.url = 'https://foreign.example.test/bundle.json';
+      if (fault === 'different-path') stored.artifact.url = 'https://github.com/other-bundle.json';
+      if (fault === 'extra-artifact-field') stored.artifact.authority = 'PRIVATE_ARTIFACT_AUTHORITY';
+      if (fault === 'missing-url') delete stored.artifact.url;
+      f.selected.manifestJson = JSON.stringify(stored);
+      const response = await f.request('/automatic/activation', 'POST', f.command);
+      expect(response.status).toBe(400);
+      expect(await response.text()).not.toContain('PRIVATE_ARTIFACT_AUTHORITY');
+      expect(f.admitted).toEqual([]); expect(f.effects).toEqual([]);
+    });
 
   it.each(['stale', 'unavailable', 'no-invocation-grant', 'nonadmin', 'unverified-human', 'csrf'])('rejects %s activation without registering or discovering work', async fault => {
     const f = activationFixture();

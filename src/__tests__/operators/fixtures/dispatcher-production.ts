@@ -10,7 +10,7 @@ import { driveDispatcherRuntime } from '../../../operators/runtime';
 import { createOperatorExecutionContext } from '../../../operators/execution-context';
 import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
 import type { DispatcherCapacityPolicy } from '../../../operators/dispatcher-capacity-limits';
-import type { DispatcherBundle } from '../../../operators/distribution';
+import { parseOperatorManifest, type DispatcherBundle } from '../../../operators/distribution';
 import type { Env } from '../../../types';
 import { operatorOwnerKey } from '../../../operators/browser-activity';
 import type { ProspectiveAdmission, CurrentProspectiveRegistration } from '../../../operators/registry';
@@ -317,6 +317,7 @@ export async function fixture(test: (f: {
         : options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: fixtureReleaseId },
     operator: { id: fixtureOperatorId, operatorId: fixtureOperatorId,
       repositoryId: options.applicationRepositoryId ?? 1380652724,
+      repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
       profile: 'dispatcher', revision: 1,
       invokers: { users: applicationWorkflow ? ['owner@example.test', 'foreign@example.test'] : [human.email], groups: [] },
       policy: { ...policy, ...options.capacityPolicy, ...(options.inferenceMessageLimit === undefined ? {} : { inferenceMessageLimit: options.inferenceMessageLimit }), ...(options.inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit: options.inferenceAttemptLimit }), ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
@@ -342,6 +343,8 @@ export async function fixture(test: (f: {
         ...(options.applicationWriteRepositoriesPath ? { githubWriteRepositoriesPath: options.applicationWriteRepositoriesPath } : {}) },
       requiredCapabilities: ['inference', 'fetch'],
       artifact: { path: '/operator-bundle.json', sha256: artifactDigest } });
+    // The acquisition owner persists normalized metadata with its derived GitHub URL.
+    selection.manifestJson = JSON.stringify(parseOperatorManifest(selection.manifestJson, 'https://github.com/'));
     const proof = { activityId, installationId: fixtureInstallationId, ...configuredTarget,
       controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: fixtureReleaseId, bundleDigest: artifactDigest,
       pullRequest: 17, head: 'b'.repeat(40), createdAt: new Date(now - 86_400_000).toISOString(),

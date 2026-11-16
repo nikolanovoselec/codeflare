@@ -1,5 +1,5 @@
 import { applicationSchedule } from '../operators/application-configuration';
-import { parseOperatorManifest } from '../operators/distribution';
+import { parsePinnedOperatorManifest } from '../operators/distribution';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { requireOwnerRawReader, type OwnerRawReadCredential, type OwnerRawReadRequest } from '../operators/raw-capture-read';
 /** Authenticated browser adapter for owner-scoped operator activity projections. */
@@ -116,7 +116,7 @@ app.post('/read', async c => {
 });
 /** Package-owned input/configuration metadata; the host does not recognize use cases. */
 function guidedPreview(selection: ManagementExecutionSelection) {
-  const manifest = parseOperatorManifest(selection.manifestJson, 'https://operator.invalid/');
+  const manifest = parsePinnedOperatorManifest(selection.manifestJson, selection.operator.repositoryUrl);
   return { name: manifest.name, description: manifest.description,
     version: selection.release.tagName ?? `GitHub release #${selection.release.githubReleaseId}`,
     guidedAssessment: false, guidedMode: null, inputSchema: manifest.inputSchema,
@@ -221,7 +221,7 @@ app.post('/automatic/activation', async c => {
     || !canInvokeOperator(authority.human, selected.value.operator)) {
     throw new AppError('CONFLICT', 409, 'Installation is unavailable or changed');
   }
-  const manifest = parseOperatorManifest(selected.value.manifestJson, 'https://operator.invalid/');
+  const manifest = parsePinnedOperatorManifest(selected.value.manifestJson, selected.value.operator.repositoryUrl);
   const settings = applicationSchedule(manifest.application, JSON.parse(selected.value.installation.configurationJson));
   if (!settings?.automaticRuns) throw new AppError('FORBIDDEN', 403, 'Automatic runs are not configured');
   const routing = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));

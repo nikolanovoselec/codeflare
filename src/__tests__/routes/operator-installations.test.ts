@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { Env } from '../../types';
 import { AppError } from '../../lib/error-types';
 import routes from '../../routes/operator-activities';
+import { parseOperatorManifest } from '../../operators/distribution';
 
 const identity = vi.hoisted(() => ({ role: 'user', current: true,
   email: 'invoker@example.test', groups: [] as string[] }));
@@ -25,9 +26,10 @@ const application = { controlVersion: 1, configurationSchema: { type: 'object', 
     repetitionIntervalSeconds: { type: 'integer', default: 3600 },
   } },
 } }, schedule: { enabledPath: '/renovate/automaticRuns', intervalSecondsPath: '/renovate/repetitionIntervalSeconds' } };
-const manifest = { schemaVersion: 1, interfaceVersion: 1, id: 'renovate-dispatcher', profile: 'dispatcher',
+// Acquisition persists the parsed manifest, including the parent-derived artifact URL.
+const manifest = parseOperatorManifest(JSON.stringify({ schemaVersion: 1, interfaceVersion: 1, id: 'renovate-dispatcher', profile: 'dispatcher',
   name: 'Renovate Dispatcher', description: 'Package-owned application', coreVersion: '1', intentVersion: '4',
-  inputSchema: schema, requiredCapabilities: ['fetch'], artifact: { path: '/bundle.json', sha256: 'a'.repeat(64) }, application };
+  inputSchema: schema, requiredCapabilities: ['fetch'], artifact: { path: '/bundle.json', sha256: 'a'.repeat(64) }, application }), 'https://github.com/');
 function fixture() {
   const operator = { id: 'visible-operator', profile: 'dispatcher', realm: 'internal', enabled: true, revision: 1,
     repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher', repositoryId: 1380652724,
@@ -97,6 +99,49 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     for (const secret of ['PRIVATE_CONFIGURATION', 'PRIVATE_ACCESS_JWT', 'PRIVATE_OPERATOR', 'PRIVATE_INSTALL']) expect(bytes).not.toContain(secret);
     expect(value).not.toHaveProperty('grants');
   });
+
+  it('REQ-OPERATOR-209/058: acquisition-normalized release exposes authenticated preview and saved scheduling without starting work', async () => {
+    const f = fixture();
+    f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates',
+      automaticRuns: false, repetitionIntervalSeconds: 300 } });
+    const before = structuredClone(f.installed);
+    const preview = await f.request(`/${f.installed.id}/preview`);
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toEqual({ name: manifest.name, description: manifest.description,
+      version: f.release.tagName, guidedAssessment: false, guidedMode: null,
+      inputSchema: schema, application, requiresSourceHost: false });
+    const listed = await f.request();
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toMatchObject({ items: [{ id: f.installed.id, revision: f.installed.revision,
+      application, automaticRuns: false, repetitionIntervalSeconds: 300, automaticRunStatus: 'inactive',
+      canInvoke: true, canActivateAutomaticRuns: false }] });
+    expect(f.installed).toEqual(before);
+    expect(f.effects).toEqual([]);
+    expect((await f.request(`/${f.installed.id}/preview`, f.env, false)).status).toBe(401);
+  });
+
+  it.each(['foreign-url', 'different-path', 'extra-artifact-field', 'missing-url'])(
+    'REQ-OPERATOR-010/035: %s stored artifact cannot expose an approved preview or schedule', async fault => {
+      const f = fixture(); identity.role = 'admin';
+      f.installed.configurationJson = JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true,
+        repetitionIntervalSeconds: 300 } });
+      const stored = JSON.parse(f.manifests.value);
+      if (fault === 'foreign-url') stored.artifact.url = 'https://foreign.example.test/bundle.json';
+      if (fault === 'different-path') stored.artifact.url = 'https://github.com/other-bundle.json';
+      if (fault === 'extra-artifact-field') stored.artifact.authority = 'PRIVATE_ARTIFACT_AUTHORITY';
+      if (fault === 'missing-url') delete stored.artifact.url;
+      f.manifests.value = JSON.stringify(stored);
+      const preview = await f.request(`/${f.installed.id}/preview`);
+      expect(preview.status).toBe(400);
+      expect(await preview.text()).not.toContain('PRIVATE_ARTIFACT_AUTHORITY');
+      const listed = await f.request();
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toMatchObject({ items: expect.arrayContaining([expect.objectContaining({
+        id: f.installed.id, application: null, automaticRuns: null, repetitionIntervalSeconds: null,
+        canActivateAutomaticRuns: false, automaticRunStatus: 'inactive',
+      })]) });
+      expect(f.effects).toEqual([]);
+    });
 
   it('keeps eligible management visibility separate from invocation permission', async () => {
     const f = fixture(); f.operator.invokers = grant(); f.operator.managers = grant([identity.email]);
