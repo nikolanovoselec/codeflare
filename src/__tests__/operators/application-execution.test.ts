@@ -422,7 +422,8 @@ describe('explicit owner recovery facts preserve original history', () => {
     original: f.authority.original, ledger: f.authority.ledger });
   it.each(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'orphan-response-cache', 'retained-result',
     'settlement-cache', 'orphan-settlement-cache', 'missing-settlement-chunk',
-    'missing-journal', 'invalid-aggregate', 'invalid-lease', 'incomplete', 'write', 'unknown-kind', 'foreign-owner',
+    'missing-journal', 'invalid-aggregate', 'invalid-lease', 'lease-generation', 'lease-artifact', 'lease-input',
+    'missing-fence', 'incomplete', 'write', 'unknown-kind', 'foreign-owner',
     'foreign-generation', 'ordinal-gap', 'count-mismatch', 'active', 'publication', 'session'] as const)(
     'classifies %s without SDK receipt, mutation or new execution', name => fixture(async f => {
       const settlement = new TextEncoder().encode(JSON.stringify({ status: 'failed', data: {},
@@ -454,6 +455,10 @@ describe('explicit owner recovery facts preserve original history', () => {
       if (name === 'ordinal-gap') operations[0].ordinal = 5;
       if (name === 'foreign-owner') authority.human = { ...authority.human, subject: 'foreign' };
       if (name === 'active') state.drive = { ...state.drive, generation: 1, status: 'running' };
+      if (name === 'lease-generation') lease.generation = 2;
+      if (name === 'lease-artifact') lease.artifactDigest = 'f'.repeat(64);
+      if (name === 'lease-input') lease.inputDigest = 'f'.repeat(64);
+      if (name === 'missing-fence') delete state.diagnosticFence;
       await f.native.storage.put({ admission: state, 'dispatcher:lease': name === 'invalid-lease' ? null : lease,
         ...(name === 'invalid-aggregate' ? { 'dispatcher:operations': null } : {}),
         ...(name === 'missing-journal' ? {} : { 'dispatcher:journal': {
@@ -479,7 +484,18 @@ describe('explicit owner recovery facts preserve original history', () => {
       expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(f.receipt);
       expect(f.unsafe).toEqual([]);
     }));
-  it('recovers the retained 42-operation failure without terminal SDK receipt or history mutation', () => fixture(async f => {
+  it.each([
+    [true, 'bound'], [false, 'bound'], [true, 'absent'], [false, 'absent'],
+    [true, 'unrelated'], [false, 'unrelated'],
+  ] as const)('REQ-OPERATOR-210 AC3: logging=%s diagnostic binding=%s recovers the retained 42-operation failure without terminal SDK receipt or history mutation', (loggingEnabled, diagnostics) => fixture(async f => {
+    const state = structuredClone(f.state) as Record<string, any>;
+    state.receipt.selection.operator.policy = { ...state.receipt.selection.operator.policy, loggingEnabled };
+    if (diagnostics === 'absent') delete state.diagnosticBinding;
+    if (diagnostics === 'unrelated') state.diagnosticBinding = {
+      generation: 99, artifactDigest: 'f'.repeat(64), inputDigest: 'e'.repeat(64),
+    };
+    await f.setLedger(state.receipt);
+    const authority = { ...request(f), ledger: { ok: true as const, receipt: state.receipt } };
     const { serial: _serial, ...profile } = f.profile;
     const entries: Record<string, unknown> = {};
     for (let ordinal = 0; ordinal < 42; ordinal++) {
@@ -490,13 +506,14 @@ describe('explicit owner recovery facts preserve original history', () => {
             sdkHttp: { permitId: `permit-${ordinal}`, attempts: 1 } }) };
       entries[`dispatcher:response:${ordinal < 40 ? '' : '1:'}${id}`] = { retained: `original-response-${ordinal}` };
     }
-    await f.native.storage.put({ admission: f.state, ...entries,
+    await f.native.storage.put({ admission: state, ...entries,
       'dispatcher:lease': { ...profile, status: 'unknown', submissionId: 'final-submission' },
       'dispatcher:journal': { generation: 1, count: 42, nextOrdinal: 42, unresolved: 0 } });
     const before = await f.native.storage.list();
-    expect(await f.activity.readRecoveryFacts(request(f))).toMatchObject({ resettable: true, reason: 'fenced-no-write' });
+    expect(await f.activity.readRecoveryFacts(authority)).toMatchObject({ resettable: true, reason: 'fenced-no-write',
+      origin: { generation: 1, deadline: state.intent.deadline } });
     expect(await f.native.storage.list()).toEqual(before);
-    expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(f.receipt);
+    expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(state.receipt);
     expect(f.unsafe).toEqual([]);
   }));
 });
