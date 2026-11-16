@@ -85,6 +85,7 @@ async function withInstallation(test: (f: {
       const namespaceId = 'd'.repeat(32);
       const ok = (result: unknown) => Response.json({ success: true, errors: [], messages: [], result });
       if (request.method !== 'GET') return Response.json({}, { status: 405 });
+      if (url.pathname === `${workersPath}/scripts`) return ok([{ id: normalDeployment.workerName }]);
       if (url.pathname === `${scriptPath}/deployments`) {
         return ok({ deployments: [{ id: activeDeploymentId,
           versions: [{ version_id: platform.fault === 'version' ? '99999999-2222-4333-8444-555555555555' : normalDeployment.workerVersionId,
