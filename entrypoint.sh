@@ -3136,7 +3136,7 @@ const required = [
   'npm:@narumitw/pi-goal@0.54.15',
   'npm:@narumitw/pi-plan-mode@0.59.6',
   // The managed terminal adapter initializes the native UI once.
-  { source: 'npm:pi-open-tui@0.4.2', extensions: [] },
+  { source: 'npm:pi-open-tui@0.4.4', extensions: [] },
 ];
 // Each container boot defaults context-mode off; `/ctx on` enables it until next boot.
 // Suppress package discovery; the managed foreground owner remains the only bridge owner.
