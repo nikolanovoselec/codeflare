@@ -784,7 +784,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
 
 
 describe('REQ-OPERATOR-027: repository-only Dispatcher result presentation', () => {
-  it.each([{ results: [] }, { results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', comment: 'Migration evidence is incomplete', outcome: 'NOT_MERGED' }] }])('shows repository discovery and bounded decisions without raw payloads', async ({ results }) => {
+  it.each([{ results: [] }, { results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', comment: 'Migration evidence is incomplete', outcome: 'NOT_MERGED' }] }])('REQ-OPERATOR-086 AC4: shows reported repository outcomes without inferring discovery', async ({ results }) => {
     listMock.mockResolvedValue({ items: [active] });
     detailMock.mockResolvedValue({ ...active, executionStatus: 'completed', checkpoint: null,
       result: { repository: 'authorized/project', results, privateData: 'do-not-render' } });
@@ -792,8 +792,11 @@ describe('REQ-OPERATOR-027: repository-only Dispatcher result presentation', () 
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
     await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
     expect(await screen.findByText('Repository: authorized/project')).toBeTruthy();
-    if (!results.length) expect(screen.getByText('No eligible pull requests discovered.')).toBeTruthy();
-    else {
+    if (!results.length) {
+      // Empty-outcome copy contract: no claim about discovery or eligibility.
+      expect(screen.getByText('No pull request outcomes reported.')).toBeTruthy();
+      expect(screen.queryByText('No eligible pull requests discovered.')).toBeNull();
+    } else {
       expect(screen.getByText('PR #17')).toBeTruthy();
       expect(screen.getByText('Decision: DO_NOT_MERGE')).toBeTruthy();
       expect(screen.getByText('Outcome: NOT_MERGED')).toBeTruthy();
@@ -854,6 +857,6 @@ describe('REQ-OPERATOR-057: functional Pi login recovery', () => {
     expect(screen.getByText('Execution: failed')).toBeTruthy();
     expect(screen.getByText('Cleanup: stopped')).toBeTruthy();
     expect(screen.getByText('Collection: unavailable')).toBeTruthy();
-    expect(screen.queryByText(/No eligible pull requests discovered|merged successfully/i)).toBeNull();
+    expect(screen.queryByText(/No pull request outcomes reported|merged successfully/i)).toBeNull();
   });
 });
