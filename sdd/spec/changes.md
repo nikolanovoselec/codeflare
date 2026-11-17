@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-16: Shared processing coordination across authorized actors
+
+- REQ-OPERATOR-061/210/211 separate nonprivate application/work-repository coordination from private execution ownership. A different authorized login does not prevent processing-state reads or safe recovery; original facts are selected internally by scoped key/version, not a caller-supplied historical identity.
+- Private values, credentials and archives remain owner-bound. Existing CAS, closed-authority/no-write proof, source/tenant isolation and preserved original/requester audit lineage remain mandatory; no identity alias, blanket reset or new coordination service is introduced.
+
 ## 2026-11-16: Obsolete Dispatcher infrastructure cleanup
 
 - REQ-OPERATOR-107 replaces indefinite old Worker/SDK-namespace retention with proven-owned cleanup after verified replacement activation. Original admissions are fenced before deletion; Root history, receipts, journals and uncertain-write holds remain intact. Failed cleanup remains visible and retryable without replacing the serving Worker. Implementation, exact-head CI and authorized hosted cleanup verification remain separate gates.

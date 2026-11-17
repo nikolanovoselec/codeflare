@@ -25,14 +25,14 @@ import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
 import type { OperatorExecutionAuthority } from './execution-context';
 import { z } from 'zod';
-import { ApplicationStateStore, ApplicationStateError, type ApplicationStateBinding, type ApplicationStateRequest } from './application-state';
+import { ApplicationStateStore, ApplicationStateError, sameCoordinationScope, type ApplicationCoordinationScope, type ApplicationStateValue, type ApplicationStateBinding, type ApplicationStateRequest } from './application-state';
 import { hasApplicationWorkflow, type RuntimeApplicationStateBinding, type ApplicationExecutionAuthority,
-  type ApplicationExecutionRequest, type ApplicationExecutionFacts, type ApplicationExecutionRetirement } from './application-workflow';
+  type ApplicationCoordinationAuthority, type ApplicationCoordinationFacts, type ApplicationExecutionRequest, type ApplicationExecutionFacts, type ApplicationExecutionRetirement } from './application-workflow';
+import { applicationWriteRepositories } from './application-configuration';
 import { activateApplicationSchedule as activateSchedule, applicationScheduleStatus as scheduleStatus, runApplicationSchedules } from './application-schedule';
 import { canInvokeOperator, canManageOperator, resolveBucketName } from '../lib/access';
 import { callApplicationRecovery, inspectRecoveryRecord, recoveryInventoryPage, applicationRecoveryPrefix,
-  recoveryDigest, recoveryEntries, parseRecoveryCursor, type RecoveryInspection, type RecoveryFactsRequest, type RecoveryFacts } from './application-recovery';
-import type { ApplicationStateRecoveryAudit, StateRecord } from './application-state';
+  recoveryDigest, releaseApplicationState, recoveryEntries, parseRecoveryCursor, type RecoveryInspection, type RecoveryFactsRequest, type RecoveryFacts } from './application-recovery';
 import { createRawCapture, createOwnerRawCaptureStorage, captureRawInteraction, type RawCapture, type RawCaptureBinding, type RawCaptureReceipt } from './raw-capture-storage';
 import { captureError, hashDiagnostic } from './dispatcher-diagnostics-wire';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -1737,6 +1737,178 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       && original.expectedControlsRevision === binding.controlsRevision;
   }
 
+  private coordinationScope(selection: ManagementExecutionSelection): ApplicationCoordinationScope | undefined {
+    const manifest = JSON.parse(selection.manifestJson);
+    const repositories = applicationWriteRepositories(manifest.application, JSON.parse(selection.installation.configurationJson)).sort();
+    return repositories.length ? { operatorId: selection.operator.id, repositories } : undefined;
+  }
+
+  /** Trusted legacy codec: identities are validated privately; only actual public fields are copied. */
+  private async legacyCoordination(value: unknown, key: string, sourceId: string,
+    scope: ApplicationCoordinationScope | undefined, buckets?: Map<string, string>): Promise<ApplicationStateValue | undefined> {
+    if (!scope) return undefined;
+    const parsed = z.object({ activityId: z.string().regex(scanId), installationId: z.string().regex(scanId),
+      ownerKey: z.string().regex(/^[a-f0-9]{64}$/), repositoryId: z.number().int().positive(),
+      repository: z.string().optional(), baseBranch: z.string().optional(), pullRequest: z.number().int().positive(),
+      head: z.string().regex(/^[a-f0-9]{40,64}$/), createdAt: z.string().refine(value => Number.isFinite(Date.parse(value))),
+      activatedAt: z.string().refine(value => Number.isFinite(Date.parse(value))),
+      operatorRevision: z.number().int().positive().optional(), installationRevision: z.number().int().positive().optional(),
+      controlsRevision: z.number().int().nonnegative().optional(), releaseId: z.string().regex(scanId).optional(),
+      bundleDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      admittedAt: z.number().int().positive().optional(), attempt: z.number().int().positive().optional(),
+      actor: z.object({ subject: z.string(), issuer: z.string(), email: z.string().email(),
+        audiences: z.array(z.string()), bucket: z.string(), registrationId: z.string(),
+        sessionId: z.string(), sessionGeneration: z.number().int().nonnegative() }),
+    }).safeParse(value);
+    if (!parsed.success) return undefined;
+    const record = parsed.data;
+    const pinFields = ['repository', 'baseBranch', 'operatorRevision', 'installationRevision', 'controlsRevision', 'releaseId', 'bundleDigest'] as const;
+    const presentPins = pinFields.filter(field => record[field] !== undefined);
+    if (presentPins.length !== 0 && presentPins.length !== pinFields.length) return undefined;
+    let repository = record.repository;
+    if (repository === undefined) {
+      // No historical repository-ID special cases: use only the original
+      // immutable admission's declared configuration, never today's selection.
+      const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions WHERE activity_id=?', record.activityId).toArray()[0];
+      const ledger = row ? JSON.parse(row.data) as ManagementAdmissionReceipt : null;
+      if (!ledger || ledger.activityId !== record.activityId || ledger.installationId !== record.installationId
+        || ledger.selection.operator.id !== scope.operatorId || String(ledger.selection.operator.repositoryId) !== sourceId
+        || typeof ledger.selection.manifestJson !== 'string') return undefined;
+      const originalScope = this.coordinationScope(ledger.selection);
+      if (!originalScope || originalScope.repositories.length !== 1) return undefined;
+      repository = originalScope.repositories[0];
+    }
+    const installation = this.managementInstallation(record.installationId);
+    const operator = installation && this.managementState(installation.operatorId);
+    if (!operator || operator.id !== scope.operatorId || String(operator.repositoryId) !== sourceId
+      || !scope.repositories.includes(repository.toLowerCase())
+      || key !== `renovate:head:${record.repositoryId}:${record.pullRequest}:${record.head}`
+      || record.ownerKey !== await operatorOwnerKey(record.actor)
+      || record.actor.bucket !== (buckets ? buckets.get(record.actor.email) : await resolveBucketName(this.env as Env, record.actor.email))) return undefined;
+    const projection: Record<string, ApplicationStateValue> = { kind: 'legacy-admission', repositoryId: record.repositoryId,
+      pullRequest: record.pullRequest, head: record.head, createdAt: record.createdAt, activatedAt: record.activatedAt };
+    for (const field of ['repository', 'baseBranch', 'admittedAt', 'attempt'] as const) {
+      if (record[field] !== undefined) projection[field] = record[field]!;
+    }
+    return projection;
+  }
+
+  private async coordinationInspection(storage: Pick<DurableObjectStorage, 'get'>, key: string,
+    sourceId: string, ownerKey: string, scope: ApplicationCoordinationScope | undefined,
+    privateLegacy: (value: Record<string, unknown>) => Promise<string | null> = async () => 'scope-unavailable',
+    buckets?: Map<string, string>) {
+    return inspectRecoveryRecord(storage, key, sourceId, ownerKey, privateLegacy, async (raw, legacy) => {
+      if (legacy) return this.legacyCoordination(raw, key, sourceId, scope, buckets);
+      if (raw.sourceId !== sourceId || !Object.hasOwn(raw, 'coordination')
+        || !sameCoordinationScope(raw.coordinationScope as ApplicationCoordinationScope | undefined, scope)) return undefined;
+      const installation = this.managementInstallation(raw.installationId as string);
+      const operator = installation && this.managementState(installation.operatorId);
+      if (!operator || operator.id !== scope!.operatorId || String(operator.repositoryId) !== sourceId) return undefined;
+      return raw.coordination as ApplicationStateValue;
+    });
+  }
+
+  private async applyCoordinationExecution(binding: RuntimeApplicationStateBinding,
+    request: Extract<ApplicationExecutionRequest, { operation: 'read-coordination' | 'release-coordination' }>): Promise<unknown> {
+    try {
+      z.strictObject({ operation: z.enum(['read-coordination', 'release-coordination']),
+        key: z.string().min(1).refine(key => new TextEncoder().encode(key).byteLength <= 1024),
+        version: z.string().regex(/^[a-f0-9]{64}$/) }).parse(request);
+      const selected = this.managementSelection(binding.installationId);
+      const scope = selected.ok ? this.coordinationScope(selected.value) : undefined;
+      if (!scope || !this.applicationStateCurrent(binding) || binding.ownerKey !== await operatorOwnerKey(binding.human)) {
+        return { status: 'unavailable' };
+      }
+      if (binding.delegation) {
+        const raw = await (this.env as Env).KV.get(`user:${binding.human.email.trim().toLowerCase()}`);
+        if (!raw || JSON.parse(raw).role !== 'admin') return { status: 'unavailable' };
+      }
+      const buckets = new Map<string, string>();
+      const aliasKey = request.key.startsWith('renovate:head:') ? `renovate-admission:${request.key.slice('renovate:head:'.length)}` : null;
+      if (aliasKey) {
+        const alias = await this.ctx.storage.get<ProspectiveAdmission>(aliasKey);
+        if (typeof alias?.actor?.email === 'string') buckets.set(alias.actor.email, await resolveBucketName(this.env as Env, alias.actor.email));
+      }
+      const inspect = async (storage: Pick<DurableObjectStorage, 'get'>) => {
+        // Same live authorization and owner Activity fence as ordinary state.
+        if (!this.applicationStateCurrent(binding) || binding.ownerKey !== await operatorOwnerKey(binding.human)) return null;
+        const current = this.managementSelection(binding.installationId);
+        if (!current.ok || !sameCoordinationScope(this.coordinationScope(current.value), scope)) return null;
+        const summary = await storage.get<OperatorBrowserSummary>(`owner-activity:${binding.ownerKey}:${binding.activityId}`);
+        if (!summary || summary.operatorId !== binding.operatorId || !['queued', 'running'].includes(summary.executionStatus)) return null;
+        return this.coordinationInspection(storage, request.key, binding.sourceId, binding.ownerKey, scope, undefined, buckets);
+      };
+      const item = await inspect(this.ctx.storage);
+      if (item?.record.reason === 'scope-unavailable') return { status: 'held', reason: 'scope-unavailable' };
+      if (!item || !item.original || item.record.coordination === undefined) return { status: 'unavailable' };
+      if (item.record.version !== request.version || item.raw?.recovery?.phase === 'vacant') return { status: 'conflict' };
+      const original = item.original;
+      const ledger = await this.getManagementAdmission(original.activityId);
+      if (!ledger && !original.legacy) return { status: 'held', reason: 'ledger-unavailable' };
+      const installation = ledger?.selection.installation ?? this.managementInstallation(original.installationId);
+      const operator = ledger?.selection.operator ?? (installation && this.managementState(installation.operatorId));
+      if (!operator || operator.id !== binding.operatorId || operator.repositoryId !== binding.sourceRepositoryId
+        || ledger && (ledger.activityId !== original.activityId || ledger.installationId !== original.installationId)) return { status: 'unavailable' };
+      const legacy = original.legacy ? z.object({ operatorRevision: z.number().int().positive(),
+        installationRevision: z.number().int().positive(), controlsRevision: z.number().int().nonnegative(),
+        releaseId: z.string().regex(scanId), bundleDigest: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(original.value) : null;
+      const authority: ApplicationCoordinationAuthority = { version: 1, current: binding,
+        original: { activityId: original.activityId, installationId: original.installationId, operatorId: operator.id,
+          sourceRepositoryId: operator.repositoryId, ownerKey: original.ownerKey,
+          ...(original.owner ? { owner: original.owner } : {}),
+          binding: original.legacy ? 'legacy' : 'activity',
+          pins: ledger ? { operatorRevision: ledger.expectedOperatorRevision,
+            installationRevision: ledger.expectedInstallationRevision, controlsRevision: ledger.expectedControlsRevision,
+            releaseId: ledger.selection.release.id, bundleDigest: ledger.selection.release.bundleDigest }
+            : legacy?.success ? legacy.data : null,
+          ...(item.raw?.originDelivery ? { delivery: item.raw.originDelivery, generation: item.raw.generation } : {}) },
+        ledger: { ok: true, receipt: ledger } };
+      const activity = (this.env as Env).OPERATOR_ACTIVITY?.getByName(original.activityId);
+      if (!activity) return { status: 'unavailable' };
+      const facts = async (): Promise<{ safe: ApplicationCoordinationFacts; origin?: { generation: number; deadline: number }; digest?: string }> => {
+        if (item.raw?.originDelivery) {
+          const response = await activity.readApplicationCoordinationFacts(authority);
+          const safe: ApplicationCoordinationFacts = response.status === 'safe'
+            && ['completed', 'failed', 'never-started'].includes(response.outcome)
+            && response.fenced === true && response.noExternalWrites === true
+            && Number.isSafeInteger(response.terminalAt) && response.terminalAt > 0 && response.terminalAt <= Date.now()
+            ? { status: 'safe', outcome: response.outcome, terminalAt: response.terminalAt, fenced: true, noExternalWrites: true }
+            : response.status === 'held' ? { status: 'held', reason: response.reason } : { status: 'unavailable' };
+          if (safe.status !== 'unavailable') return { safe, origin: { generation: item.raw.generation, deadline: item.raw.deadline },
+            digest: await recoveryDigest(JSON.stringify(safe)) };
+        }
+        const proof = await activity.readRecoveryFacts({ human: binding.human, deadline: binding.deadline,
+          original: authority.original, ledger: authority.ledger });
+        if (!proof.resettable) return { safe: { status: 'held', reason: proof.reason } };
+        // A fenced no-write UNKNOWN attempt needs explicit abandonment, not an
+        // automatic retry based on an invented failed settlement.
+        if (proof.reason !== 'never-started') return { safe: { status: 'held', reason: 'explicit-recovery-required' } };
+        const terminalAt = proof.origin.terminalAt;
+        if (!Number.isSafeInteger(terminalAt) || terminalAt! <= 0 || terminalAt! > Date.now()) {
+          return { safe: { status: 'held', reason: 'closure-time-unavailable' } };
+        }
+        return { safe: { status: 'safe', outcome: 'never-started',
+          terminalAt: terminalAt!, fenced: true, noExternalWrites: true }, origin: proof.origin, digest: proof.proofDigest };
+      };
+      const proof = await facts();
+      const current = await inspect(this.ctx.storage);
+      if (!current || current.record.version !== request.version) return { status: 'conflict' };
+      if (request.operation === 'read-coordination' || proof.safe.status !== 'safe') return proof.safe;
+      const fresh = await facts();
+      if (fresh.safe.status !== 'safe' || fresh.digest !== proof.digest) return { status: 'held', reason: 'facts-changed' };
+      return await this.ctx.storage.transaction(async tx => {
+        const latest = await inspect(tx);
+        if (!latest || latest.record.version !== request.version) return { status: 'conflict' };
+        const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_admissions WHERE activity_id=?', original.activityId).toArray()[0];
+        if (JSON.stringify(row ? JSON.parse(row.data) : null) !== JSON.stringify(ledger)) return { status: 'conflict' };
+        const { version } = await releaseApplicationState(tx, latest, { sourceId: binding.sourceId, actorHash: binding.ownerKey,
+          requestId: crypto.randomUUID(), proofDigest: fresh.digest!, origin: fresh.origin!, value: null, scope });
+        if (!this.applicationStateCurrent(binding)) throw new Error('Authority changed');
+        return { key: request.key, status: 'vacant', version };
+      });
+    } catch { return { status: 'unavailable' }; }
+  }
+
   /** Keep recursive JSON opaque on the RPC surface; the owning adapter validates
    * actual data before any mutation. This is not a new storage or authority port. */
   async applyApplicationState(binding: RuntimeApplicationStateBinding, request: unknown): Promise<unknown> {
@@ -1756,8 +1928,21 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         // storage transactions and without calling the waiting Activity back.
         legacyOwnerBucket = await resolveBucketName(this.env as Env, binding.human.email);
       }
+      if (binding.ownerKey !== await operatorOwnerKey(binding.human) || !this.applicationStateCurrent(binding)) {
+        throw new ApplicationStateError('denied');
+      }
+      const selected = this.managementSelection(binding.installationId);
+      const coordinationScope = selected.ok ? this.coordinationScope(selected.value) : undefined;
+      const legacyProjections = new Map<string, { encoded: string; projection: ApplicationStateValue }>();
+      for (const key of keys) {
+        if (!/^renovate:head:[1-9][0-9]*:[1-9][0-9]*:[a-f0-9]{40,64}$/.test(key)) continue;
+        const value = await this.ctx.storage.get(`renovate-admission:${key.slice('renovate:head:'.length)}`);
+        const projection = await this.legacyCoordination(value, key, binding.sourceId, coordinationScope);
+        if (projection !== undefined) legacyProjections.set(key, { encoded: JSON.stringify(value), projection });
+      }
       const base: ApplicationStateBinding = { sourceId: binding.sourceId, installationId: binding.installationId,
         ownerKey: binding.ownerKey, activityId: binding.activityId, generation: binding.generation, deadline: binding.deadline,
+        ...(coordinationScope ? { coordinationScope } : {}),
         ...(binding.originDelivery ? { originDelivery: binding.originDelivery } : {}) };
       const store = new ApplicationStateStore(this.ctx.storage, base, {
         authorize: async () => {
@@ -1771,6 +1956,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         },
         validateSnapshot: async tx => {
           if (!this.applicationStateCurrent(binding)) return false;
+          const selected = this.managementSelection(binding.installationId);
+          if (!selected.ok || JSON.stringify(this.coordinationScope(selected.value)) !== JSON.stringify(coordinationScope)) return false;
           const summary = await tx.get<OperatorBrowserSummary>(`owner-activity:${binding.ownerKey}:${binding.activityId}`);
           return !!summary && summary.operatorId === binding.operatorId
             && ['queued', 'running'].includes(summary.executionStatus);
@@ -1781,26 +1968,37 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
           if (!key.startsWith('renovate:head:')) return null;
           const suffix = key.slice('renovate:head:'.length);
           if (!/^[1-9][0-9]*:[1-9][0-9]*:[a-f0-9]{40,64}$/.test(suffix)) return null;
-          return { storageKey: `renovate-admission:${suffix}`, validate: value => {
-            if (!value || typeof value !== 'object' || Array.isArray(value)) return 'unavailable';
-            const record = value as Record<string, unknown>;
-            if (typeof record.ownerKey !== 'string' || typeof record.installationId !== 'string'
-              || typeof record.activityId !== 'string') return 'unavailable';
-            if (record.ownerKey !== binding.ownerKey) return 'conflict';
-            const installation = this.managementInstallation(record.installationId);
-            const operator = installation && this.managementState(installation.operatorId);
-            if (!operator || operator.repositoryId !== binding.sourceRepositoryId) return 'conflict';
-            if (`${record.repositoryId}:${record.pullRequest}:${record.head}` !== suffix) return 'unavailable';
-            const actor = record.actor;
-            if (!actor || typeof actor !== 'object' || Array.isArray(actor)) return 'unavailable';
-            const identity = actor as Record<string, unknown>;
-            if (identity.bucket !== legacyOwnerBucket
-              || identity.subject !== binding.human.subject || identity.issuer !== binding.human.issuer
-              || typeof identity.email !== 'string' || identity.email.toLowerCase() !== binding.human.email.toLowerCase()
-              || !Array.isArray(identity.audiences) || !identity.audiences.every(item => typeof item === 'string')
-              || JSON.stringify([...identity.audiences].sort()) !== JSON.stringify([...binding.human.audiences].sort())) return 'unavailable';
-            return 'owned';
-          } };
+          return { storageKey: `renovate-admission:${suffix}`,
+            coordination: value => (value as { ownerKey: string }).ownerKey !== binding.ownerKey
+              ? legacyProjections.get(key)?.projection : undefined,
+            validate: value => {
+              const prepared = legacyProjections.get(key);
+              if (prepared?.encoded === JSON.stringify(value)) {
+                const installation = this.managementInstallation((value as ProspectiveAdmission).installationId);
+                const operator = installation && this.managementState(installation.operatorId);
+                if (!operator || operator.id !== coordinationScope?.operatorId
+                  || operator.repositoryId !== binding.sourceRepositoryId) return 'conflict';
+                return 'owned';
+              }
+              if (!value || typeof value !== 'object' || Array.isArray(value)) return 'unavailable';
+              const record = value as Record<string, unknown>;
+              if (typeof record.ownerKey !== 'string' || typeof record.installationId !== 'string'
+                || typeof record.activityId !== 'string') return 'unavailable';
+              if (record.ownerKey !== binding.ownerKey) return 'conflict';
+              const installation = this.managementInstallation(record.installationId);
+              const operator = installation && this.managementState(installation.operatorId);
+              if (!operator || operator.repositoryId !== binding.sourceRepositoryId) return 'conflict';
+              if (`${record.repositoryId}:${record.pullRequest}:${record.head}` !== suffix) return 'unavailable';
+              const actor = record.actor;
+              if (!actor || typeof actor !== 'object' || Array.isArray(actor)) return 'unavailable';
+              const identity = actor as Record<string, unknown>;
+              if (identity.bucket !== legacyOwnerBucket
+                || identity.subject !== binding.human.subject || identity.issuer !== binding.human.issuer
+                || typeof identity.email !== 'string' || identity.email.toLowerCase() !== binding.human.email.toLowerCase()
+                || !Array.isArray(identity.audiences) || !identity.audiences.every(item => typeof item === 'string')
+                || JSON.stringify([...identity.audiences].sort()) !== JSON.stringify([...binding.human.audiences].sort())) return 'unavailable';
+              return 'owned';
+            } };
         },
       });
       return request.operation === 'read' ? { entries: await store.read(request.keys) }
@@ -1874,27 +2072,47 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       || connection.manifestDigest !== selection.release.manifestDigest
       || connection.compilerCommit !== selection.release.provenance.compilerCommit) return conflict();
     const ownerBucket = await resolveBucketName(this.env as Env, human.email);
-    const inspect = (storage: Pick<DurableObjectStorage, 'get'>, key: string) => inspectRecoveryRecord(storage, key, sourceId, ownerKey, async record => {
-      if (typeof record.ownerKey !== 'string' || typeof record.installationId !== 'string' || typeof record.activityId !== 'string'
-        || !record.actor || typeof record.actor !== 'object' || Array.isArray(record.actor)) return 'malformed';
-      const actor = record.actor as Record<string, unknown>;
-      if (typeof actor.subject !== 'string' || typeof actor.issuer !== 'string' || typeof actor.email !== 'string'
-        || typeof actor.bucket !== 'string' || !Array.isArray(actor.audiences)
-        || !actor.audiences.every(item => typeof item === 'string')) return 'malformed';
-      // Closed failure categories only. Recompute internally using the unchanged
-      // canonical algorithm; neither identity values nor hashes leave this gate.
-      const canonical = await operatorOwnerKey({ subject: actor.subject, issuer: actor.issuer,
-        email: actor.email, audiences: actor.audiences });
-      if (record.ownerKey !== canonical) return 'legacy-owner-key-inconsistent';
-      if (actor.subject !== human.subject || actor.issuer !== human.issuer) return 'legacy-owner-identity-mismatch';
-      if (actor.email.toLowerCase() !== human.email.toLowerCase()) return 'legacy-owner-email-mismatch';
-      if (JSON.stringify([...actor.audiences].sort()) !== JSON.stringify([...human.audiences].sort())) return 'legacy-owner-audience-mismatch';
-      if (actor.bucket !== ownerBucket) return 'legacy-owner-bucket-mismatch';
-      if (record.ownerKey !== ownerKey) return 'legacy-owner-identity-mismatch';
-      const installation = this.managementInstallation(record.installationId);
-      const operator = installation && this.managementState(installation.operatorId);
-      return !operator || String(operator.repositoryId) !== sourceId ? 'source-mismatch' : null;
-    });
+    const coordinationScope = this.coordinationScope(selection);
+    const buckets = new Map<string, string>();
+    const inspect = async (storage: Pick<DurableObjectStorage, 'get'>, key: string) => {
+      if (storage === this.ctx.storage && key.startsWith('renovate:head:')) {
+        const alias = await storage.get<ProspectiveAdmission>(`renovate-admission:${key.slice('renovate:head:'.length)}`);
+        if (typeof alias?.actor?.email === 'string') buckets.set(alias.actor.email, await resolveBucketName(this.env as Env, alias.actor.email));
+      }
+      return this.coordinationInspection(storage, key, sourceId, ownerKey, coordinationScope, async record => {
+        if (typeof record.ownerKey !== 'string' || typeof record.installationId !== 'string' || typeof record.activityId !== 'string'
+          || !record.actor || typeof record.actor !== 'object' || Array.isArray(record.actor)) return 'malformed';
+        const actor = record.actor as Record<string, unknown>;
+        if (typeof actor.subject !== 'string' || typeof actor.issuer !== 'string' || typeof actor.email !== 'string'
+          || typeof actor.bucket !== 'string' || !Array.isArray(actor.audiences)
+          || !actor.audiences.every(item => typeof item === 'string')) return 'malformed';
+        // Closed failure categories only. Recompute internally using the unchanged
+        // canonical algorithm; neither identity values nor hashes leave this gate.
+        const canonical = await operatorOwnerKey({ subject: actor.subject, issuer: actor.issuer,
+          email: actor.email, audiences: actor.audiences });
+        if (record.ownerKey !== canonical) return 'legacy-owner-key-inconsistent';
+        if (coordinationScope) {
+          if (actor.bucket !== buckets.get(actor.email)) return 'legacy-owner-bucket-mismatch';
+          const installation = this.managementInstallation(record.installationId);
+          const operator = installation && this.managementState(installation.operatorId);
+          if (!operator || operator.id !== coordinationScope.operatorId || String(operator.repositoryId) !== sourceId) return 'source-mismatch';
+          if (key !== `renovate:head:${record.repositoryId}:${record.pullRequest}:${record.head}`) return 'malformed';
+          if (typeof record.repository === 'string'
+            && !coordinationScope.repositories.includes(record.repository.toLowerCase())) return 'work-repository-mismatch';
+          // The codec could not prove historical scope. Requester identity cannot
+          // supply that evidence or authorize private fallback/release.
+          return 'scope-unavailable';
+        }
+        if (actor.subject !== human.subject || actor.issuer !== human.issuer) return 'legacy-owner-identity-mismatch';
+        if (actor.email.toLowerCase() !== human.email.toLowerCase()) return 'legacy-owner-email-mismatch';
+        if (JSON.stringify([...actor.audiences].sort()) !== JSON.stringify([...human.audiences].sort())) return 'legacy-owner-audience-mismatch';
+        if (actor.bucket !== ownerBucket) return 'legacy-owner-bucket-mismatch';
+        if (record.ownerKey !== ownerKey) return 'legacy-owner-identity-mismatch';
+        const installation = this.managementInstallation(record.installationId);
+        const operator = installation && this.managementState(installation.operatorId);
+        return !operator || String(operator.repositoryId) !== sourceId ? 'source-mismatch' : null;
+      }, buckets);
+    };
     const originalLedgers = new Map<string, string>();
     const facts = async (item: RecoveryInspection): Promise<RecoveryFacts> => {
       if (!item.original || item.record.status !== 'owned') return { resettable: false, reason: item.record.reason };
@@ -1904,17 +2122,20 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       const installation = this.managementInstallation(original.installationId);
       const operator = ledger?.selection.operator ?? (installation && this.managementState(installation.operatorId));
       if (!operator || String(operator.repositoryId) !== sourceId
+        || item.record.coordination !== undefined && operator.id !== selection.operator.id
         || ledger && ledger.installationId !== original.installationId) return { resettable: false, reason: 'source-mismatch' };
       if (!ledger && !original.legacy) return { resettable: false, reason: 'ledger-unavailable' };
       const legacyPins = z.object({ operatorRevision: z.number().int().positive(), installationRevision: z.number().int().positive(),
         controlsRevision: z.number().int().nonnegative(), releaseId: z.string().regex(scanId), bundleDigest: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(original.value);
       const authority: RecoveryFactsRequest = { human, deadline: Math.min(human.expiresAt * 1000, input.authority.expiresAt),
         original: { activityId: original.activityId, installationId: original.installationId, operatorId: operator.id,
-          sourceRepositoryId: operator.repositoryId, ownerKey, owner: { subject: human.subject, email: human.email,
-            issuer: human.issuer, audiences: [...human.audiences] }, binding: original.legacy ? 'legacy' : 'activity',
+          sourceRepositoryId: operator.repositoryId, ownerKey: original.ownerKey,
+          ...(original.owner ? { owner: original.owner } : {}),
+          binding: original.legacy ? 'legacy' : 'activity',
           pins: ledger ? { operatorRevision: ledger.expectedOperatorRevision, installationRevision: ledger.expectedInstallationRevision,
             controlsRevision: ledger.expectedControlsRevision, releaseId: ledger.selection.release.id,
-            bundleDigest: ledger.selection.release.bundleDigest } : legacyPins.success ? legacyPins.data : null },
+            bundleDigest: ledger.selection.release.bundleDigest } : legacyPins.success ? legacyPins.data : null,
+          ...(item.raw?.originDelivery ? { delivery: item.raw.originDelivery, generation: item.raw.generation } : {}) },
         ledger: { ok: true, receipt: ledger } };
       const namespace = (this.env as Env).OPERATOR_ACTIVITY;
       if (!namespace) return { resettable: false, reason: 'facts-unavailable' };
@@ -1987,7 +2208,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       proofs.set(key, proof);
       if (item.record.status === 'owned') {
         item.record = { ...item.record, resettable: proof.resettable, reason: proof.reason,
-          ...(proof.resettable && proof.invocation !== undefined ? { invocation: proof.invocation } : {}) };
+          ...(item.record.coordination === undefined && proof.resettable && proof.invocation !== undefined ? { invocation: proof.invocation } : {}) };
       }
       inspected.push(item);
     }
@@ -2035,30 +2256,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         if (!proof?.resettable || choice?.disposition !== 'reset' || choice.value === undefined) {
           result.skipped.push({ key: entry.key, reason: proof?.resettable ? choice?.reason ?? 'package-declined' : proof?.reason ?? 'facts-unavailable' }); continue;
         }
-        let origin = latest.raw;
-        if (!origin) {
-          const legacy = latest.original!.value as ProspectiveAdmission;
-          // Preserve the historical last-writer, never manufacture an active run.
-          origin = { schemaVersion: 1, sourceId, ownerKey, installationId: legacy.installationId,
-            activityId: legacy.activityId, generation: proof.origin.generation, deadline: proof.origin.deadline,
-            key: entry.key, legacy: latest.legacy, value: null };
-        }
-        const originalRecord = latest.raw ?? latest.original.value;
-        const auditId = await recoveryDigest(JSON.stringify([ownerKey, requestId, entry.key]));
-        const originalKey = `${prefix}original:${auditId}`;
-        const record: StateRecord = { ...origin, value: choice.value, legacy: latest.legacy,
-          recovery: { auditId, phase: 'vacant' } };
-        const audit: ApplicationStateRecoveryAudit = { sourceId, key: entry.key,
-          originalKind: latest.raw ? 'record' : 'legacy', originalVersion: entry.version, originalKey, requestId,
-          actorHash: ownerKey, time: Date.now(), proofDigest: proof.proofDigest,
-          releasedVersion: await recoveryDigest(`record:${JSON.stringify(record)}`), legacy: latest.legacy };
-        const size = new TextEncoder().encode(JSON.stringify(record)).byteLength;
-        const originalSize = new TextEncoder().encode(JSON.stringify(originalRecord)).byteLength;
-        bytes += size + originalSize + new TextEncoder().encode(JSON.stringify(audit)).byteLength;
-        if (size > 64 * 1024 || originalSize > 64 * 1024 || bytes > 1024 * 1024) return conflict();
-        await tx.put(originalKey, originalRecord);
-        await tx.put(latest.storageKey, record);
-        await tx.put(`${prefix}audit:${auditId}`, audit);
+        const released = await releaseApplicationState(tx, latest, { sourceId, actorHash: ownerKey, requestId,
+          proofDigest: proof.proofDigest, origin: proof.origin, value: choice.value, scope: coordinationScope });
+        bytes += released.bytes;
+        if (bytes > 1024 * 1024) return conflict();
         result.reset++;
       }
       currentLocal();
@@ -2069,7 +2270,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
 
   /** Read/fence an original owned execution, never wake or observe an old SDK job. */
   async applyApplicationExecution(binding: RuntimeApplicationStateBinding, request: ApplicationExecutionRequest): Promise<unknown> {
-    const unavailable = () => ({ status: 'unavailable' as const, activityId: request.activityId });
+    if (request.operation === 'read-coordination' || request.operation === 'release-coordination') {
+      return this.applyCoordinationExecution(binding, request);
+    }
+    const originalRequest = request as Extract<ApplicationExecutionRequest, { activityId: string }>;
+    const unavailable = () => ({ status: 'unavailable' as const, activityId: originalRequest.activityId });
     try {
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(request.activityId) || request.activityId === binding.activityId
         || !/^[a-f0-9]{64}$/.test(request.version)) return unavailable();

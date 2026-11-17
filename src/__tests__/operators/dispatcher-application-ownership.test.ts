@@ -29,6 +29,7 @@ function callback(f: DispatcherFixture, body: unknown, headers: Record<string, s
 }
 type Entry = { key: string; status: 'absent'; version: null }
   | { key: string; status: 'value'; version: string; value: unknown }
+  | { key: string; status: 'coordination'; version: string; coordination: unknown }
   | { key: string; status: 'conflict' };
 async function read(f: DispatcherFixture, keys: string[]): Promise<Entry[]> {
   const response = await callback(f, { operation: 'read', keys });
@@ -40,7 +41,7 @@ async function read(f: DispatcherFixture, keys: string[]): Promise<Entry[]> {
   return body.entries;
 }
 const cas = (f: DispatcherFixture, expected: Array<{ key: string; version: string | null }>,
-  writes: Array<{ key: string; value: unknown }>) => callback(f, { operation: 'compare-exchange', expected, writes });
+  writes: Array<{ key: string; value: unknown; coordination?: unknown }>) => callback(f, { operation: 'compare-exchange', expected, writes });
 async function create(f: DispatcherFixture, key: string, value: unknown) {
   expect((await cas(f, [{ key, version: null }], [{ key, value }])).status).toBe(200);
   const [entry] = await read(f, [key]);
@@ -251,6 +252,8 @@ describe('application-owned opaque state through authenticated OPERATOR', () => 
     }, { ...normal, registryAdapter: r.adapter });
   }));
 
+  // Inconsistent stored owner hashes remain invalid. A different, internally
+  // consistent authorized actor is covered separately by coordination tests.
   it.each(['foreign-owner', 'foreign-bucket', 'unknown-layout', 'held'] as const)(
     'legacy %s remains held across passive reads, failed reset and reconstruction', kind => withRegistry(async r => {
       await fixture(async f => {
@@ -325,6 +328,61 @@ describe('application-owned opaque state through authenticated OPERATOR', () => 
       expect(await read(f, ['x'])).toEqual(before);
     }, { ...normal, registryAdapter: r.adapter });
   }));
+});
+
+// REQ-OPERATOR-061 AC4/6: the existing authenticated callback transports
+// explicit coordination, but never caller-selected scope or historical actors.
+describe('shared coordination callback wire', () => {
+  const options = { ...normal, applicationConfiguration: { repository: 'acme/updates' },
+    applicationWriteRepositoriesPath: '/repository' };
+
+  it('A publishes processed coordination and a different authorized login sees no private value', () => withRegistry(async r => {
+    await fixture(async a => {
+      r.attach(a); await start(a);
+      const key = 'exact-head-result';
+      const value = { assessment: 'PRIVATE_ASSESSMENT', token: 'PRIVATE_TOKEN', activityId: a.activityId };
+      const coordination = { state: 'processed', outcome: 'NOT_MERGED',
+        target: { repository: 'acme/updates', pullRequest: 17, head: 'b'.repeat(40) } };
+      const response = await cas(a, [{ key, version: null }], [{ key, value, coordination }]);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: 'committed' });
+      const [own] = await read(a, [key]);
+      if (own.status !== 'value') throw Error('Expected private owner result');
+      expect(own.value).toEqual(value);
+      await fixture(async b => {
+        r.attach(b); await start(b);
+        expect(await read(b, [key])).toEqual([{ key, status: 'coordination', version: own.version, coordination }]);
+        r.reconstruct();
+        expect(await read(b, [key])).toEqual([{ key, status: 'coordination', version: own.version, coordination }]);
+      }, { ...options, registryAdapter: r.adapter, preserveGlobalMocks: true,
+        principal: { subject: 'foreign', email: 'foreign@example.test' } });
+    }, { ...options, registryAdapter: r.adapter });
+  }));
+
+  it.each(['read-coordination', 'release-coordination'] as const)(
+    '%s accepts only a key/version and rejects caller-selected history or scope', operation => withRegistry(async r => {
+      await fixture(async f => {
+        r.attach(f); await start(f);
+        const key = 'held';
+        const version = await create(f, key, { private: 'PRIVATE_FOREIGN_VALUE' });
+        const send = (body: unknown) => f.inOwnContext(() => f.installationCapability.fetch(normalCallback(f.activityId,
+          'execution', body, { 'x-codeflare-dispatcher-delivery': (plans(f).at(-1)!.delivery as { token: string }).token })));
+        const before = await r.enter(native => native.storage.list());
+        const response = await send({ operation, key, version });
+        expect(response.status).toBe(200);
+        expect(response.headers.get('cache-control')).toBe('no-store');
+        expect(await response.json()).toEqual({ status: 'unavailable' });
+        for (const extra of [{ activityId: 'chosen-original' }, { ownerKey: 'f'.repeat(64) },
+          { sourceId: 'chosen-source' }, { coordination: { scope: 'chosen-scope' } }, { version: null }]) {
+          await denied(await send({ operation, key, version, ...extra }));
+        }
+        for (const extra of [{ scope: 'chosen-scope' }, { ownerKey: 'chosen-owner' }]) {
+          await denied(await callback(f, { operation: 'compare-exchange', expected: [{ key, version }],
+            writes: [{ key, value: 'replacement', coordination: { state: 'active' }, ...extra }] }));
+        }
+        expect(await r.enter(native => native.storage.list())).toEqual(before);
+      }, { ...options, registryAdapter: r.adapter });
+    }));
 });
 
 // REQ-OPERATOR-090/091: real authenticated callbacks retain full private values,

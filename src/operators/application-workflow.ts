@@ -96,7 +96,14 @@ export interface ApplicationExecutionAuthority {
   observationLoggingEnabled?: boolean;
   proofVersion?: string;
 }
-export type ApplicationExecutionRequest = { operation: 'read' | 'read-delivery' | 'retire'; key: string; activityId: string; version: string };
+export type ApplicationExecutionRequest = { operation: 'read' | 'read-delivery' | 'retire'; key: string; activityId: string; version: string }
+  | { operation: 'read-coordination' | 'release-coordination'; key: string; version: string };
+export type ApplicationCoordinationAuthority = Omit<ApplicationExecutionAuthority, 'original'> & {
+  original: Omit<ApplicationExecutionAuthority['original'], 'owner'> & { owner?: OperatorExecutionContext['owner'] };
+};
+export type ApplicationCoordinationFacts = { status: 'safe'; outcome: 'completed' | 'failed' | 'never-started';
+  terminalAt: number; fenced: true; noExternalWrites: true }
+  | { status: 'held'; reason: string } | { status: 'unavailable' };
 export type ApplicationExecutionFacts = { status: 'unavailable' }
   | { status: 'delivery'; activityId: string; generation: number; releaseDigest: string; inputDigest: string;
     terminalAt: number; sdkSubmissionId: string; settled: true; fenced: true;

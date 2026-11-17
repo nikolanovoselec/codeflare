@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import type { ApplicationExecutionAuthority } from './application-workflow';
-import { applicationStateRecordValid, verifyApplicationStateRecovery, type StateRecord } from './application-state';
+import { applicationStateRecordValid, verifyApplicationStateRecovery, type StateRecord, type ApplicationStateValue, type ApplicationCoordinationScope, type ApplicationStateRecoveryAudit } from './application-state';
 import { openOperatorSecret } from './protected-secrets';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { AppError, ValidationError } from '../lib/error-types';
@@ -10,12 +10,12 @@ import { AppError, ValidationError } from '../lib/error-types';
 export interface RecoveryFactsRequest {
   human: VerifiedHumanAccessClaims;
   deadline: number;
-  original: ApplicationExecutionAuthority['original'];
+  original: Omit<ApplicationExecutionAuthority['original'], 'owner'> & { owner?: ApplicationExecutionAuthority['original']['owner'] };
   ledger: ApplicationExecutionAuthority['ledger'];
 }
 export type RecoveryFacts = { resettable: false; reason: string } | {
   resettable: true; reason: string; proofDigest: string; invocation?: unknown;
-  origin: { generation: number; deadline: number };
+  origin: { generation: number; deadline: number; terminalAt?: number };
 };
 // JSON escaping can expand a valid 1-KiB key sixfold; reserve room for
 // its anchor metadata and the nested continuation cursor as well.
@@ -25,12 +25,12 @@ const recoveryVersion = z.string().regex(/^[a-f0-9]{64}$/);
 export const recoveryEntries = z.array(z.strictObject({ key: recoveryKey, version: recoveryVersion })).min(1).max(64)
   .refine(items => new Set(items.map(item => item.key)).size === items.length);
 export interface RecoveryRecord {
-  key: string; version: string; value?: unknown; invocation?: unknown; activityId?: string;
+  key: string; version: string; coordination?: ApplicationStateValue; value?: unknown; invocation?: unknown; activityId?: string;
   status: 'owned' | 'conflict' | 'unavailable'; reason: string; resettable: boolean;
 }
 interface RecoveryOriginal {
   activityId: string; installationId: string; ownerKey: string; sourceId: string;
-  legacy: boolean; value: unknown;
+  legacy: boolean; value: unknown; owner?: ApplicationExecutionAuthority['original']['owner'];
 }
 export interface RecoveryInspection {
   record: RecoveryRecord; original?: RecoveryOriginal;
@@ -48,7 +48,8 @@ export const applicationRecoveryPrefix = async (sourceId: string) => `applicatio
 /** Uses precisely the normal state adapter's overlay and legacy version scheme.
  * Ownership is evaluated before exposing values. Never returns foreign payloads. */
 export async function inspectRecoveryRecord(storage: Pick<DurableObjectStorage, 'get'>, key: string, sourceId: string,
-  ownerKey: string, legacyOwnership: (value: Record<string, unknown>) => Promise<string | null>): Promise<RecoveryInspection> {
+  ownerKey: string, legacyOwnership: (value: Record<string, unknown>) => Promise<string | null>,
+  shared?: (value: Record<string, unknown>, legacy: boolean) => Promise<ApplicationStateValue | undefined>): Promise<RecoveryInspection> {
   if (!recoveryKey.safeParse(key).success) throw new AppError('UNAVAILABLE', 503, 'Invalid stored recovery key');
   const storageKey = `${await applicationRecoveryPrefix(sourceId)}${await recoveryDigest(key)}`;
   const raw = await storage.get<unknown>(storageKey);
@@ -61,9 +62,12 @@ export async function inspectRecoveryRecord(storage: Pick<DurableObjectStorage, 
   const version = raw === undefined ? await recoveryDigest(encode(['legacy', sourceId, key, legacy])) : await recoveryDigest(`record:${encode(raw)}`);
   const base = { storageKey, legacy, record: { key, version, status: 'unavailable' as const, reason: 'malformed', resettable: false } };
   const blocked = (reason: string, status: RecoveryRecord['status'] = 'conflict'): RecoveryInspection => ({ ...base, record: { ...base.record, status, reason } });
+  let coordination: ApplicationStateValue | undefined;
   if (raw !== undefined) {
     if (!bounded(raw) || !applicationStateRecordValid(raw) || raw.key !== key) return blocked('malformed', 'unavailable');
-    if (raw.ownerKey !== ownerKey) return blocked('record-owner-mismatch');
+    coordination = await shared?.(raw as unknown as Record<string, unknown>, false);
+    if (raw.coordinationScope && Object.hasOwn(raw, 'coordination') && coordination === undefined) return blocked('scope-mismatch');
+    if (raw.ownerKey !== ownerKey && coordination === undefined) return blocked('record-owner-mismatch');
     if (raw.sourceId !== sourceId) return blocked('source-mismatch');
   }
   const retainedRelease = raw !== undefined && applicationStateRecordValid(raw) && raw.recovery !== undefined;
@@ -73,8 +77,10 @@ export async function inspectRecoveryRecord(storage: Pick<DurableObjectStorage, 
   }
   if (prior !== undefined) {
     if (!bounded(prior) || !object(prior)) return blocked('malformed', 'unavailable');
-    if (!retainedRelease) {
-      const reason = await legacyOwnership(prior);
+    if (!retainedRelease && !(raw !== undefined && coordination !== undefined)) {
+      const projection = await shared?.(prior, true);
+      if (raw === undefined) coordination = projection;
+      const reason = projection === undefined ? await legacyOwnership(prior) : null;
       if (reason) return blocked(reason, reason === 'malformed' ? 'unavailable' : 'conflict');
     }
     if (`${prior.repositoryId}:${prior.pullRequest}:${prior.head}` !== key.slice('renovate:head:'.length)) return blocked('malformed', 'unavailable');
@@ -82,12 +88,47 @@ export async function inspectRecoveryRecord(storage: Pick<DurableObjectStorage, 
   if (raw !== undefined && applicationStateRecordValid(raw)) {
     if (raw.legacy?.storageKey !== legacy?.storageKey || raw.legacy?.version !== legacy?.version) return blocked('legacy-version-drift');
     return { ...base, raw, original: { activityId: raw.activityId, installationId: raw.installationId,
-      ownerKey: raw.ownerKey, sourceId: raw.sourceId, legacy: object(prior) && prior.activityId === raw.activityId, value: raw.value },
-    record: { ...base.record, status: 'owned', reason: 'proof-required', value: raw.value, activityId: raw.activityId } };
+      ownerKey: raw.ownerKey, sourceId: raw.sourceId, legacy: object(prior) && prior.activityId === raw.activityId, value: raw.value,
+      ...(object(prior) && prior.activityId === raw.activityId ? { owner: prior.actor as ApplicationExecutionAuthority['original']['owner'] } : {}) },
+    record: { ...base.record, status: 'owned', reason: 'proof-required',
+      ...(coordination === undefined ? { value: raw.value, activityId: raw.activityId } : { coordination }) } };
   }
   if (!object(prior) || typeof prior.activityId !== 'string' || typeof prior.installationId !== 'string') return blocked('malformed', 'unavailable');
-  return { ...base, original: { activityId: prior.activityId, installationId: prior.installationId, ownerKey, sourceId, legacy: true, value: prior },
-    record: { ...base.record, status: 'owned', reason: 'proof-required', value: prior, activityId: prior.activityId } };
+  return { ...base, original: { activityId: prior.activityId, installationId: prior.installationId, ownerKey: prior.ownerKey as string, sourceId, legacy: true, value: prior,
+    owner: prior.actor as ApplicationExecutionAuthority['original']['owner'] },
+    record: { ...base.record, status: 'owned', reason: 'proof-required',
+      ...(coordination === undefined ? { value: prior, activityId: prior.activityId } : { coordination }) } };
+}
+
+/** Shared Root vacancy writer. Call only inside the caller's revalidated CAS transaction. */
+export async function releaseApplicationState(storage: Pick<DurableObjectTransaction, 'put'>,
+  item: RecoveryInspection, input: { sourceId: string; actorHash: string; requestId: string; proofDigest: string;
+    origin: { generation: number; deadline: number }; value: ApplicationStateValue; scope?: ApplicationCoordinationScope }): Promise<{ version: string; bytes: number }> {
+  if (!item.original) throw new Error('Recovery original unavailable');
+  const original = item.original;
+  const origin: StateRecord = item.raw ?? { schemaVersion: 1, sourceId: input.sourceId,
+    ownerKey: original.ownerKey, installationId: original.installationId, activityId: original.activityId,
+    generation: input.origin.generation, deadline: input.origin.deadline, key: item.record.key,
+    legacy: item.legacy, value: null, ...(input.scope ? { coordinationScope: input.scope } : {}) };
+  const prefix = await applicationRecoveryPrefix(input.sourceId);
+  const auditId = await recoveryDigest(JSON.stringify([input.actorHash, input.requestId, item.record.key]));
+  const originalKey = `${prefix}original:${auditId}`;
+  const record: StateRecord = { ...origin, value: input.value, legacy: item.legacy,
+    ...(input.scope ? { coordinationScope: input.scope } : {}),
+    ...(item.record.coordination !== undefined ? { coordination: item.record.coordination } : {}),
+    recovery: { auditId, phase: 'vacant' } };
+  const version = await recoveryDigest(`record:${encode(record)}`);
+  const audit: ApplicationStateRecoveryAudit = { sourceId: input.sourceId, key: item.record.key,
+    originalKind: item.raw ? 'record' : 'legacy', originalVersion: item.record.version, originalKey,
+    requestId: input.requestId, actorHash: input.actorHash, originalOwnerHash: original.ownerKey,
+    time: Date.now(), proofDigest: input.proofDigest, releasedVersion: version, legacy: item.legacy };
+  const originalRecord = item.raw ?? original.value;
+  if (![record, originalRecord, audit].every(bounded)) throw new Error('Recovery record exceeds limit');
+  await storage.put(originalKey, originalRecord);
+  await storage.put(item.storageKey, record);
+  await storage.put(`${prefix}audit:${auditId}`, audit);
+  return { version, bytes: new TextEncoder().encode(encode(record)).byteLength
+    + new TextEncoder().encode(encode(originalRecord)).byteLength + new TextEncoder().encode(encode(audit)).byteLength };
 }
 
 // Progress only, never authority: Registry revalidates the owned anchor and

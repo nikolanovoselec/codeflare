@@ -42,6 +42,44 @@ async function seed(storage: DurableObjectStorage) {
 // Registry recovery transaction (covered in registry-application-recovery.test)
 // can authorize vacancy. Application JSON alone must never do so.
 describe('application state refuses unverified release and foreign evidence', () => {
+  // REQ-OPERATOR-061 AC4: coordination is an explicit additive wire field,
+  // not an instruction to expose or replace the private value.
+  it.each([null, false, 0, 'processed', ['safe', 1], { state: 'processed', outcome: 'NOT_MERGED' }].map(coordination => ({ coordination })))(
+    'accepts explicit JSON coordination $coordination without changing the owner-private read contract', ({ coordination }) => fixture(async f => {
+      const request = { expected: [{ key: 'ordinary', version: null }],
+        writes: [{ key: 'ordinary', value: { secret: 'PRIVATE_VALUE' }, coordination }] };
+      expect(await f.owner.compareExchange(request)).toEqual({ status: 'committed' });
+      expect(await f.owner.read(['ordinary'])).toEqual([{ key: 'ordinary', status: 'value',
+        version: expect.stringMatching(/^[a-f0-9]{64}$/), value: { secret: 'PRIVATE_VALUE' } }]);
+      expect(await f.storage.get(aliasKey)).toEqual(f.legacy);
+    }));
+
+  it.each([undefined, NaN, Infinity, new Date(0), { nested: undefined }, { nested: () => true }])(
+    'rejects non-JSON coordination %# atomically, preserving existing and absent keys', coordination => fixture(async f => {
+      expect(await f.owner.compareExchange({ expected: [{ key: 'ordinary', version: null }],
+        writes: [{ key: 'ordinary', value: 'original' }] })).toEqual({ status: 'committed' });
+      const [original] = await f.owner.read(['ordinary']);
+      if (original.status !== 'value') throw Error('Expected original private state');
+      const before = await f.storage.list();
+      const request = { expected: [{ key: 'ordinary', version: original.version }, { key: 'new', version: null }],
+        writes: [{ key: 'ordinary', value: 'replacement', coordination }, { key: 'new', value: true }] };
+      await expect(f.owner.compareExchange(request)).rejects.toMatchObject({ code: 'invalid-request' });
+      expect(await f.storage.list()).toEqual(before);
+      expect(await f.owner.read(['ordinary', 'new'])).toEqual([original, { key: 'new', status: 'absent', version: null }]);
+    }));
+
+  it('coordination bytes share the existing bounded atomic write allowance', () => fixture(async f => {
+    const before = await f.storage.list();
+    const request = { expected: [{ key: 'first', version: null }, { key: 'second', version: null }],
+      writes: [{ key: 'first', value: 'would-otherwise-fit' },
+        { key: 'second', value: null, coordination: 'x'.repeat(64 * 1024) }] };
+    await expect(f.owner.compareExchange(request)).rejects.toMatchObject({ code: 'invalid-request' });
+    expect(await f.storage.list()).toEqual(before);
+    expect(await f.owner.read(['first', 'second'])).toEqual([
+      { key: 'first', status: 'absent', version: null }, { key: 'second', status: 'absent', version: null },
+    ]);
+  }));
+
   it.each(['active', 'reset'] as const)('an owner-written %s value cannot release its head to another principal', state => fixture(async f => {
     const [legacy] = await f.owner.read([key]);
     expect(legacy).toEqual({ key, status: 'value', version: expect.stringMatching(/^[a-f0-9]{64}$/), value: f.legacy });

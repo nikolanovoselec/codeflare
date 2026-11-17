@@ -417,13 +417,13 @@ describe('generic completed facts are original SDK settlement, not application p
     }));
 });
 
-describe('explicit owner recovery facts preserve original history', () => {
+describe('authorized recovery facts preserve original owner history', () => {
   const request = (f: Fixture) => ({ human: f.authority.current.human, deadline: f.authority.current.deadline,
     original: f.authority.original, ledger: f.authority.ledger });
   it.each(['zero', 'get-model', 'unbound-sdk-http', 'earlier-delivery-model', 'response-cache', 'orphan-response-cache', 'retained-result',
     'settlement-cache', 'orphan-settlement-cache', 'missing-settlement-chunk',
     'missing-journal', 'invalid-aggregate', 'invalid-lease', 'lease-generation', 'lease-artifact', 'lease-input',
-    'missing-fence', 'incomplete', 'write', 'unknown-kind', 'foreign-owner',
+    'missing-fence', 'incomplete', 'write', 'unknown-kind', 'different-requester',
     'foreign-generation', 'ordinal-gap', 'count-mismatch', 'active', 'publication', 'session'] as const)(
     'classifies %s without SDK receipt, mutation or new execution', name => fixture(async f => {
       const settlement = new TextEncoder().encode(JSON.stringify({ status: 'failed', data: {},
@@ -458,7 +458,7 @@ describe('explicit owner recovery facts preserve original history', () => {
       if (name === 'unknown-kind') delete operations[0].request;
       if (name === 'foreign-generation') operations[0].generation = 3;
       if (name === 'ordinal-gap') operations[0].ordinal = 5;
-      if (name === 'foreign-owner') authority.human = { ...authority.human, subject: 'foreign' };
+      if (name === 'different-requester') authority.human = { ...authority.human, subject: 'foreign', email: 'other@example.test' };
       if (name === 'active') state.drive = { ...state.drive, generation: 1, status: 'running' };
       if (name === 'lease-generation') lease.generation = 2;
       if (name === 'lease-artifact') lease.artifactDigest = 'f'.repeat(64);
@@ -484,8 +484,14 @@ describe('explicit owner recovery facts preserve original history', () => {
       const alarm = await f.native.storage.getAlarm();
       const result = await f.activity.readRecoveryFacts(authority);
       if (name === 'unbound-sdk-http') expect(result).toEqual({ resettable: false, reason: 'unknown-operation' });
-      expect(result.resettable).toBe(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'retained-result', 'settlement-cache'].includes(name));
-      if (result.resettable) expect(result).toMatchObject({ reason: 'fenced-no-write', proofDigest: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      expect(result.resettable).toBe(['zero', 'get-model', 'earlier-delivery-model', 'response-cache', 'retained-result', 'settlement-cache', 'different-requester'].includes(name));
+      if (result.resettable) expect(result).toMatchObject({ reason: 'fenced-no-write', proofDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        origin: { terminalAt: state.diagnosticFence.timestamp } });
+      if (name === 'different-requester') {
+        expect(result).not.toHaveProperty('invocation');
+        expect(JSON.stringify(result)).not.toContain(f.invocationJson);
+        expect(JSON.stringify(result)).not.toContain(f.state.privateEvidence.token);
+      }
       expect(await f.native.storage.list()).toEqual(before);
       expect(await f.native.storage.getAlarm()).toBe(alarm);
       expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(f.receipt);
@@ -518,7 +524,7 @@ describe('explicit owner recovery facts preserve original history', () => {
       'dispatcher:journal': { generation: 1, count: 42, nextOrdinal: 42, unresolved: 0 } });
     const before = await f.native.storage.list();
     expect(await f.activity.readRecoveryFacts(authority)).toMatchObject({ resettable: true, reason: 'fenced-no-write',
-      origin: { generation: 1, deadline: state.intent.deadline } });
+      origin: { generation: 1, deadline: state.intent.deadline, terminalAt: state.diagnosticFence.timestamp } });
     expect(await f.native.storage.list()).toEqual(before);
     expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(state.receipt);
     expect(f.unsafe).toEqual([]);
@@ -791,6 +797,38 @@ async function settledDelivery(f: Fixture) {
 }
 
 describe('Root-owned individual delivery facts', () => {
+  it.each([true, false])('management recovery uses the selected delivery while unrelated parent work is running, noWrites=%s', noExternalWrites => fixture(async f => {
+    const saved = await settledDelivery(f);
+    await f.native.storage.put(saved.key, { ...saved.proof, noExternalWrites });
+    await f.native.storage.put({ 'dispatcher:journal': { generation: 1, count: 1, nextOrdinal: 1, unresolved: 1 },
+      'dispatcher:operation:1:unrelated': { generation: 1, ordinal: 0, phase: 'unknown', requestDigest: 'e'.repeat(64),
+        deliveryBinding: { resource: 'fetch', submissionId: 'later-target-submission', deliveryToken: 'later-target-token' },
+        request: { method: 'POST', url: 'https://api.github.com/repos/acme/updates/issues/2/comments' } } });
+    const human = { ...f.authority.current.human, subject: 'manager-b', email: 'manager-b@example.test' };
+    const before = await f.native.storage.list();
+    const result = await f.activity.readRecoveryFacts({ human, deadline: f.authority.current.deadline,
+      original: saved.authority.original, ledger: saved.authority.ledger });
+    expect(result).toEqual(noExternalWrites ? { resettable: true, reason: 'fenced-no-write',
+      proofDigest: expect.stringMatching(/^[a-f0-9]{64}$/), origin: { generation: 1,
+        deadline: f.state.intent.deadline, terminalAt: saved.proof.terminalAt } }
+      : { resettable: false, reason: 'source-write' });
+    expect(await f.native.storage.list()).toEqual(before);
+    expect(f.unsafe).toEqual([]);
+  }));
+
+  it.each(['missing-proof', 'unfenced', 'wrong-uid'] as const)('management delivery recovery holds %s without falling back to another origin', fault => fixture(async f => {
+    const saved = await settledDelivery(f);
+    if (fault === 'missing-proof') await f.native.storage.delete(saved.key);
+    if (fault === 'wrong-uid') saved.authority.original.delivery.uid = 'different-uid';
+    if (fault === 'unfenced') await f.native.storage.put('dispatcher:lease', { ...saved.lease,
+      application: { ...saved.lease.application, delivery: { token: 'settled-target-token', ordinal: 2 } } });
+    const before = await f.native.storage.list();
+    expect(await f.activity.readRecoveryFacts({ human: f.authority.current.human, deadline: f.authority.current.deadline,
+      original: saved.authority.original, ledger: saved.authority.ledger })).toMatchObject({ resettable: false });
+    expect(await f.native.storage.list()).toEqual(before);
+    expect(f.unsafe).toEqual([]);
+  }));
+
   it.each(['running', 'failed', 'unknown', 'pending-plan'] as const)(
     'REQ-OPERATOR-048: a settled target remains provable while its unrelated run is %s and uncollected', later => fixture(async f => {
       const saved = await settledDelivery(f);
@@ -844,6 +882,127 @@ describe('Root-owned individual delivery facts', () => {
       const before = await f.native.storage.list();
       expect(await f.activity.readApplicationExecutionFacts(saved.authority)).toEqual({ status: 'unavailable' });
       expect(await f.native.storage.list()).toEqual(before);
+      expect(f.unsafe).toEqual([]);
+    }));
+});
+
+// REQ-OPERATOR-061 AC6 / 210 AC3: Registry passes the requester separately
+// from the original immutable owner. That internal proof port is not a private
+// history read and must never impersonate the requester as the old owner.
+describe('owner-neutral original proof and owner-private reads', () => {
+  it.each([true, false])('cross-actor delivery projection preserves no-write=%s without disclosing private facts', noExternalWrites => fixture(async f => {
+    const saved = await settledDelivery(f);
+    await f.native.storage.put(saved.key, { ...saved.proof, noExternalWrites });
+    const human = { ...saved.authority.current.human, subject: 'new-login', email: 'new-login@example.test' };
+    const authority = { ...saved.authority, current: { ...saved.authority.current,
+      human, ownerKey: await operatorOwnerKey(human) } };
+    const before = await f.native.storage.list();
+    const result = await f.activity.readApplicationCoordinationFacts(authority);
+    expect(result).toEqual(noExternalWrites ? { status: 'safe', outcome: 'failed',
+      terminalAt: saved.proof.terminalAt, fenced: true, noExternalWrites: true }
+      : { status: 'held', reason: expect.any(String) });
+    expect(JSON.stringify(result)).not.toContain(saved.proof.receipt.submissionId);
+    expect(JSON.stringify(result)).not.toContain(saved.proof.ownerKey);
+    expect(await f.activity.readApplicationExecutionFacts(authority)).toEqual({ status: 'unavailable' });
+    expect(await f.native.storage.list()).toEqual(before);
+    expect(f.unsafe).toEqual([]);
+  }));
+
+  it.each(['fenced-no-write', 'never-started'] as const)('different requester obtains %s proof without access to private execution or archives', kind => fixture(async f => {
+    const requester = { ...f.authority.current.human, subject: 'new-login', email: 'new-login@example.test' };
+    const terminalAt = f.state.diagnosticFence.timestamp;
+    if (kind === 'fenced-no-write') await f.native.storage.put({
+      'dispatcher:lease': { ...f.profile, status: 'unknown', submissionId: 'PRIVATE_ORIGINAL_SUBMISSION' },
+      'dispatcher:journal': { generation: 1, count: 0, nextOrdinal: 0, unresolved: 0 },
+    });
+    else {
+      const proof = await f.activity.readApplicationExecutionFacts(f.authority);
+      if (proof.status !== 'never-started') throw Error('Expected original non-start proof');
+      expect(await f.activity.retireApplicationExecution({ ...f.authority, proofVersion: proof.proofVersion }))
+        .toMatchObject({ status: 'retired' });
+    }
+    const before = await f.native.storage.list();
+    const alarm = await f.native.storage.getAlarm();
+    // A later read cannot move the persisted closure time or substitute expiry.
+    vi.spyOn(Date, 'now').mockReturnValue(terminalAt + 30_000);
+    const result = await f.activity.readRecoveryFacts({ human: requester, deadline: f.authority.current.deadline,
+      original: f.authority.original, ledger: f.authority.ledger });
+    expect(result).toEqual({ resettable: true, reason: kind,
+      proofDigest: expect.stringMatching(/^[a-f0-9]{64}$/), origin: { generation: 1,
+        deadline: f.state.intent.deadline, terminalAt } });
+    expect(result).not.toHaveProperty('invocation');
+    expect(JSON.stringify(result)).not.toContain(f.invocationJson);
+    expect(JSON.stringify(result)).not.toContain(f.state.privateEvidence.token);
+    const foreign = { ...f.authority, current: { ...f.authority.current, human: requester,
+      ownerKey: await operatorOwnerKey(requester) } };
+    expect(await f.activity.readApplicationCoordinationFacts(foreign)).toEqual(kind === 'never-started'
+      ? { status: 'safe', outcome: 'never-started', terminalAt, fenced: true, noExternalWrites: true }
+      : { status: 'held', reason: 'explicit-recovery-required' });
+    expect(await f.activity.readApplicationExecutionFacts(foreign)).toEqual({ status: 'unavailable' });
+    expect(await f.activity.retireApplicationExecution({ ...foreign, proofVersion: 'a'.repeat(64) }))
+      .toEqual({ status: 'unavailable' });
+    expect(await f.native.storage.list()).toEqual(before);
+    expect(await f.native.storage.getAlarm()).toBe(alarm);
+    expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(f.receipt);
+    expect(f.unsafe).toEqual([]);
+  }));
+
+  it.each([undefined, 0, -1, '1700000000000', NaN, Infinity, Number.MAX_SAFE_INTEGER].map(timestamp => ({ timestamp })))(
+    'invalid closure timestamp $timestamp cannot be reconstructed from deadline, admission or observation time', ({ timestamp }) => fixture(async f => {
+      const state = structuredClone(f.state) as Record<string, any>;
+      if (timestamp === undefined) delete state.diagnosticFence.timestamp;
+      else state.diagnosticFence.timestamp = timestamp;
+      await f.native.storage.put({ admission: state,
+        'dispatcher:lease': { ...f.profile, status: 'unknown', submissionId: 'PRIVATE_ORIGINAL_SUBMISSION' },
+        'dispatcher:journal': { generation: 1, count: 0, nextOrdinal: 0, unresolved: 0 } });
+      const before = await f.native.storage.list();
+      const result = await f.activity.readRecoveryFacts({ human: f.authority.current.human,
+        deadline: f.authority.current.deadline, original: f.authority.original, ledger: f.authority.ledger });
+      // An older absent timestamp does not invalidate existing manual proof.
+      // Malformed values may be held, but can never become a closure time.
+      if (timestamp === undefined) expect(result).toMatchObject({ resettable: true, reason: 'fenced-no-write' });
+      expect(result).not.toHaveProperty('origin.terminalAt');
+      expect(await f.native.storage.list()).toEqual(before);
+      expect(f.unsafe).toEqual([]);
+    }));
+
+  it.each(['terminal-result', 'delivery'] as const)('different authorized actor cannot read private %s facts', kind => fixture(async f => {
+    const requester = { ...f.authority.current.human, subject: 'new-login', email: 'new-login@example.test' };
+    let authority = f.authority;
+    if (kind === 'terminal-result') await terminal(f);
+    else authority = (await settledDelivery(f)).authority;
+    const before = await f.native.storage.list();
+    const foreign = { ...authority, current: { ...authority.current, human: requester,
+      ownerKey: await operatorOwnerKey(requester) } };
+    expect(await f.activity.readApplicationExecutionFacts(foreign)).toEqual({ status: 'unavailable' });
+    expect(await f.native.storage.list()).toEqual(before);
+    expect(f.unsafe).toEqual([]);
+  }));
+
+  it.each(['stored-owner', 'owner-hash', 'ledger', 'lease', 'active', 'uncertain-write', 'missing-journal'] as const)(
+    'different requester still needs valid original %s evidence', fault => fixture(async f => {
+      const requester = { ...f.authority.current.human, subject: 'new-login', email: 'new-login@example.test' };
+      const state = structuredClone(f.state);
+      const lease = { ...f.profile, status: 'unknown', submissionId: 'PRIVATE_SUBMISSION' };
+      const request = { human: requester, deadline: f.authority.current.deadline,
+        original: structuredClone(f.authority.original), ledger: structuredClone(f.authority.ledger) };
+      if (fault === 'stored-owner') state.ownerKey = 'e'.repeat(64);
+      if (fault === 'owner-hash') request.original.ownerKey = 'e'.repeat(64);
+      if (fault === 'ledger') request.ledger = { ok: false };
+      if (fault === 'lease') lease.inputDigest = 'e'.repeat(64);
+      if (fault === 'active') state.drive = { ...state.drive, generation: 1, status: 'running' };
+      await f.native.storage.put({ admission: state, 'dispatcher:lease': lease,
+        ...(fault === 'missing-journal' ? {} : { 'dispatcher:journal': {
+          generation: 1, count: fault === 'uncertain-write' ? 1 : 0,
+          nextOrdinal: fault === 'uncertain-write' ? 1 : 0, unresolved: fault === 'uncertain-write' ? 1 : 0 } }),
+        ...(fault === 'uncertain-write' ? { 'dispatcher:operation:1:uncertain': { generation: 1, ordinal: 0,
+          phase: 'unknown', requestDigest: 'a'.repeat(64), request: { method: 'POST', url: 'https://api.github.com/repos/acme/updates/issues/17/comments' } } } : {}),
+      });
+      const before = await f.native.storage.list();
+      const result = await f.activity.readRecoveryFacts(request);
+      expect(result.resettable).toBe(false);
+      expect(await f.native.storage.list()).toEqual(before);
+      expect(await f.registry.getManagementAdmission(f.activityId)).toEqual(f.receipt);
       expect(f.unsafe).toEqual([]);
     }));
 });

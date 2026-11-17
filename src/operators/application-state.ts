@@ -1,10 +1,19 @@
-type ApplicationStateValue = null | boolean | number | string | ApplicationStateValue[]
+export type ApplicationStateValue = null | boolean | number | string | ApplicationStateValue[]
   | { [key: string]: ApplicationStateValue };
 
 interface ApplicationStateOriginDelivery {
   submissionId: string;
   uid: string;
   deliveryDigest: string;
+}
+
+export interface ApplicationCoordinationScope {
+  operatorId: string;
+  repositories: string[];
+}
+export function sameCoordinationScope(a: ApplicationCoordinationScope | undefined, b: ApplicationCoordinationScope | undefined): boolean {
+  return !!a && !!b && a.operatorId === b.operatorId
+    && JSON.stringify(a.repositories) === JSON.stringify(b.repositories);
 }
 
 /** Root-derived authority; never accept these fields from the application request. */
@@ -17,14 +26,16 @@ export interface ApplicationStateBinding {
   /** Unix milliseconds, retaining the original run deadline. */
   readonly deadline: number;
   readonly originDelivery?: ApplicationStateOriginDelivery;
+  readonly coordinationScope?: ApplicationCoordinationScope;
 }
 export type ApplicationStateEntry = { key: string; status: 'absent'; version: null }
   | { key: string; status: 'value'; version: string; value: ApplicationStateValue }
+  | { key: string; status: 'coordination'; version: string; coordination: ApplicationStateValue }
   | { key: string; status: 'vacant'; version: string }
   | { key: string; status: 'conflict' };
 export interface ApplicationStateExchange {
   expected: Array<{ key: string; version: string | null }>;
-  writes: Array<{ key: string; value: ApplicationStateValue }>;
+  writes: Array<{ key: string; value: ApplicationStateValue; coordination?: ApplicationStateValue }>;
 }
 export type ApplicationStateExchangeResult = { status: 'committed' } | { status: 'conflict' };
 export type ApplicationStateRequest = { operation: 'read'; keys: string[] }
@@ -33,9 +44,11 @@ export type ApplicationStateRequest = { operation: 'read'; keys: string[] }
 interface ApplicationStateLegacyAlias {
   storageKey: string;
   /** Local, synchronous inspection of the ACTUAL record. Root must validate its
-   * complete layout and prove source, installation and owner permission. Unknown
-   * layouts return unavailable, never owned. No RPC or application-supplied code. */
+   * complete layout and prove source/installation plus private ownership or
+   * authorized coordination scope. Unknown layouts remain unavailable. No RPC
+   * or application-supplied code. */
   validate(record: unknown, binding: Readonly<ApplicationStateBinding>): 'owned' | 'conflict' | 'unavailable';
+  coordination?(record: unknown): ApplicationStateValue | undefined;
 }
 export interface ApplicationStateAuthority {
   /** Live authorization (including remote checks if needed), outside transactions. */
@@ -85,8 +98,16 @@ function originDeliveryValid(value: unknown): value is ApplicationStateOriginDel
   return fields(value, ['submissionId', 'uid', 'deliveryDigest']) && identity(value.submissionId)
     && identity(value.uid) && typeof value.deliveryDigest === 'string' && versionPattern.test(value.deliveryDigest);
 }
+function coordinationScopeValid(value: unknown): value is ApplicationCoordinationScope {
+  return fields(value, ['operatorId', 'repositories']) && identity(value.operatorId)
+    && Array.isArray(value.repositories) && value.repositories.length > 0 && value.repositories.length <= 128
+    && value.repositories.every(item => typeof item === 'string' && item.length <= 201
+      && /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/.test(item) && item.split('/').every(part => part !== '.' && part !== '..'))
+    && JSON.stringify(value.repositories) === JSON.stringify([...new Set(value.repositories)].sort());
+}
 function bindingValid(value: unknown): value is ApplicationStateBinding {
-  return optionalFields(value, ['sourceId', 'installationId', 'ownerKey', 'activityId', 'generation', 'deadline'], ['originDelivery'])
+  return optionalFields(value, ['sourceId', 'installationId', 'ownerKey', 'activityId', 'generation', 'deadline'], ['originDelivery', 'coordinationScope'])
+    && (!Object.hasOwn(value, 'coordinationScope') || coordinationScopeValid(value.coordinationScope))
     && (!Object.hasOwn(value, 'originDelivery') || originDeliveryValid(value.originDelivery))
     && identity(value.sourceId) && identity(value.installationId) && identity(value.ownerKey)
     && identity(value.activityId) && Number.isSafeInteger(value.generation) && (value.generation as number) >= 1
@@ -132,6 +153,7 @@ export interface StateRecord extends ApplicationStateBinding {
   key: string;
   legacy: LegacySnapshot | null;
   value: ApplicationStateValue;
+  coordination?: ApplicationStateValue;
   /** Root-authored reference, never copied from application JSON. */
   recovery?: { auditId: string; phase: 'vacant' | 'claimed' };
 }
@@ -143,6 +165,7 @@ export interface ApplicationStateRecoveryAudit {
   originalKey: string;
   requestId: string;
   actorHash: string;
+  originalOwnerHash?: string;
   time: number;
   proofDigest: string;
   releasedVersion: string;
@@ -157,10 +180,11 @@ interface ObservedKey {
 }
 export function applicationStateRecordValid(value: unknown): value is StateRecord {
   if (!optionalFields(value, ['schemaVersion', 'sourceId', 'installationId', 'ownerKey', 'activityId',
-    'generation', 'deadline', 'key', 'legacy', 'value'], ['originDelivery', 'recovery']) || value.schemaVersion !== 1 || !identity(value.key)) return false;
+    'generation', 'deadline', 'key', 'legacy', 'value'], ['originDelivery', 'recovery', 'coordination', 'coordinationScope']) || value.schemaVersion !== 1 || !identity(value.key)) return false;
   const { sourceId, installationId, ownerKey, activityId, generation, deadline } = value;
   if (!bindingValid({ sourceId, installationId, ownerKey, activityId, generation, deadline,
-    ...(Object.hasOwn(value, 'originDelivery') ? { originDelivery: value.originDelivery } : {}) })) return false;
+    ...(Object.hasOwn(value, 'originDelivery') ? { originDelivery: value.originDelivery } : {}),
+    ...(Object.hasOwn(value, 'coordinationScope') ? { coordinationScope: value.coordinationScope } : {}) })) return false;
   if (Object.hasOwn(value, 'recovery') && (!fields(value.recovery, ['auditId', 'phase'])
     || typeof value.recovery.auditId !== 'string' || !versionPattern.test(value.recovery.auditId)
     || !['vacant', 'claimed'].includes(value.recovery.phase as string))) return false;
@@ -181,14 +205,15 @@ export async function verifyApplicationStateRecovery(storage: Pick<DurableObject
   const prefix = `${PREFIX}${await digest(record.sourceId)}:`;
   const auditId = record.recovery.auditId;
   const raw = await storage.get<unknown>(`${prefix}audit:${auditId}`);
-  if (!fields(raw, ['sourceId', 'key', 'originalKind', 'originalVersion', 'originalKey', 'requestId',
-    'actorHash', 'time', 'proofDigest', 'releasedVersion', 'legacy'])) return null;
+  if (!optionalFields(raw, ['sourceId', 'key', 'originalKind', 'originalVersion', 'originalKey', 'requestId',
+    'actorHash', 'time', 'proofDigest', 'releasedVersion', 'legacy'], ['originalOwnerHash'])) return null;
   const encodedAudit = json(raw, RECORD_BYTES, 'unavailable');
   if (raw.sourceId !== record.sourceId || raw.key !== record.key
     || !['record', 'legacy'].includes(raw.originalKind as string)
     || typeof raw.requestId !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(raw.requestId)
     || !['originalVersion', 'actorHash', 'proofDigest', 'releasedVersion'].every(name =>
       typeof raw[name] === 'string' && versionPattern.test(raw[name] as string))
+    || Object.hasOwn(raw, 'originalOwnerHash') && (typeof raw.originalOwnerHash !== 'string' || !versionPattern.test(raw.originalOwnerHash))
     || !Number.isSafeInteger(raw.time) || (raw.time as number) <= 0
     || raw.originalKey !== `${prefix}original:${auditId}`
     || auditId !== await digest(JSON.stringify([raw.actorHash, raw.requestId, record.key]))) return null;
@@ -201,7 +226,7 @@ export async function verifyApplicationStateRecovery(storage: Pick<DurableObject
   const original = await storage.get<unknown>(audit.originalKey);
   if (!object(original)) return null;
   const encodedOriginal = json(original, RECORD_BYTES, 'unavailable');
-  if (original.ownerKey !== audit.actorHash || !identity(original.activityId) || !identity(original.installationId)) return null;
+  if (original.ownerKey !== (audit.originalOwnerHash ?? audit.actorHash) || !identity(original.activityId) || !identity(original.installationId)) return null;
   if (audit.originalKind === 'record') {
     if (!applicationStateRecordValid(original) || original.sourceId !== record.sourceId || original.key !== record.key
       || !sameLegacy(original.legacy, legacy)
@@ -230,6 +255,8 @@ export class ApplicationStateStore {
     binding: ApplicationStateBinding, authority: ApplicationStateAuthority) {
     if (!bindingValid(binding)) fail('denied');
     this.binding = Object.freeze({ ...binding,
+      ...(binding.coordinationScope ? { coordinationScope: { operatorId: binding.coordinationScope.operatorId,
+        repositories: [...binding.coordinationScope.repositories] } } : {}),
       ...(binding.originDelivery ? { originDelivery: Object.freeze({ ...binding.originDelivery }) } : {}) });
     this.authority = { ...authority };
   }
@@ -255,7 +282,7 @@ export class ApplicationStateStore {
         || bytes(alias.storageKey) > 2048 || alias.storageKey.startsWith(PREFIX)
         || typeof alias.validate !== 'function')) fail('unavailable');
       return { key, storageKey: `${prefix}${await digest(key)}`,
-        alias: alias ? { storageKey: alias.storageKey, validate: alias.validate } : null };
+        alias: alias ? { storageKey: alias.storageKey, validate: alias.validate, coordination: alias.coordination } : null };
     }));
     const aliases = result.flatMap(item => item.alias ? [item.alias.storageKey] : []);
     if (new Set(aliases).size !== aliases.length) fail('unavailable');
@@ -266,13 +293,15 @@ export class ApplicationStateStore {
     const raw = await tx.get<unknown>(storageKey);
     let legacy: LegacySnapshot | null = alias ? { storageKey: alias.storageKey, version: null } : null;
     let legacyValue: ApplicationStateValue | undefined;
+    let legacyCoordination: ApplicationStateValue | undefined;
     let size = 0;
     let encodedRecord: string | undefined;
     if (raw !== undefined) {
       encodedRecord = json(raw, RECORD_BYTES, 'unavailable');
       size += bytes(encodedRecord);
       if (!applicationStateRecordValid(raw) || raw.key !== key || raw.sourceId !== this.binding.sourceId) fail('unavailable');
-      if (raw.ownerKey !== this.binding.ownerKey && raw.recovery?.phase !== 'vacant') {
+      if (raw.ownerKey !== this.binding.ownerKey && raw.recovery?.phase !== 'vacant'
+        && !(Object.hasOwn(raw, 'coordination') && sameCoordinationScope(raw.coordinationScope, this.binding.coordinationScope))) {
         return { entry: { key, status: 'conflict' }, legacy, size };
       }
     }
@@ -285,11 +314,14 @@ export class ApplicationStateStore {
         legacy = { storageKey: alias.storageKey, version: await digest(encoded) };
         // A verified Root release carries the unchanged alias as history, not
         // as the fresh claimant's identity. Ordinary records retain every gate.
-        if (!record?.recovery) {
+        const sharedRecord = record && Object.hasOwn(record, 'coordination')
+          && sameCoordinationScope(record.coordinationScope, this.binding.coordinationScope);
+        if (!record?.recovery && !sharedRecord) {
           const permission = alias.validate(prior, this.binding);
           if (permission === 'conflict') return { entry: { key, status: 'conflict' }, legacy, size };
           if (permission !== 'owned') fail('unavailable');
           legacyValue = JSON.parse(encoded) as ApplicationStateValue;
+          legacyCoordination = alias.coordination?.(prior);
         }
       }
     }
@@ -303,11 +335,20 @@ export class ApplicationStateStore {
         size += proof.size;
       }
       const version = await digest(`record:${encodedRecord}`);
-      if (record.recovery?.phase === 'vacant' && record.ownerKey !== this.binding.ownerKey) {
+      if (record.coordinationScope && !sameCoordinationScope(record.coordinationScope, this.binding.coordinationScope)) {
+        return { entry: { key, status: 'conflict' }, legacy, size };
+      }
+      if (record.recovery?.phase === 'vacant' && (record.ownerKey !== this.binding.ownerKey
+        || Object.hasOwn(record, 'coordination') && sameCoordinationScope(record.coordinationScope, this.binding.coordinationScope))) {
         return { entry: { key, status: 'vacant', version }, legacy, size, record };
+      }
+      if (record.ownerKey !== this.binding.ownerKey) {
+        return { entry: { key, status: 'coordination', version, coordination: record.coordination! }, legacy, size, record };
       }
       return { entry: { key, status: 'value', version, value: record.value }, legacy, size, record };
     }
+    if (legacyCoordination !== undefined) return { entry: { key, status: 'coordination',
+      version: await digest(JSON.stringify(['legacy', this.binding.sourceId, key, legacy])), coordination: legacyCoordination }, legacy, size };
     if (legacyValue !== undefined) return { entry: { key, status: 'value',
       version: await digest(JSON.stringify(['legacy', this.binding.sourceId, key, legacy])), value: legacyValue }, legacy, size };
     return { entry: { key, status: 'absent', version: null }, legacy, size };
@@ -351,7 +392,7 @@ export class ApplicationStateStore {
         || !Array.isArray(request.writes)) fail('invalid-request');
       if (!request.expected.every(item => fields(item, ['key', 'version'])
         && (item.version === null || typeof item.version === 'string' && versionPattern.test(item.version)))
-        || !request.writes.every(item => fields(item, ['key', 'value']))) fail('invalid-request');
+        || !request.writes.every(item => optionalFields(item, ['key', 'value'], ['coordination']))) fail('invalid-request');
       keysValid(request.expected.map(item => item.key));
       keysValid(request.writes.map(item => item.key));
       const expected = new Map(request.expected.map(item => [item.key, item.version]));
@@ -368,7 +409,7 @@ export class ApplicationStateStore {
           readSize += observed.size;
           if (readSize > BATCH_BYTES) fail('unavailable');
           observations.set(item.key, observed);
-          if (observed.entry.status === 'conflict' || observed.entry.version !== expected.get(item.key)) conflict = true;
+          if (observed.entry.status === 'conflict' || observed.entry.status === 'coordination' || observed.entry.version !== expected.get(item.key)) conflict = true;
         }
         if (conflict) return { status: 'conflict' };
         const records: Record<string, StateRecord> = {};
@@ -380,8 +421,11 @@ export class ApplicationStateStore {
             && prior.installationId === this.binding.installationId && prior.activityId === this.binding.activityId
             && prior.generation === this.binding.generation;
           const originDelivery = sameAttempt && prior?.originDelivery ? prior.originDelivery : this.binding.originDelivery;
-          const record: StateRecord = { schemaVersion: 1, ...this.binding, key: write.key,
+          const { coordinationScope, ...binding } = this.binding;
+          const record: StateRecord = { schemaVersion: 1, ...binding, key: write.key,
+            ...(coordinationScope && (Object.hasOwn(write, 'coordination') || prior?.recovery) ? { coordinationScope } : {}),
             legacy: observed.legacy, value: write.value,
+            ...(Object.hasOwn(write, 'coordination') ? { coordination: write.coordination! } : {}),
             ...(originDelivery ? { originDelivery } : {}),
             ...(prior?.recovery ? { recovery: { auditId: prior.recovery.auditId, phase: 'claimed' } } : {}) };
           writeSize += bytes(json(record, RECORD_BYTES, 'invalid-request'));

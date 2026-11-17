@@ -48,7 +48,7 @@ import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
 import { hasApplicationWorkflow, parseApplicationDecision, sameApplicationValue as sameDispatcherPhaseValue,
   type ApplicationWorkflow, type ApplicationValue, type ApplicationSettlement, type RuntimeApplicationStateBinding,
-  type ApplicationExecutionAuthority, type ApplicationExecutionRequest, type ApplicationExecutionFacts, type ApplicationExecutionRetirement } from './application-workflow';
+  type ApplicationCoordinationAuthority, type ApplicationCoordinationFacts, type ApplicationExecutionAuthority, type ApplicationExecutionRequest, type ApplicationExecutionFacts, type ApplicationExecutionRetirement } from './application-workflow';
 import type { ApplicationStateRequest } from './application-state';
 import { readDispatcherSdkDiagnostics, sdkUnavailable, operationsUnavailable, type DispatcherActivityDiagnostics,
   type DispatcherOperationDiagnostics, type DispatcherSqlFacet } from './dispatcher-runtime-diagnostics';
@@ -1159,9 +1159,39 @@ export class OperatorActivity extends Agent {
     }
   }
 
+  /** Registry-only metadata inspection. Never captures or returns historical payloads. */
+  async readApplicationCoordinationFacts(input: ApplicationCoordinationAuthority): Promise<ApplicationCoordinationFacts> {
+    try {
+      const authority = structuredClone(input);
+      const state = await this.ctx.storage.get<AdmissionState>('admission');
+      const owner = authority.original.owner ?? state?.executionContext?.owner;
+      if (!owner || authority.original.ownerKey !== await operatorOwnerKey(owner)) return { status: 'unavailable' };
+      const bound: ApplicationExecutionAuthority = { ...authority, original: { ...authority.original, owner } };
+      await this.#validateApplicationExecutionAuthority(bound, true);
+      if (bound.original.delivery) {
+        const facts = await this.#readApplicationDelivery(bound);
+        if (facts.status !== 'delivery') return { status: 'held', reason: 'delivery-unproven' };
+        return facts.noExternalWrites ? { status: 'safe', outcome: facts.outcome,
+          terminalAt: facts.terminalAt, fenced: true, noExternalWrites: true }
+          : { status: 'held', reason: 'source-write' };
+      }
+      const facts = await this.readRecoveryFacts({ human: authority.current.human,
+        deadline: authority.current.deadline, original: bound.original, ledger: authority.ledger });
+      if (!facts.resettable) return { status: 'held', reason: facts.reason };
+      // Abandonment proof closes authority, not the unknown SDK outcome.
+      if (facts.reason !== 'never-started') return { status: 'held', reason: 'explicit-recovery-required' };
+      const terminalAt = facts.origin.terminalAt;
+      if (!Number.isSafeInteger(terminalAt) || terminalAt! <= 0 || terminalAt! > Date.now()) {
+        return { status: 'held', reason: 'closure-time-unavailable' };
+      }
+      return { status: 'safe', outcome: 'never-started',
+        terminalAt: terminalAt!, fenced: true, noExternalWrites: true };
+    } catch { return { status: 'unavailable' }; }
+  }
+
   /** Compact private proof is sufficient after its delivery is retired. Later
    * deliveries/journals/results are deliberately not prerequisites for this read. */
-  async #readApplicationDelivery(authority: ApplicationExecutionAuthority): Promise<ApplicationExecutionFacts> {
+  async #readApplicationDelivery(authority: OriginalExecutionProof): Promise<ApplicationExecutionFacts> {
     return this.ctx.storage.transaction<ApplicationExecutionFacts>(async tx => {
       const snapshot: ApplicationExecutionSnapshot = { state: await tx.get<AdmissionState>('admission'),
         bound: await tx.get<string>('prospective-admission'), retirement: await tx.get<string>('prospective-retirement'),
@@ -1218,15 +1248,28 @@ export class OperatorActivity extends Agent {
   async readRecoveryFacts(input: import('./application-recovery').RecoveryFactsRequest): Promise<import('./application-recovery').RecoveryFacts> {
     try {
       const request = structuredClone(input);
-      const { original, human } = request;
+      const { human } = request;
+      const stored = await this.ctx.storage.get<AdmissionState>('admission');
+      const owner = request.original.owner ?? stored?.executionContext?.owner;
+      if (!owner) return { resettable: false, reason: 'original-owner-binding-missing' };
+      const original = { ...request.original, owner };
       if (request.deadline <= Date.now() || human.expiresAt * 1000 < request.deadline) return { resettable: false, reason: 'authority-expired' };
-      if (original.ownerKey !== await operatorOwnerKey(human)) return { resettable: false, reason: 'original-owner-mismatch' };
       if (original.ownerKey !== await operatorOwnerKey(original.owner)) return { resettable: false, reason: 'original-owner-binding-mismatch' };
       if (!syncIdentity.safeParse(original.activityId).success || !this.#appEnv.OPERATOR_ACTIVITY
         || this.#appEnv.OPERATOR_ACTIVITY.idFromName(original.activityId).toString() !== this.ctx.id.toString()) {
         return { resettable: false, reason: 'original-activity-mismatch' };
       }
       if (!request.ledger.ok || request.ledger.receipt === undefined) return { resettable: false, reason: 'ledger-unavailable' };
+      if (original.delivery) {
+        const proof: OriginalExecutionProof = { original, ledger: request.ledger, current: { deadline: request.deadline } };
+        const facts = await this.#readApplicationDelivery(proof);
+        if (facts.status !== 'delivery') return { resettable: false, reason: 'delivery-unproven' };
+        if (!facts.noExternalWrites) return { resettable: false, reason: 'source-write' };
+        if (!stored || request.deadline <= Date.now()) return { resettable: false, reason: 'authority-expired' };
+        return { resettable: true, reason: 'fenced-no-write',
+          proofDigest: await sha256(JSON.stringify([original, request.ledger, facts])),
+          origin: { generation: facts.generation, deadline: stored.intent.deadline, terminalAt: facts.terminalAt } };
+      }
       return await this.ctx.storage.transaction<import('./application-recovery').RecoveryFacts>(async tx => {
         const snapshot = await this.#applicationExecutionSnapshot(tx);
         // These existing local predicates only read original/ledger and the
@@ -1247,8 +1290,11 @@ export class OperatorActivity extends Agent {
         const state = snapshot.state;
         const success = async (reason: string, generation: number): Promise<import('./application-recovery').RecoveryFacts> => ({
           resettable: true, reason, proofDigest: await this.#applicationExecutionVersion(proof, snapshot),
-          origin: { generation, deadline: state?.intent.deadline ?? request.deadline },
-          ...(state?.invocationJson === undefined ? {} : { invocation: JSON.parse(state.invocationJson) }),
+          origin: { generation, deadline: state?.intent.deadline ?? request.deadline,
+            ...(Number.isSafeInteger(state?.diagnosticFence?.timestamp) && state!.diagnosticFence!.timestamp > 0
+              && state!.diagnosticFence!.timestamp <= Date.now() ? { terminalAt: state!.diagnosticFence!.timestamp } : {}) },
+          ...(original.ownerKey !== await operatorOwnerKey(human) || state?.invocationJson === undefined
+            ? {} : { invocation: JSON.parse(state.invocationJson) }),
         });
         const neverStarted = await this.#applicationNeverStarted(proof, snapshot);
         // The old retirement transaction already proved non-start. A missing
@@ -1368,7 +1414,7 @@ export class OperatorActivity extends Agent {
     }
   }
 
-  async #validateApplicationExecutionAuthority(authority: ApplicationExecutionAuthority): Promise<void> {
+  async #validateApplicationExecutionAuthority(authority: ApplicationExecutionAuthority, coordination = false): Promise<void> {
     const owner = z.object({ subject: z.string().min(1).max(512), email: z.string().email().max(320),
       issuer: z.string().min(1).max(2048), audiences: z.array(z.string().min(1).max(512)).min(1).max(16) });
     z.object({ version: z.literal(1), current: z.object({ principal: z.literal('operator'), ownerKey: syncDigest,
@@ -1388,7 +1434,8 @@ export class OperatorActivity extends Agent {
     }).parse(authority);
     const { current, original } = authority;
     if (current.deadline <= Date.now() || current.human.expiresAt * 1000 < current.deadline
-      || current.ownerKey !== original.ownerKey || current.ownerKey !== await operatorOwnerKey(current.human)
+      || (!coordination && current.ownerKey !== original.ownerKey) || current.ownerKey !== await operatorOwnerKey(current.human)
+      || coordination && current.operatorId !== original.operatorId
       || original.ownerKey !== await operatorOwnerKey({ ...original.owner, audiences: [...original.owner.audiences] })
       || current.sourceId !== String(original.sourceRepositoryId)
       || current.sourceRepositoryId !== original.sourceRepositoryId
@@ -3408,12 +3455,14 @@ export class OperatorActivity extends Agent {
       z.strictObject({ operation: z.literal('read'), key, activityId: syncIdentity, version: syncDigest }),
       z.strictObject({ operation: z.literal('read-delivery'), key, activityId: syncIdentity, version: syncDigest }),
       z.strictObject({ operation: z.literal('retire'), key, activityId: syncIdentity, version: syncDigest }),
+      z.strictObject({ operation: z.literal('read-coordination'), key, version: syncDigest }),
+      z.strictObject({ operation: z.literal('release-coordination'), key, version: syncDigest }),
     ]).parse(value) : undefined;
     const parsed = !execution ? z.discriminatedUnion('operation', [
       z.strictObject({ operation: z.literal('read'), keys: z.array(key).min(1).max(64) }),
       z.strictObject({ operation: z.literal('compare-exchange'),
         expected: z.array(z.strictObject({ key, version: z.string().regex(/^[a-f0-9]{64}$/).nullable() })).min(1).max(64),
-        writes: z.array(z.strictObject({ key, value: z.json() })).min(1).max(64) }),
+        writes: z.array(z.strictObject({ key, value: z.json(), coordination: z.json().optional() })).min(1).max(64) }),
     ]).parse(value) : undefined;
     const binding: RuntimeApplicationStateBinding = {
       principal: 'operator', human: structuredClone(authorization.authority.human),
