@@ -1,4 +1,6 @@
+import { Buffer } from 'node:buffer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { captureRawValue } from '../../../host/src/operator-raw-logging';
 import { inferenceDiagnostic, inferenceDiagnosticLocal, inferenceDiagnosticWire } from '../../lib/inference-diagnostics';
 import { inferenceArchiveCapability } from '../../lib/inference-archive-capability';
 import { setLogLevel } from '../../lib/logger';
@@ -91,6 +93,71 @@ it('REQ-OPERATOR-082: private RPC rejection is scheduled without replacing the f
   expect(execute()).toBe(original);
   await expect(Promise.all(pending)).resolves.toEqual([undefined]);
   expect(await original.text()).toBe('UNCHANGED_NATIVE_RESPONSE');
+});
+
+it('REQ-OPERATOR-090: LOSSLESSBINARYWIRE keeps a model HTTP body compact, exact and frozen across repeated snapshots', () => {
+  const body = new TextEncoder().encode(JSON.stringify({ model: 'saved-model', messages: [
+    { role: 'user', content: '漢🦊é'.repeat(7_300) },
+  ], password: 'SYNTHETIC_BINARY_BODY_SECRET' }));
+  const backing = new Uint8Array(body.length + 31);
+  backing.fill(231);
+  backing.set(body, 13);
+  const view = backing.subarray(13, 13 + body.length);
+  const expected = Buffer.from(body);
+  const observed = captureRawValue({ body: view, neighbor: 'KEEP_HTTP_NEIGHBOR' }) as { body: {
+    binary: { type: string; encoding: string; data: string };
+  }; neighbor: string };
+  backing.fill(0);
+  // LOSSLESSBINARYWIRE is an intentional private wire/byte-fidelity contract,
+  // not an assertion about allocation counts or serializer implementation.
+  expect(observed).toEqual({ body: { binary: {
+    type: 'Uint8Array', encoding: 'base64', data: expected.toString('base64'),
+  } }, neighbor: 'KEEP_HTTP_NEIGHBOR' });
+  expect(Buffer.from(observed.body.binary.data, 'base64')).toEqual(expected);
+  expect(Buffer.byteLength(JSON.stringify(observed.body))).toBeLessThanOrEqual(4 * Math.ceil(body.length / 3) + 128);
+  expect(captureRawValue(observed)).toEqual(observed);
+});
+
+it.each(['own', 'inherited'] as const)(
+  'REQ-OPERATOR-082: native binary capture bypasses %s application getters and preserves only the view bytes', location => {
+    const bytes = Uint8Array.from([211, 0, 255, 128, 13, 10, 212]);
+    const view = bytes.subarray(1, 6);
+    const executed: PropertyKey[] = [];
+    const owner = location === 'own' ? view : Object.create(Uint8Array.prototype);
+    for (const key of ['buffer', 'byteLength', 'byteOffset', 'length', 'constructor', 'toJSON', Symbol.toStringTag]) {
+      Object.defineProperty(owner, key, { configurable: true, get() {
+        executed.push(key); throw new Error('Application binary accessor must not run');
+      } });
+    }
+    if (location === 'inherited') Object.setPrototypeOf(view, owner);
+    const observed = captureRawValue({ body: view, neighbor: 'KEEP_SAFE_BINARY_NEIGHBOR' });
+    expect(executed).toEqual([]);
+    expect(observed).toEqual({ body: { binary: { type: 'Uint8Array', encoding: 'base64', data: 'AP+ADQo=' } },
+      neighbor: 'KEEP_SAFE_BINARY_NEIGHBOR' });
+  });
+
+it('REQ-OPERATOR-090: private binary credentials stay lossless while the console cannot reconstruct their encoded contents', () => {
+  const records = capture();
+  const retained: unknown[] = [];
+  const secret = 'SYNTHETIC_OPAQUE_BINARY_CREDENTIAL';
+  const body = new TextEncoder().encode(JSON.stringify({ password: secret, thinking: 'PRIVATE_BINARY_REASONING' }));
+  const encoded = Buffer.from(body).toString('base64');
+  const original = Buffer.from(body);
+  inferenceDiagnostic({ ...admitted, privateArchive: (_stage, value) => { retained.push(value); } },
+    metadata, () => ({ body, neighbor: 'KEEP_PUBLIC_BINARY_NEIGHBOR' }));
+  expect(retained).toEqual([{ body: { binary: { type: 'Uint8Array', encoding: 'base64', data: encoded } },
+    neighbor: 'KEEP_PUBLIC_BINARY_NEIGHBOR' }]);
+  const projection = valueOf(records()) as { body: unknown; neighbor: string };
+  const wire = JSON.stringify(projection);
+  expect(wire).not.toContain(secret);
+  expect(wire).not.toContain('PRIVATE_BINARY_REASONING');
+  expect(wire).not.toContain(encoded);
+  // CONSOLEBINARYCONFIDENTIALITY permits metadata, never reversible bytes.
+  expect(projection.body).toEqual({ binary: { type: 'Uint8Array', encoding: 'base64', data: '[REDACTED]' } });
+  // The historical numeric-byte representation is equally reversible, not redaction.
+  expect(projection.body).not.toEqual(Object.fromEntries(Array.from(original, (byte, index) => [String(index), byte])));
+  expect(projection.neighbor).toBe('KEEP_PUBLIC_BINARY_NEIGHBOR');
+  expect(Buffer.from(body)).toEqual(original);
 });
 
 describe('protected raw execution logging through the existing diagnostic entrypoint', () => {

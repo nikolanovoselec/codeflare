@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 // Register the established native Activity/auth fixture before production imports.
 import { fixture, start, type DispatcherFixture } from './fixtures/dispatcher-production';
+import { Buffer } from 'node:buffer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { env, reset, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry, type ManagementAdmissionReceipt, type ManagementExecutionSelection } from '../../operators/registry';
@@ -388,6 +389,77 @@ describe('shared coordination callback wire', () => {
 // REQ-OPERATOR-090/091: real authenticated callbacks retain full private values,
 // independently of current logging settings and without changing application state.
 describe('application callback private raw capture', () => {
+  it('REQ-OPERATOR-090/091/082/003/048: concurrent authorized state read preserves original authority and cold lossless binary capture', () => withRegistry(async r => {
+    await fixture(async f => {
+      r.attach(f); await start(f); await f.drainBackground();
+      const opaque = { cursor: 'batch/漢🦊', pending: ['invoice-1'], password: 'PRIVATE_CONCURRENT_STATE', enabled: false };
+      const version = await create(f, 'concurrent-opaque', opaque);
+      await f.drainBackground();
+      const admission = await f.activity.getAdmission();
+      const plan = await f.activity.getRuntimePlan();
+      if (!plan) throw Error('Missing original runtime plan');
+      const originalPlans = structuredClone(plans(f));
+      const originalSubmissions = structuredClone(accepted(f));
+      expect(originalPlans[0]).toMatchObject({ activityId: f.activityId, generation: 1 });
+      const binding = { activityId: f.activityId, generation: 1, ownerKey: f.proof.ownerKey,
+        receiptDigest: Buffer.from(await crypto.subtle.digest('SHA-256',
+          new TextEncoder().encode(JSON.stringify(plan.receipt)))).toString('hex') };
+      const backing = new Uint8Array(64 * 1024 + 23);
+      backing.fill(239);
+      const body = backing.subarray(9, 9 + 64 * 1024);
+      for (let index = 0; index < body.length; index++) body[index] = (index * 73 + 19) % 256;
+      body.set(new TextEncoder().encode('password=SYNTHETIC_CONCURRENT_BINARY_SECRET\n'));
+      const expectedBytes = Buffer.from(body);
+      const expectedEntries = [{ key: 'concurrent-opaque', status: 'value', version, value: opaque }];
+      const [entries] = await Promise.all([
+        read(f, ['concurrent-opaque']),
+        f.inOwnContext(() => f.activity.retainDispatcherInferenceObservation(binding, 'concurrent-native-body',
+          { body, neighbor: 'KEEP_CONCURRENT_BINARY_NEIGHBOR' })),
+      ]);
+      expect(entries).toEqual(expectedEntries);
+      await f.drainBackground();
+      expect(await f.activity.getAdmission()).toEqual(admission);
+      expect(await f.activity.getRuntimePlan()).toEqual(plan);
+      expect(plans(f)).toEqual(originalPlans);
+      expect(accepted(f)).toEqual(originalSubmissions);
+
+      f.activity = f.restart(); await f.drainBackground();
+      const records: Array<{ stage: string; value: unknown }> = [];
+      await f.mutateEvidence(async native => {
+        const scope = { ownerKey: f.proof.ownerKey,
+          scope: { kind: 'activity' as const, activityId: f.activityId, generation: 1 } };
+        const storage = await createOwnerRawCaptureStorage(f.environment, native, async () => {});
+        let cursor: string | undefined;
+        do {
+          const page = await discoverRawCaptures({ scope, storage, cursor,
+            authorize: async requested => { expect(requested).toEqual(scope); } });
+          expect(page.status).toBe('complete');
+          for (const binding of page.bindings) {
+            const archive = await readRawCapture({ binding, storage });
+            expect(archive.status).toBe('complete'); records.push(...archive.records);
+          }
+          cursor = page.cursor ?? undefined;
+        } while (cursor);
+        const encrypted = await native.list({ prefix: 'operator-raw' });
+        expect(encrypted.size).toBeGreaterThan(0);
+        for (const value of encrypted.values()) expect(value).toMatch(/^v1:[A-Za-z0-9+/]+={0,2}$/);
+      });
+      const captured = records.filter(record => record.stage === 'concurrent-native-body');
+      expect(captured).toEqual([{ stage: 'concurrent-native-body', value: {
+        body: { binary: { type: 'Uint8Array', encoding: 'base64', data: expectedBytes.toString('base64') } },
+        neighbor: 'KEEP_CONCURRENT_BINARY_NEIGHBOR',
+      } }]);
+      const value = captured[0].value as { body: { binary: { data: string } } };
+      expect(Buffer.from(value.body.binary.data, 'base64')).toEqual(expectedBytes);
+      expect(records).toContainEqual({ stage: 'dispatcher-application-response', value: { entries: expectedEntries } });
+      expect(await read(f, ['concurrent-opaque'])).toEqual(expectedEntries);
+      expect(await f.activity.getAdmission()).toEqual(admission);
+      expect(await f.activity.getRuntimePlan()).toEqual(plan);
+      expect(plans(f)).toEqual(originalPlans);
+      expect(accepted(f)).toEqual(originalSubmissions);
+    }, { ...normal, registryAdapter: r.adapter, applicationConfiguration: configuration, loggingEnabled: true });
+  }));
+
   it.each([true, false])('original logging=%s controls recovered state and context payloads', loggingEnabled => withRegistry(async r => {
     const opaque = { password: 'PRIVATE_APPLICATION_PASSWORD', headers: { authorization: 'Bearer PRIVATE_APPLICATION_TOKEN' },
       body: '漢🦊é'.repeat(6000), nested: { values: [null, false, 0, { tail: 'PRIVATE_APPLICATION_TAIL' }] } };

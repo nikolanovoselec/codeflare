@@ -3696,24 +3696,31 @@ export class OperatorActivity extends Agent {
   async #retainRawObservation(context: InferenceDiagnosticContext, stage: string, value: unknown,
     authorize?: () => Promise<void>, produce?: (writer: Pick<RawCapture, 'record' | 'flush'>) => Promise<void>) {
     await authorize?.();
-    const state = await this.ctx.storage.get<AdmissionState>('admission');
-    if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
-      || !executionLoggingEnabled(state.receipt) || state.intent.activityId !== context.activityId) return;
-    const owner = state.executionContext.owner;
-    const ownerKey = await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] });
-    const { installation, release } = state.receipt.selection;
+    // Only immutable authorization pins escape this read. Background capture
+    // must not hold the entire admission/checkpoint/result until storage drains.
+    const pins = await (async () => {
+      const state = await this.ctx.storage.get<AdmissionState>('admission');
+      if (!state?.executionContext || !state.receipt || !isManagementReceipt(state.receipt)
+        || !executionLoggingEnabled(state.receipt) || state.intent.activityId !== context.activityId) return;
+      const owner = structuredClone(state.executionContext.owner);
+      return { owner, ownerKey: await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] }),
+        installationId: state.receipt.selection.installation.id, releaseId: state.receipt.selection.release.id,
+        intentDigest: state.receipt.intentDigest, artifactDigest: state.executionContext.artifactDigest };
+    })();
+    if (!pins) return;
     const capture = createRawCapture({ enabled: true,
-      binding: { ownerKey, installationId: installation.id, releaseId: release.id, captureId: crypto.randomUUID(),
+      binding: { ownerKey: pins.ownerKey, installationId: pins.installationId, releaseId: pins.releaseId, captureId: crypto.randomUUID(),
         scope: { kind: 'activity', activityId: context.activityId, generation: context.generation } },
       storage: () => createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, async () => {
         await authorize?.();
         const current = await this.ctx.storage.get<AdmissionState>('admission');
         if (!current?.executionContext || !current.receipt || current.intent.activityId !== context.activityId
-          || current.receipt.intentDigest !== state.receipt!.intentDigest
-          || current.executionContext.artifactDigest !== state.executionContext!.artifactDigest
-          || !sameDispatcherPhaseValue(current.executionContext.owner, owner)) throw new Error('Raw capture unavailable');
+          || current.receipt.intentDigest !== pins.intentDigest
+          || current.executionContext.artifactDigest !== pins.artifactDigest
+          || !sameDispatcherPhaseValue(current.executionContext.owner, pins.owner)) throw new Error('Raw capture unavailable');
       }), schedule: pending => this.ctx.waitUntil(pending) });
     capture.record(stage, () => value);
+    value = undefined; // record snapshots synchronously; queued bytes now own persistence.
     if (produce) capture.defer?.(produce);
     const receipt = await capture.finish('complete');
     try { console.log(JSON.stringify({ module: 'operator-execution', message: 'raw-capture-receipt', data: receipt })); }

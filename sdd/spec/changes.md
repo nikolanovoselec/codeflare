@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-17: Compact raw-capture retention
+
+- REQ-OPERATOR-090/091 require lossless compact native-binary capture and cold encrypted readback without per-byte descriptor expansion or encoded console credential disclosure. Pending capture authorization keeps immutable pins rather than complete admission/checkpoint/result payloads.
+- Original policy, authority/revocation, cancellation, explicit incompleteness, sequential full-history persistence and historical archives remain unchanged. Source changes do not establish a historical OOM origin or hosted acceptance.
+
 ## 2026-11-16: Shared processing coordination across authorized actors
 
 - REQ-OPERATOR-061/210/211 separate nonprivate application/work-repository coordination from private execution ownership. A different authorized login does not prevent processing-state reads or safe recovery; original facts are selected internally by scoped key/version, not a caller-supplied historical identity.

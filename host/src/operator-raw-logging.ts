@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 /** Protected raw application logs, separate from bounded producer/Owner evidence.
  * No inspection depth, string, array, event or sampling limits are imposed here.
  * Reflection never invokes application getters or toJSON. Platform delivery can fail.
@@ -24,6 +26,10 @@ const credentialKey = (key: string) => {
 // Recognize that exact getter, never an application-supplied replacement.
 const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), 'stack')?.get;
 const bootstrapFormatter = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const nativeTypedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get;
+const nativeByteFields = Object.fromEntries(['buffer', 'byteOffset', 'byteLength'].map(key =>
+  [key, Object.getOwnPropertyDescriptor(typedArrayPrototype, key)?.get]));
 const domFields: Record<string, (() => unknown) | undefined> = typeof DOMException === 'undefined' ? {} : Object.fromEntries(
   ['name', 'message', 'code'].map(key => [key, Object.getOwnPropertyDescriptor(DOMException.prototype, key)?.get]));
 function nativeDomException(value: object): boolean {
@@ -73,6 +79,15 @@ function snapshot(value: unknown, ancestors = new Map<object, string>(), path = 
   if (ancestors.has(value)) return { circularReference: ancestors.get(value) };
   try {
     ancestors.set(value, path);
+    // Native bytes are a value, not one descriptor object per byte. Intrinsic
+    // getters bypass application overrides and exclude adjacent backing bytes.
+    if (ArrayBuffer.isView(value) && nativeTypedArrayTag?.call(value) === 'Uint8Array') {
+      const buffer = nativeByteFields.buffer!.call(value) as ArrayBuffer;
+      const offset = nativeByteFields.byteOffset!.call(value) as number;
+      const length = nativeByteFields.byteLength!.call(value) as number;
+      return { binary: { type: 'Uint8Array', encoding: 'base64',
+        data: Buffer.from(new Uint8Array(buffer, offset, length)).toString('base64') } };
+    }
     if (value instanceof Headers) return snapshot(Object.fromEntries(Headers.prototype.entries.call(value)), ancestors, path);
     const domException = nativeDomException(value);
     const error = value instanceof Error || domException;
@@ -293,7 +308,8 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     if (Array.isArray(item)) return item.map((child, index) => nativeText(item, String(index)) ?? clean(child));
     const data = item as Record<string, unknown>;
     return Object.fromEntries(Object.entries(item).map(([key, child]) => {
-      if (credentialKey(key) || (key === 'data' && data.type === 'redacted_thinking')
+      if (credentialKey(key) || (key === 'data' && data.encoding === 'base64' && typeof data.type === 'string')
+        || (key === 'data' && data.type === 'redacted_thinking')
         || (key === 'delta' && data.type === 'thinking_delta')
         || (key === 'content' && data.type === 'thinking_end')) return [cleanText(key), REDACTED];
       if (key === 'text' && data.type === 'text' && typeof child === 'string') return [cleanText(key), cleanText(child, false)];

@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
+import { emitRaw } from '../../../host/src/operator-raw-logging';
 import { encryptForKV, decryptFromKV, getOrImportKey } from '../../lib/kv-crypto';
 import { createOwnerRawCaptureStorage, createRawCapture, readRawCapture, verifyRawCapture, discoverRawCaptures, exportRawCapture, captureRawInteraction, captureRawTransaction,
   type RawCaptureBinding, type RawCaptureScope, type RawCaptureStorage, type RawCapture, type RawCaptureReceipt } from '../../operators/raw-capture-storage';
@@ -368,7 +369,7 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     expect([...f.objects.keys()].some(key => key.endsWith('/receipt'))).toBe(false);
   }, 30_000);
 
-  it('snapshots arrays, typed bytes, deep error causes/stacks, descriptors and literal placeholders at observation time', async () => {
+  it('REQ-OPERATOR-090: snapshots arrays, typed bytes, deep error causes/stacks, descriptors and literal placeholders at observation time', async () => {
     const f = boundary();
     let getterRan = false; let toJsonRan = false;
     const hostile = Object.defineProperty({ toJSON() { toJsonRan = true; throw new Error('Must not run'); } }, 'value', {
@@ -390,7 +391,7 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     expect(result.status).toBe('complete');
     const observed = result.records[0].value as typeof value;
     expect(observed.mutable).toEqual(['before']);
-    expect(observed.bytes).toEqual({ 0: 0, 1: 255, 2: 128, 3: 13, 4: 10 });
+    expect(observed.bytes).toEqual({ binary: { type: 'Uint8Array', encoding: 'base64', data: 'AP+ADQo=' } });
     expect(observed.error).toMatchObject({ message: `${CANARY}-outer`, name: 'Error',
       cause: { message: `${CANARY}-cause`, name: 'Error' } });
     expect(observed.error.stack).toContain(`${CANARY}-outer`);
@@ -690,6 +691,80 @@ async function* exportFrames(response: Response): AsyncGenerator<ExportFrame> {
 }
 
 describe('REQ-OPERATOR-091 AC6/7: bounded private raw READ export', () => {
+  it('REQ-OPERATOR-090/091: cold encrypted export reconstructs complete native body bytes, Unicode and Error chains after emitter snapshots', async () => {
+    const source = Uint8Array.from({ length: 64 * 1024 }, (_, index) => (index * 73 + 19) % 256);
+    source.set(new TextEncoder().encode(`password=${CANARY}\n`));
+    const expectedBytes = Buffer.from(source);
+    const unicode = `${'漢🦊é'.repeat(9_000)}END_OF_UNRELATED_UNICODE`;
+    const root = new Error(`${CANARY}-root`);
+    root.stack = `Error: ${root.message}\n at ORIGINAL_BINARY_ROOT (provider.ts:7:3)`;
+    const cause = new Error(`${CANARY}-cause`, { cause: root });
+    cause.stack = `Error: ${cause.message}\n at ORIGINAL_BINARY_CAUSE (transport.ts:9:5)`;
+    const error = new Error(`${CANARY}-outer`, { cause });
+    error.stack = `Error: ${error.message}\n at ORIGINAL_BINARY_OUTER (operation.ts:11:7)`;
+    const expected = { body: { binary: { type: 'Uint8Array', encoding: 'base64', data: expectedBytes.toString('base64') } },
+      unicode, password: CANARY, error: { name: 'Error', message: error.message, stack: error.stack,
+        cause: { name: 'Error', message: cause.message, stack: cause.stack,
+          cause: { name: 'Error', message: root.message, stack: root.stack } } } };
+    // Only encrypted native objects cross into the independent cold reader below.
+    const persisted = await (async () => {
+      const f = boundary();
+      const backing = new Uint8Array(source.length + 29);
+      backing.fill(237); backing.set(source, 11);
+      const view = backing.subarray(11, 11 + source.length);
+      const value = { body: view, unicode, password: CANARY, error };
+      const capture = f.create();
+      emitRaw({ activityId: 'binary-cold-activity', generation: 1, loggingEnabled: true,
+        privateArchive: (stage, snapshot) => { capture.record(stage, () => snapshot); },
+      }, 'native-http-body', () => value, () => ({ wireCaptured: true }));
+      backing.fill(0); value.unicode = 'changed after observation'; cause.message = 'changed after observation';
+      const receipt = await capture.finish('complete');
+      expect(receipt).toMatchObject({ status: 'complete', records: 1, termination: 'complete' });
+      return { objects: new Map(f.objects), receipt };
+    })();
+    const cold = boundary();
+    for (const [key, ciphertext] of persisted.objects) cold.objects.set(key, ciphertext);
+    const storage = await createOwnerRawCaptureStorage(cold.env, cold.native, cold.authorize);
+    const page = await discoverRawCaptures({ scope, storage, authorize: cold.authorize });
+    expect(page).toEqual({ status: 'complete', bindings: [binding], cursor: null });
+    const response = await exportRawCapture({ binding: page.bindings[0], storage });
+    expect(response.status).toBe(200);
+    const frames: ExportFrame[] = [];
+    for await (const frame of exportFrames(response)) frames.push(frame);
+    expect(frames).toEqual([
+      { type: 'record', stage: 'native-http-body', value: expected },
+      { type: 'complete', receipt: persisted.receipt },
+    ]);
+    const archive = await readRawCapture({ binding: page.bindings[0], storage });
+    expect(archive).toEqual({ status: 'complete', receipt: persisted.receipt,
+      records: [{ stage: 'native-http-body', value: expected }] });
+    const body = (archive.records[0].value as typeof expected).body;
+    expect(Buffer.from(body.binary.data, 'base64')).toEqual(expectedBytes);
+    expect(cold.objects).toEqual(persisted.objects);
+    expect([...cold.objects.values()].every(ciphertext => ciphertext.startsWith('v1:') && !ciphertext.includes(CANARY))).toBe(true);
+  });
+
+  it('REQ-OPERATOR-091: historical numeric-byte object archives export unchanged without migration', async () => {
+    const f = boundary();
+    // Persist the historical JSON value, not a new native-byte value. Readers
+    // must preserve this old private wire rather than guessing a binary brand.
+    const historical = { body: { 0: 0, 1: 255, 2: 128, 3: 13, 4: 10 }, unicode: `KEEP_LEGACY_漢🦊_${CANARY}` };
+    const capture = f.create();
+    capture.record('historical-http-request', () => historical);
+    const receipt = await capture.finish('complete');
+    expect(receipt.status).toBe('complete');
+    const encrypted = new Map(f.objects);
+    const cold = boundary();
+    for (const [key, value] of encrypted) cold.objects.set(key, value);
+    const storage = await createOwnerRawCaptureStorage(cold.env, cold.native, cold.authorize);
+    const frames: ExportFrame[] = [];
+    for await (const frame of exportFrames(await exportRawCapture({ binding, storage }))) frames.push(frame);
+    expect(frames).toEqual([{ type: 'record', stage: 'historical-http-request', value: historical },
+      { type: 'complete', receipt }]);
+    expect(await readRawCapture({ binding, storage })).toEqual({ status: 'complete', receipt,
+      records: [{ stage: 'historical-http-request', value: historical }] });
+    expect(cold.objects).toEqual(encrypted);
+  });
   it('exports ordered multi-batch >256 KiB original stages, deep Unicode, binary and full error causes/stacks without private redaction', async () => {
     const f = boundary();
     const capture = f.create();
