@@ -51,10 +51,24 @@ const [access, r2, regime, aig] = await Promise.all([
  * Root derives owner and fixed storage keys; Flue owns inference without a user-session Host.
  * Original authority, bounded reads (1 MiB), redirect denial and no-store remain mandatory.
  */
-// Security assertions must inspect actual bytes, not their numeric JSON rendering.
+// Security assertions must inspect actual bytes, including both private binary wire generations.
+function retainedBinaryBytes(value: unknown): Uint8Array | undefined {
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  if ('binary' in value) {
+    const binary = value.binary as { type?: unknown; encoding?: unknown; data?: unknown } | null;
+    if (binary?.type === 'Uint8Array' && binary.encoding === 'base64' && typeof binary.data === 'string') {
+      return Uint8Array.from(atob(binary.data), character => character.charCodeAt(0));
+    }
+  }
+  const entries = Object.entries(value);
+  if (entries.length && entries.every(([key, byte], index) => key === String(index)
+    && Number.isInteger(byte) && byte >= 0 && byte <= 255)) return Uint8Array.from(entries.map(([, byte]) => byte));
+}
 function decodeRetainedBytes(value: unknown): unknown {
-  if (ArrayBuffer.isView(value)) return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-  if (value instanceof ArrayBuffer) return new TextDecoder().decode(value);
+  const bytes = retainedBinaryBytes(value);
+  if (bytes) return new TextDecoder().decode(bytes);
   if (Array.isArray(value)) return value.map(decodeRetainedBytes);
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, decodeRetainedBytes(entry)]));
   return value;
@@ -523,6 +537,82 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       options: { maxTokens: 16, reasoning: 'high' } }), [403]);
     expect((await modelAdmission(f)).status).toBe(200);
   }, true, false, { nativeProviderDefault: providerDefault }));
+
+  it.each(['pi/config', 'pi/credentials', 'invalid model-admission'] as const)(
+    'REQ-OPERATOR-048: cold %s leaves pending application recovery for the ordinary owner entry', route => lane(async (f, store) => {
+      await admitted(f);
+      const remote = f.normalTransport!;
+      const first = structuredClone([...remote.admissions.values()][0]);
+      const fetcher = globalThis.fetch;
+      let losePlanResponse = true;
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const response = await fetcher(request);
+        // Lose only the external planner response, after its real request was
+        // recorded. Root must retain the confirmed settlement for cold retry.
+        if (losePlanResponse && new URL(request.url).pathname === '/control/plan') {
+          throw new Error('External planner response lost');
+        }
+        return response;
+      });
+      remote.settleSubmission(first.receipt.submissionId, 'completed');
+      await f.activity.reconcileDispatcherLease();
+      await f.drainBackground();
+      const interrupted = structuredClone(remote.requests.at(-1)!);
+      expect(interrupted).toMatchObject({ path: '/control/plan', body: { settlement: { receipt: first.receipt } } });
+      const snapshot = async () => {
+        let state!: Map<string, any>;
+        let operations!: Map<string, unknown>;
+        await f.mutateEvidence(async storage => {
+          state = await storage.get(['admission', 'dispatcher:lease', 'dispatcher:journal']);
+          operations = await storage.list({ prefix: 'dispatcher:operation:' });
+        });
+        return { state, operations };
+      };
+      const before = await snapshot();
+      const lease = before.state.get('dispatcher:lease');
+      expect(lease).toMatchObject({ status: 'running', receipt: first.receipt,
+        application: { pending: { delivery: interrupted.body.delivery } } });
+      const requests = structuredClone(remote.requests);
+      const admissions = structuredClone([...remote.admissions]);
+      const saved = [store.value(settingsKey), store.value(authKey), store.etag(settingsKey), store.etag(authKey)];
+      losePlanResponse = false;
+      f.activity = f.restart();
+      await f.drainBackground();
+
+      const response = route === 'pi/config' ? await config(f) : route === 'pi/credentials' ? await read(f)
+        : await callback(f, 'model-admission', { operationId: 'invalid-cold-model', context: { messages: [] }, options: {} });
+      await f.drainBackground();
+      // These are actual external control requests/admissions, not helper call
+      // counts. Even an invalid SDK request must not wake the pending planner.
+      expect(remote.requests).toEqual(requests);
+      expect([...remote.admissions]).toEqual(admissions);
+      expect(await snapshot()).toEqual(before);
+      if (route === 'pi/config') {
+        expect(await json(response)).toEqual({ source: 'pi-native',
+          settings: { defaultProvider: providerId, defaultModel: logical.model }, reasoningOverride: 'low',
+          selection: lease.configuredSelection });
+      } else if (route === 'pi/credentials') {
+        // Only selected derived auth, never refresh tokens or other providers.
+        expect(await json(response)).toEqual({ apiKey: oldOAuth.access });
+      } else await denied(response, [403]);
+      expect([store.value(settingsKey), store.value(authKey), store.etag(settingsKey), store.etag(authKey)]).toEqual(saved);
+      expect(store.escapedReads).toEqual([]);
+      expect(f.sent).toEqual([]);
+
+      // Do not reconstruct again: SDK reads must leave the original cold wake
+      // available to the existing ordinary public entry on this same instance.
+      await f.activity.getAdmission();
+      await f.drainBackground();
+      expect(remote.requests.slice(requests.length)).toEqual([interrupted]);
+      expect([...remote.admissions]).toEqual(admissions);
+      const recovered = await snapshot();
+      expect(recovered.state.get('admission')).toMatchObject({ drive: { generation: 1, status: 'completed', result: { completed: true } } });
+      expect(recovered.state.get('dispatcher:lease')).toMatchObject({ status: 'settled', generation: lease.generation,
+        expiresAt: lease.expiresAt, inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest, receipt: first.receipt });
+      expect(recovered.state.get('dispatcher:lease').application).not.toHaveProperty('pending');
+      expect(f.sent).toEqual([]);
+    }, true, false, { loggingEnabled: false }));
 
   it('returns only saved provider/model/reasoning and selected OAuth access token through fixed read-only DTOs', () => lane(async (f, store) => {
     await admitted(f);
@@ -1912,8 +2002,10 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
           scope: { kind: 'activity', activityId: f.activityId, generation: 1 } },
         storage: await createOwnerRawCaptureStorage(f.environment, storage, async () => {}) });
         for (const observation of capture.records) if (observation.stage === 'sdk-http-chunk') {
-          const value = observation.value as { bytes: Record<string, number> };
-          retainedChunks.push(...Object.values(value.bytes));
+          const value = observation.value as { bytes: unknown };
+          const bytes = retainedBinaryBytes(value.bytes);
+          if (!bytes) throw new Error('Unrecognized retained private binary wire');
+          retainedChunks.push(...bytes);
         }
       }
     });

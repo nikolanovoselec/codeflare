@@ -74,11 +74,16 @@ async function openNamespace(context: string, namespace: string, source: RawCapt
     if (typeof ciphertext !== 'string' || !/^v1:[A-Za-z0-9+/]+={0,2}$/.test(ciphertext)) denied();
     return ciphertext as string;
   };
+  const present = async (name?: string) => {
+    await guard();
+    // A one-entry scoped probe also detects orphaned/partial frames. Never scan other captures.
+    const found = name === undefined ? (await native.list({ prefix, limit: 1 })).size > 0
+      : await native.get<unknown>(`${prefix}${name}`) !== undefined;
+    await guard();
+    return found;
+  };
   const absent = async (name: string) => {
-    await guard();
-    const value = await native.get<unknown>(`${prefix}${name}`);
-    await guard();
-    if (value !== undefined) denied();
+    if (await present(name)) denied();
   };
   const put = async (name: string, plaintext: string, additionalData: string) => {
     const ciphertext = await encryptForKV(plaintext, key, additionalData);
@@ -108,7 +113,7 @@ async function openNamespace(context: string, namespace: string, source: RawCapt
       return [path.slice(prefix.length), value] as const;
     }));
   };
-  return { get, absent, put, decrypt, guard, aad, list };
+  return { get, present, absent, put, decrypt, guard, aad, list };
 }
 
 function open(binding: RawCaptureBinding, source: RawCaptureStorage) {
@@ -123,6 +128,25 @@ async function readLocator(index: Awaited<ReturnType<typeof openIndex>>, scope: 
   const { binding } = locatorSchema.parse(JSON.parse(await index.decrypt(ciphertext, index.aad(name))));
   if (indexContext(binding) !== indexContext(scope) || await locatorName(binding) !== name) denied();
   return binding;
+}
+
+/** Presence is not completion. Both namespaces must be provably absent before a new writer;
+ * an orphaned archive/locator or unavailable read must remain held, never become a fresh capture. */
+export async function rawCapturePresence(input: { binding: RawCaptureBinding; storage: RawCaptureStorage }):
+Promise<'absent' | 'present' | 'incomplete'> {
+  try {
+    const binding = bindingSchema.parse(input.binding);
+    const archive = await open(binding, input.storage);
+    const index = await openIndex(binding, input.storage);
+    const name = await locatorName(binding);
+    const indexed = await index.present(name);
+    const archived = await archive.present();
+    if (!indexed && !archived) return 'absent';
+    if (!indexed || !archived) return 'incomplete';
+    await readLocator(index, binding, name, await index.get(name));
+    await archive.guard();
+    return 'present';
+  } catch { return 'incomplete'; }
 }
 
 /** Caller owns this namespace's existing DO lifecycle, including deleteAll. */

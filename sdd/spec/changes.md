@@ -4,6 +4,16 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-17: Durable-buffer raw receipts and replacement cleanup (planned)
+
+- REQ-OPERATOR-091 adds original upload payload length/digest acknowledgement and verified identical completed-upload replay without archive overwrite. Partial, conflicting or unavailable original evidence cannot authorize replacement; these new obligations remain Planned until implemented and qualified.
+- REQ-OPERATOR-107 preserves existing verified-replacement cleanup without waiting for an obsolete Worker's unsent diagnostic buffer. Root results, receipts, journals, archives and uncertain-write protections remain intact; this adds no quiescence/status API or new cleanup engine.
+- Test-first contract only: no source, CI, deployment or runtime acceptance is inferred from these specification changes.
+
+## 2026-11-17: Read-only SDK authorization
+
+- REQ-OPERATOR-007/048 keep private SDK authorization independent of cold execution recovery. Configuration, credential and model guards retain fresh authority, generation, connection and deadline checks without starting pending planning/admission. Ordinary entry and alarm recovery remain unchanged; this source correction alone does not establish the historical timeout or OOM cause or hosted acceptance.
+
 ## 2026-11-17: Compact raw-capture retention
 
 - REQ-OPERATOR-090/091 require lossless compact native-binary capture and cold encrypted readback without per-byte descriptor expansion or encoded console credential disclosure. Pending capture authorization keeps immutable pins rather than complete admission/checkpoint/result payloads.

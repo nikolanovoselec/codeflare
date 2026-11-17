@@ -128,6 +128,33 @@ async function persistedState(f: DispatcherFixture) {
   return state;
 }
 
+const rawBytesRequest = (f: DispatcherFixture, bytes: Uint8Array) =>
+  new Request(upload(f), { method: 'POST', body: bytes });
+async function expectedRawReceipt(receipt: RawCaptureReceipt, bytes: Uint8Array) {
+  // Intentional POST wire contract: archive framing counts remain separate from original payload identity.
+  return { status: 'complete', captureId, counts: { records: receipt.records, segments: receipt.segments, bytes: receipt.bytes },
+    termination: 'eof', payload: { bytes: bytes.byteLength,
+      sha256: Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))).toString('hex') } };
+}
+async function refusedRawUpload(response: Response) {
+  expect(response.ok).toBe(false);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.json()).not.toMatchObject({ status: 'complete' });
+}
+async function rawCapturePrefix(f: DispatcherFixture) {
+  // Existing private v1 artifact coordinates; corruption is injected below the public POST/readback APIs.
+  const context = JSON.stringify(['codeflare-operator-raw-v1', f.proof.ownerKey, 'installation', 'release',
+    captureId, 'activity', f.activityId, 1]);
+  return `operator-raw:v1:${Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(context))).toString('hex')}/`;
+}
+async function persistedRawArchive(f: DispatcherFixture) {
+  const prefix = await rawCapturePrefix(f);
+  let bytes = new Map<string, unknown>();
+  // The immutable encrypted archive is the contract; unrelated Actor bookkeeping is not.
+  await f.mutateEvidence(async storage => { bytes = structuredClone(await storage.list({ prefix })); });
+  return bytes;
+}
+
 async function interceptorArchive(f: DispatcherFixture, patch: Partial<InferenceArchiveBinding> = {}) {
   const plan = await f.activity.getRuntimePlan();
   if (!plan) throw new Error('Missing original fixture plan');
@@ -464,6 +491,216 @@ describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention
       expect(f.normalTransport!.networkRequests).toEqual(network);
       expect(f.ownerPortRequests).toEqual(profiles);
     } finally { log.mockRestore(); }
+  }, options));
+
+  it('raw POST receipt identifies original JSON bytes independently of archive counts and preserves legacy fields', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    // Whitespace, Unicode and escaped spelling must survive; parsed/reserialized JSON is not this payload.
+    const text = ` \n${JSON.stringify(payload(), null, 2).replace('漢', '\\u6f22')}\t\n`;
+    const bytes = new TextEncoder().encode(text);
+    const response = await f.installationCapability.fetch(rawBytesRequest(f, bytes));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    const stored = await retained(f);
+    expect(stored.status).toBe('complete');
+    expect(recovered(stored.records)).toEqual(bytes);
+    expect(JSON.parse(new TextDecoder().decode(recovered(stored.records)))).toEqual(payload());
+    const receipt = await response.json();
+    expect(receipt).toEqual(await expectedRawReceipt(stored.receipt!, bytes));
+    expect(stored.receipt!.bytes).not.toBe(bytes.byteLength);
+  }, options));
+
+  it.each([false, true])('identical raw POST after a lost acknowledgement returns the original verified receipt without overwriting (cold=%s)', cold => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const bytes = new TextEncoder().encode(` \n${JSON.stringify(payload())}\n`);
+    const first = await f.installationCapability.fetch(rawBytesRequest(f, bytes));
+    expect(first.status).toBe(200);
+    await first.body?.cancel(); // The producer loses the ACK and keeps only its original ID/body.
+    await f.drainBackground();
+    if (cold) { f.activity = f.restart(); await f.drainBackground(); }
+    const stored = await retained(f);
+    expect(stored.status).toBe('complete');
+    expect(recovered(stored.records)).toEqual(bytes);
+    const before = await persistedRawArchive(f);
+    // Different transport chunking cannot change the original capture or receipt.
+    let offset = 0;
+    const body = new ReadableStream<Uint8Array>({ pull(controller) {
+      if (offset === bytes.length) { controller.close(); return; }
+      const part = bytes.slice(offset, offset + 7001); offset += part.length; controller.enqueue(part);
+    } }, { highWaterMark: 0 });
+    const replay = await f.installationCapability.fetch(new Request(upload(f), { method: 'POST', body }));
+    expect(replay.status).toBe(200);
+    expect(replay.headers.get('cache-control')).toBe('no-store');
+    expect(await replay.json()).toEqual(await expectedRawReceipt(stored.receipt!, bytes));
+    expect(await retained(f)).toEqual(stored);
+    expect(await persistedRawArchive(f)).toEqual(before);
+  }, options));
+
+  it.each(['value', 'JSON whitespace'] as const)('same capture ID with changed %s refuses and preserves the original bytes', change => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const content = { stage: 'turn_request', value: { text: 'SYNTHETIC_ORIGINAL_漢🦊' } };
+    const text = JSON.stringify(content), bytes = new TextEncoder().encode(text);
+    expect((await f.installationCapability.fetch(rawBytesRequest(f, bytes))).status).toBe(200);
+    const original = await retained(f), before = await persistedRawArchive(f);
+    const changed = new TextEncoder().encode(change === 'value'
+      ? JSON.stringify({ ...content, value: { text: 'SYNTHETIC_CONFLICT_漢🦊' } }) : ` ${text}\n`);
+    await refusedRawUpload(await f.installationCapability.fetch(rawBytesRequest(f, changed)));
+    expect(await retained(f)).toEqual(original);
+    expect(recovered((await retained(f)).records)).toEqual(bytes);
+    expect(await persistedRawArchive(f)).toEqual(before);
+    const replay = await f.installationCapability.fetch(rawBytesRequest(f, bytes));
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual(await expectedRawReceipt(original.receipt!, bytes));
+  }, options));
+
+  it.each(['identical', 'conflicting'] as const)('concurrent %s same-ID raw POSTs serialize without replacing a completed archive', kind => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const bytes = new TextEncoder().encode(JSON.stringify({ stage: 'turn_request', value: 'SYNTHETIC_FIRST_漢🦊'.repeat(5000) }));
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let firstPart = true;
+    const body = new ReadableStream<Uint8Array>({ async pull(controller) {
+      if (firstPart) { firstPart = false; controller.enqueue(bytes.slice(0, 8192)); return; }
+      enter(); await gate;
+      controller.enqueue(bytes.slice(8192)); controller.close();
+    } }, { highWaterMark: 0 });
+    const first = f.installationCapability.fetch(new Request(upload(f), { method: 'POST', body }));
+    let second: Promise<Response> | undefined;
+    try {
+      // The first writer has durably flushed its prefix but cannot finish yet.
+      await within(entered, 'first same-ID upload reaches its held body');
+      const other = kind === 'identical' ? bytes : new TextEncoder().encode(JSON.stringify({ stage: 'turn_request', value: 'SYNTHETIC_SECOND' }));
+      second = f.installationCapability.fetch(rawBytesRequest(f, other));
+      // Keep the first body held while the second invocation can enter.
+      await new Promise(resolve => setTimeout(resolve, 0));
+    } finally { release(); }
+    const [initial, concurrent] = await within(Promise.all([first, second!]), 'same-ID uploads settle after EOF');
+    expect(initial.status).toBe(200);
+    const receipt = await initial.json();
+    if (kind === 'identical') {
+      expect(concurrent.status).toBe(200);
+      expect(await concurrent.json()).toEqual(receipt);
+    } else await refusedRawUpload(concurrent);
+    const stored = await retained(f);
+    expect(stored.status).toBe('complete');
+    expect(recovered(stored.records)).toEqual(bytes);
+    expect(receipt).toEqual(await expectedRawReceipt(stored.receipt!, bytes));
+    const before = await persistedRawArchive(f);
+    const replay = await f.installationCapability.fetch(rawBytesRequest(f, bytes));
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual(receipt);
+    expect(await persistedRawArchive(f)).toEqual(before);
+  }, options));
+
+  it('a body failure after all payload bytes leaves the original attempt held, never promoted by replay', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const bytes = new TextEncoder().encode(JSON.stringify({ stage: 'tool', value: 'SYNTHETIC_UNSEALED_漢🦊' }));
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({ pull(controller) {
+      if (!sent) { sent = true; controller.enqueue(bytes); }
+      else controller.error(new Error('SYNTHETIC_LOST_EOF'));
+    } }, { highWaterMark: 0 });
+    await refusedRawUpload(await f.installationCapability.fetch(new Request(upload(f), { method: 'POST', body })));
+    const stored = await retained(f);
+    expect(stored.receipt).toMatchObject({ termination: 'failed' });
+    expect(recovered(stored.records)).toEqual(bytes);
+    f.activity = f.restart(); await f.drainBackground();
+    const before = await persistedRawArchive(f);
+    await refusedRawUpload(await f.installationCapability.fetch(rawBytesRequest(f, bytes)));
+    expect(await retained(f)).toEqual(stored);
+    expect(await persistedRawArchive(f)).toEqual(before);
+  }, options));
+
+  it.each(['body failure', 'cancellation'] as const)('an identical replay ending in %s cannot reuse a complete receipt or change the archive', fault => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const bytes = new TextEncoder().encode(JSON.stringify({ stage: 'tool', value: 'SYNTHETIC_REPLAY_漢🦊' }));
+    expect((await f.installationCapability.fetch(rawBytesRequest(f, bytes))).status).toBe(200);
+    const original = await retained(f), before = await persistedRawArchive(f);
+    const abort = new AbortController();
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({ pull(controller) {
+      if (!sent) { sent = true; controller.enqueue(bytes); return; }
+      if (fault === 'body failure') controller.error(new Error('SYNTHETIC_REPLAY_NO_EOF'));
+      else { abort.abort(new DOMException('SYNTHETIC_REPLAY_CANCEL', 'AbortError')); controller.close(); }
+    } }, { highWaterMark: 0 });
+    await refusedRawUpload(await f.installationCapability.fetch(new Request(upload(f), { method: 'POST', body, signal: abort.signal })));
+    expect(await retained(f)).toEqual(original);
+    expect(await persistedRawArchive(f)).toEqual(before);
+    const replay = await f.installationCapability.fetch(rawBytesRequest(f, bytes));
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual(await expectedRawReceipt(original.receipt!, bytes));
+  }, options));
+
+  it.each(['missing-archive', 'missing-receipt', 'missing-segment', 'corrupt-receipt', 'corrupt-segment'] as const)(
+    '%s prior evidence stays held on the original raw POST rather than being inferred absent', fault => fixture(async f => {
+      await start(f); await f.drainBackground();
+      const bytes = new TextEncoder().encode(JSON.stringify({ stage: 'tool', value: 'SYNTHETIC_HELD_漢🦊'.repeat(5000) }));
+      expect((await f.installationCapability.fetch(rawBytesRequest(f, bytes))).status).toBe(200);
+      const prefix = await rawCapturePrefix(f);
+      await f.mutateEvidence(async storage => {
+        const entries = await storage.list({ prefix });
+        expect(entries.size).toBeGreaterThan(1);
+        if (fault === 'missing-archive') { for (const key of entries.keys()) await storage.delete(key); }
+        else {
+          const key = [...entries.keys()].find(key => fault.endsWith('receipt') ? key.endsWith('/receipt') : key.includes('/segment-'));
+          if (!key) throw new Error('Missing original archive fault target');
+          if (fault.startsWith('missing')) await storage.delete(key);
+          else await storage.put(key, 'v1:AAAA');
+        }
+      });
+      expect((await retained(f)).status).toBe('incomplete');
+      const before = await persistedRawArchive(f);
+      await refusedRawUpload(await f.installationCapability.fetch(rawBytesRequest(f, bytes)));
+      expect((await retained(f)).status).toBe('incomplete');
+      expect(await persistedRawArchive(f)).toEqual(before);
+    }, options));
+
+  it('prior archive read failure cannot authorize a new raw writer or overwrite', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const bytes = new TextEncoder().encode(JSON.stringify({ stage: 'tool', value: 'SYNTHETIC_UNAVAILABLE_漢🦊' }));
+    expect((await f.installationCapability.fetch(rawBytesRequest(f, bytes))).status).toBe(200);
+    const original = await retained(f), before = await persistedRawArchive(f);
+    await f.mutateEvidence(async storage => {
+      const get = storage.get.bind(storage), list = storage.list.bind(storage);
+      const failedGet = vi.spyOn(storage, 'get').mockImplementation((async (key: string) => {
+        if (typeof key === 'string' && key.startsWith('operator-raw')) throw new Error('SYNTHETIC_PRIOR_READ_UNAVAILABLE');
+        return get(key);
+      }) as typeof storage.get);
+      const failedList = vi.spyOn(storage, 'list').mockImplementation((async (options?: DurableObjectListOptions) => {
+        if (options?.prefix?.startsWith('operator-raw')) throw new Error('SYNTHETIC_PRIOR_LIST_UNAVAILABLE');
+        return list(options);
+      }) as typeof storage.list);
+      try { await refusedRawUpload(await f.installationCapability.fetch(rawBytesRequest(f, bytes))); }
+      finally { failedGet.mockRestore(); failedList.mockRestore(); }
+    });
+    expect(await retained(f)).toEqual(original);
+    expect(recovered((await retained(f)).records)).toEqual(bytes);
+    expect(await persistedRawArchive(f)).toEqual(before);
+  }, options));
+
+  it('cancelling a raw POST with a stalled body releases its reader without any complete acknowledgement', () => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const abort = new AbortController();
+    let enter!: () => void, controller!: ReadableStreamDefaultController<Uint8Array>;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    let sent = false, cancelled = false;
+    const prefix = new TextEncoder().encode('{"stage":"tool","value":"SYNTHETIC_CANCELLED');
+    const body = new ReadableStream<Uint8Array>({ start(value) { controller = value; }, pull(value) {
+      if (!sent) { sent = true; value.enqueue(prefix); } else enter();
+    }, cancel() { cancelled = true; } }, { highWaterMark: 0 });
+    const pending = f.installationCapability.fetch(new Request(upload(f), { method: 'POST', body, signal: abort.signal }));
+    try {
+      await within(entered, 'raw receiver awaits the next body chunk');
+      abort.abort(new DOMException('SYNTHETIC_CANCEL', 'AbortError'));
+      await refusedRawUpload(await within(pending, 'aborted raw body settles without EOF'));
+      expect(cancelled).toBe(true);
+      expect((await retained(f)).receipt?.termination).not.toBe('eof');
+    } finally {
+      abort.abort();
+      if (!cancelled) { try { controller.close(); } catch { /* Already closed by the receiver. */ } }
+      await pending.catch(() => {});
+    }
   }, options));
 
   it('persists each diagnostic input chunk before requesting the next and reconstructs all large bytes', () => fixture(async f => {

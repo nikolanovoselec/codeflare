@@ -9,7 +9,7 @@ import { Buffer } from 'node:buffer';
 import { prospectiveReconciliationStream, type ProspectiveReconciliationAuthority } from './prospective-reconciliation';
 import { createHash } from 'node:crypto';
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { createRawCapture, createOwnerRawCaptureStorage, verifyRawCapture, captureRawInteraction, type RawCaptureBinding, type RawCapture } from './raw-capture-storage';
+import { createRawCapture, createOwnerRawCaptureStorage, rawCapturePresence, verifyRawCapture, captureRawInteraction, type RawCaptureBinding, type RawCapture } from './raw-capture-storage';
 import { requireOwnerRawReader, parseOwnerRawReadRequest, readOwnerRawCapturePage, ownerRawReadUnavailable,
   type OwnerRawReadCredential, type OwnerRawReadRequest } from './raw-capture-read';
 import { projectDispatcherOperationEvidence } from './dispatcher-runtime-diagnostics';
@@ -786,6 +786,7 @@ export class OperatorActivity extends Agent {
   #inferenceOwner?: { generation: number; epoch: Promise<number> };
   #inferenceFlights = new Map<string, { digest: string; controller: AbortController; result: Promise<DispatcherInferenceResponse> }>();
   #phaseAdmissions = new Map<string, Promise<void>>();
+  #rawCaptureWriters = new Map<string, Promise<void>>();
   #coldDispatcherLease?: DispatcherLease;
   #diagnosticQueue: Promise<void> = Promise.resolve();
   #dispatcherScheduleQueue: Promise<void> = Promise.resolve();
@@ -1809,8 +1810,13 @@ export class OperatorActivity extends Agent {
 
   /** Parent-only runtime input; never returned by browser, webhook, or child capabilities. */
   async getRuntimePlan(): Promise<OperatorRuntimePlan | null> {
-    recordActivityRpcCheckpoint(this.ctx, 'plan-entered');
     this.#resumeDispatcherOnEntry();
+    return this.#readRuntimePlan();
+  }
+
+  /** SDK authorization observes authority without starting its caller's recovery. */
+  async #readRuntimePlan(): Promise<OperatorRuntimePlan | null> {
+    recordActivityRpcCheckpoint(this.ctx, 'plan-entered');
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     recordActivityRpcCheckpoint(this.ctx, 'admission-read-completed');
     if (!state?.executionContext || !state.receipt || state.phase !== 'queued'
@@ -2496,6 +2502,10 @@ export class OperatorActivity extends Agent {
   /** Generic child-effect fence for the exact admitted, live generation. */
   async operatorGenerationCurrent(generation: number): Promise<boolean> {
     this.#resumeDispatcherOnEntry();
+    return this.#readOperatorGeneration(generation);
+  }
+
+  async #readOperatorGeneration(generation: number): Promise<boolean> {
     if (!Number.isSafeInteger(generation) || generation < 1) return false;
     const record = await this.ctx.storage.get<AdmissionState>('admission');
     return !!record && record.phase === 'queued' && record.intent.deadline > Date.now()
@@ -3799,6 +3809,27 @@ export class OperatorActivity extends Agent {
     let capture: ReturnType<typeof createRawCapture> | undefined;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     let eof = false;
+    let acceptedCaptureId: string | undefined;
+    let unlock: (() => void) | undefined;
+    const stop = () => {
+      // Cancelling the source may itself never settle; it cannot hold the reader or ACK open.
+      if (reader) void reader.cancel().catch(() => {});
+      else void request.body?.cancel().catch(() => {});
+    };
+    // Unlike readBoundedStream this path never accumulates the request body. Each wait
+    // removes its own listener, rather than appending a reaction per chunk to one promise.
+    const untilAborted = async <T>(work: Promise<T>): Promise<T> => {
+      let abort!: () => void;
+      const stopped = new Promise<never>((_, reject) => {
+        abort = () => reject(new Error('Raw capture cancelled'));
+        request.signal.addEventListener('abort', abort, { once: true });
+        if (request.signal.aborted) abort();
+      });
+      try { return await Promise.race([work, stopped]); }
+      finally { request.signal.removeEventListener('abort', abort); }
+    };
+    request.signal.addEventListener('abort', stop, { once: true });
+    if (request.signal.aborted) stop();
     try {
       const original = await this.#originalDispatcherLogging(generation, request);
       if (!original.loggingEnabled) return new Response(null, { status: 204, headers: noStore });
@@ -3806,6 +3837,7 @@ export class OperatorActivity extends Agent {
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(captureId)
         || request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
         || !request.body) return dispatcherRefusal('request-invalid');
+      acceptedCaptureId = captureId;
       const { state, lease, wire } = original;
       const owner = state.executionContext!.owner;
       const ownerKey = await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] });
@@ -3830,59 +3862,106 @@ export class OperatorActivity extends Agent {
       await authorize();
       const binding: RawCaptureBinding = { ownerKey, installationId: wire.installationId, releaseId: wire.releaseId,
         captureId, scope: { kind: 'activity', activityId: wire.activityId, generation } };
-      capture = createRawCapture({ binding, enabled: true,
-        storage: () => createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, authorize),
-        schedule: work => this.ctx.waitUntil(work) });
-      capture.record('installed-sdk-upload', () => ({ method: request.method, url: request.url,
-        headers: [...request.headers], activityId: wire.activityId, generation }));
+      // Only in-flight requests occupy this map. No storage transaction spans body/authority I/O.
+      const key = JSON.stringify(binding);
+      for (let prior = this.#rawCaptureWriters.get(key); prior; prior = this.#rawCaptureWriters.get(key)) {
+        await untilAborted(prior);
+      }
+      request.signal.throwIfAborted();
+      let release!: () => void;
+      const writing = new Promise<void>(resolve => { release = resolve; });
+      this.#rawCaptureWriters.set(key, writing);
+      unlock = () => { this.#rawCaptureWriters.delete(key); release(); };
+      await authorize();
+      const storage = await createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, authorize);
+      const presence = await rawCapturePresence({ binding, storage });
+      if (presence === 'incomplete') throw new Error('Raw capture incomplete');
+      const verify = async () => {
+        // Fold authenticated records, retaining only the current chunk and its digest/length.
+        const recovered = createHash('sha256');
+        let through = 0, started = false;
+        const completion: { payload?: { bytes: number; sha256: string } } = {};
+        const stored = await verifyRawCapture({ binding, storage }, record => {
+          if (completion.payload) throw new Error('Raw capture incomplete');
+          if (!started) {
+            if (record.stage !== 'installed-sdk-upload') throw new Error('Raw capture incomplete');
+            z.object({ method: z.literal('POST'), activityId: z.literal(wire.activityId), generation: z.literal(generation) }).parse(record.value);
+            started = true;
+          } else if (record.stage === 'installed-sdk-chunk') {
+            const chunk = z.strictObject({ offset: z.number().safe().int().nonnegative(), bytes: z.string() }).parse(record.value);
+            const bytes = Buffer.from(chunk.bytes, 'base64');
+            if (chunk.offset !== through || bytes.toString('base64') !== chunk.bytes) throw new Error('Raw capture incomplete');
+            recovered.update(bytes); through += bytes.byteLength;
+          } else if (record.stage === 'installed-sdk-eof') {
+            const end = z.strictObject({ bytes: z.number().safe().int().nonnegative(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).parse(record.value);
+            if (end.bytes !== through || end.sha256 !== recovered.digest('hex')) throw new Error('Raw capture incomplete');
+            completion.payload = end;
+          } else throw new Error('Raw capture incomplete');
+        });
+        const payload = completion.payload;
+        if (stored.status !== 'complete' || !stored.receipt || stored.receipt.termination !== 'eof' || !payload) {
+          throw new Error('Raw capture incomplete');
+        }
+        return { receipt: stored.receipt, payload };
+      };
+      const prior = presence === 'present' ? await verify() : undefined;
+      if (!prior) {
+        await authorize();
+        capture = createRawCapture({ binding, enabled: true, storage: async () => storage,
+          schedule: work => this.ctx.waitUntil(work) });
+        capture.record('installed-sdk-upload', () => ({ method: request.method, url: request.url,
+          headers: [...request.headers], activityId: wire.activityId, generation }));
+        await capture.flush();
+      }
       const delivered = createHash('sha256');
       let offset = 0;
       reader = request.body.getReader();
       for (;;) {
         await authorize();
-        const chunk = await reader.read();
+        const chunk = await untilAborted(reader.read());
+        request.signal.throwIfAborted();
         if (chunk.done) { eof = true; break; }
         delivered.update(chunk.value);
         // Framing bounds each stored value, never the record/capture length.
         for (let start = 0; start < chunk.value.byteLength; start += 32 * 1024) {
           const part = chunk.value.subarray(start, start + 32 * 1024);
-          capture.record('installed-sdk-chunk', () => ({ offset, bytes: Buffer.from(part).toString('base64') }));
-          // Backpressure only this detached diagnostic upload, never the provider stream.
-          await capture.flush();
+          if (capture) {
+            capture.record('installed-sdk-chunk', () => ({ offset, bytes: Buffer.from(part).toString('base64') }));
+            // Backpressure only this detached diagnostic upload, never the provider stream.
+            await capture.flush();
+          }
           offset += part.byteLength;
+          if (!Number.isSafeInteger(offset) || prior && offset > prior.payload.bytes) throw new Error('Raw capture conflict');
         }
       }
       const expected = delivered.digest('hex');
-      capture.record('installed-sdk-eof', () => ({ bytes: offset, sha256: expected }));
-      const receipt = await capture.finish('eof');
-      if (receipt.status !== 'complete') return Response.json({ status: 'incomplete', captureId }, { status: 503, headers: noStore });
-      // Independent read/reconstruction, not a success inferred from queued writes or console emission.
-      const recovered = createHash('sha256');
-      let through = 0;
-      const stored = await verifyRawCapture({ binding,
-        storage: await createOwnerRawCaptureStorage(this.#appEnv, this.ctx.storage, authorize) }, record => {
-        if (record.stage !== 'installed-sdk-chunk') return;
-        const chunk = z.strictObject({ offset: z.number().safe().int().nonnegative(), bytes: z.string() }).parse(record.value);
-        const bytes = Buffer.from(chunk.bytes, 'base64');
-        if (chunk.offset !== through || bytes.toString('base64') !== chunk.bytes) throw new Error('Raw capture incomplete');
-        recovered.update(bytes); through += bytes.byteLength;
-      });
-      if (stored.status !== 'complete' || through !== offset || recovered.digest('hex') !== expected) {
-        throw new Error('Raw capture incomplete');
+      if (prior && (prior.payload.bytes !== offset || prior.payload.sha256 !== expected)) throw new Error('Raw capture conflict');
+      if (capture) {
+        capture.record('installed-sdk-eof', () => ({ bytes: offset, sha256: expected }));
+        const receipt = await capture.finish('eof');
+        if (receipt.status !== 'complete') throw new Error('Raw capture incomplete');
       }
+      const verified = prior ?? await verify();
+      if (verified.payload.bytes !== offset || verified.payload.sha256 !== expected) throw new Error('Raw capture incomplete');
+      await authorize();
+      const { receipt, payload } = verified;
       return Response.json({ status: 'complete', captureId,
-        counts: { records: receipt.records, segments: receipt.segments, bytes: receipt.bytes }, termination: receipt.termination },
+        counts: { records: receipt.records, segments: receipt.segments, bytes: receipt.bytes }, termination: receipt.termination, payload },
       { headers: noStore });
     } catch (error) {
-      if (!capture) return dispatcherRefusal('execution-inactive');
-      try {
+      if (acceptedCaptureId === undefined) return dispatcherRefusal('execution-inactive');
+      if (capture) try {
         capture.record('installed-sdk-upload-error', () => error);
         await capture.finish('failed');
       } catch { /* Optional capture cannot create work authority or replace SDK outcomes. */ }
-      return Response.json({ status: 'incomplete', captureId: request.headers.get('x-codeflare-raw-capture') ?? '' },
+      return Response.json({ status: 'incomplete', captureId: acceptedCaptureId },
         { status: 503, headers: noStore });
     } finally {
-      if (reader) { if (!eof) void reader.cancel().catch(() => {}); reader.releaseLock(); }
+      request.signal.removeEventListener('abort', stop);
+      try {
+        if (reader) { if (!eof) void reader.cancel().catch(() => {}); reader.releaseLock(); }
+        else void request.body?.cancel().catch(() => {});
+      } finally { unlock?.(); }
     }
   }
 
@@ -3949,9 +4028,9 @@ export class OperatorActivity extends Agent {
 
   /** Read-only profile bootstrap retains original queued-owner authority, never model authority. */
   async #dispatcherSdkCurrent(generation: number, original: DispatcherLease, modelScope: boolean): Promise<boolean> {
-    if (modelScope) return this.#dispatcherDeliveryCurrent(generation, undefined, true);
-    if (!await this.operatorGenerationCurrent(generation) || original.expiresAt <= Date.now()) return false;
-    const plan = await this.getRuntimePlan();
+    if (modelScope) return await this.#readDispatcherDelivery(generation, undefined, true) === 'current';
+    if (!await this.#readOperatorGeneration(generation) || original.expiresAt <= Date.now()) return false;
+    const plan = await this.#readRuntimePlan();
     if (!plan) return false;
     await authorizeDispatcherPlan(plan, this.#appEnv);
     await this.#normalDispatcherConnection(original, plan);
@@ -3962,7 +4041,7 @@ export class OperatorActivity extends Agent {
       && live.artifactDigest === original.artifactDigest && live.inputDigest === original.inputDigest
       && sameDispatcherPhaseValue(live.deployment, original.deployment)
       && live.connectionSecretCiphertext === original.connectionSecretCiphertext
-      && await this.operatorGenerationCurrent(generation);
+      && await this.#readOperatorGeneration(generation);
   }
 
   /** Private installed SDK services. No provider execution or SDK normalization occurs here. */
@@ -3989,7 +4068,7 @@ export class OperatorActivity extends Agent {
         modelScope ? Math.ceil(inferenceRequestBytes(policy) * 4 / 3) + 64 * 1024 : credentials ? 1024 * 1024 : 4096));
       if (request.signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
       emitRaw(trace, 'sdk-service-request', () => ({ path, body }), () => ({ path, wireCaptured: true }));
-      const plan = await this.getRuntimePlan();
+      const plan = await this.#readRuntimePlan();
       if (!plan) return dispatcherRefusal('execution-inactive');
       const conflict = () => {
         if (modelScope && executionLoggingEnabled(state.receipt)) try {
@@ -4503,13 +4582,18 @@ export class OperatorActivity extends Agent {
   }
 
   async #observeDispatcherDelivery(generation: number, token: string | undefined, modelScope = false): Promise<'current' | 'denied' | 'unavailable'> {
-    const initial = await this.#observeDispatcherGeneration(generation);
+    this.#resumeDispatcherOnEntry();
+    return this.#readDispatcherDelivery(generation, token, modelScope);
+  }
+
+  async #readDispatcherDelivery(generation: number, token: string | undefined, modelScope: boolean): Promise<'current' | 'denied' | 'unavailable'> {
+    const initial = await this.#readDispatcherGeneration(generation);
     if (initial !== 'current') return initial;
     const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
     if (!this.#phaseTokenMatches(lease, token, true, modelScope)) return 'denied';
     if (lease?.serial || lease?.hosting === 'normal') {
       try {
-        const plan = await this.getRuntimePlan();
+        const plan = await this.#readRuntimePlan();
         if (!plan) return 'denied';
         await authorizeDispatcherPlan(plan, this.#appEnv);
         if (lease.hosting === 'normal') await this.#normalDispatcherConnection(lease, plan);
@@ -4522,7 +4606,7 @@ export class OperatorActivity extends Agent {
       }
       // All serial runs retain original authority, not just prospective ones. External
       // authorization can race a new phase, cancellation or the original deadline.
-      const final = await this.#observeDispatcherGeneration(generation);
+      const final = await this.#readDispatcherGeneration(generation);
       if (final !== 'current') return final;
       return this.#phaseTokenMatches(await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE), token, true, modelScope)
         ? 'current' : 'denied';
@@ -4899,13 +4983,17 @@ export class OperatorActivity extends Agent {
 
   async #observeDispatcherGeneration(generation: number): Promise<'current' | 'denied' | 'unavailable'> {
     this.#resumeDispatcherOnEntry();
+    return this.#readDispatcherGeneration(generation);
+  }
+
+  async #readDispatcherGeneration(generation: number): Promise<'current' | 'denied' | 'unavailable'> {
     if (!Number.isSafeInteger(generation) || generation < 1) return 'denied';
     const [record, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
       this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
     if (!this.#leaseMatches(record, lease, generation)) return 'denied';
     if (await this.ctx.storage.get<string>('prospective-admission')) {
       try {
-        const plan = await this.getRuntimePlan();
+        const plan = await this.#readRuntimePlan();
         if (!plan) return 'denied';
         await authorizeDispatcherPlan(plan, this.#appEnv);
       } catch (error) {
