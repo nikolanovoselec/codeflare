@@ -958,10 +958,11 @@ describe('recognized legacy different-login coordination', () => {
         expect(await f.execution(f.b, operation, shared.version)).toEqual({ status: 'held', reason: expect.any(String) });
       }
       expect(await f.state.storage.list()).toEqual(before);
-      const preview = await legacyPreview(f);
+      // B's verified shared key/version is a direct scope witness; A's
+      // private preview anchor cannot authorize B's explicit recovery.
+      f.callback.scopeAnchor = f.key;
       const request = { ...f.base, operation: 'reset' as const, requestId: crypto.randomUUID(),
-        human: f.b.human, scopeCursor: preview.scopeCursor,
-        entries: [{ key: f.key, version: preview.item.version }] };
+        human: f.b.human, entries: [{ key: f.key, version: shared.version }] };
       expect(await f.registry.recoverApplication(request))
         .toEqual({ requestId: request.requestId, reset: 1, skipped: [] });
       expect(await f.state.storage.get(f.aliasKey)).toEqual(f.legacy);

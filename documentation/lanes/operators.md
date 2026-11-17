@@ -257,9 +257,6 @@ Cancel fences `cancel-requested`; interrupt fences unknown. Neither claims compu
 
 The owner’s cancellation acknowledgement uses the activity-summary contract, not a detail payload. Repeating a never-driven management Dispatcher cancellation without a resource profile and with the same durable proof is idempotent. A never-driven cancellation can report stopped cleanup only from durable proof that no runtime was acquired; an absent lease alone is not proof. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @impl: src/operators/activity.ts::cancelDrive -->
 
-<a id="managed-dispatcher-host"></a>
-<a id="req-operator-048-preserved-clauses"></a>
-<a id="req-operator-048-contract-details"></a>
 ### Replacement cleanup verification
 
 Use a separately authorized integration target and the existing Enable path under [REQ-OPERATOR-107](../../sdd/spec/operators.md#req-operator-107-exact-normal-dispatcher-activation); this procedure grants no production mutation or credential authority.
@@ -271,6 +268,9 @@ Use a separately authorized integration target and the existing Enable path unde
 
 Keep execution receipts in the existing PR/CI/private verification record, not this reference guide.
 
+<a id="managed-dispatcher-host"></a>
+<a id="req-operator-048-preserved-clauses"></a>
+<a id="req-operator-048-contract-details"></a>
 ### Managed Dispatcher host
 
 Retained schemaVersion1 `dispatcher` compatibility receipts use `driveDispatcherRuntime` and existing `OperatorActivity` with the host Agents SDK, an Activity-private fixed facet, actual generated Flue class and isolated SQLite; the immutable child retains its artifact-pinned SDK. Normal schemaVersion2 shared installation hosting is distinct: it uses public keyed control, not per-Activity Loader/facet hosting, and retains the Planned/qualification boundaries above. The constructor performs bounded legacy-schedule migration and reads the cold lease without recovery. <!-- @impl: src/operators/runtime.ts::driveDispatcherRuntime --> <!-- @impl: src/operators/activity.ts::OperatorActivity -->

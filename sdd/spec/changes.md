@@ -7,7 +7,6 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 ## 2026-11-17: Durable-buffer raw receipts and replacement cleanup (planned)
 
 - REQ-OPERATOR-213 separates original upload payload identity and immutable replay acknowledgement from REQ-OPERATOR-091's policy, transport and private-readback obligations. Partial, conflicting or unavailable original evidence cannot authorize replacement; the extracted obligations remain Planned pending qualification.
-- REQ-OPERATOR-061 keeps read projection separate from atomic claimant election; REQ-OPERATOR-211 separately owns original-selection, caller-scope refusal and cross-actor privacy. Existing behavior and evidence are preserved.
 - REQ-OPERATOR-107 preserves existing verified-replacement cleanup without waiting for an obsolete Worker's unsent diagnostic buffer. Root results, receipts, journals, archives and uncertain-write protections remain intact; this adds no quiescence/status API or new cleanup engine.
 - Specification changes alone establish neither source qualification nor CI, deployment or runtime acceptance.
 
