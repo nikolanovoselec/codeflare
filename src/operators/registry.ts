@@ -1863,7 +1863,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
             : legacy?.success ? legacy.data : null,
           ...(item.raw?.originDelivery ? { delivery: item.raw.originDelivery, generation: item.raw.generation } : {}) },
         ledger: { ok: true, receipt: ledger } };
-      const activity = (this.env as Env).OPERATOR_ACTIVITY?.getByName(original.activityId);
+      const activity: {
+        readRecoveryFacts(request: RecoveryFactsRequest): Promise<RecoveryFacts>;
+        readApplicationCoordinationFacts(authority: ApplicationCoordinationAuthority): Promise<ApplicationCoordinationFacts>;
+      } | undefined = (this.env as Env).OPERATOR_ACTIVITY?.getByName(original.activityId);
       if (!activity) return { status: 'unavailable' };
       const facts = async (): Promise<{ safe: ApplicationCoordinationFacts; origin?: { generation: number; deadline: number }; digest?: string }> => {
         if (item.raw?.originDelivery) {
@@ -2270,11 +2273,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
 
   /** Read/fence an original owned execution, never wake or observe an old SDK job. */
   async applyApplicationExecution(binding: RuntimeApplicationStateBinding, request: ApplicationExecutionRequest): Promise<unknown> {
-    if (request.operation === 'read-coordination' || request.operation === 'release-coordination') {
+    if (!('activityId' in request)) {
       return this.applyCoordinationExecution(binding, request);
     }
-    const originalRequest = request as Extract<ApplicationExecutionRequest, { activityId: string }>;
-    const unavailable = () => ({ status: 'unavailable' as const, activityId: originalRequest.activityId });
+    const unavailable = () => ({ status: 'unavailable' as const, activityId: request.activityId });
     try {
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(request.activityId) || request.activityId === binding.activityId
         || !/^[a-f0-9]{64}$/.test(request.version)) return unavailable();

@@ -925,8 +925,12 @@ describe('REQ-OPERATOR-090/091: authenticated unredacted installed SDK retention
       const get = storage.get.bind(storage);
       const transaction = storage.transaction.bind(storage);
       const read = vi.spyOn(storage, 'get').mockImplementation((async (key: string) => {
-        if (fault === 'read' && key.startsWith('operator-raw-index:')) throw new Error('Synthetic locator read failure');
-        return get(key);
+        const value = await get(key);
+        // Let the new-writer absence check succeed; fail verification only
+        // after the locator has been persisted with the completed archive.
+        if (fault === 'read' && key.startsWith('operator-raw-index:') && value !== undefined)
+          throw new Error('Synthetic locator read failure');
+        return value;
       }) as typeof storage.get);
       const write = vi.spyOn(storage, 'transaction').mockImplementation(closure => transaction(async tx => {
         const originalPut = tx.put.bind(tx);

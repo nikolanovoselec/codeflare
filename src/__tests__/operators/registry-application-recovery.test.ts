@@ -111,10 +111,14 @@ async function seed(state: DurableObjectState) {
     authority: { operatorRevision: 1, controlsRevision: 1, expiresAt: human.expiresAt * 1000 } };
   const preview = (after?: string) => registry.recoverApplication({ ...base, operation: 'preview', after }) as Promise<{
     items: Array<{ key: string; version: string; status: string }>; nextCursor: string | null; scopeCursor?: string }>;
-  const resetRequest = async () => ({ ...base, operation: 'reset' as const, requestId: crypto.randomUUID(),
-    entries: (await preview()).items.map(({ key, version }) => ({ key, version })) });
+  const resetRequest = async () => {
+    let page = await preview();
+    while (!page.items.length && page.nextCursor) page = await preview(page.nextCursor);
+    return { ...base, operation: 'reset' as const, requestId: crypto.randomUUID(), scopeCursor: page.scopeCursor,
+      entries: page.items.map(({ key, version }) => ({ key, version })) };
+  };
   return { registry, state, base, preview, resetRequest, callback, original, ledger, installation, operator, facts, saveOperator, storageKey, unsafe, prefix,
-    manifest, environment, deliveryFacts, terminalAt };
+    manifest, environment, deliveryFacts, terminalAt, controls };
 }
 
 type StateEntry = { key: string; status: 'absent'; version: null }
@@ -134,6 +138,9 @@ async function seedHead(f: Awaited<ReturnType<typeof seed>>) {
   const third = { ...f.base.human, subject: 'third-owner', email: 'third@example.test' };
   f.operator.invokers = { users: [f.base.human.email, other.email, third.email], groups: [] };
   f.operator.managers = { users: [...f.operator.invokers.users], groups: [] };
+  // Management requires both deployment eligibility and the operator grant.
+  f.controls.managers = { users: [...f.operator.managers.users], groups: [] };
+  f.state.storage.sql.exec('UPDATE operator_management_controls SET data=? WHERE id=1', JSON.stringify(f.controls));
   f.saveOperator();
   f.installation.enabled = true;
   f.state.storage.sql.exec('UPDATE operator_installations SET data=? WHERE id=?', JSON.stringify(f.installation), 'install');
@@ -161,7 +168,7 @@ async function seedHead(f: Awaited<ReturnType<typeof seed>>) {
     legacy: { storageKey: aliasKey, version: await recoveryDigest(JSON.stringify(legacy)) } };
   const storageKey = `${f.prefix}${await recoveryDigest(key)}`;
   await f.state.storage.put({ [storageKey]: original, [aliasKey]: legacy, 'renovate-activity:old': legacy });
-  const live = async (human: typeof other, activityId: string): Promise<RuntimeApplicationStateBinding> => {
+  const live = async (human: RuntimeApplicationStateBinding['human'], activityId: string): Promise<RuntimeApplicationStateBinding> => {
     const deadline = Math.floor(Date.now() / 1000) * 1000 + 60_000;
     const intentDigest = await recoveryDigest(activityId);
     expect(await f.registry.admitManagement({ installationId: 'install', activityId, intentDigest, deadline,
@@ -185,13 +192,14 @@ async function seedHead(f: Awaited<ReturnType<typeof seed>>) {
       writes: [{ key, value, ...(coordination === undefined ? {} : { coordination }) }] });
   const execution = (binding: RuntimeApplicationStateBinding, operation: 'read-coordination' | 'release-coordination', version: string) =>
     f.registry.applyApplicationExecution(binding, { operation, key, version } as unknown as Parameters<OperatorRegistry['applyApplicationExecution']>[1]);
-  const publish = async (coordination: unknown = { state: 'active' }) => {
-    const entry = await read(a);
+  const publish = async (coordination: unknown = { state: 'active' }, originDelivery?: RuntimeApplicationStateBinding['originDelivery']) => {
+    const binding = originDelivery ? { ...a, originDelivery } : a;
+    const entry = await read(binding);
     if (entry.status !== 'value') throw Error('Expected owner state before publishing');
-    expect(await cas(a, entry.version, entry.value, coordination)).toEqual({ status: 'committed' });
-    Object.assign(f.deliveryFacts.value, { activityId: a.activityId, generation: a.generation,
-      inputDigest: a.intentDigest });
-    if (f.facts.value.resettable) f.facts.value.origin = { ...f.facts.value.origin, generation: a.generation, deadline: a.deadline };
+    expect(await cas(binding, entry.version, entry.value, coordination)).toEqual({ status: 'committed' });
+    Object.assign(f.deliveryFacts.value, { activityId: binding.activityId, generation: binding.generation,
+      inputDigest: binding.intentDigest });
+    if (f.facts.value.resettable) f.facts.value.origin = { ...f.facts.value.origin, generation: binding.generation, deadline: binding.deadline };
     return await stateRecord();
   };
   const stateRecord = () => f.state.storage.get<Record<string, unknown>>(storageKey);
@@ -565,8 +573,7 @@ describe('owner-neutral explicitly nonprivate coordination', () => {
   }));
 
   it.each([true, false])('B management uses exact per-delivery proof while the parent remains active, noWrites=%s', noExternalWrites => headFixture(async f => {
-    f.a.originDelivery = { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) };
-    await f.publish();
+    await f.publish(undefined, { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) });
     f.facts.value = { resettable: false, reason: 'drive-generation-current' };
     f.deliveryFacts.value.noExternalWrites = noExternalWrites;
     const request = await f.resetRequest();
@@ -585,8 +592,7 @@ describe('owner-neutral explicitly nonprivate coordination', () => {
       releaseId: _releaseId, bundleDigest: _bundleDigest, ...legacy } = f.legacy;
     await f.state.storage.put({ [f.aliasKey]: legacy, 'renovate-activity:old': legacy,
       [f.storageKey]: { ...f.original, legacy: { storageKey: f.aliasKey, version: await recoveryDigest(JSON.stringify(legacy)) } } });
-    f.a.originDelivery = { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) };
-    await f.publish();
+    await f.publish(undefined, { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) });
     const own = await f.read(f.a);
     if (own.status !== 'value') throw Error('Expected modern owner value');
     if (drift) await f.state.storage.put(f.aliasKey, { ...legacy, private: 'CHANGED_PRIVATE_HISTORY' });
@@ -632,8 +638,7 @@ describe('owner-neutral explicitly nonprivate coordination', () => {
   }));
 
   it.each(['completed', 'failed'] as const)('read-coordination returns only safe %s facts, not the original delivery identifiers', outcome => headFixture(async f => {
-    f.a.originDelivery = { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) };
-    await f.publish();
+    await f.publish(undefined, { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) });
     f.deliveryFacts.value.outcome = outcome;
     const shared = await f.read(f.b);
     if (shared.status !== 'coordination') throw Error('Expected shared state');
@@ -658,8 +663,7 @@ describe('owner-neutral explicitly nonprivate coordination', () => {
 
   it('B inspects safe failed original facts, releases and claims without disclosing or rewriting A history', () => headFixture(async f => {
     const coordination = { state: 'active' };
-    f.a.originDelivery = { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) };
-    const original = await f.publish(coordination);
+    const original = await f.publish(coordination, { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) });
     const shared = await f.read(f.b);
     if (shared.status !== 'coordination') throw Error('Expected shared state');
     const history = await f.history();
@@ -706,8 +710,7 @@ describe('owner-neutral explicitly nonprivate coordination', () => {
   }));
 
   it.each(['B-first', 'C-first'] as const)('%s contenders have one CAS winner after owner-neutral release', order => headFixture(async f => {
-    f.a.originDelivery = { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) };
-    await f.publish();
+    await f.publish(undefined, { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) });
     const shared = await f.read(f.b);
     if (shared.status !== 'coordination') throw Error('Expected shared claim');
     const vacancy = await f.execution(f.b, 'release-coordination', shared.version) as StateEntry;
@@ -732,8 +735,7 @@ describe('owner-neutral explicitly nonprivate coordination', () => {
   }));
 
   it('release rechecks changed original facts rather than consuming a previously safe inspection', () => headFixture(async f => {
-    f.a.originDelivery = { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) };
-    await f.publish();
+    await f.publish(undefined, { submissionId: 'PRIVATE_SUBMISSION', uid: 'PRIVATE_UID', deliveryDigest: 'f'.repeat(64) });
     const shared = await f.read(f.b);
     if (shared.status !== 'coordination') throw Error('Expected shared claim');
     expect(await f.execution(f.b, 'read-coordination', shared.version)).toMatchObject({ status: 'safe' });

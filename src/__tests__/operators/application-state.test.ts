@@ -42,7 +42,7 @@ async function seed(storage: DurableObjectStorage) {
 // Registry recovery transaction (covered in registry-application-recovery.test)
 // can authorize vacancy. Application JSON alone must never do so.
 describe('application state refuses unverified release and foreign evidence', () => {
-  // REQ-OPERATOR-061 AC4: coordination is an explicit additive wire field,
+  // REQ-OPERATOR-061 AC6: coordination is an explicit additive wire field,
   // not an instruction to expose or replace the private value.
   it.each([null, false, 0, 'processed', ['safe', 1], { state: 'processed', outcome: 'NOT_MERGED' }].map(coordination => ({ coordination })))(
     'accepts explicit JSON coordination $coordination without changing the owner-private read contract', ({ coordination }) => fixture(async f => {
@@ -63,7 +63,9 @@ describe('application state refuses unverified release and foreign evidence', ()
       const before = await f.storage.list();
       const request = { expected: [{ key: 'ordinary', version: original.version }, { key: 'new', version: null }],
         writes: [{ key: 'ordinary', value: 'replacement', coordination }, { key: 'new', value: true }] };
-      await expect(f.owner.compareExchange(request)).rejects.toMatchObject({ code: 'invalid-request' });
+      // Deliberately malformed boundary input; production callers retain the typed JSON contract.
+      await expect(f.owner.compareExchange(request as unknown as Parameters<ApplicationStateStore['compareExchange']>[0]))
+        .rejects.toMatchObject({ code: 'invalid-request' });
       expect(await f.storage.list()).toEqual(before);
       expect(await f.owner.read(['ordinary', 'new'])).toEqual([original, { key: 'new', status: 'absent', version: null }]);
     }));

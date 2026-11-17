@@ -3788,7 +3788,13 @@ export class OperatorActivity extends Agent {
       const original = z.object({ settings: z.object({ loggingEnabled: z.boolean() }) }).parse(wire.initialData);
       if (original.settings.loggingEnabled !== loggingEnabled) throw new Error('Denied');
     } else if (!lease.serial && !lease.application) throw new Error('Denied');
-    return { state, lease, wire, loggingEnabled };
+    // Only compact immutable pins escape this read; an upload may wait on its
+    // body for much longer than the admission/checkpoint payload is needed.
+    return { loggingEnabled, owner: structuredClone(state.executionContext.owner),
+      inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest,
+      connectionSecretCiphertext: lease.connectionSecretCiphertext, deployment: structuredClone(deployment),
+      wire: { activityId: wire.activityId, installationId: wire.installationId, releaseId: wire.releaseId,
+        connectionRevision: wire.connectionRevision, workerVersionId: wire.workerVersionId } };
   }
 
   /** Passive retained policy only: no resume, current-authority lookup, SDK read or writes. */
@@ -3838,8 +3844,7 @@ export class OperatorActivity extends Agent {
         || request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
         || !request.body) return dispatcherRefusal('request-invalid');
       acceptedCaptureId = captureId;
-      const { state, lease, wire } = original;
-      const owner = state.executionContext!.owner;
+      const { owner, wire } = original;
       const ownerKey = await operatorOwnerKey({ ...owner, audiences: [...owner.audiences] });
       const authorize = async () => {
         // Logging has original policy/identity authority, not permission to execute after a deadline.
@@ -3849,15 +3854,15 @@ export class OperatorActivity extends Agent {
         if (request.signal.aborted || !current?.executionContext || !current.receipt
           || !executionLoggingEnabled(current.receipt) || current.intent.activityId !== wire.activityId
           || authenticated.activityId !== wire.activityId || authenticated.generation !== generation
-          || authenticated.connection.connectionSecretCiphertext !== lease.connectionSecretCiphertext
-          || !sameDispatcherPhaseValue(current.executionContext.owner, state.executionContext!.owner)
+          || authenticated.connection.connectionSecretCiphertext !== original.connectionSecretCiphertext
+          || !sameDispatcherPhaseValue(current.executionContext.owner, owner)
           || current.ownerKey !== ownerKey
-          || current.receipt.intentDigest !== lease.inputDigest
-          || current.executionContext.artifactDigest !== lease.artifactDigest
+          || current.receipt.intentDigest !== original.inputDigest
+          || current.executionContext.artifactDigest !== original.artifactDigest
           || live?.hosting !== 'normal' || live.generation !== generation
-          || live.inputDigest !== lease.inputDigest || live.artifactDigest !== lease.artifactDigest
-          || live.connectionSecretCiphertext !== lease.connectionSecretCiphertext
-          || !sameDispatcherPhaseValue(live.deployment, lease.deployment)) throw new Error('Raw capture unavailable');
+          || live.inputDigest !== original.inputDigest || live.artifactDigest !== original.artifactDigest
+          || live.connectionSecretCiphertext !== original.connectionSecretCiphertext
+          || !sameDispatcherPhaseValue(live.deployment, original.deployment)) throw new Error('Raw capture unavailable');
       };
       await authorize();
       const binding: RawCaptureBinding = { ownerKey, installationId: wire.installationId, releaseId: wire.releaseId,
