@@ -315,6 +315,54 @@ const dispatcherEntryKey = (journal: DispatcherJournal, operationId: string) =>
 
 /** Read-only accounting shared by settlement proof and explicit recovery. Ordinals
  * count charged attempts, not just logical operations. No cache body is retained. */
+function applicationInferenceAttemptAccounting(entries: Map<string, unknown>, generation: number,
+  id: string, operation: DispatcherOperationRecord, count: number,
+  charge: (ordinal: unknown) => boolean, allowed?: Set<string>): string | null {
+  const digest = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  const integer = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+  const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+  const attempts = operation.inference?.attempt ?? operation.native?.attempt;
+  if (!integer(attempts) || attempts < 1 || attempts > count) return 'journal-attempt-count';
+  for (let index = 1; index <= attempts; index++) {
+    const key = inferenceAttemptKey(generation, id, index);
+    const attempt = entries.get(key);
+    if (!object(attempt) || attempt.index !== index || !integer(attempt.notBefore) || !charge(attempt.ordinal)) return 'journal-attempt-coverage';
+    allowed?.add(key);
+    if (operation.inference && index === 1 && attempt.ordinal !== operation.ordinal
+      || operation.native && index === attempts && attempt.ordinal !== operation.ordinal) return 'journal-attempt-binding';
+    const last = index === attempts;
+    // The original managed writer can retain a charged transport failure
+    // without a cache. Its explicit successor still has to cover the charge.
+    if (operation.inference && !last && attempt.phase === 'unknown' && attempt.classification === 'transport'
+      && attempt.successor === index + 1 && attempt.responseKey === undefined && attempt.responseDigest === undefined) continue;
+    if (attempt.phase !== 'completed' || !digest(attempt.responseDigest) || typeof attempt.responseKey !== 'string') return 'journal-attempt-unsettled';
+    if (operation.inference) {
+      if (last ? !['usable', 'final-error'].includes(String(attempt.classification)) || attempt.successor !== undefined
+        : attempt.classification !== 'retryable' || attempt.successor !== index + 1) return 'journal-attempt-chain';
+      if (attempt.responseKey !== (last ? `dispatcher:response:${id}` : `${key}:response`)) return 'unbound-attempt-cache';
+    } else {
+      const handle = attempt.responseKey.slice('dispatcher:native-response:'.length);
+      if (attempt.responseKey !== `dispatcher:native-response:${handle}` || !handle) return 'unbound-native-cache';
+      const handleKey = `dispatcher:native-handle:${handle}`, reference = entries.get(handleKey);
+      if (!object(reference) || reference.generation !== generation || reference.operationId !== id
+        || reference.deliveryToken !== (operation.deliveryBinding ?? operation.phaseBinding)?.deliveryToken) return 'unbound-native-handle';
+      allowed?.add(handleKey);
+      const native = operation.native!;
+      if (!digest(native.wireDigest) || native.phase !== 'committed' || !['completed', 'failed'].includes(native.outcome ?? '')
+        || last && native.handle !== handle || (last ? attempt.classification !== (native.outcome === 'completed' ? 'usable' : 'retryable')
+          : attempt.classification !== 'retryable')) return 'journal-native-attempt-binding';
+      const wireKey = `dispatcher:native-wire:${generation}:${reference.deliveryToken}:${native.wireDigest}`;
+      if (entries.get(wireKey) !== id) return 'unbound-native-wire';
+      allowed?.add(wireKey);
+    }
+    const cached = entries.get(attempt.responseKey);
+    if (!object(cached) || cached.sha256 !== attempt.responseDigest) return 'unbound-attempt-cache';
+    allowed?.add(attempt.responseKey);
+    if (last && operation.responseDigest !== attempt.responseDigest) return 'journal-attempt-response-binding';
+  }
+  return null;
+}
+
 function applicationJournalAccounting(entries: Map<string, unknown>, generation: number,
   delivery?: { submissionId: string; token: string }):
   { ok: true; noExternalWrites: boolean } | { ok: false; reason: string } {
@@ -387,45 +435,8 @@ function applicationJournalAccounting(entries: Map<string, unknown>, generation:
       continue;
     }
     if (operation.inference && operation.native || operation.sdkHttp) return fail('journal-model-layout');
-    const attempts = operation.inference?.attempt ?? operation.native?.attempt;
-    if (!integer(attempts) || attempts < 1 || attempts > count) return fail('journal-attempt-count');
-    for (let index = 1; index <= attempts; index++) {
-      const key = inferenceAttemptKey(generation, id, index);
-      const attempt = entries.get(key);
-      if (!object(attempt) || attempt.index !== index || !integer(attempt.notBefore) || !charge(attempt.ordinal)) return fail('journal-attempt-coverage');
-      allowed.add(key);
-      if (operation.inference && index === 1 && attempt.ordinal !== operation.ordinal
-        || operation.native && index === attempts && attempt.ordinal !== operation.ordinal) return fail('journal-attempt-binding');
-      const last = index === attempts;
-      // The original managed writer can retain a charged transport failure
-      // without a cache. Its explicit successor still has to cover the charge.
-      if (operation.inference && !last && attempt.phase === 'unknown' && attempt.classification === 'transport'
-        && attempt.successor === index + 1 && attempt.responseKey === undefined && attempt.responseDigest === undefined) continue;
-      if (attempt.phase !== 'completed' || !digest(attempt.responseDigest) || typeof attempt.responseKey !== 'string') return fail('journal-attempt-unsettled');
-      if (operation.inference) {
-        if (last ? !['usable', 'final-error'].includes(String(attempt.classification)) || attempt.successor !== undefined
-          : attempt.classification !== 'retryable' || attempt.successor !== index + 1) return fail('journal-attempt-chain');
-        if (attempt.responseKey !== (last ? `dispatcher:response:${id}` : `${key}:response`)) return fail('unbound-attempt-cache');
-      } else {
-        const handle = attempt.responseKey.slice('dispatcher:native-response:'.length);
-        if (attempt.responseKey !== `dispatcher:native-response:${handle}` || !handle) return fail('unbound-native-cache');
-        const handleKey = `dispatcher:native-handle:${handle}`, reference = entries.get(handleKey);
-        if (!object(reference) || reference.generation !== generation || reference.operationId !== id
-          || reference.deliveryToken !== (operation.deliveryBinding ?? operation.phaseBinding)?.deliveryToken) return fail('unbound-native-handle');
-        allowed.add(handleKey);
-        const native = operation.native!;
-        if (!digest(native.wireDigest) || native.phase !== 'committed' || !['completed', 'failed'].includes(native.outcome ?? '')
-          || last && native.handle !== handle || (last ? attempt.classification !== (native.outcome === 'completed' ? 'usable' : 'retryable')
-            : attempt.classification !== 'retryable')) return fail('journal-native-attempt-binding');
-        const wireKey = `dispatcher:native-wire:${generation}:${reference.deliveryToken}:${native.wireDigest}`;
-        if (entries.get(wireKey) !== id) return fail('unbound-native-wire');
-        allowed.add(wireKey);
-      }
-      const cached = entries.get(attempt.responseKey);
-      if (!object(cached) || cached.sha256 !== attempt.responseDigest) return fail('unbound-attempt-cache');
-      allowed.add(attempt.responseKey);
-      if (last && operation.responseDigest !== attempt.responseDigest) return fail('journal-attempt-response-binding');
-    }
+    const attemptFailure = applicationInferenceAttemptAccounting(entries, generation, id, operation, count, charge, allowed);
+    if (attemptFailure) return fail(attemptFailure);
   }
   if (ordinals.size !== count) return fail('journal-ordinal-coverage');
   const ownerKey = `dispatcher:inference-owner:${generation}`;
@@ -1742,10 +1753,19 @@ export class OperatorActivity extends Agent {
     const prefix = `dispatcher:operation:${lease.generation}:`;
     const records = [...entries].filter(([key]) => key.startsWith('dispatcher:operation:'));
     if (records.some(([key]) => !key.startsWith(prefix)) || aggregate && records.length) return false;
-    const operations = aggregate ? Object.values(aggregate) : records.map(([, record]) => record as DispatcherOperationRecord);
+    const operations = aggregate ? Object.entries(aggregate)
+      : records.map(([key, record]) => [key.slice(prefix.length), record as DispatcherOperationRecord] as const);
+    if (journal && (journal.generation !== lease.generation || !Number.isSafeInteger(journal.count)
+      || journal.count < 0 || journal.nextOrdinal !== journal.count)) return false;
     const ordinals = new Set<number>();
+    const charge = (ordinal: unknown) => {
+      if (!Number.isSafeInteger(ordinal) || (ordinal as number) < 0
+        || (ordinal as number) >= journal!.nextOrdinal || ordinals.has(ordinal as number)) return false;
+      ordinals.add(ordinal as number);
+      return true;
+    };
     let unresolved = 0;
-    for (const entry of operations) {
+    for (const [id, entry] of operations) {
       if (!entry || entry.generation !== lease.generation || !syncDigest.safeParse(entry.requestDigest).success
         || !['reserved', 'unknown', 'completed'].includes(entry.phase)) return false;
       if (entry.phase !== 'completed') {
@@ -1764,13 +1784,14 @@ export class OperatorActivity extends Agent {
         }
       }
       if (journal) {
-        if (!Number.isSafeInteger(entry.ordinal) || entry.ordinal! < 0 || ordinals.has(entry.ordinal!)) return false;
-        ordinals.add(entry.ordinal!);
+        const attempts = entry.inference?.attempt ?? entry.native?.attempt ?? 1;
+        if (attempts > 1) {
+          if (entry.phase !== 'completed' || applicationInferenceAttemptAccounting(
+            entries, lease.generation, id, entry, journal.count, charge)) return false;
+        } else if (!charge(entry.ordinal)) return false;
       }
     }
-    return journal ? journal.generation === lease.generation && journal.count === operations.length
-      && journal.nextOrdinal === operations.length && journal.unresolved === unresolved
-      && [...ordinals].every(ordinal => ordinal < journal.nextOrdinal) : !!aggregate;
+    return journal ? journal.count === ordinals.size && journal.unresolved === unresolved : !!aggregate;
   }
 
   /** Retired business entrypoint. New callers use the generic proof/fence pair. */

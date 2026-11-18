@@ -10,9 +10,9 @@
 // bisync ran, how its exit code was classified, and that the EXIT-trap
 // re-entry is a no-op — so gutting the handler fails these tests.
 //
-// Declarative wiring that cannot be executed (STOPSIGNAL in the Dockerfile
-// and the trap registration line) keeps small structural assertions. Rclone
-// flags run through the real sync functions with an argv-recording stub.
+// Dockerfile STOPSIGNAL keeps a small structural assertion. The real trap
+// registration runs in the shell fixture; rclone flags run through the real
+// sync functions with an argv-recording stub.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -123,13 +123,15 @@ function runBaselineTimeout() {
   return { result, sentinelExists };
 }
 
-/**
- * Run shutdown_once -> shutdown_handler in a real bash with stubbed
- * collaborators, mirroring production trap wiring (the EXIT trap re-fires
- * shutdown_once when the handler's `exit 0` runs, exercising the guard on
- * every invocation). Returns the effect log lines and the handler's stdout.
- */
-function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunning = false, rclonePolls = 0, initPid = '', terminalPid = '', operator = false, receiptRoot = null } = {}) {
+function shutdownTraps() {
+  const start = entrypoint.indexOf('\nSHUTDOWN_RAN=0\n');
+  const end = entrypoint.indexOf('\n# ============================================================================', start);
+  if (start === -1 || end === -1) throw new Error('Could not locate shutdown trap registration');
+  return entrypoint.slice(start, end);
+}
+
+/** Execute production EXIT and signal traps with isolated cleanup effects. */
+function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunning = false, rclonePolls = 0, initPid = '', terminalPid = '', operator = false, receiptRoot = null, termination = 'exit 0', errexit = false } = {}) {
   const fixture = mkdtempSync(join(tmpdir(), 'shutdown-'));
   const logFile = join(fixture, 'effects.log');
   const outFile = join(fixture, 'handler.out');
@@ -141,6 +143,7 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
   if (bisyncInitialized) writeFileSync(bisyncSentinel, '');
 
   const script = [
+    errexit ? 'set -euo pipefail' : '',
     'exec > "$OUT_FILE" 2>&1',
     'LOG="$LOG_FILE"',
     'walk_kill() { echo "walk_kill:$1:$2" >> "$LOG"; }',
@@ -161,10 +164,8 @@ function runShutdown({ bisyncInitialized = true, bisyncRc = 0, rcloneStillRunnin
     `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
     `CODEFLARE_OPERATOR_SESSION='${operator ? 'true' : ''}'`,
     extractFunction('shutdown_handler'),
-    extractFunction('shutdown_once'),
-    'SHUTDOWN_RAN=0',
-    'trap shutdown_once EXIT',
-    'shutdown_once',
+    shutdownTraps(),
+    termination,
   ].join('\n');
 
   if (receiptRoot) {
@@ -210,27 +211,47 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
   });
 
   it('REQ-OPS-010 AC2: the container entrypoint trap handler catches SIGINT/SIGTERM signals', () => {
-    // Registering ONE function for a signal trap and for EXIT runs it twice per
-    // shutdown: bash's re-entry guard is per-trap and the handler ends in
-    // `exit 0`. So the trap must name a guarded wrapper, not the handler.
-    const trap = entrypoint.match(/^trap (\S+) (.*)$/m);
-    assert.ok(trap, 'entrypoint.sh must register a shutdown trap');
-    for (const sig of ['SIGTERM', 'SIGINT', 'EXIT']) {
-      assert.ok(trap[2].includes(sig), `the shutdown trap must cover ${sig}`);
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      const { result, log, out } = runShutdown({
+        termination: `false || builtin kill -s ${signal} "$$"`,
+        terminalPid: '12345',
+        errexit: true,
+      });
+      assert.equal(result.status, 0, out);
+      assert.equal(log.filter((line) => line === 'bisync_with_r2').length, 1);
+      assert.ok(log.indexOf('bisync_with_r2') < log.indexOf('kill:12345'));
+      assert.match(out, /Shutdown complete/);
     }
-    assert.notEqual(
-      trap[1],
-      'shutdown_handler',
-      'the handler is trapped directly on both a signal and EXIT, so it runs twice; trap a guarded wrapper instead'
-    );
+  });
 
-    // Behavioral: the EXIT trap re-fires shutdown_once when the handler's
-    // `exit 0` runs. The guard must make that second entry a no-op — a second
-    // handler pass would clear the bisync lock left by a SIGKILLed rclone and
-    // start a FRESH sync inside the last seconds of the shutdown budget.
-    const { log } = runShutdown({ bisyncInitialized: true });
-    const bisyncRuns = log.filter((line) => line === 'bisync_with_r2');
-    assert.equal(bisyncRuns.length, 1, `the guarded handler must run exactly once (saw ${bisyncRuns.length} bisync runs)`);
+  it('REQ-OPS-010: fatal startup status survives EXIT cleanup without skipping final sync', () => {
+    for (const termination of ['false', 'exit 37']) {
+      const { result, log, out } = runShutdown({ termination, terminalPid: '12345', errexit: true });
+      assert.equal(result.status, termination === 'false' ? 1 : 37, out);
+      assert.equal(log.filter((line) => line === 'bisync_with_r2').length, 1);
+      assert.ok(log.indexOf('bisync_with_r2') < log.indexOf('kill:12345'));
+      assert.match(out, /Shutdown complete/);
+    }
+  });
+
+  it('REQ-OPS-010: fatal startup before the baseline still tears down without syncing', () => {
+    const { result, log, out } = runShutdown({
+      termination: 'exit 37', bisyncInitialized: false, terminalPid: '12345', errexit: true,
+    });
+    assert.equal(result.status, 37, out);
+    assert.ok(!log.includes('bisync_with_r2'));
+    assert.ok(log.includes('kill:12345'));
+    assert.match(out, /Shutdown complete/);
+  });
+
+  it('REQ-OPS-010: failed final sync is reported and fatal startup status still survives cleanup', () => {
+    const { result, log, out } = runShutdown({
+      termination: 'exit 37', bisyncRc: 7, terminalPid: '12345', errexit: true,
+    });
+    assert.equal(result.status, 37, out);
+    assert.ok(log.includes('kill:12345'));
+    assert.match(out, /Final bisync failed with rc=7/);
+    assert.match(out, /Shutdown complete/);
   });
 
   it('REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files', () => {

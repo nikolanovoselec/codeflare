@@ -802,6 +802,12 @@ Retained admission/receiver digests, labels and inner failure stages remain pair
 
 Legacy preserved-clause and contract-detail fragment aliases above now lead to their durable concern owners; they do not collect campaign histories. Concrete Registry records/API/Dispatcher wire/host obligations remain in the [normative Operators appendix](../../sdd/spec/operators.md#operator-registry-contract). Requirement status and historical proof remain in original verification records; this consolidation does not upgrade incomplete live identity/egress/R2/restore/settlement/physical cleanup/Action/publication/visual acceptance. It authorizes no activation, deploy, pin or ABI change.
 
+### Protected publication and reassessment
+
+The [Conductor guide](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/documentation/review.md#publication-format-and-evidence) owns publication format and Review outcome policy. Root retains the compatibility publisher in `scripts/operator-boundary-action.mjs::publishBoundaryResult`; its adapter tests cover exact identities, unresolved findings and stale revisions. This ownership split does not establish deployed Conductor publication or genuine protected-Action credential isolation ([REQ-OPERATOR-056](../../sdd/spec/operators.md#req-operator-056-independent-review-publication)).
+
+The [Conductor reassessment contract](https://github.com/nikolanovoselec/codeflare-operator-conductor/blob/develop/sdd/spec/conductor.md#req-conductor-007-authenticated-independent-reassessment) owns next-round resolution. Root validates retained finding references; the compiled fixture and simulated external reviewer outputs do not establish native or hosted reviewer acceptance ([REQ-OPERATOR-074](../../sdd/spec/operators.md#req-operator-074-finding-linked-rejection-and-independent-reassessment)).
+
 ### Dispatcher inference recovery constraints
 
 - The admitted limit defaults to4 including the initial attempt and never resets; successors may duplicate paid model work without exactly-once upstream guarantees. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: attempt limit %i includes the initial request and cannot be replenished by delivery) -->

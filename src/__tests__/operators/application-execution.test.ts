@@ -372,6 +372,40 @@ async function terminal(f: Fixture) {
   return { state, lease, result, checkpoint };
 }
 
+async function seedCompletedRetry(f: Fixture, kind: 'managed' | 'native') {
+  const firstKey = 'dispatcher:inference-attempt:1:model:1';
+  const lastKey = 'dispatcher:inference-attempt:1:model:2';
+  const firstBody = JSON.stringify({ error: { type: 'server_error' } });
+  const lastBody = JSON.stringify({ choices: [{ finish_reason: 'stop' }] });
+  const firstDigest = createHash('sha256').update(firstBody).digest('hex');
+  const lastDigest = createHash('sha256').update(lastBody).digest('hex');
+  const firstResponse = kind === 'managed' ? `${firstKey}:response` : 'dispatcher:native-response:native-first';
+  const lastResponse = kind === 'managed' ? 'dispatcher:response:model' : 'dispatcher:native-response:native-last';
+  const binding = { resource: 'inference', submissionId: 'original-submission', deliveryToken: 'original-token' };
+  const wireDigest = hash('original-wire');
+  const operation = { generation: 1, ordinal: kind === 'managed' ? 0 : 1, phase: 'completed',
+    requestDigest: hash('model'), responseDigest: lastDigest, deliveryBinding: binding,
+    ...(kind === 'managed' ? { inference: { version: 1, attempt: 2 } }
+      : { native: { handle: 'native-last', profileDigest: hash('profile'), attempt: 2,
+        phase: 'committed', outcome: 'completed', wireDigest, deliveryToken: binding.deliveryToken } }) };
+  const first = { index: 1, ordinal: 0, phase: 'completed', notBefore: 0, classification: 'retryable',
+    responseKey: firstResponse, responseDigest: firstDigest, ...(kind === 'managed' ? { successor: 2 } : {}) };
+  const last = { index: 2, ordinal: 1, phase: 'completed', notBefore: 0, classification: 'usable',
+    responseKey: lastResponse, responseDigest: lastDigest };
+  await f.native.storage.put({
+    'dispatcher:journal': { generation: 1, count: 2, nextOrdinal: 2, unresolved: 0 },
+    'dispatcher:operation:1:model': operation, [firstKey]: first, [lastKey]: last,
+    [firstResponse]: { status: 503, contentType: 'application/json', body: firstBody, sha256: firstDigest },
+    [lastResponse]: { status: 200, contentType: 'application/json', body: lastBody, sha256: lastDigest },
+    ...(kind === 'native' ? {
+      'dispatcher:native-handle:native-first': { generation: 1, operationId: 'model', deliveryToken: binding.deliveryToken },
+      'dispatcher:native-handle:native-last': { generation: 1, operationId: 'model', deliveryToken: binding.deliveryToken },
+      [`dispatcher:native-wire:1:${binding.deliveryToken}:${wireDigest}`]: 'model',
+    } : {}),
+  });
+  return { firstKey, lastKey, first, last };
+}
+
 describe('generic completed facts are original SDK settlement, not application policy', () => {
   it('returns opaque original result/checkpoint only with exact collection and settlement, without retiring or driving', () => fixture(async f => {
     const saved = await terminal(f);
@@ -385,6 +419,54 @@ describe('generic completed facts are original SDK settlement, not application p
     expect(await f.native.storage.list()).toEqual(before);
     expect(f.unsafe).toEqual([]);
   }));
+
+  it.each(['managed', 'native'] as const)(
+    'REQ-OPERATOR-211 AC4: completed %s inference retries retain readable original execution facts', kind => fixture(async f => {
+      const saved = await terminal(f);
+      await seedCompletedRetry(f, kind);
+      const before = await f.native.storage.list();
+      expect(await f.activity.readApplicationExecutionFacts(f.authority)).toMatchObject({
+        status: 'value', activityId: f.activityId, settled: true, collected: true,
+        result: saved.result, checkpoint: saved.checkpoint, unknownEffects: false,
+      });
+      expect(await f.native.storage.list()).toEqual(before);
+    }));
+
+  it.each(['managed', 'native'] as const)(
+    'REQ-OPERATOR-211 AC4: completed %s retry facts still permit a retained unresolved read', kind => fixture(async f => {
+      const saved = await terminal(f);
+      await seedCompletedRetry(f, kind);
+      await f.native.storage.put({
+        'dispatcher:operation:1:read': { generation: 1, ordinal: 2, phase: 'unknown', requestDigest: hash('read'),
+          request: { method: 'GET', url: 'https://api.github.com/repos/acme/updates' } },
+        'dispatcher:journal': { generation: 1, count: 3, nextOrdinal: 3, unresolved: 1 },
+      });
+      expect(await f.activity.readApplicationExecutionFacts(f.authority)).toMatchObject({ status: 'value', result: saved.result });
+    }));
+
+  it.each(['managed', 'native'].flatMap(kind =>
+    ['missing-attempt', 'duplicate-charge', 'unsettled-attempt', 'wrong-response', 'foreign-attempt', 'uncertain-write']
+      .map(fault => ({ kind: kind as 'managed' | 'native', fault }))))(
+    'REQ-OPERATOR-211 AC4: $kind retry with $fault cannot certify completed execution', ({ kind, fault }) => fixture(async f => {
+      await terminal(f);
+      const retry = await seedCompletedRetry(f, kind);
+      if (fault === 'missing-attempt') await f.native.storage.delete(retry.firstKey);
+      if (fault === 'duplicate-charge') await f.native.storage.put(retry.lastKey, { ...retry.last, ordinal: 0 });
+      if (fault === 'unsettled-attempt') await f.native.storage.put(retry.firstKey, { ...retry.first, phase: 'in-flight' });
+      if (fault === 'wrong-response') await f.native.storage.put(retry.lastKey, { ...retry.last, responseDigest: hash('foreign') });
+      if (fault === 'foreign-attempt') {
+        await f.native.storage.put('dispatcher:inference-attempt:2:model:1', retry.first);
+        await f.native.storage.delete(retry.firstKey);
+      }
+      if (fault === 'uncertain-write') await f.native.storage.put({
+        'dispatcher:operation:1:write': { generation: 1, ordinal: 2, phase: 'unknown', requestDigest: hash('write'),
+          request: { method: 'POST', url: 'https://api.github.com/repos/acme/updates/issues/1/comments' } },
+        'dispatcher:journal': { generation: 1, count: 3, nextOrdinal: 3, unresolved: 1 },
+      });
+      const before = await f.native.storage.list();
+      expect(await f.activity.readApplicationExecutionFacts(f.authority)).toEqual({ status: 'unavailable' });
+      expect(await f.native.storage.list()).toEqual(before);
+    }));
 
   it.each(['uncollected', 'unsettled', 'wrong-submission', 'foreign-generation', 'foreign-release', 'foreign-input',
     'future-terminal', 'missing-result', 'changed-result', 'wrong-wire', 'unknown-write', 'unknown-kind',

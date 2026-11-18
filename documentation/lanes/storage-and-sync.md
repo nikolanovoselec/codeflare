@@ -160,6 +160,8 @@ This host upload plus independent R2 readback provides implemented persistence m
 
 The generated writes in step 2 settle before the baseline so they do not create immediate post-baseline hash/mtime mismatches.
 
+Settings assembly recreates its parent directory if restore left it absent, then preserves the normal existing-settings merge ([REQ-AGENT-099](../../sdd/spec/agents.md#req-agent-099-agent-settings-and-plugins-assembled-at-container-start)). Fatal startup still runs shutdown cleanup without converting its nonzero exit status into success; graceful signals retain their ordinary successful exit ([REQ-OPS-010](../../sdd/spec/operations.md#req-ops-010-graceful-container-shutdown-preserves-data)). <!-- @impl: entrypoint.sh::SETTINGS_FILE --> <!-- @impl: entrypoint.sh::shutdown_once -->
+
 ### Session capture compaction (REQ-STOR-052)
 
 The entrypoint's existing bisync lifecycle always owns the daily UTC compaction sequence; no agent, feature flag, or second scheduler controls it. `scripts/compact-session-captures.mjs` writes deterministic `Vault/Raw/Sessions/Archive.md`, then removes only the exact unchanged cold captures recorded in its local manifest. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::main -->

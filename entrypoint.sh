@@ -2129,6 +2129,7 @@ drain_operator_sync_shutdown() {
 }
 
 shutdown_handler() {
+    local exit_status="${1:-0}"
     SHUTDOWN_STARTED_AT=$(date +%s)
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
 
@@ -2167,7 +2168,7 @@ shutdown_handler() {
         fi
         SHUTDOWN_ELAPSED=$(( $(date +%s) - SHUTDOWN_STARTED_AT ))
         echo "[entrypoint] Shutdown complete (elapsed: ${SHUTDOWN_ELAPSED}s)"
-        exit 0
+        exit "$exit_status"
     fi
 
     # walk_kill only sends TERM; it does not reap. If the daemon's rclone bisync
@@ -2189,7 +2190,8 @@ shutdown_handler() {
             if [ -n "$TERMINAL_PID" ]; then
                 kill "$TERMINAL_PID" 2>/dev/null || true
             fi
-            exit 1
+            if [ "$exit_status" -eq 0 ]; then exit_status=1; fi
+            exit "$exit_status"
         fi
         sleep 0.1
         QUIESCE_DECIS=$((QUIESCE_DECIS + 1))
@@ -2251,10 +2253,12 @@ shutdown_handler() {
           kill_subtree KILL "$BISYNC_PID"
         ) &
         WATCHDOG_PID=$!
-        wait "$BISYNC_PID" 2>/dev/null
-        BISYNC_RC=$?
-        kill "$WATCHDOG_PID" 2>/dev/null
-        wait "$WATCHDOG_PID" 2>/dev/null
+        # A failed sync must reach classification and terminal cleanup under
+        # set -e; stopping/reaping its watchdog can also return nonzero.
+        BISYNC_RC=0
+        wait "$BISYNC_PID" 2>/dev/null || BISYNC_RC=$?
+        kill "$WATCHDOG_PID" 2>/dev/null || true
+        wait "$WATCHDOG_PID" 2>/dev/null || true
         # Bash reports 143 (128 + SIGTERM) or 137 (128 + SIGKILL) when
         # the watchdog fired - surface that as a timeout in the log.
         if [ "$BISYNC_RC" -eq 0 ]; then
@@ -2275,13 +2279,13 @@ shutdown_handler() {
 
     SHUTDOWN_ELAPSED=$(( $(date +%s) - SHUTDOWN_STARTED_AT ))
     echo "[entrypoint] Shutdown complete (elapsed: ${SHUTDOWN_ELAPSED}s)"
-    exit 0
+    exit "$exit_status"
 }
 
 # Set up shutdown trap.
 #
 # Registering one function for a signal trap AND for EXIT runs it TWICE: bash's
-# re-entry guard is per-trap, so the `exit 0` at the end of the handler fires the
+# re-entry guard is per-trap, so the `exit` at the end of the handler fires the
 # EXIT trap, which is the same function. That is not cosmetic here. Pass 1 runs
 # the final bisync under the 108s+12s watchdog; if it hits the watchdog, rclone
 # is SIGKILLed leaving a stale lock, and pass 2 — seeing $CODEFLARE_RUNTIME_ROOT/sync/bisync-initialized
@@ -2292,13 +2296,16 @@ shutdown_handler() {
 # The guard makes the second entry a no-op regardless of which trap fires first.
 SHUTDOWN_RAN=0
 shutdown_once() {
+    local exit_status="${1:-0}"
     if [ "$SHUTDOWN_RAN" = "1" ]; then
         return 0
     fi
     SHUTDOWN_RAN=1
-    shutdown_handler
+    shutdown_handler "$exit_status"
 }
-trap shutdown_once SIGTERM SIGINT EXIT
+# Graceful signals exit successfully; EXIT must retain a fatal startup status.
+trap 'shutdown_once 0' SIGTERM SIGINT
+trap 'shutdown_once "$?"' EXIT
 
 # ============================================================================
 # Helper function to update sync status file (read by health server)
@@ -4639,6 +4646,8 @@ SETTINGS_CONFIG=$(printf '%s' "$SETTINGS_CONFIG" | jq --argjson notify "$HERDR_N
 ')
 
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
+# R2 restore can remove the empty directory created before synchronization.
+mkdir -p "$USER_CLAUDE_DIR"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
     JQ_ERR=$(mktemp)

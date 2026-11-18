@@ -135,8 +135,6 @@ export async function monitorCi({
     head = currentHead;
   }
   const base = { repo, pr, head };
-  let fingerprint = '';
-  let stablePolls = 0;
 
   while (remainingMs() > 0) {
     const beforeHead = await readHead({ repo, pr, runner, ...commandOptions() });
@@ -176,30 +174,14 @@ export async function monitorCi({
           return summary('timeout', { ...base, reason: 'superseded', currentHead: afterHead });
         }
         if (!afterHead) {
-          fingerprint = '';
-          stablePolls = 0;
           await waitForPoll();
           continue;
         }
-        const nextFingerprint = rows
-          .map((row) => [row.bucket, row.name, row.workflow, row.state, row.link].map(clean).join('\u0000'))
-          .sort()
-          .join('\u0001');
-        stablePolls = nextFingerprint === fingerprint ? stablePolls + 1 : 1;
-        fingerprint = nextFingerprint;
-        if (stablePolls >= 2) {
-          const failing = rows.filter((row) => ['fail', 'cancel'].includes(row.bucket));
-          return failing.length
-            ? summary('failure', { ...base, rows: failing })
-            : summary('success', { ...base, rows });
-        }
-      } else {
-        fingerprint = '';
-        stablePolls = 0;
+        const failing = rows.filter((row) => ['fail', 'cancel'].includes(row.bucket));
+        return failing.length
+          ? summary('failure', { ...base, rows: failing })
+          : summary('success', { ...base, rows });
       }
-    } else {
-      fingerprint = '';
-      stablePolls = 0;
     }
 
     await waitForPoll();
