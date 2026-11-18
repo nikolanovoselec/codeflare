@@ -27,6 +27,9 @@ const ownerScript = `
     if (config.replaceReceipt) fs.writeFileSync(config.ownersDir + '/' + process.pid + '.json', '{"changed":true}');
     setTimeout(() => {
       fs.writeFileSync(config.marker, config.markdown);
+      if (config.acknowledge !== false && !config.replaceReceipt) {
+        fs.unlinkSync(config.ownersDir + '/' + process.pid + '.json');
+      }
       process.exit(0);
     }, config.delayMs);
   });
@@ -138,6 +141,7 @@ describe('REQ-MEM-035 AC7: bounded foreground owner shutdown', { timeout: 10_000
       assert.equal(fs.readFileSync(owner.term, 'utf8'), 'SIGTERM');
       assert.equal(fs.readFileSync(owner.marker, 'utf8'), MARKDOWN);
       assert.equal(alive(owner.pid), false, 'writing alone is not completion: owner must exit');
+      assert.equal(fs.existsSync(owner.receipt), false, 'the final shutdown handler acknowledged completion');
     }
     assertNotSignalled(unrelated);
     assert.equal(alive(first.relatedPid), true, 'the owner descendant is not a shutdown target');
@@ -156,6 +160,30 @@ describe('REQ-MEM-035 AC7: bounded foreground owner shutdown', { timeout: 10_000
     assert.deepEqual(await shutdownPiMemoryOwners(f.ownersDir, Date.now() + 2000), { status: 'exited', count: 1 });
     assert.equal(fs.readFileSync(owner.marker, 'utf8'), MARKDOWN);
     assert.equal(fs.existsSync(stale.marker), false);
+  });
+
+  it('REQ-MEM-035: AC7 an owner killed during its final write cannot confirm capture', async t => {
+    const f = fixture(t);
+    const owner = await f.owner('interrupted', { delayMs: 5000 });
+    owner.register();
+    const shutdown = shutdownPiMemoryOwners(f.ownersDir, Date.now() + 2000);
+    await waitFor(() => fs.existsSync(owner.term), 'owner did not begin graceful shutdown');
+    owner.child.kill('SIGKILL');
+
+    assert.deepEqual(await shutdown, { status: 'unconfirmed' });
+    assert.equal(fs.existsSync(owner.marker), false, 'interrupted capture did not finish');
+    assert.deepEqual(JSON.parse(fs.readFileSync(owner.receipt, 'utf8')), owner.identity);
+  });
+
+  it('REQ-MEM-035: AC7 exit without a shutdown acknowledgement remains unconfirmed', async t => {
+    const f = fixture(t);
+    const owner = await f.owner('unacknowledged', { acknowledge: false });
+    owner.register();
+
+    assert.deepEqual(await shutdownPiMemoryOwners(f.ownersDir, Date.now() + 2000), { status: 'unconfirmed' });
+    assert.equal(alive(owner.pid), false);
+    assert.equal(fs.readFileSync(owner.marker, 'utf8'), MARKDOWN, 'writing alone cannot acknowledge the full shutdown');
+    assert.deepEqual(JSON.parse(fs.readFileSync(owner.receipt, 'utf8')), owner.identity);
   });
 
   for (const mismatch of ['start-time', 'process-name', 'filename-pid']) {

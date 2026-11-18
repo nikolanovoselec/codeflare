@@ -54,13 +54,15 @@ function sameOwner(owner: Owner): boolean {
   return true;
 }
 
-function unchangedReceipt(owner: Owner): void {
+function unchangedReceipt(owner: Owner): boolean {
   try {
     const current = receipt(owner.receipt);
     if (current.pid !== owner.pid || current.startTime !== owner.startTime) throw new Error('owner receipt changed');
+    return true;
   } catch (error) {
     // The owner's final shutdown handler removes its own receipt before exit.
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
 }
 
@@ -97,8 +99,10 @@ export async function shutdownPiMemoryOwners(ownersDir: string, deadline: number
     let pending = owners;
     for (;;) {
       pending = pending.filter(owner => {
-        unchangedReceipt(owner);
-        return sameOwner(owner);
+        const running = sameOwner(owner);
+        const unacknowledged = unchangedReceipt(owner);
+        if (!running && unacknowledged) throw new Error('owner exited without acknowledging shutdown');
+        return running;
       });
       if (!pending.length) return { status: 'exited', count: owners.length };
       const remaining = stopAt - Date.now();

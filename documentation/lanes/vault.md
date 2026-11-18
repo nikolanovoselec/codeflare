@@ -542,7 +542,7 @@ Implements [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-conte
 
 ### Durable Pi facts
 
-Advanced Pi uses the pinned, unmodified `pi-hermes-memory` package behind a Codeflare foreground adapter ([REQ-MEM-035](../../sdd/spec/memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search), [REQ-MEM-036](../../sdd/spec/memory.md#req-mem-036-fresh-bounded-pi-fact-context-on-every-request)). Default mode is unchanged. The normal shadow-pin updater includes Hermes and qualifies its candidate before opening a bump PR.
+Advanced Pi uses the pinned, unmodified `pi-hermes-memory` package behind a Codeflare foreground adapter ([REQ-MEM-035](../../sdd/spec/memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search), [REQ-MEM-036](../../sdd/spec/memory.md#req-mem-036-fresh-bounded-pi-fact-context-on-every-request)). Default mode is unchanged.
 
 | Content | Canonical location |
 |---|---|
