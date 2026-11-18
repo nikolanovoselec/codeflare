@@ -9,7 +9,6 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - Post-restore settings recreate a missing parent without discarding existing settings; fatal startup retains its exit status through final cleanup (REQ-AGENT-099 AC4; REQ-OPS-010 AC7).
 - Original execution readback accounts for charged managed/native inference attempts, not only logical operations. It preserves immutable result/receipt, owner, generation and unresolved-write fences (REQ-OPERATOR-211).
 - Pi CI monitoring reports the first non-empty all-terminal snapshot after rechecking the exact PR head; pending/unavailable checks and existing deadlines remain unchanged (REQ-AGENT-068/125).
-- Separate REQ-OPERATOR-061 acknowledgement, queued-only fencing and replacement-proof criteria; retain metadata rules under REQ-OPERATOR-209 AC1 and private-projection rules under REQ-OPERATOR-211 AC5. Normalize documentation pointers and linked verification methods without promoting qualification status.
 
 ## 2026-11-17: Durable-buffer raw receipts and replacement cleanup (planned)
 

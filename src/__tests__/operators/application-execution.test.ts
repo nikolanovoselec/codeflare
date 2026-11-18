@@ -968,7 +968,7 @@ describe('Root-owned individual delivery facts', () => {
     }));
 });
 
-// REQ-OPERATOR-061 AC6 / 210 AC3: Registry passes the requester separately
+// REQ-OPERATOR-211 AC5 / 210 AC3: Registry passes the requester separately
 // from the original immutable owner. That internal proof port is not a private
 // history read and must never impersonate the requester as the old owner.
 describe('owner-neutral original proof and owner-private reads', () => {

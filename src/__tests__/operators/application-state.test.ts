@@ -42,7 +42,7 @@ async function seed(storage: DurableObjectStorage) {
 // Registry recovery transaction (covered in registry-application-recovery.test)
 // can authorize vacancy. Application JSON alone must never do so.
 describe('application state refuses unverified release and foreign evidence', () => {
-  // REQ-OPERATOR-061 AC6: coordination is an explicit additive wire field,
+  // REQ-OPERATOR-211 AC5: coordination is an explicit additive wire field,
   // not an instruction to expose or replace the private value.
   it.each([null, false, 0, 'processed', ['safe', 1], { state: 'processed', outcome: 'NOT_MERGED' }].map(coordination => ({ coordination })))(
     'accepts explicit JSON coordination $coordination without changing the owner-private read contract', ({ coordination }) => fixture(async f => {
