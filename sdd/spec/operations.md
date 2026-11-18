@@ -642,15 +642,19 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
 7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, browser-run-mcp, uv, Go, Rust, GitHub CLI, rclone/gRPC/compress, image security overlays, k6, Trivy, security floors and governed CI Node patches each have a release-check job or matrix. <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::updateShadowImagePins --> <!-- @impl: scripts/ci/update-npm-security-pins.mjs::updateNpmSecurityPins --> <!-- @test: host/__tests__/shadow-image-pin-update.test.js (REQ-OPS-020 AC4: rclone source checksum invalidates while matching CI archive remains authenticated) --> <!-- @test: host/__tests__/npm-security-pin-update.test.js (REQ-OPS-020: atomic Undici 7 overlay/floor/override candidate preserves separate major and unrelated packages) --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::uv --> <!-- @manual -->
 
-**Notes:** Third-party release execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md); owned updater boundaries are automated where listed.
+**Notes:** Release qualification procedures are documented in the [CI/CD lane](../../documentation/lanes/ci-cd.md).
 
-**Constraints:** The owned Browser IDE extension's npm dependencies remain Dependabot-owned.
+**Constraints:**
+
+- The owned Browser IDE extension's npm dependencies remain Dependabot-owned.
+- Configured release-metadata credentials go only to the GitHub API, never public archive or checksum downloads. <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::request --> <!-- @test: host/__tests__/shadow-image-pin-resolution.test.js (REQ-OPS-020: GitHub release metadata uses the configured token rather than anonymous rate limits) --> <!-- @test: host/__tests__/shadow-image-pin-resolution.test.js (REQ-OPS-020: release metadata authentication never reaches public checksum downloads) -->
+- GitHub CLI support files and the rebuilt executable advance together with the exact source commit, digest and build epoch. <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::updateShadowImagePins --> <!-- @test: host/__tests__/shadow-image-pin-update.test.js (REQ-OPS-020: GitHub CLI support package and rebuilt runtime advance together) -->
 
 **Priority:** P2
 
 **Dependencies:** None.
 
-**Verification:** Manual: [Shadow pin acceptance record inspection](../../documentation/lanes/ci-cd.md#shadow-pin-acceptance-record-inspection)
+**Verification:** Automated: [shadow-image-pin-resolution.test.js](../../host/__tests__/shadow-image-pin-resolution.test.js), [shadow-image-pin-update.test.js](../../host/__tests__/shadow-image-pin-update.test.js); Manual: [Shadow pin acceptance record inspection](../../documentation/lanes/ci-cd.md#shadow-pin-acceptance-record-inspection)
 
 **Status:** Implemented
 

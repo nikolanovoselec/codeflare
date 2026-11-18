@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { strictSemverUpgrade } from './semver-forward.mjs';
 
 const PINS = '.github/workflow-tool-pins.json';
@@ -105,10 +106,23 @@ export function updateShadowImagePins(files, id, current, candidate) {
     }
     case 'grpc': docker = once(docker, /google\.golang\.org\/grpc@v\d+\.\d+\.\d+/, `google.golang.org/grpc@v${version}`, id); break;
     case 'compress': docker = once(docker, /github\.com\/klauspost\/compress@v\d+\.\d+\.\d+/, `github.com/klauspost/compress@v${version}`, id); break;
-    case 'github-cli':
+    case 'github-cli': {
+      const { sourceCommit, sourceSha256, sourceEpoch } = candidate;
+      if (!/^[a-f0-9]{40}$/.test(sourceCommit ?? '') || !HASH.test(sourceSha256 ?? '')
+        || !Number.isSafeInteger(sourceEpoch) || sourceEpoch <= 0) throw new Error('GitHub CLI source identity is required');
+      const block = match(docker, /FROM rclone-builder AS gh-builder[\s\S]*?(?=\n# ----)/, 'GitHub CLI source builder')[0];
+      let updated = once(block, /https:\/\/codeload\.github\.com\/cli\/cli\/tar\.gz\/[a-f0-9]{40}/,
+        `https://codeload.github.com/cli/cli/tar.gz/${sourceCommit}`, 'GitHub CLI source commit');
+      updated = once(updated, /[a-f0-9]{64}(?=  \/tmp\/gh-src.tar.gz)/, sourceSha256, 'GitHub CLI source checksum');
+      updated = once(updated, /GH_VERSION=\d+\.\d+\.\d+-codeflare-xnet1 SOURCE_DATE_EPOCH=\d+/,
+        `GH_VERSION=${version}-codeflare-xnet1 SOURCE_DATE_EPOCH=${sourceEpoch}`, 'GitHub CLI build version');
+      docker = docker.replace(block, () => updated);
       docker = once(docker, /GH_VERSION="[^"]+"/, `GH_VERSION="${version}"`, id);
       docker = once(docker, /GH_SHA256="[a-f0-9]{64}"/, `GH_SHA256="${sha256}"`, `${id} checksum`);
+      docker = once(docker, /gh version \d+\.\d+\.\d+-codeflare-xnet1/,
+        `gh version ${version}-codeflare-xnet1`, 'GitHub CLI runtime version');
       break;
+    }
     case 'k6':
       next[K6] = once(once(files[K6], /default: '\d+\.\d+\.\d+'/, `default: '${version}'`, id), /default: '[a-f0-9]{64}'/, `default: '${sha256}'`, `${id} checksum`);
       break;
@@ -125,8 +139,24 @@ export function updateShadowImagePins(files, id, current, candidate) {
   return next;
 }
 async function request(url, json = false) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(30_000), headers: { 'user-agent': 'codeflare-shadow-pin-bot' } });
+  const token = new URL(url).origin === 'https://api.github.com' ? process.env.GH_TOKEN : undefined;
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(30_000),
+    headers: { 'user-agent': 'codeflare-shadow-pin-bot', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    ...(token ? { redirect: 'error' } : {}),
+  });
   if (!response.ok) throw new Error(`metadata request failed: ${response.status} ${url}`);
+  if (json === 'sha256') {
+    if (!response.body) throw new Error('source archive body missing');
+    const digest = createHash('sha256');
+    let bytes = 0;
+    for await (const chunk of response.body) {
+      bytes += chunk.byteLength;
+      if (bytes > 64 * 1024 * 1024) throw new Error('source archive exceeds 64 MiB');
+      digest.update(chunk);
+    }
+    return digest.digest('hex');
+  }
   return json ? response.json() : response.text();
 }
 function latestWithin(current, versions, patchOnly = false) {
@@ -182,6 +212,15 @@ export async function resolveCandidate(id, current) {
   const assetName = id === 'github-cli' ? `gh_${version}_linux_amd64.deb` : `k6-v${version}-linux-amd64.tar.gz`;
   const asset = release.assets.find(value => value.name === assetName);
   if (asset && /^sha256:[a-f0-9]{64}$/.test(asset.digest ?? '')) {
+    if (id === 'github-cli') {
+      const source = await request(`https://api.github.com/repos/cli/cli/commits/${encodeURIComponent(release.tag_name)}`, true);
+      const sourceEpoch = Date.parse(source.commit?.committer?.date) / 1000;
+      if (!/^[a-f0-9]{40}$/.test(source.sha ?? '') || !Number.isSafeInteger(sourceEpoch) || sourceEpoch <= 0) {
+        throw new Error('GitHub CLI release commit identity missing');
+      }
+      const sourceSha256 = await request(`https://codeload.github.com/cli/cli/tar.gz/${source.sha}`, 'sha256');
+      return { version, sha256: asset.digest.slice(7), sourceCommit: source.sha, sourceEpoch, sourceSha256 };
+    }
     return { version, sha256: asset.digest.slice(7) };
   }
   // Older k6 release assets predate GitHub's digest field. Keep publisher

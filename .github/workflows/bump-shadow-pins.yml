@@ -2907,6 +2907,7 @@ jobs:
         id: ver
         env:
           PIN: ${{ matrix.pin }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/ci/update-shadow-image-pins.mjs "$PIN" resolve >> "$GITHUB_OUTPUT"
       - name: Skip existing candidate branch
         if: steps.ver.outputs.skip != 'true'

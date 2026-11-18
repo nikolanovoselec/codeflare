@@ -55,11 +55,11 @@ RUN mkdir -p /out \
 # ---- Same gh release with the fixed HTML parser dependency (CVE-2026-78661) ----
 FROM rclone-builder AS gh-builder
 WORKDIR /src/gh
-RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/63837fb778d6a39f02be0ce76ff89f2bc8d74bdc" -o /tmp/gh-src.tar.gz && \
-    echo "1a64dc5be667fa8c6458c0e639292ee1a5e215854705db267882e1bcf865b335  /tmp/gh-src.tar.gz" | sha256sum -c - && \
+RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/e1219499a578b69e3437adaa31cd60614e23c802" -o /tmp/gh-src.tar.gz && \
+    echo "09bc3a29ab105e5cd36589550550ab6246711002b8f53a7237ce316e3482315c  /tmp/gh-src.tar.gz" | sha256sum -c - && \
     tar --strip-components=1 -xzf /tmp/gh-src.tar.gz && rm /tmp/gh-src.tar.gz && \
     go mod edit -require=golang.org/x/net@v0.62.0 && go mod tidy && \
-    GH_VERSION=2.103.3-codeflare-xnet1 SOURCE_DATE_EPOCH=1793037767 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
+    GH_VERSION=2.105.0-codeflare-xnet1 SOURCE_DATE_EPOCH=1794958518 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
     cp bin/gh /out/gh && \
     go version -m /out/gh | grep -E '^/out/gh: go1\.27\.4$' && \
     go version -m /out/gh | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' && \
@@ -88,14 +88,14 @@ RUN curl -fsSL https://static.rust-lang.org/dist/2026-11-12/rust-1.100.0-x86_64-
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
     && /tmp/rust-1.100.0-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
     && rm -rf /tmp/rust.tar.xz /tmp/rust-1.100.0-x86_64-unknown-linux-gnu
-COPY image/impeccable-engine.json image/impeccable-engine-4.8.0.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
+COPY image/impeccable-engine.json image/impeccable-engine-4.8.2.json image/impeccable-engine-4.8.0.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
 RUN <<'IMPECCABLE'
 set -eu
 export CARGO_TARGET_DIR=/tmp/impeccable-target
-for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine-4.5.0.json /tmp/impeccable-engine-4.6.0.json /tmp/impeccable-engine-4.7.0.json /tmp/impeccable-engine-4.8.0.json /tmp/impeccable-engine.json; do
-  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11","0.1.15","0.1.16","0.1.18","0.1.21"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256) || (p.version === "0.1.21" && (p.commit !== "fe45455d36ed14c85ece25c9b868344e55713352" || p.sha256 !== "36ebd8da4a2c6117202c9816634a05de6bcc3a55e6bba84d49e247bb7f06892b"))) throw new Error("Invalid Impeccable engine pin")' "$PIN"
+for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine-4.5.0.json /tmp/impeccable-engine-4.6.0.json /tmp/impeccable-engine-4.7.0.json /tmp/impeccable-engine-4.8.0.json /tmp/impeccable-engine-4.8.2.json /tmp/impeccable-engine.json; do
+  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11","0.1.15","0.1.16","0.1.18","0.1.21","0.1.24"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256) || (p.version === "0.1.21" && (p.commit !== "fe45455d36ed14c85ece25c9b868344e55713352" || p.sha256 !== "36ebd8da4a2c6117202c9816634a05de6bcc3a55e6bba84d49e247bb7f06892b")) || (p.version === "0.1.24" && (p.commit !== "6418f185eeceddda2cdb6ea93c5c58c7f319416e" || p.sha256 !== "8d3ee6b14fb5f19224825893b88288166ed732b378347098b8edcd818c6d6c2b"))) throw new Error("Invalid Impeccable engine pin")' "$PIN"
   VERSION=$(node -p 'require(process.argv[1]).version' "$PIN")
   COMMIT=$(node -p 'require(process.argv[1]).commit' "$PIN")
   SHA256=$(node -p 'require(process.argv[1]).sha256' "$PIN")
@@ -517,7 +517,7 @@ RUN GH_VERSION="2.105.0" && \
     rm /tmp/gh.deb /usr/bin/gh
 # Retain official support files; replace only the dependency-rebuilt executable.
 COPY --from=gh-builder /out/gh /usr/bin/gh
-RUN gh --version | grep -F "gh version 2.103.3-codeflare-xnet1"
+RUN gh --version | grep -F "gh version 2.105.0-codeflare-xnet1"
 
 # Privileged npm tools execute user code, hold OAuth tokens, or participate in
 # image builds. Install from one committed lock so exact package bytes and

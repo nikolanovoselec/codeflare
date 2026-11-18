@@ -73,7 +73,7 @@ def probe_module(source_root: Path, module_name: str) -> str:
     condition = conditions[0].replace("now_ms()", "now")
     version = tomllib.loads((source_root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     constants = ""
-    if version == "0.1.21":
+    if version in ("0.1.21", "0.1.24"):
         # Compile the actual reviewed upstream constant, not a probe substitute.
         declarations = re.findall(r"(?m)^const PAGE_CLOSED_GRACE_MS: f64 = [^;\n]+;$", serve)
         if declarations != ["const PAGE_CLOSED_GRACE_MS: f64 = 90000.0;"]:
@@ -158,7 +158,7 @@ def run(binary: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def verify_probe(binary: Path, expect_upstream_bugs: bool, engine_version: str) -> None:
     variant = "upstream" if expect_upstream_bugs else "patched"
-    legacy_upstream = expect_upstream_bugs and engine_version != "0.1.21"
+    legacy_upstream = expect_upstream_bugs and engine_version not in ("0.1.21", "0.1.24")
     for age, grace, closes in [
         (20000, 60000, legacy_upstream),
         (70000, 60000, not expect_upstream_bugs or legacy_upstream),
@@ -217,13 +217,15 @@ def main() -> None:
     if shutil.which("rustc") is None:
         raise RuntimeError("The CI runner must provide rustc")
 
-    # Keep the current 4.8.0 regression alongside the new candidate. Complete
+    # Keep the 4.8.0 and 4.8.2 regressions alongside the new candidate. Complete
     # native-binary gates for these and every legacy engine remain in Docker.
     for name, version, commit, digest in [
         ("impeccable-engine-4.8.0.json", "0.1.18", "f29cd24fdecfa5612e35e34c1c868d4a3fca930c",
          "1f243cc93a5ab530aac10dbae0e13447d356b2d4ca3cd990e59de36327ff2bc9"),
-        ("impeccable-engine.json", "0.1.21", "fe45455d36ed14c85ece25c9b868344e55713352",
+        ("impeccable-engine-4.8.2.json", "0.1.21", "fe45455d36ed14c85ece25c9b868344e55713352",
          "36ebd8da4a2c6117202c9816634a05de6bcc3a55e6bba84d49e247bb7f06892b"),
+        ("impeccable-engine.json", "0.1.24", "6418f185eeceddda2cdb6ea93c5c58c7f319416e",
+         "8d3ee6b14fb5f19224825893b88288166ed732b378347098b8edcd818c6d6c2b"),
     ]:
         pin = json.loads((root / "image" / name).read_text())
         if pin != {"version": version, "commit": commit, "sha256": digest}:

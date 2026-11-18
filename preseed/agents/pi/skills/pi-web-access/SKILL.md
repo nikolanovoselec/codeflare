@@ -37,6 +37,11 @@ Pick by intent, not habit:
 - Node fetch remains default. `fetchContent.curl` is an optional configured executable, not a tool argument or permission to install/enable a bypass. Preserve public-URL checks, redirect/proxy protections and authorized browser fallback; never bypass login or enterprise egress.
 - Snippets marked `[provider summary, not page text]` are indirect evidence, not page quotations. PDF fetch now returns extracted text; use bounded `get_search_content` pages for long results.
 
+## 0.47.0 compatibility
+
+- Leave the tool's `proxy` argument unset unless the user explicitly requests a permitted override. A configured `lockProxy` is an administrator boundary: never clear or change the locked proxy to work around authentication, routing, or access failures.
+- Sofya and Outcrawl are explicit opt-ins, not automatic fallback providers. Preserve existing provider selection and authorization for external disclosure or cost; their availability grants neither.
+
 ## Notes
 
 - Public URLs only. Never point web tools at `localhost`, private IPs, internal hosts, or anything needing the user's session/credentials.

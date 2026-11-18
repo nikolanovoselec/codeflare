@@ -35,7 +35,9 @@ test('REQ-OPS-020: release version/digest/date pairs change atomically without t
   const before = inputs();
   for (const [id, version] of [['go', '1.999.0'], ['rust', '1.999.0'], ['github-cli', '2.999.0'], ['k6', '0.999.0']]) {
     const current = currentImagePin(before, id);
-    const next = updateShadowImagePins(before, id, current, { version, sha256: digest, date: '2026-10-01' });
+    const source = id === 'github-cli'
+      ? { sourceCommit: 'b'.repeat(40), sourceSha256: 'c'.repeat(64), sourceEpoch: 1790812800 } : {};
+    const next = updateShadowImagePins(before, id, current, { version, sha256: digest, date: '2026-10-01', ...source });
     assert.equal(currentImagePin(next, id), version);
     assert.equal(next[pinsPath], before[pinsPath]);
     assert.ok((id === 'k6' ? next[k6Path] : next.Dockerfile).includes(digest), `${id} carries authoritative candidate checksum`);
@@ -47,6 +49,21 @@ test('REQ-OPS-020: release version/digest/date pairs change atomically without t
     assert.equal(next[pinsPath], before[pinsPath]);
     assert.equal(next[k6Path], before[k6Path]);
   }
+});
+
+test('REQ-OPS-020: GitHub CLI support package and rebuilt runtime advance together', () => {
+  const before = inputs();
+  const current = currentImagePin(before, 'github-cli');
+  const source = { sourceCommit: 'b'.repeat(40), sourceSha256: 'c'.repeat(64), sourceEpoch: 1790812800 };
+  const next = updateShadowImagePins(before, 'github-cli', current, { version: '2.999.0', sha256: digest, ...source });
+  assert.ok(next.Dockerfile.includes(`cli/cli/tar.gz/${source.sourceCommit}`));
+  assert.ok(next.Dockerfile.includes(`${source.sourceSha256}  /tmp/gh-src.tar.gz`));
+  assert.ok(next.Dockerfile.includes('GH_VERSION=2.999.0-codeflare-xnet1 SOURCE_DATE_EPOCH=1790812800'));
+  assert.ok(next.Dockerfile.includes('gh version 2.999.0-codeflare-xnet1'));
+  assert.ok(next.Dockerfile.includes('go mod edit -require=golang.org/x/net@v0.62.0'));
+  assert.throws(() => updateShadowImagePins(before, 'github-cli', current,
+    { version: '2.999.0', sha256: digest }), /source identity/);
+  assert.deepEqual(before, inputs());
 });
 
 test('REQ-OPS-020: CI-only pins update data rather than executable workflows; Node remains patch-only', () => {

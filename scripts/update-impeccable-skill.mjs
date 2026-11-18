@@ -14,6 +14,8 @@ const REVIEWED_IMPECCABLE_BUNDLES = Object.freeze({
     url: 'https://github.com/pbakaus/impeccable/releases/download/skill-v4.8.0/universal.zip' },
   '4.8.2': { sha256: '2d91255946127a5862cea0811c269b0943984840de76b90d32e4c2c5293c103a', commit: '035c8f319edd019936525a062fe99e83ca8d12c6',
     url: 'https://github.com/pbakaus/impeccable/releases/download/skill-v4.8.2/universal.zip' },
+  '4.9.1': { sha256: 'f0e94487ffcf8e28d0d1cfb47f41918e3748c657f33f0f128ecf0a478ac85942', commit: 'acb4cfe14470b1fdf51e855431af618d936b7db8',
+    url: 'https://github.com/pbakaus/impeccable/releases/download/skill-v4.9.1/universal.zip' },
 });
 
 export function verifyReviewedImpeccableBundle(bundle, version) {
@@ -90,9 +92,13 @@ export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = 
     const file = join(source, relativePath);
     let text = readFileSync(file, 'utf8');
     for (const [search, replacement] of replacements) {
-      const anchor = ['4.7.0', '4.8.0', '4.8.2'].includes(skillVersion) && relativePath === 'SKILL.md'
+      let anchor = ['4.7.0', '4.8.0', '4.8.2', '4.9.1'].includes(skillVersion) && relativePath === 'SKILL.md'
         ? 'This skill gives you the tools and permission to make design that earns the name out-of-distribution craft. Work as an award-winning design director would: production-grade code, a clear POV, a deep grasp of what the client and its users need, and exceptional craft.\n\n'
         : search;
+      if (skillVersion === '4.9.1' && relativePath === 'reference/critique.md') {
+        if (search.startsWith('If `CLAUDE.md`')) anchor = 'If PRODUCT.md has a `## Users` section, also generate 1-2 project-specific personas from it and from `## Brand Commitments`.';
+        if (search.startsWith('If `CLAUDE.md`') && search.includes('derive')) anchor = 'If PRODUCT.md has a `## Users` section (written by `impeccable init`), derive 1–2 additional personas from it and from `## Brand Commitments`:';
+      }
       text = replaceOverlayAnchor(text, anchor, replacement, relativePath, allowAlreadyApplied);
     }
     if (native && relativePath === 'SKILL.md') {

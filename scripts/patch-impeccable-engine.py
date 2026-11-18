@@ -9,11 +9,11 @@ def patch_engine(root):
     root = Path(root)
     manifest = tomllib.loads((root / "Cargo.toml").read_text())
     version = manifest["workspace"]["package"]["version"]
-    if version not in ("0.1.5", "0.1.10", "0.1.11", "0.1.15", "0.1.16", "0.1.18", "0.1.21"):
-        raise ValueError("Unsupported Impeccable engine; expected 0.1.5, 0.1.10, 0.1.11, 0.1.15, 0.1.16, 0.1.18 or 0.1.21")
-    # 0.1.21 uses a fixed 90-second constant, not the caller's idle grace.
+    if version not in ("0.1.5", "0.1.10", "0.1.11", "0.1.15", "0.1.16", "0.1.18", "0.1.21", "0.1.24"):
+        raise ValueError("Unsupported Impeccable engine; expected 0.1.5, 0.1.10, 0.1.11, 0.1.15, 0.1.16, 0.1.18, 0.1.21 or 0.1.24")
+    # 0.1.21 and 0.1.24 use a fixed 90-second constant, not the caller's idle grace.
     # Keep the next-hand claim window untouched; raster traversal is unchanged.
-    idle_cutoff = "PAGE_CLOSED_GRACE_MS" if version == "0.1.21" else "15000.0"
+    idle_cutoff = "PAGE_CLOSED_GRACE_MS" if version in ("0.1.21", "0.1.24") else "15000.0"
     patches = [
         ("serve_question.rs",
          f"if !mid_delivery && lb != 0.0 && now_ms() - lb > {idle_cutoff} {{",

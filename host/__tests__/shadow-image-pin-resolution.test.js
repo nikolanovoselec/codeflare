@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -49,6 +50,72 @@ for (const [label, options] of [
   });
 }
 
+
+test('REQ-OPS-020: GitHub release metadata uses the configured token rather than anonymous rate limits', async (t) => {
+  const previous = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = 'synthetic-release-token';
+  t.after(() => { if (previous === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = previous; });
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url, 'https://api.github.com/repos/aquasecurity/trivy/releases?per_page=100');
+    const authorized = new Headers(options?.headers).get('authorization') === 'Bearer synthetic-release-token';
+    return authorized ? Response.json([{ tag_name: 'v0.70.0', draft: false, prerelease: false }])
+      : new Response('API rate limit exceeded', { status: 403 });
+  });
+  assert.deepEqual(await resolveCandidate('trivy', '0.69.0'), { version: '0.70.0' });
+});
+
+test('REQ-OPS-020: release metadata authentication never reaches public checksum downloads', async (t) => {
+  const previous = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = 'synthetic-release-token';
+  t.after(() => { if (previous === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = previous; });
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    const authorization = new Headers(options?.headers).get('authorization');
+    if (url === 'https://api.github.com/repos/grafana/k6/releases?per_page=100') {
+      return authorization === 'Bearer synthetic-release-token' ? Response.json([{
+        tag_name: 'v0.59.0', draft: false, prerelease: false,
+        assets: [{ name: archive, digest: null }, { name: sumsName }],
+      }]) : new Response('API rate limit exceeded', { status: 403 });
+    }
+    assert.equal(url, `https://github.com/grafana/k6/releases/download/v0.59.0/${sumsName}`);
+    return authorization === null ? new Response(`${publisherDigest}  ${archive}\n`)
+      : new Response('credential disclosure refused', { status: 403 });
+  });
+  assert.deepEqual(await resolveCandidate('k6', '0.58.0'), { version: '0.59.0', sha256: publisherDigest });
+});
+
+test('REQ-OPS-020: GitHub CLI resolves the immutable source used by the final executable', async (t) => {
+  const sourceCommit = 'b'.repeat(40), source = 'synthetic immutable source archive';
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url === 'https://api.github.com/repos/cli/cli/releases?per_page=100') {
+      return Response.json([{ tag_name: 'v2.999.0', draft: false, prerelease: false,
+        assets: [{ name: 'gh_2.999.0_linux_amd64.deb', digest: `sha256:${'a'.repeat(64)}` }] }]);
+    }
+    if (url === 'https://api.github.com/repos/cli/cli/commits/v2.999.0') {
+      return Response.json({ sha: sourceCommit, commit: { committer: { date: '2026-10-01T00:00:00Z' } } });
+    }
+    assert.equal(url, `https://codeload.github.com/cli/cli/tar.gz/${sourceCommit}`);
+    assert.equal(new Headers(options.headers).get('authorization'), null);
+    return new Response(source);
+  });
+  assert.deepEqual(await resolveCandidate('github-cli', '2.105.0'), {
+    version: '2.999.0', sha256: 'a'.repeat(64), sourceCommit, sourceEpoch: 1790812800,
+    sourceSha256: createHash('sha256').update(source).digest('hex'),
+  });
+});
+
+test('REQ-OPS-020: GitHub CLI source archives are bounded before hashing completes', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (url.includes('/releases?')) return Response.json([{ tag_name: 'v2.999.0', draft: false, prerelease: false,
+      assets: [{ name: 'gh_2.999.0_linux_amd64.deb', digest: `sha256:${'a'.repeat(64)}` }] }]);
+    if (url.includes('/commits/')) return Response.json({ sha: 'b'.repeat(40), commit: { committer: { date: '2026-10-01T00:00:00Z' } } });
+    let chunks = 0;
+    return new Response(new ReadableStream({ pull(controller) {
+      if (chunks++ < 65) controller.enqueue(new Uint8Array(1024 * 1024));
+      else controller.close();
+    } }));
+  });
+  await assert.rejects(resolveCandidate('github-cli', '2.105.0'), /exceeds 64 MiB/);
+});
 
 const repo = fileURLToPath(new URL('../..', import.meta.url));
 function zizmorCommand() {

@@ -4,6 +4,13 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-18: Dependency compatibility and shadow-pin repair
+
+- Shadow-pin metadata authenticates only GitHub API requests; the GitHub CLI source build and installed support package now advance as one release identity (REQ-OPS-020).
+- Exact-source Goal 0.55.0 and Plan 0.60.0 preparation retains transactional aborts, recovery ownership, configured progress bounds and native custom-turn isolation (REQ-AGENT-111/129/144/152/236).
+- Impeccable 4.9.1 selects engine 0.1.24 while retaining older engines and the existing evidence, idle-grace and traversal boundaries (REQ-AGENT-163/164/194).
+- Updated dependency locks and source checks are not exact-head CI, deployment, managed-publication or runtime-acceptance evidence.
+
 ## 2026-11-18: Startup, completed retries and prompt CI results
 
 - Post-restore settings recreate a missing parent without discarding existing settings; fatal startup retains its exit status through final cleanup (REQ-AGENT-099 AC4; REQ-OPS-010 AC7).

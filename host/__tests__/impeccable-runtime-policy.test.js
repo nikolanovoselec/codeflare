@@ -34,16 +34,20 @@ function copyReviewedFixture(skillVersion, destination) {
     writeFileSync(join(destination, 'scripts/VERSION'), '0.1.21\n');
     return;
   }
-  if (skillVersion !== '4.8.0') {
+  if (!['4.8.0', '4.9.1'].includes(skillVersion)) {
     cpSync(join(repoRoot, `host/__fixtures__/impeccable-${skillVersion}`), destination, { recursive: true });
     return;
   }
-  const capture = readFileSync(join(repoRoot, 'host/__fixtures__/impeccable-4.8.0-source.json'));
+  const capture = readFileSync(join(repoRoot, `host/__fixtures__/impeccable-${skillVersion}-source.json`));
   // Immutable fixture contract: compact byte deltas retain the real release
   // inputs without duplicating its half-megabyte browser client on disk.
-  assert.equal(createHash('sha256').update(capture).digest('hex'), '920d9b5f81c0e7c5e1083c068910e9e80d291018ecd5a9776eb88c2da7d95ff5');
+  assert.equal(createHash('sha256').update(capture).digest('hex'), skillVersion === '4.9.1'
+    ? 'b87682a2988dc4cf102ed9b1ac95a308f2e1a31babfdb27bbf4d91780592050a'
+    : '920d9b5f81c0e7c5e1083c068910e9e80d291018ecd5a9776eb88c2da7d95ff5');
   const fixture = JSON.parse(capture);
-  assert.equal(fixture.bundleSha256, '82e6f6ff3a2b18f46f0f2fc388c1ab7abf3ccc52bbfc522456396d13011d6706');
+  assert.equal(fixture.bundleSha256, skillVersion === '4.9.1'
+    ? 'f0e94487ffcf8e28d0d1cfb47f41918e3748c657f33f0f128ecf0a478ac85942'
+    : '82e6f6ff3a2b18f46f0f2fc388c1ab7abf3ccc52bbfc522456396d13011d6706');
   for (const [name, file] of Object.entries(fixture.files)) {
     const base = join(repoRoot, 'host/__fixtures__', fixture.baseFixture, name);
     let bytes = readFileSync(base);
@@ -114,7 +118,7 @@ describe('Impeccable managed runtime policy', () => {
     assert.deepEqual(result.stdout.trim().split('\n'), ['context', '--target', 'file.ts']);
   }));
 
-  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10'], ['4.5.0', '0.1.11'], ['4.6.0', '0.1.15'], ['4.7.0', '0.1.16'], ['4.8.0', '0.1.18'], ['4.8.2', '0.1.21']]) {
+  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10'], ['4.5.0', '0.1.11'], ['4.6.0', '0.1.15'], ['4.7.0', '0.1.16'], ['4.8.0', '0.1.18'], ['4.8.2', '0.1.21'], ['4.9.1', '0.1.24']]) {
     it(`REQ-AGENT-181: reviewed ${skillVersion} dispatches only to its matching image engine ${engineVersion}`, () => withTempDir(root => {
       const source = join(root, 'source');
       copyReviewedFixture(skillVersion, source);
@@ -124,12 +128,12 @@ describe('Impeccable managed runtime policy', () => {
         runtimePath: agent === 'claude' ? '~/.claude/skills/impeccable' : '~/.pi/agent/skills/impeccable' }));
       replaceImpeccableTargets(source, readFileSync(join(source, 'SKILL.md'), 'utf8'), targets);
       const engines = join(root, 'engines');
-      for (const otherVersion of ['0.1.5', '0.1.10', '0.1.11', '0.1.15', '0.1.16', '0.1.18', '0.1.21'].filter(version => version !== engineVersion)) {
+      for (const otherVersion of ['0.1.5', '0.1.10', '0.1.11', '0.1.15', '0.1.16', '0.1.18', '0.1.21', '0.1.24'].filter(version => version !== engineVersion)) {
         const other = join(engines, otherVersion, 'impeccable');
         mkdirSync(dirname(other), { recursive: true });
         writeFileSync(other, '#!/bin/sh\necho incorrect-fallback\n', { mode: 0o755 });
       }
-      const pinName = skillVersion === '4.8.2' ? 'impeccable-engine.json'
+      const pinName = skillVersion === '4.9.1' ? 'impeccable-engine.json'
         : skillVersion === '4.3.1' ? 'impeccable-engine-legacy.json' : `impeccable-engine-${skillVersion}.json`;
       const pin = JSON.parse(readFileSync(join(repoRoot, 'image', pinName), 'utf8'));
       // Model the engine provided by the real image pin, not just the expected
@@ -216,24 +220,35 @@ describe('Impeccable managed runtime policy', () => {
     assert.equal(readFileSync(skillPath, 'utf8'), before);
   }));
 
-  it('REQ-AGENT-181 / REQ-AGENT-194: 4.8.0 projection retains version and redistribution license/notices', () => withTempDir(root => {
-    const source = join(root, 'source');
-    copyReviewedFixture('4.8.0', source);
-    applyCodeflareImpeccableOverlay(source);
-    const target = join(root, 'projected');
-    replaceImpeccableTargets(source, readFileSync(join(source, 'SKILL.md'), 'utf8'), [{
-      agent: 'pi', root: target, runtimePath: '~/.pi/agent/skills/impeccable',
-    }]);
-    const skill = readFileSync(join(target, 'SKILL.md'), 'utf8');
-    assert.match(skill, /version: 4\.8\.0/);
-    for (const name of ['LICENSE', 'NOTICE.md']) {
-      assert.equal(readFileSync(join(target, name), 'utf8'), readFileSync(join(repoRoot, 'host/__fixtures__/impeccable-4.7.0', name), 'utf8'),
-        'the reviewed redistribution license/notices remain present');
-    }
+  it('REQ-AGENT-181: 4.9.1 rejects the retained 4.8.2 engine before any overlay mutation', () => withTempDir(source => {
+    copyReviewedFixture('4.9.1', source);
+    const skillPath = join(source, 'SKILL.md');
+    const before = readFileSync(skillPath, 'utf8');
+    writeFileSync(join(source, 'scripts/VERSION'), '0.1.21\n');
+    assert.throws(() => applyCodeflareImpeccableOverlay(source), /expected image-owned 0\.1\.24/);
+    assert.equal(readFileSync(skillPath, 'utf8'), before);
   }));
 
+  for (const version of ['4.8.0', '4.9.1']) {
+    it(`REQ-AGENT-181 / REQ-AGENT-194: ${version} projection retains version and redistribution license/notices`, () => withTempDir(root => {
+      const source = join(root, 'source');
+      copyReviewedFixture(version, source);
+      applyCodeflareImpeccableOverlay(source);
+      const target = join(root, 'projected');
+      replaceImpeccableTargets(source, readFileSync(join(source, 'SKILL.md'), 'utf8'), [{
+        agent: 'pi', root: target, runtimePath: '~/.pi/agent/skills/impeccable',
+      }]);
+      const skill = readFileSync(join(target, 'SKILL.md'), 'utf8');
+      assert.equal(skill.match(/^version: (.+)$/m)?.[1], version);
+      for (const name of ['LICENSE', 'NOTICE.md']) {
+        assert.equal(readFileSync(join(target, name), 'utf8'), readFileSync(join(repoRoot, 'host/__fixtures__/impeccable-4.7.0', name), 'utf8'),
+          'the reviewed redistribution license/notices remain present');
+      }
+    }));
+  }
+
   it('REQ-OPS-020 / REQ-AGENT-181: an unreviewed bundle identity or substituted bytes fail closed', async () => {
-    for (const version of ['4.8.0', '4.8.2']) {
+    for (const version of ['4.8.0', '4.8.2', '4.9.1']) {
       assert.throws(() => verifyReviewedImpeccableBundle(Buffer.from('substituted release'), version), /differs from the reviewed release/);
     }
     assert.throws(() => verifyReviewedImpeccableBundle(Buffer.from('unreviewed release'), '4.8.1'), /bundle is not reviewed/);
