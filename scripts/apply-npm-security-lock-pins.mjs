@@ -3,13 +3,17 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const BRACE_EXPANSION_5_0_12 = Object.freeze({
-  version: '5.0.12',
-  resolved: 'https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz',
-  integrity: 'sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==',
-  license: 'MIT',
-  dependencies: { 'balanced-match': '^4.0.2' },
-  engines: { node: '20 || >=22' },
+const BRACE_EXPANSION_5_0_13 = Object.freeze({
+  version: "5.0.13",
+  resolved: "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.13.tgz",
+  integrity: "sha512-Vh3dmFbc4wZeox7M9I/0L9GfFd83Su4+yCck/OF9Gi/P/dAHn0RT7X4K9R7gMNMhDck3DvhR6QXsnQdjjgwNvQ==",
+  license: "MIT",
+  engines: {
+    node: "20 || >=22"
+  },
+  dependencies: {
+    "balanced-match": "^4.0.2"
+  }
 });
 
 const UNDICI_7_30_2 = Object.freeze({
@@ -73,7 +77,7 @@ function main() {
 
     let securityPin;
     if (packagePath === 'node_modules/brace-expansion' || packagePath.endsWith('/node_modules/brace-expansion')) {
-      securityPin = BRACE_EXPANSION_5_0_12;
+      securityPin = BRACE_EXPANSION_5_0_13;
     } else if (packagePath === 'node_modules/undici' || packagePath.endsWith('/node_modules/undici')) {
       if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_30_2;
       if (metadata.version.startsWith('8.')) securityPin = UNDICI_8_12_4;

@@ -70,7 +70,7 @@ describe('REQ-OPS-003 AC5: bounded npm security lock pins', () => {
       assert.equal(patched.version, '5.0.12');
       assert.equal(
         patched.integrity,
-        'sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==',
+        'sha512-Vh3dmFbc4wZeox7M9I/0L9GfFd83Su4+yCck/OF9Gi/P/dAHn0RT7X4K9R7gMNMhDck3DvhR6QXsnQdjjgwNvQ==',
       );
       assert.deepEqual(lock.packages['node_modules/vendor-7/node_modules/undici'], {
         version: '7.30.2',
