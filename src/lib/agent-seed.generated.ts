@@ -12,7 +12,7 @@ type SeedDocument = {
 export const PRESEED_CONTENT_HASH = '22d257b992691af0';
 
 /** Composite digest of the managed npm runtime locks defining the release ABI. */
-export const PRESEED_RUNTIME_DEPENDENCY_HASH = 'a592bb28cb6a4c73284a744c65f5979cd76ca6ecdad9809c52c40cd158215bde';
+export const PRESEED_RUNTIME_DEPENDENCY_HASH = '64ca1091fc7eedda3b05f739c82dcf4c581ba9520e4c8c3bfa5d8e0c1d69ce3f';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
