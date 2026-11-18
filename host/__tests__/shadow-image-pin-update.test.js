@@ -132,21 +132,30 @@ function fixture(t) {
   t.after(() => rmSync(path, { recursive: true, force: true }));
   return path;
 }
-for (const kind of ['valid', 'digest-mismatch', 'traversal', 'symlink', 'extra-member', 'omitted']) {
+for (const kind of ['valid', 'valid-pinned-size', 'oversized', 'digest-mismatch', 'traversal', 'symlink', 'extra-member', 'omitted']) {
   test(`REQ-AGENT-001 AC3: selected native install fixture (${kind}) verifies before extracting or running`, (t) => {
     const dir = fixture(t);
     const payload = join(dir, 'vendor.tar.gz');
     const generated = spawnSync('python3', ['-c', `
-import io, sys, tarfile
+import sys, tarfile
+class PaddedPayload:
+    def __init__(self, content):
+        self.content = content
+        self.offset = 0
+    def read(self, size):
+        chunk = self.content[self.offset:self.offset + size]
+        self.offset += size
+        return chunk.ljust(size, b'\\0')
 with tarfile.open(sys.argv[1], 'w:gz') as archive:
     member = tarfile.TarInfo('../escaped' if sys.argv[2] == 'traversal' else 'antigravity')
-    content = b'#!/bin/sh\\nprintf "synthetic agy 1.5.4\\\\n"\\n'
+    content = b'#!/bin/sh\\nprintf "synthetic agy 1.5.4\\\\n"\\nexit 0\\n'
     if sys.argv[2] == 'symlink':
         member.type = tarfile.SYMTYPE
         member.linkname = '/bin/sh'
     else:
-        member.size = len(content)
-    archive.addfile(member, io.BytesIO(content))
+        # Verified Antigravity 1.5.11 payload size; stream padding without allocating it.
+        member.size = 268841672 + (sys.argv[2] == 'oversized') if sys.argv[2] in ('valid-pinned-size', 'oversized') else len(content)
+    archive.addfile(member, PaddedPayload(content))
     if sys.argv[2] == 'extra-member':
         archive.addfile(tarfile.TarInfo('unexpected'))
 `, payload, kind], { encoding: 'utf8' });
@@ -180,11 +189,12 @@ with tarfile.open(sys.argv[1], 'w:gz') as archive:
       ANTIGRAVITY_VERSION: '1.5.4', ANTIGRAVITY_URL: agyCandidate.url,
       ANTIGRAVITY_SHA512: kind === 'digest-mismatch' ? '0'.repeat(128) : digest,
     } });
-    const success = kind === 'valid' || kind === 'omitted';
+    const installed = kind === 'valid' || kind === 'valid-pinned-size';
+    const success = installed || kind === 'omitted';
     assert.equal(result.status === 0, success, result.stdout + result.stderr);
-    assert.equal(existsSync(join(dir, 'installed-agy')), kind === 'valid');
+    assert.equal(existsSync(join(dir, 'installed-agy')), installed);
     assert.equal(existsSync(join(dir, 'escaped')), false);
-    if (kind === 'valid') assert.match(result.stdout, /synthetic agy 1.5.4/);
+    if (installed) assert.match(result.stdout, /synthetic agy 1.5.4/);
   });
 }
 
