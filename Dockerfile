@@ -4,7 +4,7 @@
 # ---- Stage 1: Builder (compile native addons + TypeScript) ----
 # Use the digest-verified Google mirror of Docker Hub. Public ECR throttled
 # both pinned Node bases on shared GitHub Actions runners (HTTP 429).
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -22,7 +22,7 @@ RUN npm prune --omit=dev && \
     node /tmp/prune-npm-platform-artifacts.mjs node_modules
 
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS rclone-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://go.dev/dl/go1.27.4.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && echo "7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840  /tmp/go.tar.gz" | sha256sum -c - \
@@ -81,7 +81,7 @@ RUN LAZYGIT_VERSION="0.66.3" && \
     /out/lazygit --version
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS impeccable-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS impeccable-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://static.rust-lang.org/dist/2026-11-12/rust-1.100.0-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
     && echo "98ee6bec240e1cfe944f17e7092412dc5ef6e008484bb668c6936d35a7d15acd  /tmp/rust.tar.xz" | sha256sum -c - \
@@ -126,14 +126,14 @@ RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1
 
 # ---- Node 26 compiler host; emitted extensions still target Node 22 ----
 # Only build tools cross this boundary. No node_modules ship with the extension.
-FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-agent-sidebar-builder
+FROM mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS openvscode-agent-sidebar-builder
 WORKDIR /app/openvscode/agent-sidebar
 COPY --from=openvscode-agent-sidebar-dependencies /app/openvscode/agent-sidebar/ ./
 COPY openvscode/agent-sidebar/tsconfig.json openvscode/agent-sidebar/esbuild.mjs openvscode/agent-sidebar/official-claude.json openvscode/agent-sidebar/welcome-package.json ./
 COPY openvscode/extension-persistence-policy.json ../extension-persistence-policy.json
 COPY openvscode/claude/managed-settings.mjs openvscode/claude/managed-settings.d.mts ../claude/
 COPY openvscode/agent-sidebar/src/ ./src/
-RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.12.0", "Browser IDE artifact tooling requires Node 26.12.0")' && \
+RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.13.1", "Browser IDE artifact tooling requires Node 26.13.1")' && \
     npm run typecheck && NODE_ENV=production npm run build
 
 RUN mkdir -p /out/extension /out/welcome/dist && \
@@ -148,11 +148,11 @@ COPY openvscode/agent-sidebar/media/ /out/welcome/media/
 # ---- Official Claude Code Open VSX extension ----
 # Owner-accepted license risk: install Anthropic's exact unmodified linux-x64
 # package into the image, configured externally at runtime. Never serve the VSIX.
-FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-official-claude-extension
+FROM mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS openvscode-official-claude-extension
 
 COPY openvscode/agent-sidebar/official-claude.json /tmp/official-claude.json
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
-RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.12.0", "Browser IDE artifact tooling requires Node 26.12.0")' && \
+RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.13.1", "Browser IDE artifact tooling requires Node 26.13.1")' && \
     CLAUDE_VSCODE_NAMESPACE="$(node -p 'require("/tmp/official-claude.json").namespace')" && \
     CLAUDE_VSCODE_NAME="$(node -p 'require("/tmp/official-claude.json").name')" && \
     CLAUDE_VSCODE_VERSION="$(node -p 'require("/tmp/official-claude.json").version')" && \
@@ -178,11 +178,11 @@ RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.12.0
     find /out -type f ! -perm /111 -exec chmod 0444 {} +
 
 # ---- Assemble immutable agent inventories once, before the runtime image ----
-FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-agent-inventories
+FROM mirror.gcr.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS openvscode-agent-inventories
 
 COPY --from=openvscode-agent-sidebar-builder /out/extension /tmp/codeflare-sidebar-extension
 COPY --from=openvscode-official-claude-extension /out /tmp/official-claude-extension
-RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node, "26.12.0", "Browser IDE artifact tooling requires Node 26.12.0")' && \
+RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node, "26.13.1", "Browser IDE artifact tooling requires Node 26.13.1")' && \
     /usr/local/bin/node --input-type=module -e \
       'const { stageSidebarExtension } = await import("file:///tmp/codeflare-sidebar-extension/dist/package-extension.mjs"); await stageSidebarExtension({ sourceDirectory: "/tmp/codeflare-sidebar-extension", claudeSourceDirectory: "/tmp/official-claude-extension", rootDirectory: "/out/openvscode" });' && \
     rm -rf /tmp/codeflare-sidebar-extension /tmp/official-claude-extension && \
@@ -194,7 +194,7 @@ RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions
     rm -rf /out/openvscode/extensions/claude
 
 # ---- Stage 2: Runtime ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1
 
 # Suppress npm update nag; configure Claude Code for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
