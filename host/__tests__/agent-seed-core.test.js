@@ -92,9 +92,21 @@ describe('shared agent seed compiler', () => {
           )).length, 1);
         }
         assert.equal(policy.skills.find((skill) => skill.name === 'codeflare-capabilities').modelInvocable, true);
+        // Generated delivery contract: the Pi-native planning skill is eligible
+        // in both modes without exporting Pi-only instructions to other agents.
+        assert.deepEqual(policy.skills.find((skill) => skill.name === 'planning'), {
+          name: 'planning', path: 'skills/planning/SKILL.md', modelInvocable: true,
+        });
         assert.equal(policy.skills.find((skill) => skill.name === 'advisor').modelInvocable, false);
         assert.equal(policy.skills.find((skill) => skill.name === 'graphify')?.modelInvocable, mode === 'advanced' ? true : undefined);
       }
+      assert.deepEqual(compiled.documents.filter(({ key }) => key.includes('/skills/planning/'))
+        .map(({ key, modes }) => ({ key, modes })), [{
+          key: '.pi/agent/skills/planning/SKILL.md', modes: ['default', 'advanced'],
+        }]);
+      const planningNotice = compiled.documents.find(({ key }) => key === '.pi/agent/skills/_licenses/superpowers-MIT.txt');
+      assert.deepEqual(planningNotice.modes, ['default', 'advanced']);
+      assert.equal(planningNotice.contentType, 'text/plain; charset=utf-8');
       const humanizeDocuments = compiled.documents
         .filter((document) => document.key.includes('/skills/humanize/'))
         .map(({ key, modes }) => ({ key, modes }))

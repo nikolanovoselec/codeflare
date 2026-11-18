@@ -66,6 +66,8 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-14
 
+- Add the Pi-native planning skill to both mode inventories and capability guidance, with Vault Plans storage, structured clarification, dependent TODOs and user-approved Goal handoff. Native Plan/Goal ownership, user-requested advisor and existing safety boundaries remain unchanged ([REQ-AGENT-095](agents.md#req-agent-095-compact-pi-skill-catalog), [REQ-AGENT-207](agents.md#req-agent-207-user-focused-capability-deep-dives)).
+
 - Apply existing validated source timeout/byte capacities to pre-admission metadata and automatic Renovate discovery instead of hidden eight-second/two-MiB transport caps. Share the original request deadline across headers/body, bounded by original authority expiry; preserve complete-scan, cancellation, revision and raw-capture/no-renewal fences ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-authorized-renovate-scan), [REQ-OPERATOR-101](operators.md#req-operator-101-operator-budget-policy), [REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).
 
 - Make existing private raw archives readable by the currently authenticated original-owner administrator, including Registry observations before Activity admission. Reuse encrypted locators and incremental verification, requiring full persisted reconstruction rather than HTTP success while preserving separate bounded diagnostics and granting no execution or recovery authority ([REQ-OPERATOR-091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)).
