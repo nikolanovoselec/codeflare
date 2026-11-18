@@ -72,7 +72,7 @@ The code-server job validates release versions, extracts/cross-checks artifact p
 
 Pi extension discovery reads the owning preseed manifest except context-mode and the separately managed Pi runtime. Declaring `pi-mcp-extension` therefore adds its existing-matrix update leg without a second updater. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions-discover --> Independent `fail-fast: false` legs bump manifest, entrypoint pins, pinned-version evidence and generated seed. Goal/Plan candidates must run their exact-version transforms before publication; source-layout drift fails the candidate instead of opening an unverified pin PR. Candidate-transform acceptance remains qualified by REQ-OPS-025, not by version prose in this reference.
 
-Impeccable's one-minute no-container PR lane verifies pinned source, compiles the exact raster/wait logic into probes, reproduces upstream regressions, and verifies idle-grace/no-symlink fixes. Deployment still compiles/tests the complete binary before publication; bundle refresh rejects an engine the image has not adopted (REQ-AGENT-163/164/181, REQ-OPS-058/059).
+Impeccable's one-minute no-container PR probe verifies pinned source, compiles the exact raster/wait logic into probes, reproduces upstream regressions, and verifies idle-grace/no-symlink fixes. Deployment still compiles/tests the complete binary before publication; bundle refresh rejects an engine the image has not adopted (REQ-AGENT-163/164/181, REQ-OPS-058/059).
 
 ### Shadow-pin acceptance record inspection
 
@@ -204,7 +204,7 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **browser-ide:** clean install with the pinned IDE Node runtime, owned dependency/license audit, typecheck, deterministic bundle, context/RPC/approval and official Claude behavior, coverage and JSON gate.
 - **dependency-review:** fail-closed PR vulnerability/license checks with visible available OpenSSF scores; six exact historical Codex 0.147.0 platform-release license exceptions, backed by Apache-2.0 metadata in the historical committed lock, not equivalence to the current 0.166.0 lock or exceptions for future versions (REQ-OPS-053). The historical evidence is `preseed/npm-tools/package-lock.json` at `88a0dddbf2a4da18222ccda21f5a15e2c49d65ea^`, for darwin/linux/win32 × arm64/x64. Versioned PURLs retain future-release review; current-lock integrity checks are a separate assertion, not proof that historical exception identities equal current locked releases.
 - **workflow-audit:** pinned/checksummed zizmor/actionlint over `.github/**` inside required `test`; standalone SARIF is not a bypass (REQ-OPS-021).
-- **impeccable-engine:** pinned-source focused native regressions, one-minute timeout, no image build (REQ-OPS-058).
+- **impeccable-engine:** pinned-source focused native regressions, one-minute probe timeout, no image build (REQ-OPS-058).
 - **bundle-size:** Wrangler dry-run with container configuration repointed away from Dockerfile; one unambiguous measurement, valid positive budget or explicit opt-out sentinel (REQ-OPS-024).
 - **coverage:** affected-package and full-run global floors plus bounded changed-production-line LCOV floors, backend 80%, frontend 70% (REQ-OPS-022).
 - **summary:** rejects failed/cancelled relevant lanes, accepts unaffected skipped lanes, reconciles suite evidence and publishes exact-tree receipt.

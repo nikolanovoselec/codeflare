@@ -174,8 +174,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. The PR lane reproduces upstream traversal through a nested symbolic link. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 4. The corrected wait condition keeps the question open through the configured idle grace and closes it after expiry. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 5. The corrected raster traversal retains ordinary raster discovery and exclusions while skipping nested symbolic links and rejecting linked targets. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
-6. The PR lane builds no container. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout) -->
-7. The PR lane has a one-minute hard timeout. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout) -->
+6. The PR lane builds no container. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute probe timeout) -->
+7. The source probe has a one-minute hard timeout; the job allows two minutes including checkout overhead. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute probe timeout) -->
 
 **Constraints:**
 
