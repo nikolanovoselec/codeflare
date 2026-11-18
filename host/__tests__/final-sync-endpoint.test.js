@@ -603,7 +603,11 @@ describe('REQ-MEM-035 AC7: foreground shutdown before authoritative final sync',
     const signalFile = `${f.root}/daemon-signal`;
     const daemon = spawn(process.execPath, ['-e', `
       const fs = require('node:fs');
-      process.on('SIGUSR1', () => fs.writeFileSync(process.argv[1], 'SIGUSR1'));
+      process.on('SIGUSR1', () => {
+        const temporary = process.argv[1] + '.tmp';
+        fs.writeFileSync(temporary, 'SIGUSR1');
+        fs.renameSync(temporary, process.argv[1]);
+      });
       setInterval(() => {}, 1000);
       process.send('READY');
     `, signalFile], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
