@@ -67,7 +67,7 @@ describe('REQ-OPS-003 AC5: bounded npm security lock pins', () => {
 
       const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
       const patched = lock.packages['node_modules/vendor/node_modules/brace-expansion'];
-      assert.equal(patched.version, '5.0.12');
+      assert.equal(patched.version, '5.0.13');
       assert.equal(
         patched.integrity,
         'sha512-Vh3dmFbc4wZeox7M9I/0L9GfFd83Su4+yCck/OF9Gi/P/dAHn0RT7X4K9R7gMNMhDck3DvhR6QXsnQdjjgwNvQ==',
