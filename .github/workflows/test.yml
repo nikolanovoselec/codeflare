@@ -1567,8 +1567,24 @@ jobs:
           echo "All lanes green (skipped = not affected)"
 
       - name: Download suite reports
+        id: suite_reports
         if: always()
+        # A retried blob request can leave an upstream socket open for 180s
+        # after successful extraction: actions/toolkit#2575.
+        timeout-minutes: 1
         continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: '{backend-*,frontend-*,landing,browser-ide}'
+          path: /tmp/test-artifacts
+
+      - name: Discard incomplete suite reports
+        if: ${{ !cancelled() && steps.suite_reports.outcome == 'failure' }}
+        run: rm -rf /tmp/test-artifacts
+
+      - name: Retry suite report download
+        if: ${{ !cancelled() && steps.suite_reports.outcome == 'failure' }}
+        timeout-minutes: 1
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: '{backend-*,frontend-*,landing,browser-ide}'
