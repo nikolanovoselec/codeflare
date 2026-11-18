@@ -593,9 +593,9 @@ RUN --mount=from=openvscode-official-claude-extension,source=/out,target=/codefl
 # Antigravity native linux-x64 release. The vendor manifest authorizes updates
 # only in bump-shadow-pins.yml; image builds consume this committed identity,
 # never the mutable manifest or installer. Verify before reading archive members.
-ARG ANTIGRAVITY_VERSION=1.5.5
-ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.5-6740358537805824/linux-x64/cli_linux_x64.tar.gz
-ARG ANTIGRAVITY_SHA512=746a2bd73f83b65d9b44f2fc55d0f0f511ff7f89702846213eeabd76d06bc9c98576b424c2babc7b947f15e518447b946ba02dca260b778363c55c07a7f7a277
+ARG ANTIGRAVITY_VERSION=1.5.11
+ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.11-6132547114106880/linux-x64/cli_linux_x64.tar.gz
+ARG ANTIGRAVITY_SHA512=dad3c015e8964fcdc1639b13b7152f4cb84cb1bde385707e2bcdf095d6f1831f4f6521199aec499cc052f9e99906b7fdbc52c273df064d5cb7c84b068ba3ce50
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
       curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 300 --max-filesize 268435456 "$ANTIGRAVITY_URL" -o /tmp/agy.tar.gz && \
       printf '%s  %s\n' "$ANTIGRAVITY_SHA512" /tmp/agy.tar.gz | sha512sum -c - && \
