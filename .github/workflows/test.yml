@@ -759,9 +759,29 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Download backend coverage
+        id: coverage_download
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: 'backend-shard-*'
+          path: ${{ runner.temp }}/backend-coverage-shards
+
+      - name: Discard incomplete backend coverage
+        if: ${{ !cancelled() && steps.coverage_download.outcome == 'failure' }}
+        run: rm -rf -- "$RUNNER_TEMP/backend-coverage-shards"
+
+      - name: Retry backend coverage download
+        if: ${{ !cancelled() && steps.coverage_download.outcome == 'failure' }}
+        timeout-minutes: 1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: 'backend-shard-*'
+          path: ${{ runner.temp }}/backend-coverage-shards
+
       - uses: $/.github/actions/merge-coverage
         with:
-          artifact-pattern: 'backend-shard-*'
           artifact-prefix: 'backend-shard'
           expected-shards: '13'
           slug: backend
@@ -789,9 +809,29 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Download frontend coverage
+        id: coverage_download
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: 'frontend-shard-*'
+          path: ${{ runner.temp }}/frontend-coverage-shards
+
+      - name: Discard incomplete frontend coverage
+        if: ${{ !cancelled() && steps.coverage_download.outcome == 'failure' }}
+        run: rm -rf -- "$RUNNER_TEMP/frontend-coverage-shards"
+
+      - name: Retry frontend coverage download
+        if: ${{ !cancelled() && steps.coverage_download.outcome == 'failure' }}
+        timeout-minutes: 1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: 'frontend-shard-*'
+          path: ${{ runner.temp }}/frontend-coverage-shards
+
       - uses: $/.github/actions/merge-coverage
         with:
-          artifact-pattern: 'frontend-shard-*'
           artifact-prefix: 'frontend-shard'
           expected-shards: '3'
           slug: frontend

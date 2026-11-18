@@ -567,7 +567,7 @@ async function verifyCodeServerRuntime() {
   const requireFromCodeServer = createRequire(join(CODE_SERVER_ROOT, 'package.json'));
   const requireFromGetUri = createRequire(requireFromCodeServer.resolve('get-uri'));
   const basicFtp = requireFromGetUri('basic-ftp');
-  assert.equal(requireFromGetUri('basic-ftp/package.json').version, '6.2.5');
+  assert.equal(requireFromGetUri('basic-ftp/package.json').version, '6.2.6');
   assert.deepEqual(
     basicFtp.parseList('-rw-r--r-- 1 ftp ftp 5 Jan 01 2026 smoke.txt\r\n')
       .map(({ name, size }) => ({ name, size })),
@@ -578,7 +578,7 @@ async function verifyCodeServerRuntime() {
   assert.equal(ftpClient.closed, true);
 
   // Dependency pin contract: exercise the installed redirect overlay, not a runner copy.
-  assert.equal(requireFromCodeServer('follow-redirects/package.json').version, '1.16.2');
+  assert.equal(requireFromCodeServer('follow-redirects/package.json').version, '1.16.3');
   const redirectServer = createServer((request, response) => {
     if (request.url === '/redirect') response.writeHead(302, { Location: '/complete' }).end();
     else response.end('follow-redirects-smoke');

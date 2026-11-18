@@ -641,7 +641,6 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       .filter((leg) => leg.coverage === 'true').length;
     for (const [jobName, matrixJob, inputs] of [
       ['coverage-backend', 'backend-tests', {
-        'artifact-pattern': 'backend-shard-*',
         'artifact-prefix': 'backend-shard',
         'expected-shards': String(backendCoverageShards),
         slug: 'backend',
@@ -654,7 +653,6 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
         'lines-threshold': '89',
       }],
       ['coverage-frontend', 'frontend-tests', {
-        'artifact-pattern': 'frontend-shard-*',
         'artifact-prefix': 'frontend-shard',
         'expected-shards': '3',
         slug: 'frontend',
