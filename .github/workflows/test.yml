@@ -1285,61 +1285,33 @@ jobs:
           rclone version
 
       - name: Select host tests
-        # The exclusion list and the *.test.js glob are the two ways a host test
-        # can silently stop running, so the selection is computed once, here, and
-        # its invariants are asserted by host/__tests__/host-test-inventory.test.js
-        # (which runs inside this very selection). This step is the backstop that
-        # test cannot be: if the selection came out empty, no test ran at all and
-        # a green lane would mean nothing.
-        working-directory: host/__tests__
+        # Preserve the native baseline with two measured whole-file moves.
+        # The selector rejects empty groups; host-test-inventory.test.js checks
+        # exact coverage, exclusions and unique ownership across all five groups.
+        env:
+          HOST_GROUP: ${{ matrix.shards }}
         run: |
           set -euo pipefail
-          # Whole-line match (-x) so an entry can never swallow a similarly named
-          # test and a stray blank line excludes nothing.
-          # Strip comments and blanks first: the exclusion file documents WHY each
-          # entry is excluded, and a `#` line handed to grep -vxF would be a
-          # filename that matches nothing (harmless) while the inventory test
-          # would reject it as naming no test.
-          #
-          # Trim before filtering, because host-test-inventory.test.js trims too.
-          # Without this the two disagree on ` foo.test.js`: the test accepts it
-          # as an exclusion and asserts the file exists, while -vxF here matches
-          # nothing and the lane runs it anyway.
-          sed -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' ci-excluded.txt \
-            | grep -vE '^(#|$)' > "$RUNNER_TEMP/excluded.txt"
-          SELECTED=$(printf '%s\n' *.test.js | sort | grep -vxFf "$RUNNER_TEMP/excluded.txt" || true)
-          COUNT=$(printf '%s\n' "$SELECTED" | grep -c . || true)
-          if [ "$COUNT" -lt 1 ]; then
-            echo "::error::Host test selection is empty — the lane would pass having run nothing."
-            exit 1
-          fi
-          printf '%s\n' "$SELECTED" | sed 's|^|host/__tests__/|' > "$RUNNER_TEMP/host-tests.txt"
-          echo "Running $COUNT host tests ($(grep -c . "$RUNNER_TEMP/excluded.txt") excluded)."
+          node scripts/ci/select-host-tests.mjs "$HOST_GROUP" > "$RUNNER_TEMP/host-tests.txt"
+          echo "Running $(wc -l < "$RUNNER_TEMP/host-tests.txt") host test files ($HOST_GROUP)."
 
       - name: Run host hook tests (node:test)
         # host/__tests__/ci-excluded.txt lists tests that genuinely cannot run
-        # here. The file list comes from the audited selection step above. Each
-        # native 1/5 partition appears exactly once across the parallel jobs.
+        # here. The explicit file list is already partitioned: do not shard it again.
         env:
-          SHARDS: ${{ matrix.shards }}
           OPERATOR_INFERENCE_TEST_SDK_ROOT: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
           OPERATOR_INFERENCE_TEST_AI_ENTRY: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-ai/dist/index.js
         run: |
           set -euo pipefail
           # Keep the test owner outside worker limits, inside its delegated subtree.
           sudo sh -c 'printf "%s\n" "$1" > "$2/cgroup.procs"' sh "$$" "/sys/fs/cgroup/codeflare-trim-workers/ci-owner"
-          part=0
-          for shard in $SHARDS; do
-            part=$((part + 1))
-            xargs -a "$RUNNER_TEMP/host-tests.txt" \
-              node --experimental-test-module-mocks --test --test-force-exit --test-timeout=60000 \
-                --test-shard="$shard" \
-                --test-reporter=spec --test-reporter-destination=stdout \
-                --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-${part}.xml"
-          done
+          xargs -a "$RUNNER_TEMP/host-tests.txt" \
+            node --experimental-test-module-mocks --test --test-force-exit --test-timeout=60000 \
+              --test-reporter=spec --test-reporter-destination=stdout \
+              --test-reporter=junit --test-reporter-destination="$RUNNER_TEMP/host-report-1.xml"
 
           # node --test exits 0 when selected files define no tests. Count actual
-          # testcases across every constituent partition rather than trusting exit 0.
+          # testcases rather than trusting exit 0.
           COUNT=$(grep -h -c '<testcase' "$RUNNER_TEMP"/host-report-*.xml | awk '{ total += $1 } END { print total + 0 }')
           if [ "${COUNT:-0}" -lt 1 ]; then
             echo "::error::The host lane executed 0 tests. It ran the files it selected and none of them asserted anything."
