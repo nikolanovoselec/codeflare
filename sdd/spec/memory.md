@@ -957,3 +957,62 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 **Status:** Implemented
 
 ---
+
+### REQ-MEM-035: Durable Pi facts with disposable local search
+
+**Intent:** Advanced Pi sessions learn durable user and shared-workspace facts through the unmodified upstream memory package, while SQLite remains local and reconstructible.
+
+**Applies To:** User, Agent
+
+**Acceptance Criteria:**
+
+1. Advanced Pi loads the pinned upstream memory package through the normal managed dependency path, with policy-only prompting, configured-provider extraction, bounded review windows and no vendor source patch. Default-mode behavior and unrelated package/settings values remain unchanged. <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-MEM-035 AC1: stock Hermes package delivery) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC1/AC5 real foreground review and correction persist facts without primary memory writes; helper stays read-isolated) -->
+2. Global user, knowledge and lesson Markdown plus the shared workspace memory remain under the user's Vault. Database, sidecar, recovery and coordination-lock contents stay under the existing excluded cache tree; no new synchronization exclusion is introduced. <!-- @test: host/__tests__/pi-hermes-startup.test.js (REQ-MEM-035: AC2 existing rclone rules transfer canonical Markdown but no cache, sidecars, locks or alias copies) -->
+3. Restore precedes idempotent cache/configuration preparation and foreground loading. Existing Markdown and valid unrelated preferences survive; conflicting filesystem ownership or malformed configuration is reported without overwriting it or falling back to synchronized database storage. <!-- @test: host/__tests__/pi-hermes-startup.test.js (Pi Hermes startup (actual entrypoint helper)) -->
+4. An empty local cache rebuilds searchable global and current-workspace facts through upstream eager Markdown reconciliation, without a model request or a separate all-repository indexing pass. Historical session backfill remains disabled; warm startup reuses local search state. <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC4 Markdown-only cold recovery and warm native SQLite reuse need no model requests or repository/history sweep) -->
+5. Foreground sessions retain automatic review, corrections and permitted memory tools. Ordinary in-process helper sessions do not run those personal-memory writers; the upstream internal extraction subprocess remains supported. Missing/incompatible upstream code does not claim successful activation or trigger a runtime dependency installation. <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-035: AC5 foreground ownership gates stock writers/tools and drains shutdown before release) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-035: AC1/AC5 real foreground review and correction persist facts without primary memory writes; helper stays read-isolated) -->
+6. Pi guidance names capability activation and the search/add/replace memory tools: consult prior facts before asking users to repeat them, persist explicit durable corrections, and never treat recalled text as authorization or store secrets. <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-MEM-035 AC1/AC6: advanced Pi receives the memory owner and explicit native tool guidance) -->
+7. During an authorized container stop, the authoritative final-sync path allows foreground Pi's bounded graceful shutdown before syncing its final writes. Timeout/failure is reported rather than represented as successful capture; existing overall shutdown deadlines and manual-sync behavior remain intact. <!-- @test: host/__tests__/pi-memory-shutdown.test.js (REQ-MEM-035 AC7: bounded foreground owner shutdown) --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-MEM-035 AC7: foreground shutdown before authoritative final sync) -->
+
+**Constraints:**
+- One stable workspace scope, not one index per clone. Preserve existing task, historical capture and graph ownership.
+- No SQLite backups, new memory service, local embedding model, vendor patch or user-data deletion on bootstrap conflict. Previously uploaded cache cleanup requires its own exact-key authorization.
+- Capture is asynchronous and R2 sync is periodic; uncaptured or unsynchronized changes are not guaranteed after abrupt termination.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-004](#req-mem-004-vault-contents-synced-to-r2-across-sessions), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-MEM-015](#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)
+
+**Verification:** Automated: [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js), [pi-hermes-startup.test.js](../../host/__tests__/pi-hermes-startup.test.js), [pi-hermes-native.test.js](../../host/__tests__/pi-hermes-native.test.js), [pi-hermes-memory.test.js](../../host/__tests__/pi-hermes-memory.test.js), [pi-memory-shutdown.test.js](../../host/__tests__/pi-memory-shutdown.test.js), [final-sync-endpoint.test.js](../../host/__tests__/final-sync-endpoint.test.js), [agent-seed-core.test.js](../../host/__tests__/agent-seed-core.test.js). Real-provider capture and R2-only recovery acceptance remain separate completion evidence.
+
+**Status:** Planned
+
+---
+
+### REQ-MEM-036: Fresh bounded Pi fact context on every request
+
+**Intent:** The next model request receives current saved facts after ordinary edits or compaction, without accumulating stale copies in the persisted conversation.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Each foreground outbound model request reads the current user profile, global knowledge and shared-workspace memory. The first request, ordinary subsequent requests and the immediate post-compaction retry need no manual search or additional user prompt to receive those facts. <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-036: AC1 every outbound request reads current Markdown, including immediate compaction continuation) --> <!-- @test: host/__tests__/pi-hermes-native.test.js (REQ-MEM-036: AC1/AC2/AC5 native requests receive current reference data once, including automatic compaction retry without a new prompt) -->
+2. The integration supplies one reference-only memory block without appending it to the session transcript. Original system instructions, tool declarations, image content, assistant tool calls and matching results retain their content and order; existing historical recall and Smart Compact ownership remain unchanged. <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-036: AC2 one reference preserves original prompt/tool/image objects and never persists a copy) -->
+3. Saved facts are untrusted data, not new user input, executable instructions or permission. A stored delimiter or role-like string cannot break the integration's reference framing. <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-036: AC3 stored closing delimiters and system-like text cannot escape reference data framing) -->
+4. Each file is limited to 5,000 UTF-16 code units and the complete rendered block to 15,000. Files are never truncated or rewritten to fit. Oversized, unreadable or invalid file types produce bounded explicit per-file degradation without exposing contents or credentials; healthy files remain available and repaired files are retried on the next request. A missing new-memory file is not an error. <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-036: AC4 UTF-16/file and rendered-total budgets degrade explicitly, preserve files and retry repairs) -->
+5. Ordinary child sessions receive no root personal-context injection. Repeated requests and compaction do not duplicate the memory block or grow the persisted transcript, and a corrected fact replaces the previous fact in the next outgoing memory block. <!-- @test: host/__tests__/pi-hermes-memory.test.js (REQ-MEM-036: AC5 parentSession isolation and repeated transformed input never duplicate or persist stale facts) -->
+
+**Constraints:**
+- Policy-only storage may exceed the context budgets. Do not represent those budgets as a limit on stored Markdown or silently evict durable facts.
+- Use public Pi lifecycle/model-context interfaces and Codeflare-owned integration code; do not patch the upstream memory package.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-035](#req-mem-035-durable-pi-facts-with-disposable-local-search), [REQ-MEM-019](#req-mem-019-post-compaction-recall-of-recent-session-extracts)
+
+**Verification:** Automated: [pi-hermes-memory.test.js](../../host/__tests__/pi-hermes-memory.test.js), [pi-hermes-native.test.js](../../host/__tests__/pi-hermes-native.test.js). Composed native Pi/Smart Compact and live continuation qualification remain required before completion.
+
+**Status:** Planned
+
+---

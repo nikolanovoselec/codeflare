@@ -150,6 +150,27 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
   });
 });
 
+describe('REQ-MEM-035 AC1: stock Hermes package delivery', () => {
+  it('registers exactly one pinned, adapter-owned Hermes package without changing unrelated settings', () => {
+    const version = piPackage.dependencies['pi-hermes-memory'];
+    assert.match(version ?? '', /^\d+\.\d+\.\d+$/, 'Hermes must be an exact image dependency');
+    const input = { theme: 'personal', packages: ['npm:pi-hermes-memory',
+      { source: 'npm:pi-hermes-memory@0.0.1', extensions: ['old.ts'] },
+      'npm:personal-extension@1.2.3'] };
+    const settings = runAssembly(JSON.stringify(input), 2);
+    assert.deepEqual(settings.packages.filter(entry => /^npm:pi-hermes-memory(?:@|$)/.test(sourceOf(entry))),
+      [{ source: `npm:pi-hermes-memory@${version}`, extensions: [] }]);
+    assert.equal(settings.theme, input.theme);
+    assert.ok(settings.packages.includes('npm:personal-extension@1.2.3'));
+  });
+
+  it('does not confuse another package with the managed Hermes identity', () => {
+    const settings = runAssembly(JSON.stringify({ packages: ['npm:pi-hermes-memory-extra@1.0.0'] }));
+    assert.ok(settings.packages.includes('npm:pi-hermes-memory-extra@1.0.0'));
+    assert.equal(settings.packages.filter(entry => /^npm:pi-hermes-memory(?:@|$)/.test(sourceOf(entry))).length, 1);
+  });
+});
+
 // Exact package/version outputs are the managed Smart Compact delivery contract.
 // Its provider-neutral configuration is exercised against real settings files in
 // src/__tests__/lib/pi-smart-compact-config.test.ts.

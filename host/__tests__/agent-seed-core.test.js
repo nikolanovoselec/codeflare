@@ -16,6 +16,20 @@ const generatedPath = join(repoRoot, 'src/lib/agent-seed.generated.ts');
 // deleting the core, restoring import-time generation, or changing generated
 // bytes makes them fail.
 describe('shared agent seed compiler', () => {
+  it('REQ-MEM-035 AC1/AC6: advanced Pi receives the memory owner and explicit native tool guidance', async () => {
+    const { compileAgentSeed } = await import(coreUrl);
+    const compiled = await compileAgentSeed({ rootDir: repoRoot });
+    const owner = compiled.documents.find(document => document.key === '.pi/agent/extensions/hermes-memory-runtime.ts');
+    assert.ok(owner, 'the stock-memory foreground owner must reach the generated Pi inventory');
+    assert.deepEqual(owner.modes, ['advanced'], 'default sessions retain their existing memory behavior');
+    const instructions = compiled.documents.find(document => document.key === '.pi/agent/AGENTS.md' && document.modes.includes('advanced'));
+    assert.ok(instructions, 'advanced Pi must receive generated operational guidance');
+    for (const tool of ['memory_search', 'memory_add', 'memory_replace']) {
+      assert.ok(instructions.content.includes(tool), `native memory instructions must name ${tool}`);
+    }
+    assert.match(instructions.content, /capability[^\n]*memory_search|memory_search[^\n]*capability/,
+      'the tool-activation contract must be visible before optional memory schemas are active');
+  });
   it('REQ-AGENT-081 AC2: generated seed delivers no retired todo source override or install hook', async () => {
     const { compileAgentSeed } = await import(coreUrl);
     const compiled = await compileAgentSeed({ rootDir: repoRoot });

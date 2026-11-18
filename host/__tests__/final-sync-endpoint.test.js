@@ -435,3 +435,204 @@ it('REQ-STOR-015: authenticated manual recovery uses SIGUSR2; ordinary triggers 
     else process.env.CONTAINER_AUTH_TOKEN = previousToken;
   }
 });
+
+// REQ-MEM-035 AC7: shutdown and final sync share the existing endpoint budget.
+// Only the documented finalSync platform-I/O seam is simulated; requests go
+// through a real HTTP server and the scan/upload artifacts are real files.
+import { existsSync } from 'node:fs';
+
+function memoryFinalSyncFixture(t) {
+  const root = mkdtempSync(`${runtimeFixture}/memory-drain-`);
+  const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+  process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+  });
+  const memory = `${root}/MEMORY.md`;
+  const uploaded = `${root}/uploaded.md`;
+  const prepared = `${root}/prepared`;
+  const initial = '# Existing durable fact\n';
+  writeFileSync(memory, initial);
+  return { root, memory, uploaded, prepared, initial };
+}
+
+function memorySyncRequest(port, path = '/internal/final-sync', token = 'final-sync-test-token') {
+  return new Promise((resolveResponse, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path, method: 'POST',
+      headers: token === undefined ? {} : { authorization: `Bearer ${token}` } }, res => {
+      let body = '';
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => resolveResponse({ status: res.statusCode, body: JSON.parse(body) }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+describe('REQ-MEM-035 AC7: foreground shutdown before authoritative final sync', () => {
+  it('REQ-MEM-035: AC7 awaits final Markdown and takes the sync trigger timestamp after preparation', async t => {
+    const f = memoryFinalSyncFixture(t);
+    const finalMarkdown = '# Last foreground capture\n\nUse metric units.\n';
+    let now = TRIGGER;
+    let scan = '';
+    let index = 0;
+    const statuses = [
+      // This earlier run is newer than endpoint entry but older than preparation.
+      { status: 'syncing', ts: TRIGGER + 1 },
+      { status: 'success', ts: TRIGGER + 2 },
+      { status: 'syncing', ts: TRIGGER + 1001 },
+      { status: 'success', ts: TRIGGER + 1002 },
+    ];
+    const response = await withRouter({
+      prepareFinalSync: async deadline => {
+        assert.equal(deadline, TRIGGER + FINAL_SYNC_INTERNAL_TIMEOUT_MS);
+        await new Promise(resolve => setImmediate(resolve));
+        writeFileSync(f.memory, finalMarkdown);
+        now += 1000;
+        return { status: 'exited', count: 1 };
+      },
+      finalSync: {
+        now: () => now,
+        signalDaemon() { scan = readFileSync(f.memory, 'utf8'); },
+        readStatus() {
+          const status = statuses[index++] ?? statuses.at(-1);
+          // An in-flight pre-shutdown success uploaded only the earlier snapshot.
+          if (status.status === 'success') writeFileSync(f.uploaded,
+            status.ts < TRIGGER + 1000 ? f.initial : scan);
+          return status;
+        },
+        async poll() { now += 1; },
+      },
+    }, postFinalSync);
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, { synced: true });
+    assert.equal(readFileSync(f.uploaded, 'utf8'), finalMarkdown,
+      'success must describe the fresh scan after shutdown, not a pre-shutdown run');
+  });
+
+  for (const outcome of [
+    { status: 'timeout', remaining: 1 },
+    { status: 'unconfirmed' },
+  ]) {
+    it(`REQ-MEM-035: AC7 ${outcome.status} shutdown still uploads existing data but cannot report capture success`, async t => {
+      const f = memoryFinalSyncFixture(t);
+      let now = TRIGGER, index = 0;
+      const response = await withRouter({
+        prepareFinalSync: async () => {
+          await new Promise(resolve => setImmediate(resolve));
+          writeFileSync(f.prepared, outcome.status);
+          now += 200;
+          return outcome;
+        },
+        finalSync: {
+          now: () => now,
+          signalDaemon() {
+            // Files emulate the external daemon scan, not private call counts.
+            writeFileSync(f.uploaded, readFileSync(f.memory, 'utf8'));
+            writeFileSync(`${f.root}/scan-state`, readFileSync(f.prepared, 'utf8'));
+          },
+          readStatus: () => ++index === 1
+            ? { status: 'syncing', ts: TRIGGER + 201 }
+            : { status: 'success', ts: TRIGGER + 202 },
+          async poll() { now += 1; },
+        },
+      }, postFinalSync);
+      assert.ok(response.status >= 400 && response.status < 600, 'shutdown uncertainty is not HTTP success');
+      assert.equal(response.body.reason, `pi-shutdown-${outcome.status}`);
+      assert.equal(readFileSync(f.uploaded, 'utf8'), f.initial, 'already-written data is still synced');
+      assert.equal(readFileSync(`${f.root}/scan-state`, 'utf8'), outcome.status);
+    });
+  }
+
+  it('REQ-MEM-035: AC7 preparation does not restart the existing overall final-sync deadline', async t => {
+    const f = memoryFinalSyncFixture(t);
+    let now = TRIGGER;
+    const deadline = TRIGGER + FINAL_SYNC_INTERNAL_TIMEOUT_MS;
+    const response = await withRouter({
+      prepareFinalSync: async suppliedDeadline => {
+        assert.equal(suppliedDeadline, deadline);
+        now = deadline - 700;
+        writeFileSync(f.prepared, 'drained');
+        return { status: 'exited', count: 1 };
+      },
+      finalSync: {
+        now: () => now,
+        signalDaemon() { writeFileSync(f.uploaded, readFileSync(f.memory, 'utf8')); },
+        readStatus: () => ({ status: 'syncing', ts: deadline - 699 }),
+        async poll(milliseconds) { now += milliseconds; },
+      },
+    }, postFinalSync);
+    assert.equal(response.status, 504);
+    assert.deepEqual(response.body, { synced: false, reason: 'timeout' });
+    assert.equal(readFileSync(f.prepared, 'utf8'), 'drained');
+    assert.equal(readFileSync(f.uploaded, 'utf8'), f.initial);
+    assert.ok(now <= deadline + 500, 'shutdown and polling share the original budget (one poll tolerance)');
+  });
+
+  it('REQ-MEM-035: AC7 rejects unauthorized and restricted-operator shutdown before preparation or sync', async t => {
+    const f = memoryFinalSyncFixture(t);
+    const effects = {
+      prepareFinalSync: async () => {
+        writeFileSync(f.prepared, 'UNAUTHORIZED SHUTDOWN');
+        return { status: 'exited', count: 1 };
+      },
+      finalSync: {
+        now: () => TRIGGER,
+        signalDaemon() { writeFileSync(f.uploaded, 'UNAUTHORIZED SYNC'); },
+        readStatus: () => ({ status: 'failed', ts: TRIGGER + 1 }),
+        async poll() { throw new Error('a denied request must not enter sync polling'); },
+      },
+    };
+    const unauthorized = await withRouter(effects, port => memorySyncRequest(port, '/internal/final-sync', 'wrong'));
+    assert.equal(unauthorized.status, 401);
+    assert.equal(readFileSync(f.memory, 'utf8'), f.initial);
+    assert.equal(existsSync(f.prepared), false);
+    assert.equal(existsSync(f.uploaded), false);
+    const restricted = await withRouter({ ...effects, operatorSync: { async handle() { return null; } } }, postFinalSync);
+    assert.equal(restricted.status, 403);
+    assert.equal(restricted.body.code, 'OPERATOR_BISYNC_DENIED');
+    assert.equal(existsSync(f.prepared), false);
+    assert.equal(existsSync(f.uploaded), false);
+  });
+
+  it('REQ-MEM-035: AC7 authenticated manual sync still signals its daemon without preparing Pi shutdown', { timeout: 7000 }, async t => {
+    const f = memoryFinalSyncFixture(t);
+    cleanupSyncFixtures();
+    const signalFile = `${f.root}/daemon-signal`;
+    const daemon = spawn(process.execPath, ['-e', `
+      const fs = require('node:fs');
+      process.on('SIGUSR1', () => fs.writeFileSync(process.argv[1], 'SIGUSR1'));
+      setInterval(() => {}, 1000);
+      process.send('READY');
+    `, signalFile], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+    let ready = false, startupError;
+    daemon.on('message', () => { ready = true; });
+    daemon.on('error', error => { startupError = error; });
+    try {
+      for (let n = 0; n < 100 && !ready && !startupError; n++) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert.ifError(startupError);
+      assert.equal(ready, true, 'fixture daemon must be ready to receive SIGUSR1');
+      writeFileSync(PID_FILE, String(daemon.pid));
+      const response = await withRouter({ prepareFinalSync: async () => {
+        writeFileSync(f.prepared, 'UNEXPECTED MANUAL SHUTDOWN');
+        return { status: 'exited', count: 1 };
+      } }, port => memorySyncRequest(port, '/internal/bisync-trigger'));
+      assert.equal(response.status, 202);
+      assert.deepEqual(response.body, { status: 'triggered' });
+      for (let n = 0; n < 100 && !existsSync(signalFile); n++) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert.equal(readFileSync(signalFile, 'utf8'), 'SIGUSR1');
+      assert.equal(existsSync(f.prepared), false,
+        'manual sync must not terminate foreground Pi sessions');
+      assert.equal(readFileSync(f.memory, 'utf8'), f.initial);
+    } finally {
+      await stopStatusDaemon(daemon);
+      cleanupSyncFixtures();
+    }
+  });
+});
