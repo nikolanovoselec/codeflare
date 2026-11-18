@@ -73,9 +73,9 @@ describe('REQ-OPS-003 AC5: bounded npm security lock pins', () => {
         'sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==',
       );
       assert.deepEqual(lock.packages['node_modules/vendor-7/node_modules/undici'], {
-        version: '7.30.1',
-        resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.1.tgz',
-        integrity: 'sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==',
+        version: '7.30.2',
+        resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.2.tgz',
+        integrity: 'sha512-mLyPQnHwUxaM/rideoK/+KL8DaAJLRl4aBCfmX444aCSLnIaomqPLtNRe2jdCYcsk5wZzXrDIQC8ZeYNRAYyIA==',
         license: 'MIT',
         engines: { node: '>=20.18.1' },
       });

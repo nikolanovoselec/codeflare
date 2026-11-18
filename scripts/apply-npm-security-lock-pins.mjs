@@ -12,12 +12,14 @@ const BRACE_EXPANSION_5_0_12 = Object.freeze({
   engines: { node: '20 || >=22' },
 });
 
-const UNDICI_7_30_1 = Object.freeze({
-  version: '7.30.1',
-  resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.1.tgz',
-  integrity: 'sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==',
-  license: 'MIT',
-  engines: { node: '>=20.18.1' },
+const UNDICI_7_30_2 = Object.freeze({
+  version: "7.30.2",
+  resolved: "https://registry.npmjs.org/undici/-/undici-7.30.2.tgz",
+  integrity: "sha512-mLyPQnHwUxaM/rideoK/+KL8DaAJLRl4aBCfmX444aCSLnIaomqPLtNRe2jdCYcsk5wZzXrDIQC8ZeYNRAYyIA==",
+  license: "MIT",
+  engines: {
+    node: ">=20.18.1"
+  }
 });
 
 const UNDICI_8_12_3 = Object.freeze({
@@ -71,7 +73,7 @@ function main() {
     if (packagePath === 'node_modules/brace-expansion' || packagePath.endsWith('/node_modules/brace-expansion')) {
       securityPin = BRACE_EXPANSION_5_0_12;
     } else if (packagePath === 'node_modules/undici' || packagePath.endsWith('/node_modules/undici')) {
-      if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_30_1;
+      if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_30_2;
       if (metadata.version.startsWith('8.')) securityPin = UNDICI_8_12_3;
     } else if (packagePath === 'node_modules/ip-address' || packagePath.endsWith('/node_modules/ip-address')) {
       if (metadata.version.startsWith('10.')) securityPin = IP_ADDRESS_10_7_6;
