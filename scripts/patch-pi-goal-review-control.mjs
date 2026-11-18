@@ -66,7 +66,7 @@ const REVIEWED_0550 = {
   'src/persistence.ts': ['a8133d3e0c045bc1f1e7e92e0f1a39d29354a0544929bbf087e6bd87599289eb', '7534d0c683a977707c11e47ab6c65fada16026160f50eb5507f4a82c7bf8de89'],
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
-  'src/runtime.ts': ['4209576f004cf53acfd2921e61e3c2bdfc1239de02213e9389162b7ac570e108', '25ae1e75b0773689e2e6dc3401895bf59e7de324a8c718467c3155ab8eeed297'],
+  'src/runtime.ts': ['4209576f004cf53acfd2921e61e3c2bdfc1239de02213e9389162b7ac570e108', '2e218d9fdd50c17b4d944cce87f5c1dd7dd33684e09ae0b09294955f69914572'],
   'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d'],
   'src/settings-ui.ts': ['f53f1bdd172677f94086e2337f70156fb32b96fdf5575bc990cb514aff6b46ca'],
   'src/settings.ts': ['13f44680f34aa5faf06e7fbb172afbed815d705dc225f57930435a4cb5a54dcd', 'fde069d225410345e89e6ec20ec0bf3a01294a76034f09a395d4823d8f8d8293'],
@@ -1140,11 +1140,20 @@ ${transactionalAbort ? '\t\tif (this.activeGoal !== goal || !this.ownsWorkflow(g
 \t\tconst resumeAt = goal?.waiting && deadline !== undefined ? Math.min(waitAt ?? deadline, deadline) : waitAt;`, 'quiet wait stall deadline');
   patched = replaceOnce(patched, '\tdispatchDueGoalWait(ctx: StatusContext) {', '\tdispatchDueGoalWait(ctx: StatusContext) {\n\t\tif (this.enforceNoProgressLimit(ctx)) return false;', 'quiet wait deadline enforcement');
   patched = replaceOnce(patched, '\t\tthis.clearGoalWaitTimer();\n\t\tthis.activeGoal = {\n\t\t\t...goal,\n\t\t\twaiting,', '\t\tthis.clearGoalWaitTimer();\n\t\tthis.activeGoal = {\n\t\t\t...goal,\n\t\t\twaiting,\n\t\t\tstalledSince: goal.stalledSince ?? Date.now(),', 'enter quiet stall window');
+  // Native settings rollback also restores wait timers. It must not start a
+  // fresh dispatch (and enforce limits again) inside that failed transaction.
+  const restoreContinuation = transactionalAbort
+    ? `\t\t\t\tthis.afterSettingsCommit(ctx, goal.id, () => {
+\t\t\t\t\tconst currentGoal = this.activeGoal;
+\t\t\t\t\tif (!this.ownsWorkflow(currentGoal) || currentGoal?.status !== "active" || currentGoal.waiting || this.hasContinuationWorkForGoal(currentGoal.id)) return;
+\t\t\t\t\tthis.requestContinuation(currentGoal);
+\t\t\t\t\tthis.dispatchContinuationIfSettled(ctx);
+\t\t\t\t});`
+    : '\t\t\t\tthis.requestContinuation(goal);\n\t\t\t\tthis.dispatchContinuationIfSettled(ctx);';
   // Session restoration also invokes this method even for a non-waiting goal.
   patched = replaceOnce(patched, '\t\tif (!goal || resumeAt === undefined) return false;', `\t\tif (!goal || resumeAt === undefined) {
 \t\t\tif (goal?.status === "active" && !goal.waiting && !this.hasContinuationWorkForGoal(goal.id)) {
-\t\t\t\tthis.requestContinuation(goal);
-\t\t\t\tthis.dispatchContinuationIfSettled(ctx);
+${restoreContinuation}
 \t\t\t}
 \t\t\treturn false;
 \t\t}`, 'restored continuation');

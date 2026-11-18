@@ -172,7 +172,7 @@ export async function verifyPiClassicSessionStartup({
 
 export function verifyOxlintRuntime({
   path = '/usr/local/bin/oxlint',
-  expectedVersion = '1.90.0',
+  expectedVersion = '1.91.0',
   run = execFileSync,
 } = {}) {
   const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
@@ -368,7 +368,7 @@ export async function verifyBundledSecurityRuntimes({ bracePaths, runtimeRoot = 
 
 export async function verifyPacoteRuntime({
   runtimePath = '/usr/local/lib/node_modules/npm/node_modules/pacote',
-  expectedVersion = '21.5.2',
+  expectedVersion = '21.5.3',
 } = {}) {
   const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
   assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain pacote ${expectedVersion}`);

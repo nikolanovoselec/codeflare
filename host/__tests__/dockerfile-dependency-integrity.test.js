@@ -126,7 +126,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
   });
 
   it('image-owned Oxlint has an exact pin and complete committed integrity tree', () => {
-    assert.equal(oxlintPackage.dependencies.oxlint, '1.90.0');
+    assert.equal(oxlintPackage.dependencies.oxlint, '1.91.0');
     assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
     assertCompleteIntegrityTree(oxlintLock);
   });
@@ -178,7 +178,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       npmToolsPackage.dependencies['@earendil-works/pi-coding-agent'],
     );
     assert.deepEqual(browserRunLock.packages[''].dependencies, browserRunPackage.dependencies);
-    assert.equal(browserRunPackage.overrides['@hono/node-server'], '2.1.6');
+    assert.equal(browserRunPackage.overrides['@hono/node-server'], '2.1.7');
     assert.deepEqual(wranglerLock.packages[''].dependencies, wranglerPackage.dependencies);
     assertCompleteIntegrityTree(piLock);
     assertCompleteIntegrityTree(browserRunLock);

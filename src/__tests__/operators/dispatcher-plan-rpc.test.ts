@@ -27,8 +27,8 @@ it('fresh exported getRuntimePlan returns null from Worker and scheduled parent 
   let stop = false;
   try {
     worker = await bounded(unstable_startWorker({
-      entrypoint: fileURLToPath(new URL('./fixtures/dispatcher-plan-rpc-worker.ts', import.meta.url)),
-      config: fileURLToPath(new URL('./fixtures/wrangler.plan-rpc.toml', import.meta.url)),
+      entrypoint: fileURLToPath(new URL('./fixtures/dispatcher-plan-rpc-worker.ts', import.meta.url).href),
+      config: fileURLToPath(new URL('./fixtures/wrangler.plan-rpc.toml', import.meta.url).href),
       dev: { remote: false, server: { hostname: '127.0.0.1', port: 0 }, inspector: { port: 0 },
         persist: false, logLevel: 'none', watch: false },
     }), 10_000);

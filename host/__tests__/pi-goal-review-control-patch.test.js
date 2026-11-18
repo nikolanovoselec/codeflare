@@ -963,6 +963,7 @@ it('task146: Goal 0.55.0 review pause never aborts the caller and settings rollb
   const publications = [];
   runtime.setGoalStateSink(snapshot => publications.push(snapshot));
   const previousSettings = structuredClone(runtime.settings);
+  const previousMessages = structuredClone(harness.messages);
   let stored = previousSettings;
   const save = settings => { stored = structuredClone(settings); };
   let failStatus = true;
@@ -977,6 +978,7 @@ it('task146: Goal 0.55.0 review pause never aborts the caller and settings rollb
   assert.equal(aborted, false, 'failed settings must discard deferred abort');
   assert.deepEqual(publications, [], 'failed settings must discard terminal publication');
   assert.equal(runtime.ownsWorkflow(), true, 'rollback retains workflow authority');
+  assert.deepEqual(harness.messages, previousMessages, 'failed settings send no additional Goal prompt');
   applyGoalSettings(runtime, { ...previousSettings, retryUsageLimits: true }, harness.ctx, { save });
   assert.equal(runtime.activeGoal.status, 'blocked');
   assert.equal(aborted, true);

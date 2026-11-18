@@ -615,6 +615,8 @@ fast-check; workflow fifty thousand iterations, local default one thousand and `
 
 Root/web-ui use separate lock-backed installs/configs of Vitest; root Workers plugin versus frontend jsdom/Solid. Root/web-ui/landing choose dot in CI and default locally; suite action supplies JSON report for machine-readable gating.
 
+The Workers suite pairs Vitest 5.1.0 with Cloudflare's plugin 1.6.1. That release contains the upstream inactive-AsyncLocalStorage compatibility fix ([workers-sdk #16699](https://github.com/cloudflare/workers-sdk/pull/16699)); active-storage errors remain enforced. Later plugin versions add automatic Container startup/building, so this pin avoids that separate test-runtime migration without changing production Wrangler configuration.
+
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
 
