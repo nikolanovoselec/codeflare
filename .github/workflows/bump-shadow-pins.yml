@@ -2871,7 +2871,7 @@ jobs:
             fi
           done
           node scripts/generate-agent-seed.mjs
-          git add Dockerfile package.json package-lock.json host/package-lock.json web-ui/package-lock.json landing/package-lock.json openvscode/agent-sidebar/package-lock.json image/oxlint/package-lock.json preseed/agents/pi/package.json preseed/agents/pi/package-lock.json preseed/npm-tools/package.json preseed/npm-tools/package-lock.json preseed/agents/claude/browser-run-mcp/package.json preseed/agents/claude/browser-run-mcp/package-lock.json .github/npm-tools/wrangler/package.json .github/npm-tools/wrangler/package-lock.json scripts/apply-npm-security-lock-pins.mjs host/__tests__/npm-security-lock-pins.test.js src/lib/agent-seed.generated.ts
+          git add Dockerfile package.json package-lock.json host/package-lock.json web-ui/package-lock.json landing/package-lock.json openvscode/agent-sidebar/package-lock.json image/oxlint/package-lock.json preseed/agents/pi/package.json preseed/agents/pi/package-lock.json preseed/npm-tools/package.json preseed/npm-tools/package-lock.json preseed/agents/claude/browser-run-mcp/package.json preseed/agents/claude/browser-run-mcp/package-lock.json .github/npm-tools/wrangler/package.json .github/npm-tools/wrangler/package-lock.json scripts/apply-npm-security-lock-pins.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs host/__tests__/npm-security-lock-pins.test.js src/lib/agent-seed.generated.ts
           if git diff --cached --quiet; then exit 1; fi
           git commit -m "chore(deps): bump security pin $PIN $CUR -> $LAT"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"

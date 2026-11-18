@@ -214,7 +214,11 @@ async function verifySearch(f, { corrected = false } = {}) {
   let matches = 0;
   for (const [key, target] of [['user', 'user'], ['global', 'memory'], ['workspace', 'project'], ['lesson', 'failure']]) {
     const fact = key === 'user' && corrected ? facts.corrected : facts[key];
-    const result = await f.search({ query: fact.split(' ')[0].replace(':', ''), target, ...(target === 'project' ? { project: 'workspace' } : {}) });
+    let result;
+    await until(async () => {
+      result = await f.search({ query: fact.split(' ')[0].replace(':', ''), target, ...(target === 'project' ? { project: 'workspace' } : {}) });
+      return result.details.count !== 0;
+    }, `${target} fact to become searchable after Markdown persistence`);
     assert.equal(result.details.count, 1, JSON.stringify(result));
     assert.ok(result.details.output.includes(fact));
     assert.ok(result.details.output.includes(target === 'project' ? 'scope=project:workspace' : 'scope=global') || target === 'failure');
