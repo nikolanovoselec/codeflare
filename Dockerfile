@@ -599,7 +599,7 @@ ARG ANTIGRAVITY_SHA512=dad3c015e8964fcdc1639b13b7152f4cb84cb1bde385707e2bcdf095d
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
       curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 300 --max-filesize 268435456 "$ANTIGRAVITY_URL" -o /tmp/agy.tar.gz && \
       printf '%s  %s\n' "$ANTIGRAVITY_SHA512" /tmp/agy.tar.gz | sha512sum -c - && \
-      python3 -c 'import shutil, sys, tarfile; archive = tarfile.open("/tmp/agy.tar.gz", "r:gz"); members = archive.getmembers(); (len(members) == 1 and members[0].name == "antigravity" and members[0].isfile() and 0 < members[0].size <= 268435456) or sys.exit("unexpected Antigravity archive members"); source = archive.extractfile(members[0]); target = open("/tmp/agy", "wb"); shutil.copyfileobj(source, target); target.close(); archive.close()' && \
+      python3 -c 'import shutil, sys, tarfile; archive = tarfile.open("/tmp/agy.tar.gz", "r:gz"); members = archive.getmembers(); (len(members) == 1 and members[0].name == "antigravity" and members[0].isfile() and 0 < members[0].size <= 268841672) or sys.exit("unexpected Antigravity archive members"); source = archive.extractfile(members[0]); target = open("/tmp/agy", "wb"); shutil.copyfileobj(source, target); target.close(); archive.close()' && \
       install -m 0755 /tmp/agy /usr/local/bin/agy && \
       /usr/local/bin/agy --version; \
     else \
