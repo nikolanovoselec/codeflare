@@ -11,8 +11,8 @@ import { pathToFileURL } from 'node:url';
 const profiles = [
   {
     file: 'McpPage.js',
-    original: '70f22c6f6d4e721e001de5167d4dab7b012b4c024d5e5d89b480c85c1c2a163a',
-    prepared: 'e31627fb524b3b7726708fc0ebbec40cbe9e40bc89a32f5e19cfb650a9a9f147',
+    original: 'ca0d99e9ea39443679ad7c82e4ea04a4e7c0e463280b35542084ed83f2c55e29',
+    prepared: '02f6083e369f6cfb1a69c0ad8dfb00b6ad97106b78bdcdd11670b912694fb7f8',
     replacements: [
       ['const DEFAULT_TIMEOUT = 5_000;', 'const DEFAULT_TIMEOUT = 360_000;'],
       ['const NAVIGATION_TIMEOUT = 10_000;', 'const NAVIGATION_TIMEOUT = 360_000;'],
@@ -20,8 +20,8 @@ const profiles = [
   },
   {
     file: 'BrowserManager.js',
-    original: '1a38e1b5a5476fcef947633076b401e74a14d873e1927078d011d250b03bb87f',
-    prepared: 'cb7900ac438bb3c96a778835c1c3312ea02a9e9b966ec582630f15f2e4fb8d3a',
+    original: '0bab07f29d0ac272c7ae0994b331863119470c4d58b24d36d50397fc1de07709',
+    prepared: 'f4fdc2302eeeff546f609ff2f6bf66698c487de2c04aa5f18d8ff814541fe881',
     replacements: [[
       '        if (wsEndpoint) {\n            connectOptions.browserWSEndpoint = wsEndpoint;',
       '        if (wsEndpoint) {\n            connectOptions.protocolTimeout = 360_000;\n            connectOptions.browserWSEndpoint = wsEndpoint;',
@@ -37,9 +37,9 @@ export function prepareChromeTimeouts(directory) {
   const info = lstatSync(manifestPath);
   if (!info.isFile() || info.isSymbolicLink()) throw Error('Unsafe Chrome SDK file');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  if (manifest.name !== 'chrome-devtools-mcp' || manifest.version !== '1.12.0') throw Error('Unreviewed Chrome SDK version');
+  if (manifest.name !== 'chrome-devtools-mcp' || manifest.version !== '1.13.0') throw Error('Unreviewed Chrome SDK version');
   for (const profile of profiles) {
-    const path = join(root, 'build/src', profile.file);
+    const path = join(root, 'out/Default/gen/src', profile.file);
     const info = lstatSync(path);
     if (!info.isFile() || info.isSymbolicLink()) throw Error('Unsafe Chrome SDK file');
     const original = readFileSync(path, 'utf8');
