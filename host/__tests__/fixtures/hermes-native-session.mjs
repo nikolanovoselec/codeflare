@@ -75,6 +75,9 @@ globalThis.fetch = async (input, init) => {
     }
     if (lastUser.includes('--- Conversation to Review ---')) {
       assert.equal(childMode, false, 'helper prompts cannot start automatic review');
+      // Context-only task prompts contain no new durable facts. Keep legitimate
+      // stock background review enabled without inventing a memory operation.
+      if (scenario === 'context') return completion(JSON.stringify({ operations: [] }));
       assert.equal(scenario, 'capture');
       for (const key of ['user', 'global', 'workspace', 'lesson']) assert.ok(lastUser.includes(facts[key]), `review payload contains ${key} evidence`);
       assert.equal(body.tools?.length ?? 0, 0, 'direct review is a side-channel completion, not primary tool dispatch');

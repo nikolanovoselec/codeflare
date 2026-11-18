@@ -341,7 +341,13 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       name: 'Audit pinned extension dependencies',
       if: dependencyGate,
       'timeout-minutes': 1,
-      run: 'npm audit --package-lock-only --audit-level=high',
+      env: { GH_TOKEN: '${{ github.token }}' },
+      run: [
+        'audit_status=0',
+        'npm audit --package-lock-only --audit-level=high --json > "$RUNNER_TEMP/browser-ide-npm-audit.json" || audit_status=$?',
+        'node ../../scripts/ci/check-browser-ide-audit.mjs "$RUNNER_TEMP/browser-ide-npm-audit.json" "$audit_status"',
+        '',
+      ].join('\n'),
       'working-directory': 'openvscode/agent-sidebar',
     });
   });
