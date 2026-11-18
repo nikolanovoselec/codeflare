@@ -1434,7 +1434,12 @@ jobs:
       - name: Audit pinned extension dependencies
         if: github.event_name == 'workflow_dispatch'
         timeout-minutes: 1
-        run: npm audit --package-lock-only --audit-level=high
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          audit_status=0
+          npm audit --package-lock-only --audit-level=high --json > "$RUNNER_TEMP/browser-ide-npm-audit.json" || audit_status=$?
+          node ../../scripts/ci/check-browser-ide-audit.mjs "$RUNNER_TEMP/browser-ide-npm-audit.json" "$audit_status"
         working-directory: openvscode/agent-sidebar
 
       - name: Check pinned extension dependencies and licenses

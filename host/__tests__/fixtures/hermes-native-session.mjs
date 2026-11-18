@@ -87,18 +87,16 @@ globalThis.fetch = async (input, init) => {
     }
     if (scenario === 'context') {
       if (contextPhase === 'overflow') {
-        contextPhase = 'summary';
         return Response.json({ error: { message: 'maximum context length exceeded', type: 'invalid_request_error', code: 'context_length_exceeded' } }, { status: 400 });
       }
       if (contextPhase === 'summary') {
         assert.ok(wireText(body).includes('HERMES_TASK_EVIDENCE'), 'real compaction receives the conversation to summarize');
         put('user', facts.corrected);
-        contextPhase = 'retry';
         return completion('The user requested HERMES_TASK_EVIDENCE analysis. Continue the unfinished analysis.');
       }
       if (contextPhase === 'retry') {
         assertReference(body, facts.corrected, facts.user);
-        assert.ok(wireText(body).includes('Continue the unfinished analysis'), 'the retry uses the real compaction summary');
+        assert.ok(wireText(body).includes('HERMES_TASK_EVIDENCE'), 'the pending task survives real compaction');
         contextPhase = 'finished';
       }
       // Enough real history for compaction, without faking session internals.
@@ -127,11 +125,18 @@ function assertReference(body, currentUser, staleUser) {
 async function start({ parentSession, context = false, managed = false } = {}) {
   let loader, queryResult;
   const sessionCwd = managed ? join(cwd, 'unrelated-clone') : cwd;
+  const additionalExtensionPaths = managed ? [join(repo, 'preseed/agents/pi/extensions/hermes-memory-runtime.ts')] : [];
+  if (context) {
+    const compactRoot = join(deps, 'pi-smart-compact');
+    const compact = JSON.parse(readFileSync(join(compactRoot, 'package.json'), 'utf8'));
+    additionalExtensionPaths.push(join(repo, 'preseed/agents/pi/extensions/00-smart-compact-config.ts'),
+      ...compact.pi.extensions.map(entry => join(compactRoot, entry)));
+  }
   const settingsManager = sdk.SettingsManager.inMemory({ packages: [], cacheWarming: 'off',
     compaction: { enabled: context, reserveTokens: 256, keepRecentTokens: 256 }, retry: { enabled: false } });
   loader = new sdk.DefaultResourceLoader({ cwd: sessionCwd, agentDir, settingsManager, noExtensions: true, noSkills: true,
     noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    additionalExtensionPaths: managed ? [join(repo, 'preseed/agents/pi/extensions/hermes-memory-runtime.ts')] : [],
+    additionalExtensionPaths,
     extensionFactories: [...(managed ? [] : [async pi => {
       await attachHermesMemoryToForeground(registry, pi, stock);
       if (context || parentSession) registerHermesMemoryContext(pi, { memoryDir, workspaceMemoryDir });
@@ -155,6 +160,8 @@ async function start({ parentSession, context = false, managed = false } = {}) {
     }] });
   await loader.reload();
   assert.deepEqual(loader.getExtensions().errors, []);
+  if (context) assert.ok(loader.getExtensions().extensions.some(extension => extension.commands.has('smart-compact')),
+    'the composed native context fixture must load the installed Smart Compact command');
   const modelRuntime = await sdk.ModelRuntime.create({ authPath: join(home, 'auth.json'), modelsPath: join(home, 'models.json') });
   modelRuntime.registerProvider('hermes-fixture', { baseUrl: 'https://hermes-fixture.invalid/v1', api: 'openai-completions',
     apiKey: 'synthetic-hermes-key', models: [{ id: 'fixture', name: 'Hermes qualification', reasoning: false, input: ['text'],
@@ -190,9 +197,13 @@ function openDatabase() {
   return db;
 }
 async function promptText(f, prompt) {
-  await f.session.prompt(prompt);
-  const last = f.session.messages.findLast(message => message.role === 'assistant');
-  assert.ok(last, 'the real SDK persists the wire completion');
+  let last;
+  const unsubscribe = f.session.subscribe(event => {
+    if (event.type === 'message_end' && event.message.role === 'assistant') last = event.message;
+  });
+  try { await f.session.prompt(prompt); }
+  finally { unsubscribe(); }
+  assert.ok(last, 'this prompt must emit a new assistant response, not reuse an earlier completion');
   assert.equal(last.stopReason, 'stop', JSON.stringify(last));
   assert.match(text(last), scenario === 'context' ? /^HERMES_TASK_EVIDENCE response \d+:/ : /^Foreground fixture acknowledgement \d+\.$/);
 }
@@ -248,11 +259,14 @@ async function run() {
     await promptText(f, 'HERMES_TASK_EVIDENCE: continue the ordinary analysis.');
     assertReference(requests.at(-1), facts.corrected, facts.user);
     const beforeUserTurns = f.session.messages.filter(message => message.role === 'user').length;
-    let compactionFinished = false;
+    let compactionResult;
+    // Native compaction may summarize both history and a split-turn prefix.
+    // Only its public completion event moves the provider into retry mode.
     const unsubscribe = f.session.subscribe(event => {
-      if (event.type === 'auto_compaction_end') {
-        assert.equal(event.aborted, false);
-        compactionFinished = true;
+      if (event.type === 'compaction_start') contextPhase = 'summary';
+      if (event.type === 'compaction_end') {
+        compactionResult = event;
+        contextPhase = event.willRetry ? 'retry' : 'compaction-failed';
       }
     });
     // Revert on disk, then correct DURING the actual summary request. The
@@ -261,8 +275,11 @@ async function run() {
     contextPhase = 'overflow';
     await promptText(f, 'HERMES_TASK_EVIDENCE: finish the interrupted analysis.');
     unsubscribe();
+    assert.deepEqual(providerFailures, []);
+    assert.ok(compactionResult?.result, compactionResult?.errorMessage ?? 'the public compaction event must report a result');
+    assert.equal(compactionResult.aborted, false);
+    assert.equal(compactionResult.willRetry, true);
     assert.equal(contextPhase, 'finished');
-    assert.equal(compactionFinished, true);
     assert.ok(f.session.sessionManager.getEntries().some(entry => entry.type === 'compaction'), 'real SDK recorded compaction');
     assert.ok(f.session.messages.filter(message => message.role === 'user').length <= beforeUserTurns + 1,
       'automatic continuation required no new user prompt');
