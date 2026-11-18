@@ -343,6 +343,15 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     assert.equal(readFileSync(join(fx.home, '.pi/agent/settings.json'), 'utf8'), settings);
   });
 
+  it('REQ-MEM-035: explicit capture and flush opt-outs survive container preparation', t => {
+    const fx = fixture(t);
+    const optOut = { reviewEnabled: false, correctionDetection: false, flushOnCompact: false, flushOnShutdown: false };
+    put(join(fx.home, configFile), JSON.stringify(optOut));
+    succeeds(run(fx));
+    for (const [key, value] of Object.entries(optOut)) assert.equal(config(fx)[key], value);
+    assertLayout(fx);
+  });
+
   it('REQ-MEM-035: AC1 default mode neither initializes personal memory nor changes existing user state', t => {
     const fx = fixture(t);
     succeeds(run(fx, { mode: 'default' }));
@@ -421,6 +430,7 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
 
   for (const path of [
     'Vault/Memory/USER.md', '.cache/pi-hermes-memory/global/MEMORY.md',
+    '.cache/pi-hermes-memory/global/sessions.db-wal', '.cache/pi-hermes-memory/global-locks.sqlite-shm',
     '.pi/agent/hermes-project-memory', 'Vault/.pi-hermes-locks.sqlite',
     'Vault/Memory/Projects/.pi-hermes-locks.sqlite',
     '.pi/agent/pi-hermes-memory/.consolidation-locks', configFile,

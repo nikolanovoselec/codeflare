@@ -114,6 +114,7 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
       }
       prepare_managed_resource_filter() { :; }
 relay_managed_pi_extensions() { :; }
+      configure_pi_hermes_memory() { :; }
       release_agent_pty_after_fast_start_updates() { :; }
       renice() { :; }
       ionice() { :; }

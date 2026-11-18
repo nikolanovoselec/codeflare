@@ -44,8 +44,8 @@ function originalMessages() {
   ];
 }
 
-function fixture(t, files = { user: 'User prefers concise replies.', global: 'Knowledge: use the staging endpoint.', workspace: 'Workspace uses npm.' }) {
-  const root = fs.mkdtempSync(join(tmpdir(), 'pi-hermes-memory-'));
+function fixture(t, files = { user: 'User prefers concise replies.', global: 'Knowledge: use the staging endpoint.', workspace: 'Workspace uses npm.' }, baseDir = tmpdir()) {
+  const root = fs.mkdtempSync(join(baseDir, 'pi-hermes-memory-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const memoryDir = join(root, 'Memory');
   const workspaceMemoryDir = join(memoryDir, 'Projects', 'workspace');
@@ -387,11 +387,14 @@ test('REQ-MEM-036: AC4 UTF-16/file and rendered-total budgets degrade explicitly
     });
   }
   await t.test('REQ-MEM-036: real EACCES on a regular file degrades without leaking contents', async t => {
-    const f = fixture(t, { user: 'UNREADABLE_PRIVATE_PROFILE', global: 'Readable knowledge.' });
+    // The managed TMPDIR itself is private (0700). This privilege-drop fixture
+    // needs a traversable parent so only USER.md, not every file, is denied.
+    const f = fixture(t, { user: 'UNREADABLE_PRIVATE_PROFILE', global: 'Readable knowledge.' }, '/tmp');
     // Root can read chmod(000). Drop privilege in an isolated test process after
     // loading the module, so this tests the real filesystem failure on CI too.
     for (const path of [f.root, f.memoryDir, join(f.memoryDir, 'Projects'), f.workspaceMemoryDir]) fs.chmodSync(path, 0o755);
     fs.chmodSync(f.paths.user, 0o000);
+    fs.chmodSync(f.paths.global, 0o644); // This companion remains readable after the fixture drops privilege.
     const childScript = `
       import { importPiExtension } from ${JSON.stringify(new URL('./fixtures/pi-extension-module.mjs', import.meta.url).href)};
       const { registerHermesMemoryContext } = await importPiExtension('hermes-memory-runtime');

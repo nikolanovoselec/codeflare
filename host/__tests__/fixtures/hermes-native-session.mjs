@@ -44,6 +44,7 @@ const registry = {}, errors = [], requests = [], sessions = [], primaryMemoryWri
 let sequence = 0, reviewSaved = false, correctionSaved = false;
 let contextPhase = 'ordinary', contextReply = 0;
 let childMode = false;
+let expectedModel = 'fixture';
 
 function completion(content) {
   const chunk = (delta, finish_reason) => ({ id: 'hermes-fixture-completion', object: 'chat.completion.chunk',
@@ -62,9 +63,9 @@ globalThis.fetch = async (input, init) => {
     assert.equal(request.headers.get('authorization'), 'Bearer synthetic-hermes-key');
     const body = await request.json();
     requests.push(body);
-    assert.equal(body.model, 'fixture');
+    assert.equal(body.model, expectedModel, 'foreground and review use the current configured model');
     assert.equal(body.stream, true);
-    if (['cold', 'warm', 'recall'].includes(scenario)) assert.fail('eager rebuild/search must not call a provider');
+    if (['cold', 'warm', 'recall', 'managed'].includes(scenario)) assert.fail('eager rebuild/search must not call a provider');
     const lastUser = text(body.messages.findLast(message => message.role === 'user') ?? {});
     if (lastUser.includes('--- User Correction to Save ---')) {
       assert.equal(childMode, false, 'helper prompts cannot start correction extraction');
@@ -123,16 +124,18 @@ function assertReference(body, currentUser, staleUser) {
   assert.ok(!body.messages.filter(message => message.role === 'system').some(message => text(message).includes(currentUser)));
 }
 
-async function start({ parentSession, context = false } = {}) {
+async function start({ parentSession, context = false, managed = false } = {}) {
   let loader, queryResult;
+  const sessionCwd = managed ? join(cwd, 'unrelated-clone') : cwd;
   const settingsManager = sdk.SettingsManager.inMemory({ packages: [], cacheWarming: 'off',
     compaction: { enabled: context, reserveTokens: 256, keepRecentTokens: 256 }, retry: { enabled: false } });
-  loader = new sdk.DefaultResourceLoader({ cwd, agentDir, settingsManager, noExtensions: true, noSkills: true,
+  loader = new sdk.DefaultResourceLoader({ cwd: sessionCwd, agentDir, settingsManager, noExtensions: true, noSkills: true,
     noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    extensionFactories: [async pi => {
+    additionalExtensionPaths: managed ? [join(repo, 'preseed/agents/pi/extensions/hermes-memory-runtime.ts')] : [],
+    extensionFactories: [...(managed ? [] : [async pi => {
       await attachHermesMemoryToForeground(registry, pi, stock);
       if (context || parentSession) registerHermesMemoryContext(pi, { memoryDir, workspaceMemoryDir });
-    }, pi => {
+    }]), pi => {
       pi.on('tool_call', event => {
         if (['memory_add', 'memory_replace', 'memory_remove'].includes(event.toolName)) {
           primaryMemoryWrites.push(event.toolName);
@@ -155,16 +158,20 @@ async function start({ parentSession, context = false } = {}) {
   const modelRuntime = await sdk.ModelRuntime.create({ authPath: join(home, 'auth.json'), modelsPath: join(home, 'models.json') });
   modelRuntime.registerProvider('hermes-fixture', { baseUrl: 'https://hermes-fixture.invalid/v1', api: 'openai-completions',
     apiKey: 'synthetic-hermes-key', models: [{ id: 'fixture', name: 'Hermes qualification', reasoning: false, input: ['text'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 4096 }] });
-  const model = modelRuntime.getModel('hermes-fixture', 'fixture');
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 4096 },
+      { id: 'fixture-after-switch', name: 'Changed Hermes qualification', reasoning: false, input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 4096 }] });
+  const model = modelRuntime.getModel('hermes-fixture', expectedModel);
   assert.ok(model);
-  const { session } = await sdk.createAgentSession({ cwd, agentDir, resourceLoader: loader, settingsManager, modelRuntime, model,
-    sessionManager: sdk.SessionManager.inMemory(cwd, parentSession ? { parentSession } : undefined), noTools: 'builtin' });
+  const { session } = await sdk.createAgentSession({ cwd: sessionCwd, agentDir, resourceLoader: loader, settingsManager, modelRuntime, model,
+    sessionManager: sdk.SessionManager.inMemory(sessionCwd, parentSession ? { parentSession } : undefined), noTools: 'builtin' });
   sessions.push(session);
-  await session.bindExtensions({ mode: 'print', onError: error => errors.push(error) });
+  if (managed) process.title = 'pi';
+  await session.bindExtensions({ mode: managed ? 'tui' : 'print', onError: error => errors.push(error) });
   assert.deepEqual(errors, []);
   return {
     session,
+    nextModel: modelRuntime.getModel('hermes-fixture', 'fixture-after-switch'),
     async search(args) {
       queryResult = undefined;
       await session.prompt(`/hermes-native-search ${JSON.stringify(args)}`);
@@ -206,7 +213,7 @@ async function verifySearch(f, { corrected = false } = {}) {
 
 async function run() {
   if (scenario === 'capture') {
-    const f = await start();
+    const f = await start({ managed: true });
     for (const name of ['memory_search', 'memory_add', 'memory_replace']) assert.ok(f.session.getActiveToolNames().includes(name));
     await promptText(f, `For this observatory work: ${facts.user}`);
     await promptText(f, `The calibration reference is: ${facts.global}`);
@@ -214,6 +221,8 @@ async function run() {
     await until(() => Object.keys(paths).every(key => markdown()[key].includes(facts[key])), 'background review to save all four genuine facts');
     reviewSaved = true;
     await verifySearch(f);
+    expectedModel = 'fixture-after-switch';
+    await f.session.setModel(f.nextModel);
     await promptText(f, `Actually, use this preference instead: ${facts.corrected}`);
     await until(() => markdown().user.includes(facts.corrected) && !markdown().user.includes(facts.user), 'stock correction replacement');
     correctionSaved = true;
@@ -221,7 +230,7 @@ async function run() {
     assert.ok(!f.session.messages.some(message => message.role === 'assistant' && message.content.some(part => part.type === 'toolCall')),
       'no primary model tool call can account for the durable writes');
     const before = markdown();
-    const helper = await start({ parentSession: join(agentDir, 'sessions/root.jsonl') });
+    const helper = await start({ managed: true, parentSession: join(agentDir, 'sessions/root.jsonl') });
     childMode = true;
     assert.equal(helper.session.getActiveToolNames().some(name => name.startsWith('memory_')), false);
     for (let i = 0; i < 4; i++) await promptText(helper, `Helper review task ${i}. Do not learn this task as user facts. ${facts.excluded}`);
@@ -262,9 +271,15 @@ async function run() {
     assert.equal(persistedReferenceCopies, 0, 'request-local custom memory is not persisted to the session tree');
     return { freshFirstAndNext: true, compactedAndRetried: true, persistedReferenceCopies };
   }
-  assert.ok(['cold', 'warm', 'recall'].includes(scenario));
+  assert.ok(['cold', 'warm', 'recall', 'managed'].includes(scenario));
   if (scenario === 'cold') assert.equal(existsSync(databasePath), false, 'fixture begins with canonical Markdown only');
-  const f = await start();
+  const f = await start({ managed: scenario === 'managed' });
+  if (scenario === 'managed') {
+    assert.equal(f.session.sessionManager.getCwd(), join(cwd, 'unrelated-clone'), 'memory scope must not change the real session cwd');
+    const helper = await start({ managed: true, parentSession: join(agentDir, 'sessions/root.jsonl') });
+    assert.equal(helper.session.getActiveToolNames().some(name => name.startsWith('memory_')), false,
+      'the default adapter keeps an in-process child from acquiring the foreground package');
+  }
   const result = await verifySearch(f, { corrected: scenario === 'recall' });
   const db = openDatabase();
   try {
@@ -285,7 +300,8 @@ async function run() {
     }
   } finally { db.close(); }
   assert.equal(requests.length, 0);
-  return { ...result, providerRequests: requests.length, reusedNativeDatabase: scenario === 'warm', recalledCorrection: scenario === 'recall' };
+  const ownerRegistered = scenario === 'managed' && existsSync(join(home, '.cache/pi-hermes-memory/owners', `${process.pid}.json`));
+  return { ...result, providerRequests: requests.length, reusedNativeDatabase: scenario === 'warm', recalledCorrection: scenario === 'recall', ownerRegistered };
 }
 
 try {

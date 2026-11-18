@@ -32,6 +32,7 @@ import { isPrewarmTimeoutReady, resolveHostTerminalConfig } from './terminal-mod
 import { getPrewarmConfig } from './prewarm-config.js';
 import { handlePrewarmOrphanExpiry } from './prewarm-readiness.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
+import { shutdownPiMemoryOwners } from './pi-memory-shutdown.js';
 import { createOperatorPiService } from './operator-pi-service.js';
 import { createOperatorInferenceOwnerResolver } from './operator-inference-owner.js';
 import { createOperatorSyncService } from './operator-sync-service.js';
@@ -307,6 +308,7 @@ const server = http.createServer(createRequestHandler({
   activityTracker: state.activityTracker,
   log,
   serverStartTime: SERVER_START_TIME,
+  prepareFinalSync: deadline => shutdownPiMemoryOwners('/home/user/.cache/pi-hermes-memory/owners', deadline),
   readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut }),
   silverbullet: SILVERBULLET,
   openvscode: OPENVSCODE,

@@ -49,6 +49,7 @@ const layDown = functionSource('lay_down_agent_seed_preseed');
 const relay = functionSource('relay_managed_pi_extensions');
 const initialRestore = functionSource('run_initial_r2_restore');
 const configurePiSettings = functionSource('configure_pi_packages_and_review_inventory');
+const configurePiMemory = functionSource('configure_pi_hermes_memory');
 const completeStartup = functionSource('complete_managed_curation_startup');
 const managedStartup = functionSource('run_managed_curation_startup');
 const managedStartupInvocation = productionInvocation('run_managed_curation_startup');
@@ -123,6 +124,7 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     relay,
     initialRestore,
     configurePiSettings,
+    configurePiMemory,
     completeStartup,
     managedStartup,
     managedStartupInvocation,

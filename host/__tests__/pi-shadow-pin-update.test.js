@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-for (const name of ['pi-mcp-adapter', 'pi-open-tui', 'pi-smart-compact']) {
+for (const name of ['pi-mcp-adapter', 'pi-open-tui', 'pi-smart-compact', 'pi-hermes-memory']) {
 test(`REQ-OPS-054 AC6: the real Pi updater preserves aligned pins and startup filters (${name})`, () => {
   const workflow = readFileSync(new URL('../../.github/workflows/bump-shadow-pins.yml', import.meta.url), 'utf8');
   const scripts = [...workflow.matchAll(/node <<'NODE'\n([\s\S]*?)\n\s*NODE/g)]
@@ -46,7 +46,7 @@ test(`REQ-OPS-054 AC6: the real Pi updater preserves aligned pins and startup fi
 });
 }
 
-test('REQ-OPS-054 AC6: workflow discovery includes Open TUI and excludes retired Usage and dedicated atomic owners', () => {
+test('REQ-OPS-054 AC6: workflow discovery includes Open TUI and Hermes and excludes retired Usage and dedicated atomic owners', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/bump-shadow-pins.yml', import.meta.url), 'utf8');
   const discovery = workflow.match(/PACKAGES=\$\(node -e '([^']+)'\)/)?.[1];
   if (!discovery) throw Error('Cannot extract the real manifest-based discovery program');
@@ -56,6 +56,7 @@ test('REQ-OPS-054 AC6: workflow discovery includes Open TUI and excludes retired
   assert.equal(result.status, 0, result.stderr);
   const names = JSON.parse(result.stdout);
   assert.ok(names.includes('pi-open-tui'));
+  assert.ok(names.includes('pi-hermes-memory'));
   for (const name of ['@narumitw/pi-usage', 'context-mode', '@earendil-works/pi-coding-agent']) {
     assert.ok(!names.includes(name), `${name} must not get an extension bump leg`);
   }

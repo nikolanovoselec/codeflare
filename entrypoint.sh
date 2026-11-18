@@ -3122,6 +3122,108 @@ console.log('[entrypoint] Pi Plan Mode policy configured');
 NODE
 }
 
+# REQ-MEM-035: prepare only the canonical Markdown and excluded local cache.
+# This runs after restore, before any foreground Pi is released. Legacy runtime
+# migration is a separate quiesced operation; never move an open database here.
+configure_pi_hermes_memory() {
+    [ "${SESSION_MODE:-default}" = "advanced" ] || return 0
+    local memory_home="${1:-$USER_HOME}"
+    python3 - "$memory_home" <<'PY'
+import json, os, stat, sys
+from pathlib import Path
+
+home = Path(os.path.abspath(sys.argv[1]))
+agent = home / '.pi/agent'
+vault = home / 'Vault/Memory'
+cache = home / '.cache/pi-hermes-memory'
+config_path = agent / 'hermes-memory-config.json'
+directories = [home, agent, vault, vault / 'Projects/workspace', cache / 'global', cache / 'consolidation-locks', agent / 'pi-hermes-memory']
+canonical = [vault / name for name in ['USER.md', 'MEMORY.md', 'failures.md']] + [vault / 'Projects/workspace/MEMORY.md']
+links = {cache / 'global' / p.name: p for p in canonical[:3]}
+links.update({
+    agent / 'hermes-project-memory': vault / 'Projects',
+    home / 'Vault/.pi-hermes-locks.sqlite': cache / 'global-locks.sqlite',
+    vault / 'Projects/.pi-hermes-locks.sqlite': cache / 'project-locks.sqlite',
+    agent / 'pi-hermes-memory/.consolidation-locks': cache / 'consolidation-locks',
+})
+
+def regular_or_missing(path):
+    try:
+        if not stat.S_ISREG(path.lstat().st_mode):
+            raise ValueError('conflicting memory file: ' + str(path))
+    except FileNotFoundError:
+        pass
+
+def directory_chain(path):
+    if path != home and home not in path.parents:
+        raise ValueError('memory path escaped its home')
+    current = home
+    parts = path.relative_to(home).parts
+    for part in [None, *parts]:
+        if part is not None:
+            current = current / part
+        try:
+            if not stat.S_ISDIR(current.lstat().st_mode):
+                raise ValueError('conflicting memory directory: ' + str(current))
+        except FileNotFoundError:
+            pass
+
+try:
+    # Complete validation precedes creation or configuration mutation.
+    for path in directories:
+        directory_chain(path)
+    for alias in links:
+        directory_chain(alias.parent)
+        if os.path.lexists(alias):
+            if not alias.is_symlink() or Path(os.path.abspath(alias.parent / os.readlink(alias))) != links[alias]:
+                raise ValueError('conflicting memory link: ' + str(alias))
+    for path in [*canonical, config_path]:
+        regular_or_missing(path)
+    for database in [cache / 'global/sessions.db', cache / 'global-locks.sqlite', cache / 'project-locks.sqlite']:
+        for suffix in ['', '-wal', '-shm', '-journal']:
+            regular_or_missing(Path(str(database) + suffix))
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    if not isinstance(config, dict):
+        raise ValueError('memory configuration must be an object')
+    defaults = {'memoryCharLimit': 5000, 'userCharLimit': 5000, 'projectCharLimit': 5000,
+        'nudgeInterval': 10, 'nudgeToolCalls': 15, 'flushMinTurns': 1,
+        'reviewEnabled': True, 'correctionDetection': True, 'flushOnCompact': True, 'flushOnShutdown': True,
+        'memoryOverflowStrategy': 'reject', 'autoConsolidate': False, 'sessionRetentionDays': 1}
+    for key, value in defaults.items():
+        config.setdefault(key, value)
+    config.update({'memoryDir': str(cache / 'global'), 'projectsMemoryDir': 'hermes-project-memory',
+        'memoryMode': 'policy-only', 'lazyInitialization': False, 'skillsEnabled': False,
+        'standingInstructionsEnabled': False, 'reviewRecentMessages': 20,
+        'flushRecentMessages': 20, 'sessionIndexExclude': ['*']})
+    for path in directories:
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for path in canonical:
+        if not path.exists():
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            os.close(fd)
+    for alias, target in links.items():
+        if not os.path.lexists(alias):
+            alias.symlink_to(target, target_is_directory=target.is_dir())
+    encoded = json.dumps(config, indent=2) + '\n'
+    if not config_path.exists() or config_path.read_text() != encoded:
+        temporary = config_path.with_name(config_path.name + '.tmp-' + str(os.getpid()))
+        try:
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, 'w') as output:
+                output.write(encoded)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, config_path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+    print('[entrypoint] Hermes Markdown and local search cache prepared')
+except (OSError, ValueError, json.JSONDecodeError) as error:
+    print('[entrypoint] Hermes preparation refused: ' + str(error), file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 configure_pi_packages_and_review_inventory() {
     local pi_settings="${PI_SETTINGS_FILE:-$USER_HOME/.pi/agent/settings.json}"
     mkdir -p "$(dirname "$pi_settings")"
@@ -3140,6 +3242,8 @@ const required = [
   'npm:pi-mcp-adapter@7.0.1',
   'npm:pi-evaluate@0.1.5',
   'npm:pi-smart-compact@10.8.1',
+  // The Advanced-only Codeflare adapter owns foreground initialization.
+  { source: 'npm:pi-hermes-memory@0.11.0', extensions: [] },
   'npm:@narumitw/pi-goal@0.55.0',
   'npm:@narumitw/pi-plan-mode@0.60.0',
   // The managed terminal adapter initializes the native UI once.
@@ -4879,6 +4983,11 @@ complete_managed_curation_startup() {
     # after early dependency warm-up; reselect only once delivery is settled.
     configure_pi_packages_and_review_inventory || \
         echo "[entrypoint] WARNING: Pi Review settings unavailable; Review is not ready"
+
+    # Do not open memory before its durable Markdown restore has completed.
+    if [ "${STEP1_RESULT:-1}" -eq 0 ]; then
+        configure_pi_hermes_memory || echo "[entrypoint] WARNING: Hermes memory is not ready"
+    fi
 
     # The terminal server has been polling this flag before spawning tab 1. Run
     # requested updates, prune restored transcripts, then release the agent PTY.

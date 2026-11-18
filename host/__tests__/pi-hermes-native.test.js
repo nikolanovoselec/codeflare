@@ -81,7 +81,9 @@ async function fixture(t) {
   const memory = join(home, 'Vault/Memory'), project = join(memory, 'Projects/workspace');
   const cache = join(home, '.cache/pi-hermes-memory/global'), agent = join(home, '.pi/agent');
   mkdirSync(project, { recursive: true }); mkdirSync(cache, { recursive: true }); mkdirSync(agent, { recursive: true });
-  mkdirSync(join(home, 'workspace'), { recursive: true });
+  mkdirSync(join(agent, 'npm'), { recursive: true });
+  symlinkSync(deps, join(agent, 'npm/node_modules'), 'dir');
+  mkdirSync(join(home, 'workspace/unrelated-clone'), { recursive: true });
   for (const name of ['USER.md', 'MEMORY.md', 'failures.md']) {
     put(join(memory, name), '');
     symlinkSync(join(memory, name), join(cache, name));
@@ -166,6 +168,17 @@ test('REQ-MEM-035: AC4 Markdown-only cold recovery and warm native SQLite reuse 
     assert.equal(warm.reusedNativeDatabase, true);
     for (const [i, name] of ['USER.md', 'MEMORY.md', 'failures.md'].entries()) assert.deepEqual(readFileSync(join(f.memory, name)), before[i]);
     assert.equal(readFileSync(join(f.project, 'MEMORY.md'), 'utf8'), f.facts.workspace);
+  });
+
+test('REQ-MEM-035: managed default adapter loads the installed stock TypeScript entrypoint through public Pi resources',
+  { timeout: 120000 }, async t => {
+    const f = await fixture(t);
+    for (const [path, fact] of [[join(f.memory, 'USER.md'), f.facts.user], [join(f.memory, 'MEMORY.md'), f.facts.global],
+      [join(f.memory, 'failures.md'), f.facts.lesson], [join(f.project, 'MEMORY.md'), f.facts.workspace]]) put(path, fact);
+    const result = await f.run('managed');
+    assert.equal(result.providerRequests, 0);
+    assert.equal(result.matches, 4);
+    assert.equal(result.ownerRegistered, true);
   });
 
 test('REQ-MEM-036: AC1/AC2/AC5 native requests receive current reference data once, including automatic compaction retry without a new prompt',

@@ -2367,7 +2367,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     // by the "errored" sibling test below; this case guards the reachable non-OK
     // branch (e.g. a fast 503/non-2xx) and the body-capture plumbing. The 504 here
     // is illustrative of the res.ok===false mapping, not the timeout race.
-    it('REQ-SESSION-011: a non-OK final-sync response is audited as "incomplete" with the session id + http status/reason, and the delete still proceeds', async () => {
+    it.each([
+      { reason: 'timeout', status: 504 },
+      { reason: 'pi-shutdown-timeout', status: 503 },
+      { reason: 'pi-shutdown-unconfirmed', status: 503 },
+    ])('REQ-SESSION-011: a non-OK final-sync response is audited as "incomplete" with the session id + http status/reason, and the delete still proceeds ($reason)', async ({ reason, status }) => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         if (key === '_sessionId') return 'sess123';
@@ -2378,7 +2382,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
       mockTcpPortFetch.mockImplementation(async (url: string) => {
         if (typeof url === 'string' && url.includes('/internal/final-sync')) {
-          return new Response(JSON.stringify({ synced: false, reason: 'timeout' }), { status: 504 });
+          return new Response(JSON.stringify({ synced: false, reason }), { status });
         }
         return new Response('', { status: 200 });
       });
@@ -2399,10 +2403,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const auditPut = mockStorage.put.mock.calls.find((c) => c[0] === 'finalSyncAudit');
       expect(auditPut).toBeDefined();
       const event = auditPut![1] as { outcome: string; sessionId?: string; httpStatus?: number; reason?: string };
-      expect(event.outcome).toBe('incomplete'); // 504 is res.ok===false -> not completed
+      expect(event.outcome).toBe('incomplete'); // Non-2xx never means completed capture or sync.
       expect(event.sessionId).toBe('sess123'); // captured before the storage-clear nulls _sessionId
-      expect(event.httpStatus).toBe(504);
-      expect(event.reason).toBe('timeout');
+      expect(event.httpStatus).toBe(status);
+      expect(event.reason).toBe(reason);
     });
 
     // This is the AUTHORITATIVE ceiling path post budget-inversion fix: when the

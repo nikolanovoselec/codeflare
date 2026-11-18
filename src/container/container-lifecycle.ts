@@ -459,7 +459,7 @@ async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number, auth
     try {
       const candidate = ((await res.json()) as { reason?: unknown }).reason;
       // Preserve the host's existing outcome codes, never arbitrary response content.
-      if (typeof candidate === 'string' && ['disk-space-blocked', 'daemon-not-running', 'bisync-failed', 'timeout'].includes(candidate)) reason = candidate;
+      if (typeof candidate === 'string' && ['disk-space-blocked', 'daemon-not-running', 'bisync-failed', 'timeout', 'pi-shutdown-timeout', 'pi-shutdown-unconfirmed'].includes(candidate)) reason = candidate;
     } catch { /* body may be empty */ }
     return { outcome: res.ok ? 'completed' : 'incomplete', httpStatus: res.status, reason };
   } catch {

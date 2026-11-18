@@ -20,6 +20,7 @@ Persistent user notes, advanced-mode conversation memory, cumulative graph publi
 - [Bootstrap and Seed Integration](#bootstrap-and-seed-integration-req-vault-007)
 - [Attachments and Ingestion](#attachments-and-ingestion)
 - [Memory Capture System](#memory-capture-system)
+  - [Durable Pi facts](#durable-pi-facts)
   - [First-prompt and post-compaction retrieval](#first-prompt-and-post-compaction-retrieval)
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [Requirement and Source Map](#requirement-and-source-map)
@@ -34,8 +35,9 @@ Persistent user notes, advanced-mode conversation memory, cumulative graph publi
 
 The vault lives at `/home/user/Vault/` inside every advanced-mode session container. It is rclone-bisynced to R2 alongside the rest of `/home/user/`, so admitted, nonexcluded files become available on a later session after successful sync. Derived output is excluded, and Stop is not unconditional persistence proof; see the [failed/timed-out drain warning](#persistence-and-finalization-req-vault-006).
 
-Three owners write to the vault:
+Four owners write to the vault:
 
+- **Stock Pi Hermes** maintains user facts, global knowledge/lessons and one shared workspace under `Memory/`; its searchable SQLite state is disposable and excluded from sync. It does not replace the historical capture/graph owners below.
 - The **capture agent** appends a markdown file to `Raw/Sessions/` every 20 real user prompts and captures any durable uncaptured tail on the first prompt after resume.
 - The **image-owned compactor** folds cold capture files into deterministic `Raw/Sessions/Archive.md`; it is not an agent ([REQ-MEM-023](../../sdd/spec/memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)). <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive -->
 - **The user** edits notes via SilverBullet or any tool that writes under `Notes/`, `References/`, `Inbox/`, or `Journal/`. Attachments land next to the referencing note; `Raw/Pasted/` remains an optional hand-organised archive.
@@ -77,6 +79,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 |   |-- README.md          <- PRESEED-MANAGED: vault user guide (overwritten each boot)
 |   |-- CONFIG.md          <- PRESEED-MANAGED: SilverBullet #meta config page (overwritten each boot)
 |   |-- STYLES.md          <- PRESEED-MANAGED: Codeflare editor theme (overwritten each boot)
+|   |-- Memory/            <- PI FACTS: canonical user/global/lesson and shared-workspace Markdown
 |   |-- Raw/
 |   |   |-- Sessions/      <- AGENT-OWNED: one .md per 20-prompt or resumed-tail capture
 |   |   |-- Pasted/        <- USER-OWNED: image/PDF drops from SilverBullet
@@ -93,7 +96,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 `-- Temporary/         <- persistent scratch space (always bisynced)
 ```
 
-`Raw/`, `Notes/`, `References/`, and `graphify-out/` are where content lives. `Notes/` and `References/` are the user-facing priority areas promoted on the SilverBullet dashboard; `graphify-out/` is updated by the vault-extract agent after an eligible resumed-session or crossed 20-prompt hash check finds changed content. `.silverbullet/` is owned by the editor. `Library/Codeflare/` holds the plug files managed by Codeflare (pdf, treeview, github, graph) -- see [Preseed Integration](#preseed-integration-req-vault-007).
+`Memory/`, `Raw/`, `Notes/`, `References/`, and `graphify-out/` are where content lives. `Notes/` and `References/` are the user-facing priority areas promoted on the SilverBullet dashboard; `graphify-out/` is updated by the vault-extract agent after an eligible resumed-session or crossed 20-prompt hash check finds changed content. `.silverbullet/` is owned by the editor. `Library/Codeflare/` holds the plug files managed by Codeflare (pdf, treeview, github, graph) -- see [Preseed Integration](#preseed-integration-req-vault-007).
 
 Two classes of path are hidden from the SilverBullet client listing/sync ([REQ-VAULT-015](../../sdd/spec/vault.md#req-vault-015-vault-idb-lifecycle-and-listing-filters) AC1). Generated `Raw/Graphs/*.html` visualisations stay fetchable by direct link but are removed from the listing so the object index does not try to treat multi-MB HTML graph artifacts as documents. Machine-owned session-capture memory under `Raw/Sessions/` (written by the capture pipeline every 20 real user prompts and on resumed tails) is likewise hidden so IndexedDB does not churn on logs the user never opens, and client mutations to those hidden paths are rejected so a transitioning client cannot delete the on-disk memory.
 
@@ -536,6 +539,27 @@ On Claude, the global graph should gain a `document` node plus concepts for visi
 Cross-session memory in codeflare lives entirely in the vault. Graphify ingests every supported vault input into the unified global graph; agents query it via runtime-native Graphify tools. The former MCP `@modelcontextprotocol/server-memory` subsystem has been removed. Conversation context (decisions, debugging insights, observations) survives across sessions and devices only in Pro/advanced mode, where the capture machinery writes structured notes and bisync preserves the vault subtree. Default mode registers no memory-capture hook, counter, or persisted Vault write machinery.
 
 Implements [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-025](../../sdd/spec/memory.md#req-mem-025-pi-capture-follows-transcript-epochs), [REQ-MEM-026](../../sdd/spec/memory.md#req-mem-026-capture-resume-and-durable-pi-progress), [REQ-MEM-004](../../sdd/spec/memory.md#req-mem-004-vault-contents-synced-to-r2-across-sessions), [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline), [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing).
+
+### Durable Pi facts
+
+Advanced Pi uses the pinned, unmodified `pi-hermes-memory` package behind a Codeflare foreground adapter ([REQ-MEM-035](../../sdd/spec/memory.md#req-mem-035-durable-pi-facts-with-disposable-local-search), [REQ-MEM-036](../../sdd/spec/memory.md#req-mem-036-fresh-bounded-pi-fact-context-on-every-request)). Default mode is unchanged. The normal shadow-pin updater includes Hermes and qualifies its candidate before opening a bump PR.
+
+| Content | Canonical location |
+|---|---|
+| User facts | `Vault/Memory/USER.md` |
+| Shared knowledge and lessons | `Vault/Memory/MEMORY.md`, `Vault/Memory/failures.md` |
+| One stable workspace | `Vault/Memory/Projects/workspace/MEMORY.md` |
+| Search database, sidecars and coordination state | `.cache/pi-hermes-memory/` — already excluded, never the durable source |
+
+Restore precedes idempotent configuration/cache preparation and foreground startup. Cache-side Markdown aliases point to the canonical files, never the reverse; rclone does not follow those aliases. Empty-cache startup reconciles global and workspace facts without a model request or historical-session backfill. Warm starts reuse the database. Malformed configuration, unexpected links and conflicting files are reported without overwriting user data or falling back to SQLite in Vault. Ordinary startup does not migrate an open legacy database; exact-key cleanup or a quiesced migration requires separate authorization.
+
+The foreground owner retains stock automatic review and corrections using the configured provider. Explicit capture/flush opt-outs survive preparation. In-process helpers do not become personal-memory writers. Hermes sees the stable workspace scope even when the real session opens a clone; other tools keep their real working directory. Pi instructions explicitly route prior-fact questions through `capability`/`memory_search` and deliberate saves/corrections through `memory_add`/`memory_replace`. Never store secrets or treat recalled data as authorization.
+
+Each outgoing request gets current user, global and workspace files as one untrusted custom reference message, not a persisted transcript turn or new system authority. This also applies immediately after compaction. Each file may contribute at most 5,000 UTF-16 units; the entire rendered reference is capped at 15,000. Oversized, unreadable or nonregular files produce bounded per-file degradation while healthy files remain available. Stored files are not truncated; repaired files are retried on the next request.
+
+Authorized final sync first gives registered interactive Pi owners a shared bounded SIGTERM drain, then starts the fresh rclone scan within the existing overall deadline. It does not signal process groups or extraction children directly. An unconfirmed/timed-out drain remains an incomplete outcome even if already-written Markdown syncs. Manual sync does not stop Pi. Process exit proves neither successful inference nor fact capture, and abrupt termination can lose uncaptured or unsynchronized facts.
+
+Qualification must distinguish automatic capture from manual saves: use genuine nonsecret user facts with primary memory writes disallowed, then verify canonical bytes and fresh-process search. Separately restore only synchronized Markdown into an empty cache and verify search without a provider call; check corrections and immediate post-compaction context on the next outbound request. The native suite exercises the public SDK, locked upstream bytes and actual SQLite; synthetic-provider results do not replace live provider/R2 acceptance.
 
 ### First-prompt and post-compaction retrieval
 

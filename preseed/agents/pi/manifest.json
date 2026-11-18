@@ -133,6 +133,11 @@
       "advanced"
     ]
   },
+  "extensions/hermes-memory-runtime.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/inline-edit.ts": {
     "modes": [
       "advanced"

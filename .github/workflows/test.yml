@@ -977,7 +977,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/pi-runtime"
           mkdir -p "$RUNNER_TEMP/pi-runtime/npm"
           ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$RUNNER_TEMP/pi-runtime/npm/node_modules"
-          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:name==="pi-open-tui"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
+          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:["pi-open-tui","pi-hermes-memory"].includes(name)?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
           node scripts/verify-pi-prompt.mjs \
             --generated src/lib/agent-seed.generated.ts \
             --runtime-agent-dir "$RUNNER_TEMP/pi-runtime" \
@@ -1080,6 +1080,26 @@ jobs:
           directory: preseed/agents/pi
           key-prefix: host-pi-inference
           ignore-scripts: 'true'
+
+      - name: Prepare and qualify Hermes native SQLite
+        # Locked better-sqlite3 13 ships native prebuilds and has no install script.
+        # Exercise Hermes's actual resolution on every cache hit/miss, without
+        # enabling lifecycle scripts for the rest of the preseed dependency tree.
+        working-directory: preseed/agents/pi
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const { createRequire } = require('node:module');
+          const hermes = createRequire(require.resolve('pi-hermes-memory/package.json'));
+          const Database = hermes('better-sqlite3');
+          const db = new Database(':memory:');
+          try {
+            db.exec('CREATE VIRTUAL TABLE facts USING fts5(content)');
+            db.prepare('INSERT INTO facts (content) VALUES (?)').run('Hermes native memory qualification');
+            assert.equal(db.prepare('SELECT content FROM facts WHERE facts MATCH ?').pluck().get('Hermes'), 'Hermes native memory qualification');
+            console.log('Hermes SQLite ready', { node: process.version, abi: process.versions.modules, napi: process.versions.napi, binding: hermes.resolve('better-sqlite3'), version: hermes('better-sqlite3/package.json').version });
+          } finally { db.close(); }
+          NODE
 
       - name: Diagnose hosted package transport without exposing configuration secrets
         if: matrix.slug == 'shard-1'

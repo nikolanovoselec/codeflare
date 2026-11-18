@@ -654,6 +654,22 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     npm cache clean --force && \
     rm -rf /root/.npm /var/lib/apt/lists/*
 
+# REQ-MEM-035: qualify Hermes's actual native binding on the shipped Node ABI.
+# better-sqlite3 13 includes prebuilds; no runtime install or Hermes patch is needed.
+RUN cd /opt/codeflare/pi-agent/npm && node <<'NODE'
+const assert = require('node:assert/strict');
+const { createRequire } = require('node:module');
+const hermes = createRequire(require.resolve('pi-hermes-memory/package.json'));
+const Database = hermes('better-sqlite3');
+const db = new Database(':memory:');
+try {
+  db.exec('CREATE VIRTUAL TABLE facts USING fts5(content)');
+  db.prepare('INSERT INTO facts (content) VALUES (?)').run('Hermes native memory qualification');
+  assert.equal(db.prepare('SELECT content FROM facts WHERE facts MATCH ?').pluck().get('Hermes'), 'Hermes native memory qualification');
+  console.log('Hermes SQLite ready', { node: process.version, abi: process.versions.modules, napi: process.versions.napi, binding: hermes.resolve('better-sqlite3'), version: hermes('better-sqlite3/package.json').version });
+} finally { db.close(); }
+NODE
+
 # Validate both lock-installed context-mode v2 copies against the plugin pin,
 # retain ESM compatibility / update-probe suppression (REQ-AGENT-076 AC5),
 # then exercise the published CLI/MCP and built-in SQLite without setup/upgrade.
