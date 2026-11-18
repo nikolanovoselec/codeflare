@@ -506,8 +506,8 @@ COPY .cache-bust /tmp/.cache-bust
 COPY preseed/silverbullet/ /opt/silverbullet-preseed/
 
 # Install an integrity-pinned gh release built with Go 1.27.3 (CVE-2026-111943).
-RUN GH_VERSION="2.103.3" && \
-    GH_SHA256="e3bafef96328d1a67de3a968bdfe1cc2ffd58cf6aba8b5e201356897ed06bb3d" && \
+RUN GH_VERSION="2.105.0" && \
+    GH_SHA256="1dac939af3e84fb3861927c984b357531341be9403b889e4aa86e8822145a09d" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
       "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" \
       -o /tmp/gh.deb && \
