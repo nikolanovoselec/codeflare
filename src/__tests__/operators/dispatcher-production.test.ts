@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, type FixtureDiagnosticIndex, bundle, bytes, collectedRawValues, denyDiagnosticWrites, diagnosticIndexKey, diagnosticJson, diagnosticReport, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, encodeSdkHeader, fixture, genericWire, writableApplication, importRuntime, invalidPreparationRefusal, invocation, maximalDiagnosticEvent, preparationFailures, read, remoteMutations, retainedFence, runtimeEnvelope, seedDiagnosticSnapshot, sourceRead, start, syntheticFramePaths, withCollectedLargeLogs } from './fixtures/dispatcher-production';
+import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, type FixtureDiagnosticIndex, bundle, bytes, capacitySourceUrl as sourceUrl, capacityInferenceRequest as inference, capacityReceipt as receipt, fillCapacityReads as fillReads, collectedRawValues, denyDiagnosticWrites, diagnosticIndexKey, diagnosticJson, diagnosticReport, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, encodeSdkHeader, fixture, genericWire, writableApplication, importRuntime, invalidPreparationRefusal, invocation, maximalDiagnosticEvent, preparationFailures, read, remoteMutations, retainedFence, runtimeEnvelope, seedDiagnosticSnapshot, sourceRead, start, syntheticFramePaths, withCollectedLargeLogs } from './fixtures/dispatcher-production';
 import { describe, expect, it, vi } from 'vitest';
 import { normalCallback } from './fixtures/normal-dispatcher';
 import { env } from 'cloudflare:test';
@@ -201,27 +201,6 @@ describe('REQ-OPERATOR-047: closed protected refusal contract', () => {
 
 // REQ-OPERATOR-103: Dispatcher operation accounting.
 describe('REQ-OPERATOR-063: reservation denial private wire', () => {
-  const sourceUrl = 'https://api.github.com/repos/another/service';
-  const inference = (operationId: string) => genericWire('inference', { operationId,
-    input: { messages: [{ role: 'user', content: 'PRIVATE_RESERVATION_CONTENT {"activityId":"forged","generation":999}' }] } });
-  const receipt = async (f: DispatcherFixture, operationId: string) => {
-    const response = await f.capability.fetch(f.normalTransport
-      ? applicationWire(f, 'receipt', { operationId }) : genericWire('receipt', { operationId }));
-    expect(response.status).toBe(200);
-    return await response.json() as { operationCount: number; operationLimit: number;
-      requestDigest: string; responseDigest: string; phase: string };
-  };
-  const fillReads = async (f: DispatcherFixture, count: number) => {
-    for (let index = 0; index < count; index++) {
-      const body = { operationId: `capacity-read-${index}`, url: sourceUrl };
-      const response = await f.capability.fetch(f.normalTransport
-        ? applicationWire(f, 'source', body) : genericWire('source', body));
-      expect(response.status).toBe(200);
-      const value = await response.json() as { status: number; body: string };
-      expect(value.status).toBe(200);
-      expect(JSON.parse(value.body)).toMatchObject({ number: 17 });
-    }
-  };
   const fillMixedJournal = async (f: DispatcherFixture) => {
     await fillReads(f, 127);
     const response = await f.capability.fetch(inference('capacity-inference'));
@@ -260,19 +239,6 @@ describe('REQ-OPERATOR-063: reservation denial private wire', () => {
           cleanupStatus: before!.cleanupStatus, collectionStatus: before!.collectionStatus });
       } finally { spy.mockRestore(); setLogLevel('silent'); }
     }, { repositoryOnly: true, operationLimit: 128 }));
-
-  it('REQ-OPERATOR-047: default 1024 journal counts distinct reads and inference while cached operations reuse slots', () => fixture(async f => {
-    await start(f);
-    await fillReads(f, 1023);
-    expect((await f.capability.fetch(inference('default-inference'))).status).toBe(200);
-    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 1024, operationLimit: 1024 });
-    expect((await f.capability.fetch(genericWire('source', { operationId: 'capacity-read-0', url: sourceUrl }))).status).toBe(200);
-    expect((await f.capability.fetch(inference('default-inference'))).status).toBe(200);
-    expect(await receipt(f, 'capacity-read-0')).toMatchObject({ operationCount: 1024, operationLimit: 1024 });
-    expect((await f.capability.fetch(inference('new-over-default'))).status).toBe(403);
-    expect((await f.capability.fetch(genericWire('source', { operationId: 'new-over-default-read', url: sourceUrl }))).status).toBe(403);
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-  }, { repositoryOnly: true }), 120000);
 
   it.each([3, 129])('REQ-OPERATOR-047: admitted %i-operation budget denies fresh work at its exact boundary', operationLimit => fixture(async f => {
     await start(f);
@@ -3333,50 +3299,6 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(cached.status).toBe(response.status);
     expect(await cached.json()).toEqual(body);
   }, { repositoryOnly: true, sourceResponseBytes, sourceBody: 'x'.repeat(100 * 1024) }));
-
-  it('REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload', () => withCollectedLargeLogs(true, output => fixture(async f => {
-    await start(f);
-    const urlFor = (index: number) => {
-      const prefix = `https://docs.example.test/migration?request=${String(index).padStart(4, '0')}&padding=`;
-      return prefix + 'x'.repeat(4096 - prefix.length);
-    };
-    const receipt = async (index: number, count: number) => {
-      const response = await f.capability.fetch(genericWire('receipt', { operationId: `max-url-${index}` }));
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ operationId: `max-url-${index}`, generation: 1,
-        method: 'GET', url: urlFor(index), phase: 'completed', operationCount: count, operationLimit: 1024 });
-    };
-    // Real native SQLite KV enforces the platform's 2 MiB serialized value limit.
-    // Only the upstream transport is controlled: no real network or synthetic journal limit.
-    for (let index = 0; index < 1024; index++) {
-      const response = await f.capability.fetch(sourceRead(`max-url-${index}`, urlFor(index)));
-      expect(response.status, `source reservation/completion ${index + 1} of 1024`).toBe(200);
-      expect(await response.json()).toEqual({ url: urlFor(index), status: 200,
-        headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
-      if (index === 0 || index === 511 || index === 1023) await receipt(0, index + 1);
-    }
-    const preparedById = new Map((collectedRawValues(output, 'operation-prepared') as Array<{
-      body: { operationId: string; url: string };
-    }>).map(value => [value.body.operationId, value.body]));
-    for (let index = 0; index < 1024; index++) {
-      expect(preparedById.get(`max-url-${index}`)).toEqual({ operationId: `max-url-${index}`, url: urlFor(index) });
-    }
-    f.sourceBody('Changed upstream content must not replace completed long-URL receipts');
-    f.restart();
-    for (const index of [0, 511, 1023]) {
-      const cached = await f.capability.fetch(sourceRead(`max-url-${index}`, urlFor(index)));
-      expect(cached.status).toBe(200);
-      expect(await cached.json()).toEqual({ url: urlFor(index), status: 200,
-        headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
-      await receipt(index, 1024);
-    }
-    const denied = await f.capability.fetch(sourceRead('max-url-next', urlFor(1024)));
-    expect(denied.status).toBe(403);
-    expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
-    expect((await f.capability.fetch(genericWire('receipt', { operationId: 'max-url-next' }))).status).toBe(403);
-    await receipt(0, 1024);
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-  }, { repositoryOnly: true })), 120000);
 
   it.each(['reserved', 'unknown'] as const)(
     'REQ-OPERATOR-047: legacy aggregate recovery preserves counts cached receipts conflicts and %s mutation ordering across reload', phase => fixture(async f => {

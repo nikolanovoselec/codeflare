@@ -106,6 +106,27 @@ export function applicationWire(f: DispatcherFixture, path: string, body: unknow
   request.headers.set('x-codeflare-dispatcher-delivery', delivery.token);
   return request;
 }
+export const capacitySourceUrl = 'https://api.github.com/repos/another/service';
+export const capacityInferenceRequest = (operationId: string) => genericWire('inference', { operationId,
+  input: { messages: [{ role: 'user', content: 'PRIVATE_RESERVATION_CONTENT {"activityId":"forged","generation":999}' }] } });
+export const capacityReceipt = async (f: DispatcherFixture, operationId: string) => {
+  const response = await f.capability.fetch(f.normalTransport
+    ? applicationWire(f, 'receipt', { operationId }) : genericWire('receipt', { operationId }));
+  expect(response.status).toBe(200);
+  return await response.json() as { operationCount: number; operationLimit: number;
+    requestDigest: string; responseDigest: string; phase: string };
+};
+export const fillCapacityReads = async (f: DispatcherFixture, count: number) => {
+  for (let index = 0; index < count; index++) {
+    const body = { operationId: `capacity-read-${index}`, url: capacitySourceUrl };
+    const response = await f.capability.fetch(f.normalTransport
+      ? applicationWire(f, 'source', body) : genericWire('source', body));
+    expect(response.status).toBe(200);
+    const value = await response.json() as { status: number; body: string };
+    expect(value.status).toBe(200);
+    expect(JSON.parse(value.body)).toMatchObject({ number: 17 });
+  }
+};
 const guideExcerpt = 'To create a Dozzle agent, you need to run Dozzle with the `agent` subcommand.\n      - DOZZLE_REMOTE_AGENT=agent:7007';
 const guideBlobSha = '9fd821c091950776b4aef53bdc5f55fc72df25af';
 export async function digest(value: string | Uint8Array) {
