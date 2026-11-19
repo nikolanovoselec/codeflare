@@ -3525,7 +3525,7 @@ update_pi_and_codex_when_fast_start_disabled() {
 release_agent_pty_after_fast_start_updates() {
     update_pi_and_codex_when_fast_start_disabled || \
         echo "[entrypoint] WARNING: update_pi_and_codex_when_fast_start_disabled failed; continuing startup"
-    # REQ-AGENT-076 AC8: upstream has no notice opt-out. Prepare its existing
+    # REQ-AGENT-237: upstream has no notice opt-out. Prepare its existing
     # marker after restore, warm-up and optional updates, before any Pi loads.
     # This changes neither the package nor web-search preferences/real errors.
     if ! node - "$USER_HOME" "${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}" <<'NODE'

@@ -35,14 +35,14 @@ function shellEnv(runtimeRoot) {
   return { ...process.env, CODEFLARE_RUNTIME_ROOT: runtimeRoot, SYNC_RUNTIME_DIR: syncRuntimeDir };
 }
 
-function extractShellFunction(name) {
+function extractShellFunction(name, endMarker) {
   const body = readFileSync(ENTRYPOINT, 'utf8');
   const start = body.indexOf(`${name}() {`);
   assert.notEqual(start, -1, `${name} must exist in entrypoint.sh`);
   const rest = body.slice(start);
-  const close = rest.search(/\n\}\n/);
-  assert.notEqual(close, -1, `${name} must have a closing brace`);
-  const fn = rest.slice(0, close + 3);
+  const close = endMarker ? rest.indexOf(endMarker) : rest.search(/\n\}\n/);
+  assert.notEqual(close, -1, `${name} must have a complete definition`);
+  const fn = rest.slice(0, close + (endMarker ? 0 : 3));
   if (['initial_sync_from_r2', 'establish_bisync_baseline', 'bisync_with_r2'].includes(name)) {
     return `source ${JSON.stringify(join(REPO_ROOT, 'scripts/rclone-conflict-cleanup.sh'))}\ntimeout() { shift; "$@"; }\n${fn}`;
   }
@@ -330,11 +330,12 @@ printf '%s' "$SYNC_EXIT" > "$USER_HOME/bisync-exit"
 EVENTS="$1"
 CODEFLARE_INIT_FLAG_FILE="$2"
 USER_HOME="${scratch.dir}"
+PI_NPM_DIR="$USER_HOME/.pi/agent/npm"
 cleanup_main_transcripts() { printf '%s\\n' cleanup >> "$EVENTS"; }
 touch() { printf '%s\\n' release >> "$EVENTS"; }
 update_pi_and_codex_when_fast_start_disabled() { :; }
 ${extractShellFunction('release_agent_pty_after_cleanup')}
-${extractShellFunction('release_agent_pty_after_fast_start_updates')}
+${extractShellFunction('release_agent_pty_after_fast_start_updates', '\n# Warm Pi extension npm dependencies')}
 ${startupRelease}
 `;
 

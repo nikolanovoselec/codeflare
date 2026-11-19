@@ -65,7 +65,7 @@ describe('entrypoint.sh Pi web-search workflow default', () => {
   });
 });
 
-// REQ-AGENT-076 AC8 mapping: execute the existing final startup gate, with
+// REQ-AGENT-237 mapping: execute the existing final startup gate, with
 // fixture-only update/PTY boundaries. The receipt observes state at PTY release.
 // No installed extension is loaded and no running agent state is touched.
 const releaseStart = entrypoint.indexOf('release_agent_pty_after_fast_start_updates() {');
@@ -112,7 +112,7 @@ release_agent_pty_after_fast_start_updates
   return { home, agent, manifest, state, marker, seed, run };
 }
 
-describe('REQ-AGENT-076 AC8: quiet managed pi-web-access startup', () => {
+describe('REQ-AGENT-237: quiet managed pi-web-access startup', () => {
   for (const agentDir of [undefined, 'absolute', 'tilde']) {
     it(`records the installed version before PTY release (${agentDir ?? 'default agent dir'})`, (t) => {
       const f = noticeFixture(t, { agentDir });

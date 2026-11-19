@@ -27,9 +27,10 @@ function extractGuardedWarmupCall() {
 function extractSimpleFunction(name) {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
   const start = lines.findIndex((line) => line === `${name}() {`);
-  const end = lines.findIndex((line, index) => index > start && line === '}');
+  const end = lines.findIndex((line, index) => index > start
+    && line.startsWith('# Warm Pi extension npm dependencies'));
   assert.ok(start >= 0 && end > start, `entrypoint.sh must define ${name}()`);
-  return lines.slice(start, end + 1).join('\n');
+  return lines.slice(start, end).join('\n');
 }
 
 // Run a startup snippet under the same shell options the entrypoint uses, with
@@ -66,6 +67,7 @@ ${wrapper}
 update_pi_and_codex_when_fast_start_disabled() { echo update; return 1; }
 release_agent_pty_after_cleanup() { echo ready; }
 USER_HOME='${scratch.dir}'
+PI_NPM_DIR="$USER_HOME/.pi/agent/npm"
 release_agent_pty_after_fast_start_updates
 `], { encoding: 'utf8' });
       assert.deepEqual(output.trim().split('\n'), [

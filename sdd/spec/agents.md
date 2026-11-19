@@ -4251,7 +4251,6 @@ None.
 5. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeInstallations --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Context-mode installation patch (createRequire shim + REQ-AGENT-076 AC5 update-check disable)) -->
 6. Pi `web_search` defaults to the headless-safe `auto-summary` workflow. <!-- @impl: entrypoint.sh::PI_WEB_SEARCH_JSON --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (entrypoint.sh Pi web-search workflow default) -->
 7. Entrypoint leaves inherited `CONTEXT_MODE_BRIDGE_IDLE_MS` untouched and creates no override. Before upstream context-mode initialization, Pi clears the process-wide override so upstream root/subagent ownership and idle-reaping policy apply; inherited values are not preserved end to end. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reaping) -->
-8. After restore and dependency preparation, before Pi loads, managed startup records the installed `pi-web-access` version in its upstream last-seen marker when safe to write, preventing unsolicited upgrade/changelog notices. Preparation is idempotent, preserves unrelated valid metadata and preferences, skips an absent package without installing it, and leaves malformed state or symlink/nonregular conflicts intact with a content-free warning without blocking startup. Real errors and tools remain unchanged. <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (REQ-AGENT-076 AC8: quiet managed pi-web-access startup) -->
 
 **Constraints:**
 
@@ -4271,6 +4270,33 @@ None.
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
 **Verification:** Automated: [dockerfile-context-mode-patch.test.js](../../host/__tests__/dockerfile-context-mode-patch.test.js), [entrypoint-context-mode-runtime.test.js](../../host/__tests__/entrypoint-context-mode-runtime.test.js), [entrypoint-context-mode.test.js](../../host/__tests__/entrypoint-context-mode.test.js), [entrypoint-pi-web-search.test.js](../../host/__tests__/entrypoint-pi-web-search.test.js), [pi-settings-packages.test.js](../../host/__tests__/pi-settings-packages.test.js); Manual: [Native Pi terminal acceptance](../../documentation/references/pi-packages.md#native-pi-terminal-acceptance)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-237: Quiet Pi web-access startup
+
+**Intent:** Managed Pi starts without unsolicited package-upgrade notices while preserving upstream code, user preferences and real tool errors.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After restore and dependency preparation, before Pi loads, safe startup records the installed `pi-web-access` version in its upstream last-seen marker, suppressing unsolicited upgrade/changelog notices. <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (REQ-AGENT-237: quiet managed pi-web-access startup) -->
+2. Preparation is idempotent, preserves unrelated valid metadata and preferences, and skips an absent package without installing it. <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (REQ-AGENT-237: quiet managed pi-web-access startup) -->
+3. Malformed state or symlink/nonregular conflicts remain intact; startup emits a content-free warning and continues. <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (REQ-AGENT-237: quiet managed pi-web-access startup) -->
+
+**Constraints:**
+
+- Upstream code, real errors and tools remain unchanged.
+- Refused preparation does not guarantee notice suppression.
+
+**Priority:** P1
+
+**Dependencies:** None.
+
+**Verification:** Automated: [entrypoint-pi-web-search.test.js](../../host/__tests__/entrypoint-pi-web-search.test.js)
 
 **Status:** Implemented
 

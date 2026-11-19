@@ -7,7 +7,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 ## 2026-11-19: Responsive notification enrollment and quiet Pi startup
 
 - REQ-TERM-025 repairs inactive notification registrations without waiting indefinitely on global service-worker readiness. Activation alone is bounded; subscription creation and authenticated writes retain completion ownership. Settings exposes pending work, rejects duplicate gestures and preserves enrollment after failed removal, with retryable privacy-safe feedback.
-- REQ-AGENT-076 prepares the upstream pi-web-access version marker from the installed package before releasing the agent, suppressing unsolicited upgrade notices without modifying upstream code or hiding real errors. Unsafe state is preserved and reported rather than overwritten.
+- REQ-AGENT-237 prepares the upstream pi-web-access version marker from the installed package before releasing the agent, suppressing unsolicited upgrade notices without modifying upstream code or hiding real errors. Unsafe state is preserved and reported rather than overwritten.
 
 ## 2026-11-19: Chunked manual Hermes consolidation by default
 
