@@ -8,7 +8,7 @@
     "@juicesharp/rpiv-ask-user-question": "2.15.0",
     "@juicesharp/rpiv-todo": "2.15.0",
     "@narumitw/pi-goal": "0.55.1",
-    "@narumitw/pi-plan-mode": "0.60.0",
+    "@narumitw/pi-plan-mode": "0.60.1",
     "context-mode": "2.1.9",
     "pi-evaluate": "0.1.5",
     "pi-hermes-memory": "0.11.0",
