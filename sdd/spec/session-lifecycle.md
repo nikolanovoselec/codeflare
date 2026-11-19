@@ -726,7 +726,7 @@ Test-method and deployed-runtime evidence have distinct scope; see [Lifecycle ev
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident), [REQ-SESSION-012](#req-session-012-transport-retry-never-invents-lifecycle-state)
 
-**Verification:** Automated: [index.test.ts](../../src/__tests__/container/index.test.ts), [terminal-ws.test.ts](../../src/__tests__/routes/terminal-ws.test.ts), [session-presentation.test.ts](../../web-ui/src/__tests__/lib/session-presentation.test.ts), [session.test.ts](../../web-ui/src/__tests__/stores/session.test.ts), [TerminalArea.test.tsx](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [workspace-lifecycle.test.tsx](../../web-ui/src/__tests__/components/workspace-lifecycle.test.tsx); Manual: [Terminal snapshot restoration acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance)
+**Verification:** Manual: [Terminal snapshot restoration acceptance](../../documentation/lanes/terminal-and-ide.md#terminal-snapshot-restoration-acceptance)
 
 **Status:** Implemented
 

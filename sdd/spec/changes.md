@@ -8,7 +8,6 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 - REQ-OPERATOR-090/091 extends existing encrypted framing to bounded authenticated manifest pages so paced captures retain complete cold readback without an event-count ceiling. Existing v1 archives and small receipts remain compatible; missing, modified or incorrectly bound pages cannot certify completion.
 - REQ-MEM-036's native compaction fixture retains stable indexed canaries and verifies original Markdown preservation instead of assuming that arbitrary live file edits refresh SQLite. Native mutation and automatic-correction coverage remain separate.
-- Repair source/test evidence links and clarify REQ-AGENT-104's existing root-only automatic FIX delivery and no-merge/no-empty-commit policy. These corrections do not claim final CI, managed-release activation or integration acceptance.
 
 ## 2026-11-19: Active dependency integration and Impeccable policy compatibility
 
