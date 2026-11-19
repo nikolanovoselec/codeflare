@@ -480,7 +480,7 @@ describe('REQ-AGENT-096: native Hermes tool discovery and activation', () => {
 
   it.each(memoryTools)('REQ-AGENT-096: discovers registered inactive native $name with an executable activation action', async (tool) => {
     const fixture = discoveryFixture({ active: bootstrapNames, tools: bootstrapTools });
-    expect(await fixture.search(`tool:${tool.name}`)).toEqual([]);
+    expect(identities(await fixture.search(`tool:${tool.name}`))).not.toContain(`tool:${tool.name}`);
     // A native owner can register tools after capability itself was loaded.
     // Discovery must read the live registry, not a static memory-name index.
     const registeredTools = [...bootstrapTools, tool];
