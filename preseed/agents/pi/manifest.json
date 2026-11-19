@@ -481,6 +481,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/critique-rubric.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/critique.md": {
     "modes": [
       "advanced"
@@ -502,6 +507,11 @@
     ]
   },
   "skills/impeccable/reference/degraded/manual-edit-applier.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/degraded/motion-reviewer.md": {
     "modes": [
       "advanced"
     ]
@@ -587,6 +597,16 @@
     ]
   },
   "skills/impeccable/reference/mode-read.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/new-work-comp.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/new-work-world.md": {
     "modes": [
       "advanced"
     ]
