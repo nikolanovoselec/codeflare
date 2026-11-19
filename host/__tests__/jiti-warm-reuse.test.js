@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, chmodSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createRequire, findPackageJSON } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 
@@ -56,6 +57,90 @@ loader.import(${unrelated} && count === 1 ? ${JSON.stringify(sibling)} : ${JSON.
     return { ...result, launches: Number(readFileSync(count, 'utf8')) };
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
+
+// Native Pi is provisioned by host CI. The safe local wrapper also sets CI=1,
+// so use the same GitHub-only gate as the public-SDK transcript tests.
+it('REQ-AGENT-234 AC2: real Pi warming preserves an eligible transcript without staging maintenance', {
+  skip: process.env.GITHUB_ACTIONS !== 'true',
+}, () => {
+  const manifestPath = findPackageJSON('@earendil-works/pi-coding-agent', new URL('../../preseed/agents/pi/package.json', import.meta.url));
+  assert.ok(manifestPath, 'CI must provision the pinned preseed Pi, not a global substitute');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const selected = JSON.parse(readFileSync(new URL('../../preseed/agents/pi/package.json', import.meta.url), 'utf8'));
+  assert.equal(manifest.version, selected.dependencies['@earendil-works/pi-coding-agent']);
+  const sdkEntry = new URL(manifest.exports['.'].import, pathToFileURL(manifestPath)).href;
+  const piBinary = join(dirname(manifestPath), manifest.bin.pi);
+  const directory = mkdtempSync(join(tmpdir(), 'jiti-transcript-preservation-'));
+  try {
+    const home = join(directory, 'home');
+    const cwd = join(home, 'workspace');
+    const agentDir = join(home, '.pi', 'agent');
+    const sessions = join(agentDir, 'sessions');
+    const temp = join(directory, 'tmp');
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(agentDir, { recursive: true });
+    mkdirSync(temp);
+    // No inherited credentials, session paths, package configuration or caches.
+    const env = {
+      PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: home,
+      PI_CODING_AGENT_DIR: agentDir, TMPDIR: temp,
+      PI_OFFLINE: '1', PI_SKIP_VERSION_CHECK: '1', PI_TELEMETRY: '0',
+    };
+    writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ packages: [] }));
+    // Build a real v3 main session via public SDK appends, in Pi's normal session
+    // location. Sixty completed turns exceed both the 50 MB admission threshold
+    // and twenty-prompt cadence; 1 MB records allow a 15–25 MB suffix cut.
+    const fixture = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+      import assert from 'node:assert/strict';
+      const { SessionManager } = await import(${JSON.stringify(sdkEntry)});
+      const manager = SessionManager.create(process.cwd());
+      for (let i = 0; i < 60; i++) {
+        manager.appendMessage({ role: 'user', content: 'Synthetic real prompt ' + i, timestamp: Date.now() });
+        manager.appendMessage({ role: 'assistant', api: 'anthropic-messages', provider: 'anthropic', model: 'fixture',
+          content: [{ type: 'text', text: 'x'.repeat(1_000_000) }], stopReason: 'stop', timestamp: Date.now(),
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
+      }
+      const reopened = SessionManager.continueRecent(process.cwd());
+      assert.equal(reopened.getSessionFile(), manager.getSessionFile());
+      assert.equal(reopened.getHeader().version, 3);
+      assert.equal(reopened.getHeader().parentSession, undefined);
+      assert.equal(reopened.getBranch().length, 120);
+      assert.equal(reopened.getLeafId(), manager.getLeafId());
+      process.stdout.write(JSON.stringify({ file: manager.getSessionFile() }));
+    `], { cwd, env, encoding: 'utf8' });
+    assert.ifError(fixture.error);
+    assert.equal(fixture.status, 0, fixture.stderr);
+    const { file } = JSON.parse(fixture.stdout);
+    assert.ok(file.startsWith(sessions + '/'), 'fixture must be discoverable in the isolated Pi HOME');
+    const snapshot = () => {
+      const stat = statSync(file);
+      const directoryStat = statSync(dirname(file));
+      return {
+        sha256: createHash('sha256').update(readFileSync(file)).digest('hex'),
+        size: stat.size, inode: stat.ino, device: stat.dev, mode: stat.mode,
+        mtime: stat.mtimeMs, ctime: stat.ctimeMs,
+        // Detect even temporary adjacent staging that was subsequently removed.
+        directoryMtime: directoryStat.mtimeMs, directoryCtime: directoryStat.ctimeMs,
+        entries: readdirSync(sessions, { recursive: true }).sort(),
+      };
+    };
+    const before = snapshot();
+    assert.ok(before.size > 50_000_000, 'transcript must be size-eligible for maintenance');
+    const extension = fileURLToPath(new URL('../../preseed/agents/pi/extensions/memory-vault.ts', import.meta.url));
+    const helper = fileURLToPath(new URL('../../preseed/agents/pi/extensions/transcript-trim/engine.mjs', import.meta.url));
+    // Use the production CLI and owner extension, not an argv-recording stand-in.
+    // Success also requires cold-warm/replay cache evidence for the owner and its
+    // native maintenance helper through the real public warming command.
+    const warmed = spawnSync(process.execPath, [script, '--warm-jiti-entrypoints', piBinary,
+      join(temp, 'jiti'), extension, '--dependencies', helper], {
+      cwd, env, encoding: 'utf8',
+    });
+    assert.ifError(warmed.error);
+    assert.equal(warmed.status, 0, `${warmed.stderr}\n${warmed.stdout}`);
+    assert.deepEqual(snapshot(), before, 'warming must not rewrite, replace, append to or stage maintenance beside the transcript');
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
 
 describe('REQ-AGENT-210: image extension cache reuse', () => {
   it('qualifies a native helper through its importing extension without registering another factory', () => {

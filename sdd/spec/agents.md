@@ -257,8 +257,8 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Helpers are imported through their owning extension, not registered as extension factories. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints -->
-2. Warming never runs transcript maintenance. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints -->
+1. Helpers are imported through their owning extension, not registered as extension factories. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (qualifies a native helper through its importing extension without registering another factory) --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (rejects an advertised native dependency that the extension never imports) -->
+2. Warming never runs transcript maintenance. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (REQ-AGENT-234 AC2: real Pi warming preserves an eligible transcript without staging maintenance) -->
 
 **Constraints:**
 
@@ -3243,7 +3243,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Encrypted OAuth credentials reuse the bucket deploy-key fields without a new key.
+1. Encrypted OAuth credentials reuse the bucket deploy-key fields without a new key. <!-- @impl: src/lib/cloudflare-token.ts::storeCloudflareConnection --> <!-- @impl: src/lib/cloudflare-token.ts::writeDeployKeys --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (connects, refreshes, selects and revokes only the owner grant without touching Browser Run or legacy credentials) --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (preserves the GitHub deploy fields when storing a cloudflare connection) -->
 2. Exchanges use `client_secret_post`. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 3. Exchanges surface Cloudflare `error_description` on failure. <!-- @impl: src/lib/cloudflare-token.ts::postToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (CloudflareOAuthProvider) -->
 
@@ -4932,9 +4932,9 @@ None.
 
 1. The verdict demand requires a gate-matching table with one row per finding across all required lanes. A fully clean round still publishes the table shape but does not add redundant clean-lane rows. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (blocks with canonical triage instruction when terminal evidence is untriaged) -->
 2. After acknowledgement, the Pi FIX directive states that review completion is saved, instructs applying only accepted minimal decisions from the preceding triage, and orders an automatic push once fixes are complete. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
-3. Root commits and pushes accepted file changes without renewed consent under the fix-workflow delivery policy.
+3. Root commits and pushes accepted file changes without renewed consent under the fix-workflow delivery policy. <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md::Triage and FIX --> <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @manual: documentation/lanes/preseed.md#review-packet-and-ownership-acceptance -->
 4. Fix-workflow ordering waits first for this head's terminal CI result before committing and pushing accepted changes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
-5. Fix-workflow policy never merges or creates a no-op commit.
+5. Fix-workflow policy never merges or creates a no-op commit. <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md::Triage and FIX --> <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @manual: documentation/lanes/preseed.md#review-packet-and-ownership-acceptance -->
 
 **Constraints:**
 
