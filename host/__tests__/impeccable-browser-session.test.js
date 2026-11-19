@@ -31,6 +31,26 @@ for (const agent of ['claude', 'pi']) {
       assert.equal(restored.url, 'https://preview.example/updated');
     });
 
+    it('REQ-AGENT-181: clearing one handled session preserves another tab’s handled session and checkpoint', () => {
+      const [discarding, otherTab] = sharedTabs(agent);
+      discarding.markHandled('discarded');
+      otherTab.markHandled('other');
+      otherTab.saveSession({ id: 'other', url: 'https://preview.example/other' });
+      const revision = otherTab.nextCheckpointRevision();
+      otherTab.writeScrollY(240);
+
+      discarding.clearHandled('discarded');
+
+      for (const tab of [discarding, otherTab]) {
+        assert.equal(tab.isHandled('discarded'), false);
+        assert.equal(tab.isHandled('other'), true);
+        assert.deepEqual(JSON.parse(JSON.stringify(tab.loadSession())), {
+          id: 'other', url: 'https://preview.example/other', checkpointRevision: revision,
+        });
+        assert.equal(tab.readScrollY(), 240);
+      }
+    });
+
     it('REQ-AGENT-181: stale checkpoint advancement exceeds the observed stored revision', () => {
       const [stale, current] = sharedTabs(agent);
       current.saveSession({ id: 'session' });

@@ -2,6 +2,8 @@
 
 Use Cloudflare’s Vitest integration to exercise Durable Objects in the Workers runtime. Before changing an existing suite, inspect its installed Vitest/Cloudflare packages, configuration, and test scripts. Follow the matching API or migration guide; adding a test does not by itself require migrating the suite.
 
+Container-backed suites need a version-specific check: `@cloudflare/vitest-plugin` 1.7+ builds or pulls Containers declared by Wrangler and exposes a real `ctx.container`, so tests may require Docker. Version 1.8 adds this for `cloudflare.config.ts`, which has no Container-disable setting. Preserve intentional plugin pins until that test-runtime migration is approved; never disable production Containers merely to make a dependency bump pass.
+
 Fetch the relevant current documentation before writing setup or test code:
 
 | Task | Documentation |

@@ -4,6 +4,12 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-19: Active dependency integration and Impeccable policy compatibility
+
+- Integrates the active dependency PRs #1492–1506; inactive draft #1349/ui-progression and promotion #1432 remain excluded. The combined tree retains the intentional Cloudflare Vitest plugin 1.6.1 constraint, qualified exact xterm beta, and independent security-pin ownership.
+- The explicitly approved ws 8.23.0 security update covers the host and both managed package trees. Context-mode 2.1.9 does not inherit its accidental Hono adapter override; the dedicated adapter update supplies 2.1.8. No vulnerability ignore or renewed exception is introduced for context-mode's inherited bundled Zod risk.
+- Impeccable 4.10.0 preserves REQ-AGENT-181 image ownership and REQ-AGENT-194 evidence boundaries with local-command defaults, explicit account authority and usable isolated-role handoffs. Relocated rubric anchors, browser regression coverage and current Goal/Plan references follow the integrated versions. Source and local checks do not establish signed publication, image acceptance or full CI success.
+
 ## 2026-11-19: Hermes-wrapper exclusion does not block MCP handoff
 
 - REQ-AGENT-217 treats the exact managed `hermes-memory-runtime.ts` exclusion as unrelated to MCP client ownership. Native Hermes can replace that wrapper without causing false ambiguous-client warnings.

@@ -41,6 +41,9 @@ if [ ! -x "$engine" ]; then
 fi
 export IMPECCABLE_SKILL_DIR=$(CDPATH= cd -- "$dir/.." && pwd)
 export IMPECCABLE_SELF="$0"
+export IMPECCABLE_NO_SWITCH_SYNC=1
+export IMPECCABLE_NO_TELEMETRY=1
+export IMPECCABLE_PRO=off
 exec "$engine" "$@"
 `;
 }

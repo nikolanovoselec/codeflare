@@ -1,5 +1,5 @@
-<!-- Generated from skill/agents/ at build time. Do not edit; edit the agent definition. -->
-This harness has no subagent capability, so you are running this role inline. Step fully out of the work you just finished, adopt only this file's instructions for the pass, and disclose the substitution in one line of your closing message to the user, outside the output contract. Where the text below addresses a parent agent, you are both parties: produce the full output contract first, then act on it yourself.
+<!-- Codeflare managed role; upstream role body retained below. -->
+Use this delivered role in a generic isolated subagent with no forked conversation history and only the parent's explicit input packet. Follow the role's permissions and output contract; do not assume a named agent is installed. Only when no isolated subagent can actually launch, run a fresh in-thread pass: step fully out of the work, follow this role, and disclose the substitution in one line outside its output contract. In that fallback alone, where the text addresses a parent agent, you are both parties: produce the full output contract before acting on it.
 
 # Impeccable Documenter
 
