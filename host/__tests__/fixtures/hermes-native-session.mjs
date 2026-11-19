@@ -17,7 +17,6 @@ const paths = { user: join(memoryDir, 'USER.md'), global: join(memoryDir, 'MEMOR
   workspace: join(workspaceMemoryDir, 'MEMORY.md'), lesson: join(memoryDir, 'failures.md') };
 const facts = JSON.parse(readFileSync(join(home, 'facts.json'), 'utf8'));
 const markdown = () => Object.fromEntries(Object.entries(paths).map(([name, path]) => [name, readFileSync(path, 'utf8')]));
-const put = (key, value) => writeFileSync(paths[key], value);
 const text = message => typeof message.content === 'string' ? message.content
   : (message.content ?? []).map(part => part.type === 'text' ? part.text : '').join('\n');
 const wireText = body => body.messages.map(text).join('\n');
@@ -96,7 +95,6 @@ globalThis.fetch = async (input, init) => {
       }
       if (contextPhase === 'summary') {
         assert.ok(wireText(body).includes('HERMES_TASK_EVIDENCE'), 'real compaction receives the conversation to summarize');
-        put('user', facts.corrected + '\n' + facts.roleCanary + ' Compaction calibration reference.'.repeat(200));
         return completion('The user requested HERMES_TASK_EVIDENCE analysis. Continue the unfinished analysis.');
       }
       if (contextPhase === 'retry') {
@@ -323,15 +321,16 @@ async function run() {
     return { searchableScopes: 3, crudScopes: 3, originalsPreserved: true, providerRequests: requests.length };
   }
   if (scenario === 'context') {
+    // Keep the canaries stable: stock search reads SQLite, reconciled at startup
+    // and by native mutations, not by watching arbitrary live Markdown edits.
+    // Native large-store CRUD and automatic correction have separate scenarios.
+    const initialMarkdown = markdown();
     const f = await start({ context: true, managed: true });
     assert.equal(f.session.sessionManager.getCwd(), join(cwd, 'unrelated-clone'));
-    const initialMarkdown = markdown();
     assert.ok(initialMarkdown.user.length > 5000, 'initial request starts with a valid over-limit store');
     await promptText(f, 'HERMES_TASK_EVIDENCE: analyze the calibration procedure.');
     assertNoAutomaticFacts(requests.at(-1));
     assertNoSizeWarnings();
-    // Edit canonical data, not the SDK state or the integration's context.
-    put('user', facts.corrected + '\n' + facts.roleCanary + ' Ordinary calibration reference.'.repeat(200));
     assert.ok(markdown().user.length > 5000);
     await promptText(f, 'HERMES_TASK_EVIDENCE: continue the ordinary analysis.');
     assertNoAutomaticFacts(requests.at(-1));
@@ -347,10 +346,8 @@ async function run() {
         contextPhase = event.willRetry ? 'retry' : 'compaction-failed';
       }
     });
-    // Revert on disk, then correct DURING the actual summary request. The
-    // automatic retry must not expose the correction (or any full-file data)
+    // The automatic retry must not expose stored facts or full-file data
     // without explicit recall and without any further user prompt.
-    put('user', facts.user + '\n' + facts.roleCanary + ' Precompaction calibration reference.'.repeat(200));
     contextPhase = 'overflow';
     await promptText(f, 'HERMES_TASK_EVIDENCE: finish the interrupted analysis.');
     unsubscribe();
@@ -368,12 +365,11 @@ async function run() {
     assertNoAutomaticFacts(requests.at(-1));
     assertNoSizeWarnings();
     assert.ok(markdown().user.length > 5000);
-    assert.ok(markdown().user.includes(facts.corrected));
-    for (const key of ['global', 'workspace', 'lesson']) assert.equal(markdown()[key], initialMarkdown[key], 'requests never rewrite unrelated stored facts');
+    assert.deepEqual(markdown(), initialMarkdown, 'requests and compaction preserve all original Markdown byte-for-byte');
     const beforeSearch = requests.length;
-    const recalled = await f.search({ query: facts.corrected.split(' ')[0], target: 'user' });
+    const recalled = await f.search({ query: facts.user.split(' ')[0], target: 'user' });
     assert.equal(recalled.details.count, 1);
-    assert.ok(recalled.details.output.includes(facts.corrected), 'explicit native search returns the large stored fact');
+    assert.ok(recalled.details.output.includes(initialMarkdown.user), 'explicit native search returns the complete large stored entry');
     assert.ok(recalled.details.output.includes(facts.roleCanary), 'role-like stored text stays retrievable as tool data, not unsolicited system authority');
     assert.equal(requests.length, beforeSearch, 'read-only explicit search needs no model request');
     return { initialAndSubsequentWithoutFacts: true, compactedAndRetried: true, postCompactionWithoutFacts: true,

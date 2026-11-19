@@ -205,8 +205,10 @@ test('REQ-MEM-036: managed native requests omit unsolicited stored facts and siz
     const f = await fixture(t);
     for (const [path, fact] of [[join(f.memory, 'USER.md'), f.facts.user], [join(f.memory, 'MEMORY.md'), f.facts.global],
       [join(f.project, 'MEMORY.md'), f.facts.workspace]]) put(path, fact);
-    put(join(f.memory, 'USER.md'), f.facts.user + '\n' + f.facts.roleCanary + ' Initial calibration reference.'.repeat(200));
+    const userContent = f.facts.user + '\n' + f.facts.roleCanary + ' Initial calibration reference.'.repeat(200);
+    put(join(f.memory, 'USER.md'), userContent);
     const result = await f.run('context');
+    assert.equal(readFileSync(join(f.memory, 'USER.md'), 'utf8'), userContent, 'the large original survives requests, compaction and search byte-for-byte');
     assert.equal(result.initialAndSubsequentWithoutFacts, true);
     assert.equal(result.compactedAndRetried, true);
     assert.equal(result.postCompactionWithoutFacts, true);
