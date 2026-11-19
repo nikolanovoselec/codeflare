@@ -138,6 +138,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
 
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/npm-tools/package.json context-mode "$CUR" "$LAT"
+          node scripts/update-npm-tool-manifests.mjs \
+            preseed/agents/pi/package.json context-mode "$CUR" "$LAT"
+
           node <<'NODE'
           const fs = require('node:fs');
           const cur = process.env.CUR;
@@ -145,7 +150,6 @@ jobs:
           const files = [
             'preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json',
             'preseed/agents/claude/plugins/context-mode/README.md',
-            'preseed/npm-tools/package.json',
           ];
           for (const f of files) {
             const before = fs.readFileSync(f, 'utf-8');
@@ -190,15 +194,12 @@ jobs:
           // do; the pi-extensions job excludes context-mode for this reason). Name-anchored
           // replacements only, so no unrelated version string is ever rewritten.
           const piFiles = [
-            'preseed/agents/pi/package.json',
             'preseed/agents/pi/extensions/context-mode-runtime.ts',
             'host/__tests__/pi-settings-packages.test.js',
           ];
           for (const f of piFiles) {
             const before = fs.readFileSync(f, 'utf-8');
-            const after = before
-              .replaceAll(`"context-mode": "${cur}"`, `"context-mode": "${lat}"`)
-              .replaceAll(`npm:context-mode@${cur}`, `npm:context-mode@${lat}`);
+            const after = before.replaceAll(`npm:context-mode@${cur}`, `npm:context-mode@${lat}`);
             if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
           }
           NODE

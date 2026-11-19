@@ -40,6 +40,35 @@ describe('REQ-OPS-033: lock-backed npm bump manifest updates', () => {
     }
   });
 
+  it('updates both context-mode dependency pins without changing same-version dependencies or Hono overrides', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'codeflare-context-mode-pin-'));
+    try {
+      for (const tree of ['preseed/npm-tools', 'preseed/agents/pi']) {
+        const packageDirectory = join(directory, tree);
+        mkdirSync(packageDirectory, { recursive: true });
+        const manifest = join(packageDirectory, 'package.json');
+        const before = {
+          name: tree,
+          private: true,
+          dependencies: { 'context-mode': '2.1.7', unrelated: '2.1.7' },
+          overrides: { '@hono/node-server': '2.1.7' },
+        };
+        writeJson(manifest, before);
+
+        const updated = spawnSync(process.execPath,
+          [script, manifest, 'context-mode', '2.1.7', '2.1.9'], { encoding: 'utf8' });
+
+        assert.equal(updated.status, 0, updated.stderr);
+        assert.deepEqual(readJson(manifest), {
+          ...before,
+          dependencies: { ...before.dependencies, 'context-mode': '2.1.9' },
+        }, `${tree}: only the named context-mode dependency may change`);
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('REQ-OPS-025 AC4: updates every Pi runtime and prewarm artifact through one fail-closed operation', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-pi-pin-'));
     try {
