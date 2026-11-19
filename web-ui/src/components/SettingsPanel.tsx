@@ -129,6 +129,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [notificationPermission, setNotificationPermission] = createSignal<AgentNotificationEnablement>('default');
   const [notificationAvailable, setNotificationAvailable] = createSignal(false);
   const [notificationEnabled, setNotificationEnabled] = createSignal(false);
+  const [notificationPending, setNotificationPending] = createSignal<'enable' | 'disable' | null>(null);
+  const [notificationError, setNotificationError] = createSignal<string | null>(null);
   let notificationRevision = 0;
 
   // Live tier — refreshed from API each time panel opens so tier
@@ -270,17 +272,25 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
 
   const handleAgentNotificationsToggle = async () => {
+    if (notificationPending()) return;
     const enabled = !notificationEnabled();
     notificationRevision += 1;
-    const state = await setAgentNotificationsEnabled(enabled);
-    setNotificationEnabled(state === 'on');
-    setNotificationPermission(
-      state === 'on'
-        ? 'granted'
-        : state === 'denied' || state === 'unavailable'
-          ? state
-          : agentNotificationPermission(),
-    );
+    setNotificationPending(enabled ? 'enable' : 'disable');
+    setNotificationError(null);
+    try {
+      const state = await setAgentNotificationsEnabled(enabled);
+      if (state === 'on' || state === 'off') {
+        setNotificationEnabled(state === 'on');
+      } else if (state === 'unavailable') {
+        setNotificationError(`Could not ${enabled ? 'enable' : 'disable'} notifications. Try again.`);
+      }
+      // A failed operation is not evidence that this browser is unsupported.
+      setNotificationPermission(state === 'denied' ? 'denied' : agentNotificationPermission());
+    } catch {
+      setNotificationError(`Could not ${enabled ? 'enable' : 'disable'} notifications. Try again.`);
+    } finally {
+      setNotificationPending(null);
+    }
   };
 
   const handleRecreateDocs = async () => {
@@ -409,6 +419,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               notificationPermission={notificationPermission}
               notificationAvailable={notificationAvailable}
               notificationEnabled={notificationEnabled}
+              notificationPending={notificationPending}
+              notificationError={notificationError}
               sleepAfter={sleepAfter}
               canChangeSleepAfter={canChangeSleepAfter}
               isFreeUser={isFreeUser}

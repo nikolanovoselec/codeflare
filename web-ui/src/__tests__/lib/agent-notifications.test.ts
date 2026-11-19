@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   agentEventDisposition,
   agentNotificationsAvailable,
@@ -338,5 +338,234 @@ describe('REQ-TERM-025 AC1-AC6: one per-device enrollment switch', () => {
     });
     await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('unavailable');
     expect(env.saveSubscription).not.toHaveBeenCalled();
+  });
+});
+
+// Exercise the default adapter, not the injected AgentNotificationBrowser seam.
+class NativeWorker extends EventTarget {
+  constructor(public state: ServiceWorkerState) { super(); }
+  transition(state: ServiceWorkerState) {
+    this.state = state;
+    this.dispatchEvent(new Event('statechange'));
+  }
+}
+
+function nativeEnrollment() {
+  const registration = Object.assign(new EventTarget(), {
+    active: null as NativeWorker | null,
+    installing: null as NativeWorker | null,
+    waiting: null as NativeWorker | null,
+    pushManager: {
+      getSubscription: async () => local,
+      subscribe: async () => {
+        await subscribeGate;
+        local = current;
+        return current;
+      },
+    },
+  });
+  let local: (ReturnType<typeof subscription> & { unsubscribe(): Promise<boolean> }) | null = null;
+  const current = {
+    ...subscription('https://fcm.googleapis.com/fcm/send/native', decodePublicKey(VAPID_PUBLIC_KEY)),
+    unsubscribe: async () => { local = null; return true; },
+  };
+  let registered = false;
+  let repairedWorker: NativeWorker | undefined;
+  let existing: typeof registration | undefined;
+  let subscribeGate: Promise<void> = Promise.resolve();
+  let saveStatus = 200;
+  let saveGate: Promise<void> = Promise.resolve();
+  const saved: unknown[] = [];
+  const requests: { method: string; credentials?: RequestCredentials }[] = [];
+  const serviceWorker = {
+    // Intentionally never settles, even when register returns an active worker.
+    ready: new Promise<never>(() => {}),
+    getRegistration: async () => existing,
+    register: async () => {
+      registered = true;
+      if (repairedWorker) registration.active = repairedWorker;
+      return registration;
+    },
+  };
+  vi.stubGlobal('Notification', { permission: 'granted', requestPermission: async () => 'granted' });
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'serviceWorker');
+  Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: serviceWorker });
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+    if (url === '/api/notifications/config') {
+      return new Response(JSON.stringify({ vapidPublicKey: VAPID_PUBLIC_KEY }));
+    }
+    if (url === '/api/notifications/subscription') {
+      requests.push({ method: init.method!, credentials: init.credentials });
+      if (init.method === 'POST') {
+        await saveGate;
+        if (saveStatus === 200) saved.push(JSON.parse(init.body as string));
+      }
+      return new Response('{}', { status: saveStatus });
+    }
+    throw new Error('Unexpected request');
+  });
+  return {
+    registration, saved, requests,
+    get local() { return local; },
+    get registered() { return registered; },
+    setExisting: () => { existing = registration; },
+    repairWith: (worker: NativeWorker) => { repairedWorker = worker; },
+    holdSubscribe: (gate: Promise<void>) => { subscribeGate = gate; },
+    holdSave: (gate: Promise<void>) => { saveGate = gate; },
+    failSave: () => { saveStatus = 500; },
+    restore: () => {
+      if (descriptor) Object.defineProperty(navigator, 'serviceWorker', descriptor);
+      else Reflect.deleteProperty(navigator, 'serviceWorker');
+    },
+  };
+}
+
+describe('REQ-TERM-025 AC3: native registration repair and activation', () => {
+  let native: ReturnType<typeof nativeEnrollment> | undefined;
+  afterEach(() => {
+    native?.restore();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('reads an inactive registration as off so an explicit gesture can repair it', async () => {
+    native = nativeEnrollment();
+    native.setExisting();
+    await expect(agentNotificationsEnabled()).resolves.toBe(false);
+    expect(native.registered).toBe(false);
+    expect(native.local).toBeNull();
+    native.repairWith(new NativeWorker('activated'));
+    await expect(setAgentNotificationsEnabled(true)).resolves.toBe('on');
+    expect(native.saved).toEqual([native.local!.toJSON()]);
+  });
+
+  it('uses the returned active registration despite globally pending ready, saving before on', async () => {
+    native = nativeEnrollment();
+    native.registration.active = new NativeWorker('activated');
+    let finish!: () => void;
+    native.holdSave(new Promise<void>(resolve => { finish = resolve; }));
+    let state = 'pending';
+    const work = setAgentNotificationsEnabled(true).then(value => { state = value; });
+    await vi.waitFor(() => expect(native!.local).not.toBeNull());
+    expect(state).toBe('pending');
+    expect(native.saved).toEqual([]);
+    finish();
+    await work;
+    expect(state).toBe('on');
+    expect(native.saved).toEqual([native.local!.toJSON()]);
+    expect(native.requests).toEqual([{ method: 'POST', credentials: 'same-origin' }]);
+  });
+
+  it('waits for installing then activating then active before subscribing', async () => {
+    native = nativeEnrollment();
+    const worker = new NativeWorker('installing');
+    native.registration.installing = worker;
+    const work = setAgentNotificationsEnabled(true);
+    await vi.waitFor(() => expect(native!.registered).toBe(true));
+    expect(native.local).toBeNull();
+    worker.transition('installed');
+    native.registration.installing = null;
+    native.registration.active = worker;
+    worker.transition('activating');
+    expect(native.local).toBeNull();
+    expect(native.saved).toEqual([]);
+    worker.transition('activated');
+    await expect(work).resolves.toBe('on');
+    expect(native.saved).toEqual([native.local!.toJSON()]);
+  });
+
+  it('keeps an active worker usable while an update waits', async () => {
+    native = nativeEnrollment();
+    native.registration.active = new NativeWorker('activated');
+    const update = new NativeWorker('installed');
+    native.registration.waiting = update;
+    await expect(setAgentNotificationsEnabled(true)).resolves.toBe('on');
+    expect(update.state).toBe('installed');
+    expect(native.saved).toEqual([native.local!.toJSON()]);
+  });
+
+  it('follows a worker discovered by the registration updatefound lifecycle', async () => {
+    native = nativeEnrollment();
+    const work = setAgentNotificationsEnabled(true);
+    await vi.waitFor(() => expect(native!.registered).toBe(true));
+    const worker = new NativeWorker('installing');
+    native.registration.installing = worker;
+    native.registration.dispatchEvent(new Event('updatefound'));
+    native.registration.active = worker;
+    native.registration.installing = null;
+    worker.transition('activated');
+    await expect(work).resolves.toBe('on');
+    expect(native.saved).toEqual([native.local!.toJSON()]);
+  });
+
+  it.each(['already redundant', 'becomes redundant', 'stalled'] as const)(
+    'fails closed for %s activation; late activation cannot subscribe or save', async failure => {
+      vi.useFakeTimers();
+      native = nativeEnrollment();
+      const worker = new NativeWorker(failure === 'already redundant' ? 'redundant' : 'installing');
+      native.registration.installing = worker;
+      let result = 'pending';
+      const work = setAgentNotificationsEnabled(true).then(value => { result = value; });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(native.registered).toBe(true);
+      if (failure === 'becomes redundant') worker.transition('redundant');
+      if (failure === 'stalled') await vi.advanceTimersByTimeAsync(10_000);
+      // Check bounded settlement without awaiting an implementation that may hang.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(result).toBe('unavailable');
+      await work;
+      expect(native.local).toBeNull();
+      expect(native.requests).toEqual([]);
+      native.registration.active = worker;
+      worker.transition('activated');
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(native.local).toBeNull();
+      expect(native.saved).toEqual([]);
+    },
+  );
+
+  it('does not race a slow PushManager subscription with an activation deadline', async () => {
+    vi.useFakeTimers();
+    native = nativeEnrollment();
+    native.registration.active = new NativeWorker('activated');
+    let finish!: () => void;
+    native.holdSubscribe(new Promise<void>(resolve => { finish = resolve; }));
+    let state = 'pending';
+    const work = setAgentNotificationsEnabled(true).then(value => { state = value; });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(state).toBe('pending');
+    expect(native.local).toBeNull();
+    expect(native.saved).toEqual([]);
+    finish();
+    await work;
+    expect(state).toBe('on');
+    expect(native.saved).toEqual([native.local!.toJSON()]);
+  });
+
+  it('does not time out a server save after worker activation', async () => {
+    vi.useFakeTimers();
+    native = nativeEnrollment();
+    native.registration.active = new NativeWorker('activated');
+    let finish!: () => void;
+    native.holdSave(new Promise<void>(resolve => { finish = resolve; }));
+    let state = 'pending';
+    const work = setAgentNotificationsEnabled(true).then(value => { state = value; });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(native.local).not.toBeNull();
+    expect(state).toBe('pending');
+    finish();
+    await work;
+    expect(state).toBe('on');
+    expect(native.saved).toEqual([native.local!.toJSON()]);
+  });
+
+  it('rolls back a native subscription if the authenticated save fails', async () => {
+    native = nativeEnrollment();
+    native.registration.active = new NativeWorker('activated');
+    native.failSave();
+    await expect(setAgentNotificationsEnabled(true)).resolves.toBe('unavailable');
+    expect(native.local).toBeNull();
+    expect(native.saved).toEqual([]);
+    expect(native.requests.map(request => request.method)).toEqual(['POST', 'DELETE']);
   });
 });

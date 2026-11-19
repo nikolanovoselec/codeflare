@@ -3525,6 +3525,65 @@ update_pi_and_codex_when_fast_start_disabled() {
 release_agent_pty_after_fast_start_updates() {
     update_pi_and_codex_when_fast_start_disabled || \
         echo "[entrypoint] WARNING: update_pi_and_codex_when_fast_start_disabled failed; continuing startup"
+    # REQ-AGENT-076 AC8: upstream has no notice opt-out. Prepare its existing
+    # marker after restore, warm-up and optional updates, before any Pi loads.
+    # This changes neither the package nor web-search preferences/real errors.
+    if ! node - "$USER_HOME" "${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const home = process.argv[2];
+const manifest = path.join(process.argv[3], 'node_modules/pi-web-access/package.json');
+let temporary;
+try {
+  let installed;
+  try { installed = fs.statSync(manifest); }
+  catch (error) { if (error.code === 'ENOENT') process.exit(0); throw error; }
+  if (!installed.isFile()) throw new Error();
+  const { version } = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  // Match upstream's comparable-version contract, not a hardcoded release.
+  const validVersion = (value) => typeof value === 'string' && /^\d+\.\d+\.\d+$/.test(value);
+  if (!validVersion(version)) throw new Error();
+  // Pi getAgentDir(): explicit PI_CODING_AGENT_DIR (with ~/ expansion),
+  // otherwise ~/.pi/agent. XDG_CONFIG_HOME is not the upgrade marker root.
+  let agent = process.env.PI_CODING_AGENT_DIR || path.join(home, '.pi/agent');
+  if (agent === '~' || agent.startsWith('~/')) agent = path.join(home, agent.slice(1));
+  const directory = path.resolve(agent, 'pi-web-access');
+  const marker = path.join(directory, 'last-seen-version.json');
+  const directories = [];
+  for (let current = directory; ; current = path.dirname(current)) {
+    directories.unshift(current);
+    if (current === path.dirname(current)) break;
+  }
+  // Refuse restored links and non-directories before creating anything.
+  for (const current of directories) {
+    const stat = fs.lstatSync(current, { throwIfNoEntry: false });
+    if (stat && !stat.isDirectory()) throw new Error();
+  }
+  const previous = fs.lstatSync(marker, { throwIfNoEntry: false });
+  if (previous && !previous.isFile()) throw new Error();
+  const state = previous ? JSON.parse(fs.readFileSync(marker, 'utf8')) : {};
+  if (!state || typeof state !== 'object' || Array.isArray(state)
+      || (previous && !validVersion(state.version))) throw new Error();
+  if (state.version === version) process.exit(0);
+  for (const current of directories) {
+    if (!fs.existsSync(current)) fs.mkdirSync(current, { mode: 0o700 });
+  }
+  temporary = fs.mkdtempSync(path.join(directory, '.last-seen-'));
+  const staged = path.join(temporary, 'marker');
+  fs.writeFileSync(staged, JSON.stringify({ ...state, version }), { mode: previous ? previous.mode & 0o777 : 0o600 });
+  fs.renameSync(staged, marker);
+} catch {
+  // Never disclose persisted data, paths or raw filesystem/JSON errors.
+  process.exitCode = 1;
+} finally {
+  if (temporary) {
+    try { fs.rmSync(temporary, { recursive: true, force: true }); } catch { process.exitCode = 1; }
+  }
+}
+NODE
+    then
+        echo "[entrypoint] WARNING: Pi web-access upgrade notice state could not be prepared; continuing startup"
+    fi
     # Runtime installs can repopulate npm's disposable download cache.
     rm -rf "$USER_HOME/.npm" 2>/dev/null
     release_agent_pty_after_cleanup

@@ -20,6 +20,7 @@ function containsControlCharacter(value: string): boolean {
 }
 const WORKER_PATH = '/agent-notifications-sw.js';
 const WORKER_SCOPE = '/';
+const WORKER_ACTIVATION_TIMEOUT_MS = 10_000;
 
 export interface AgentNotificationContext {
   readonly agentType: AgentType | undefined;
@@ -382,8 +383,33 @@ function serializedSubscription(
 
 async function readyNotificationWorker(): Promise<ServiceWorkerRegistration | undefined> {
   if (!('serviceWorker' in navigator)) return undefined;
-  await navigator.serviceWorker.register(WORKER_PATH, { scope: WORKER_SCOPE });
-  return navigator.serviceWorker.ready;
+  const registration = await navigator.serviceWorker.register(WORKER_PATH, { scope: WORKER_SCOPE });
+  return new Promise<ServiceWorkerRegistration>((resolve, reject) => {
+    const workers = new Set<ServiceWorker>();
+    const finish = (ready: boolean) => {
+      clearTimeout(timer);
+      registration.removeEventListener('updatefound', check);
+      for (const worker of workers) worker.removeEventListener('statechange', check);
+      if (ready) resolve(registration);
+      else reject(new Error('Notification worker activation failed'));
+    };
+    const check = () => {
+      for (const worker of [registration.active, registration.installing, registration.waiting]) {
+        if (worker && !workers.has(worker)) {
+          workers.add(worker);
+          worker.addEventListener('statechange', check);
+        }
+      }
+      // An active worker remains usable while an update is installing or waiting.
+      if (registration.active?.state === 'activated') finish(true);
+      else if (workers.size > 0 && [...workers].every(worker => worker.state === 'redundant')) finish(false);
+    };
+    // Only worker activation is bounded. Subscription and authenticated writes
+    // must settle normally so a timeout cannot leave a late enrollment behind.
+    const timer = setTimeout(() => finish(false), WORKER_ACTIVATION_TIMEOUT_MS);
+    registration.addEventListener('updatefound', check);
+    check();
+  });
 }
 
 const defaultBrowser: AgentNotificationBrowser = {
@@ -392,7 +418,6 @@ const defaultBrowser: AgentNotificationBrowser = {
     if (typeof Notification === 'undefined') return 'unavailable';
     return Notification.requestPermission();
   },
-  registerWorker: readyNotificationWorker,
   getWorker: async () => {
     if (!('serviceWorker' in navigator)) return undefined;
     const registration = await navigator.serviceWorker.getRegistration(WORKER_SCOPE);
@@ -402,9 +427,9 @@ const defaultBrowser: AgentNotificationBrowser = {
   currentSubscription: async () => {
     if (!('serviceWorker' in navigator)) return undefined;
     const registration = await navigator.serviceWorker.getRegistration(WORKER_SCOPE);
-    if (!registration) return undefined;
-    const readyRegistration = registration.active ? registration : await navigator.serviceWorker.ready;
-    return (await readyRegistration.pushManager.getSubscription()) ?? undefined;
+    // Reading enrollment must not wait for activation: explicit Enable owns repair.
+    if (!registration?.active) return undefined;
+    return (await registration.pushManager.getSubscription()) ?? undefined;
   },
   getVapidPublicKey: getAgentNotificationVapidPublicKey,
   subscribe: async (publicKey) => {

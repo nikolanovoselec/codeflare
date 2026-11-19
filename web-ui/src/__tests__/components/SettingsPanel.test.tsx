@@ -398,6 +398,77 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       const control = await screen.findByTestId('settings-agent-notifications');
       await fireEvent.click(control);
       expect(control).toHaveAttribute('aria-checked', 'false');
+      expect(screen.getByTestId('settings-agent-notifications-status')).toHaveTextContent('Blocked in browser site settings');
+    });
+
+    it('reports pending enable, ignores duplicates, and waits for success before switching on', async () => {
+      let finish!: (value: 'on') => void;
+      mockSetAgentNotificationsEnabled.mockImplementationOnce(() => {
+        return new Promise(resolve => { finish = resolve; });
+      });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      const control = await screen.findByTestId('settings-agent-notifications');
+      fireEvent.click(control);
+      fireEvent.click(control);
+      await Promise.resolve();
+      const status = screen.getByTestId('settings-agent-notifications-status');
+      expect(status).toHaveAttribute('role', 'status');
+      expect(status).toHaveTextContent('Enabling notifications…');
+      expect(control).toBeDisabled();
+      expect(control).toHaveAttribute('aria-busy', 'true');
+      expect(control).toHaveAttribute('aria-checked', 'false');
+      finish('on');
+      await waitFor(() => expect(control).toHaveAttribute('aria-checked', 'true'));
+      expect(status).toHaveTextContent('Enabled for this device');
+      expect(control).toBeEnabled();
+    });
+
+    it.each(['unavailable', 'rejection'] as const)('allows retry after %s without blaming browser support or leaking errors', async failure => {
+      let finish!: () => void;
+      mockSetAgentNotificationsEnabled.mockImplementationOnce(() => new Promise((resolve, reject) => {
+        finish = () => failure === 'rejection'
+          ? reject(new Error('endpoint=secret-key')) : resolve('unavailable');
+      }));
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      const control = await screen.findByTestId('settings-agent-notifications');
+      fireEvent.click(control);
+      finish();
+      const status = screen.getByTestId('settings-agent-notifications-status');
+      await waitFor(() => expect(status).toHaveTextContent('Could not enable notifications. Try again.'));
+      expect(status).not.toHaveTextContent(/unsupported|Unavailable in this browser|endpoint|secret-key/);
+      expect(control).toHaveAttribute('aria-checked', 'false');
+      expect(control).toBeEnabled();
+      fireEvent.click(control);
+      await waitFor(() => expect(control).toHaveAttribute('aria-checked', 'true'));
+    });
+
+    it.each(['unavailable', 'rejection'] as const)('retains enrollment after %s disable, then allows retry', async failure => {
+      mockAgentNotificationsEnabled.mockResolvedValueOnce(true);
+      let finish!: () => void;
+      mockSetAgentNotificationsEnabled.mockImplementationOnce(() => new Promise((resolve, reject) => {
+        finish = () => failure === 'rejection'
+          ? reject(new Error('endpoint=secret-key')) : resolve('unavailable');
+      }));
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+      const control = await screen.findByTestId('settings-agent-notifications');
+      await waitFor(() => expect(control).toHaveAttribute('aria-checked', 'true'));
+      fireEvent.click(control);
+      fireEvent.click(control);
+      await Promise.resolve();
+      const status = screen.getByTestId('settings-agent-notifications-status');
+      expect(status).toHaveTextContent('Disabling notifications…');
+      expect(control).toBeDisabled();
+      expect(control).toHaveAttribute('aria-checked', 'true');
+      finish();
+      await waitFor(() => expect(status).toHaveTextContent('Could not disable notifications. Try again.'));
+      expect(control).toHaveAttribute('aria-checked', 'true');
+      expect(control).toBeEnabled();
+      mockSetAgentNotificationsEnabled.mockResolvedValueOnce('off');
+      fireEvent.click(control);
+      await waitFor(() => expect(control).toHaveAttribute('aria-checked', 'false'));
     });
 
     it('marks unavailable iOS browser tabs with Home Screen install guidance', async () => {
