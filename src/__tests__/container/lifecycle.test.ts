@@ -509,6 +509,30 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.idleTimeoutPref).toBe('2h');
     });
 
+    it('REQ-SESSION-008 AC5: same-container restart applies idle timeout, fast-start, and session mode together', async () => {
+      const durable = new Map<string, unknown>([['bucketName', 'existing-bucket'], ['sleepAfter', '1h'], ['fastStartEnabled', true]]);
+      mockStorage.get.mockImplementation(async key => durable.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key, value) => { durable.set(key, value); });
+      (mockCtx as any).waitUntil = vi.fn();
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.R2_BUCKET_NAME).toBe('existing-bucket'));
+      expect(instance.envVars?.FAST_CLI_START).toBe('true');
+      expect(instance.envVars?.SESSION_MODE).toBe('default');
+
+      const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucketName: 'existing-bucket', sleepAfter: '2h', fastStartEnabled: false, sessionMode: 'advanced' }),
+      }));
+
+      expect(response.status).toBe(409);
+      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(durable.get('sleepAfter')).toBe('2h');
+      expect(durable.get('fastStartEnabled')).toBe(false);
+      expect(instance.envVars?.FAST_CLI_START).toBe('false');
+      expect(instance.envVars?.SESSION_MODE).toBe('advanced');
+      expect(instance.envVars?.R2_BUCKET_NAME).toBe('existing-bucket');
+    });
+
     it('REQ-AGENT-031 AC1: warm HTTP restart replaces the emitted environment after explicit key revocation', async () => {
       mockStorage.get.mockImplementation(async key => key === 'bucketName' ? 'existing-bucket' : null);
       (mockCtx as any).waitUntil = vi.fn();
@@ -661,6 +685,62 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const eventCall = calls[eventIndex]!;
       expect((eventCall.init!.headers as Record<string, string>).Authorization).toBe('Bearer destroy-agent-token');
       expect(JSON.parse(eventCall.init!.body as string)).toEqual({ ackEventIds: [], final: true });
+    });
+
+    it('REQ-SESSION-032 AC5: event delivery consumes teardown time but leaves the full final-sync window', async () => {
+      const durable = new Map<string, unknown>([
+        ['bucketName', 'test-bucket'], ['_sessionId', 'sess123'], ['containerAuthToken', 'destroy-agent-token'],
+      ]);
+      mockStorage.get.mockImplementation(async key => durable.get(key) ?? null);
+      mockStorage.put.mockImplementation(async (key, value) => { durable.set(key, value); });
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe('destroy-agent-token'));
+      let syncStartedAt: number | undefined;
+      let stoppedAt: number | undefined;
+      let settled = false;
+      vi.spyOn(instance, 'stop').mockImplementation(async () => {
+        stoppedAt = Date.now();
+        mockContainerRuntime.running = false;
+      });
+      vi.useFakeTimers();
+      vi.setSystemTime(1_800_000_000_000);
+      // Bind the platform abort clock to the same virtual time as destroy's deadline.
+      const abortClock = vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), ms);
+        return controller.signal;
+      });
+      const startedAt = Date.now();
+      mockTcpPortFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/internal/agent-events/drain')) {
+          await new Promise(resolve => setTimeout(resolve, 9_000));
+          return Response.json({ hostNow: Date.now(), events: [] });
+        }
+        if (url.endsWith('/internal/final-sync')) {
+          syncStartedAt = Date.now();
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new Error('sync deadline reached')), { once: true });
+          });
+        }
+        throw new Error(`Unexpected teardown request: ${url}`);
+      });
+      try {
+        const pending = instance.destroy().then(() => { settled = true; });
+        await vi.advanceTimersByTimeAsync(9_000);
+        expect(syncStartedAt).toBe(startedAt + 9_000);
+        await vi.advanceTimersByTimeAsync(119_999);
+        expect(settled).toBe(false);
+        expect(stoppedAt).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(settled).toBe(true);
+        await pending;
+        expect(stoppedAt).toBe(startedAt + 129_000);
+        expect(durable.get(FINAL_SYNC_AUDIT_KEY)).toMatchObject({ outcome: 'errored', reason: 'final-sync-failed', at: startedAt + 129_000 });
+      } finally {
+        abortClock.mockRestore();
+        vi.restoreAllMocks();
+        vi.useRealTimers();
+      }
     });
 
     it('does not persist invalid values from setBucketName', async () => {

@@ -36,6 +36,25 @@ describe('agent-seed bake byte-identity (REQ-STOR-017 / AD90)', () => {
     });
   }
 
+  it('REQ-STOR-010 AC6: actual Pro seed is a strict file superset with all advanced capability families', () => {
+    // The returned seed inventory is the generated artifact contract, not source-text inspection.
+    const standard = new Set(getConfigsForMode('default', false).map(document => document.key));
+    const pro = new Set(getConfigsForMode('advanced', false).map(document => document.key));
+    expect(standard.size).toBeGreaterThan(0);
+    expect([...standard].filter(key => !pro.has(key))).toEqual([]);
+    const additional = [...pro].filter(key => !standard.has(key));
+    expect(additional).toEqual(expect.arrayContaining([
+      '.claude/plugins/codeflare-memory/.claude-plugin/plugin.json',
+      '.claude/agents/code-reviewer.md',
+      '.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh',
+      '.claude/commands/review.md',
+      '.claude/rules/spec-discipline.md',
+      '.claude/rules/tdd-discipline.md',
+      '.claude/rules/documentation-discipline.md',
+      '.claude/skills/agents-sdk/SKILL.md',
+    ]));
+  });
+
   it('parseGeneratedSeed extracts the AGENTS_SEEDED_CONFIGS array from the generated module shape', () => {
     // Synthetic module mirroring scripts/generate-agent-seed.mjs output shape (the
     // PRESEED_CONTENT_HASH string above, the typed array literal below). fs-free so it

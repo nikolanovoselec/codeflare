@@ -224,7 +224,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 1. The response uses NDJSON as its content type. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure response is NDJSON with Content-Type application/x-ndjson) -->
 2. Each line is a self-contained JSON object terminated by a newline. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) --> <!-- @manual: Inspect a configure response body and confirm every JSON object, including the terminal object, ends with a newline. -->
 3. Progress messages identify the step and report one of `running`, `success`, or `error`. <!-- @impl: src/routes/setup/shared.ts::SetupStep --> <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC3: configure streams per-step progress for all 7 setup steps) --> <!-- @test: src/__tests__/routes/setup.test.ts (returns error when get_account step fails) -->
-4. Failure messages include a human-readable error description. <!-- @impl: src/routes/setup/index.ts::default -->
+4. Failure messages include a human-readable error description. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: uncertain Access failure drains started deletions and retains changed-input fence) -->
 5. Every stream ends with exactly one terminal completion object that carries the overall success flag. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 AC5: response stream ends with exactly one object containing done: true) -->
 
 **Constraints:**
@@ -236,7 +236,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated: [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts); Manual: [Configure-response newline inspection](#req-setup-006-setup-streams-progress-via-ndjson)
+**Verification:** Automated: [setup-ac-coverage.test.ts](../../src/__tests__/setup-ac-coverage.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [setup-provisioning-flows.test.ts](../../src/__tests__/routes/setup-provisioning-flows.test.ts); Manual: [Configure-response newline inspection](#req-setup-006-setup-streams-progress-via-ndjson)
 
 **Status:** Implemented
 
@@ -283,8 +283,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. The prefill endpoint reads existing CF Access group membership and persistent configuration so the setup form repopulates correctly on redeployment. <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 2. The token-detection endpoint validates the API token and returns its account info (id and name); it does not enumerate the token's permissions/scopes. <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /detect-token) -->
-3. Both helper endpoints share the same rate limiter as the configure endpoint, so they cannot bypass setup-route throttling. <!-- @impl: src/routes/setup/shared.ts::setupRateLimiter -->
-4. Both endpoints require admin auth after setup is complete, using the same conditional gate as the configure endpoint. <!-- @impl: src/routes/setup/index.ts::createConditionalSetupAuth -->
+3. Both helper endpoints share the same rate limiter as the configure endpoint, so they cannot bypass setup-route throttling. <!-- @impl: src/routes/setup/shared.ts::setupRateLimiter --> <!-- @test: src/__tests__/routes/setup.test.ts (REQ-SETUP-008 AC3: mixed setup requests exhaust the shared limiter before %s) -->
+4. Both endpoints require admin auth after setup is complete, using the same conditional gate as the configure endpoint. <!-- @impl: src/routes/setup/index.ts::createConditionalSetupAuth --> <!-- @test: src/__tests__/routes/setup.test.ts (REQ-SETUP-008 AC4: %s permits bootstrap, then requires authenticated admin) -->
 
 **Constraints:**
 
@@ -295,7 +295,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth)
 
-**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts)
+**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../src/__tests__/routes/setup.test.ts)
 
 **Status:** Implemented
 
@@ -315,7 +315,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 3. New paid checkout requires configured Turnstile secret and site key, a token and successful Worker verification. Missing configuration, missing/rejected tokens or unavailable verification produce no Stripe call or user mutation; active or trialing subscribers remain exempt. Payment-free direct activation retains its separate conditional-configuration behavior. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @impl: src/routes/billing.ts::default --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC3: Turnstile CAPTCHA is initialized for pending users when turnstileSiteKey is provided) --> <!-- @test: src/__tests__/routes/billing.test.ts (REQ-SETUP-009 AC3: %s challenge failure has no billing/user effects) --> <!-- @test: src/__tests__/routes/billing.test.ts (REQ-SETUP-009 AC3: %s subscriber remains CAPTCHA-exempt) --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC3: missing site key disables paid checkout, without blocking the payment-free tier) -->
 4. The page exposes a mode toggle between the two subscription mode families. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending users) / REQ-SUB-017 (tier selection UI)) -->
 5. The free tier activates immediately without an external checkout step. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC5: free tier activates immediately via subscribe API call (no Stripe checkout)) -->
-6. Paid tiers hand off to the external payment provider's hosted checkout. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+6. Paid tiers hand off to the external payment provider's hosted checkout. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC6: paid tiers hand off to the returned hosted checkout URL) -->
 
 **Constraints:** None.
 
@@ -367,7 +367,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. Successful completion carries the same ordered, upserted per-step status list used by streamed transitions, plus the workers.dev URL and custom-domain URL. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/setup/shared.ts::upsertStep --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (keeps one immutable ordered status list across running, success, and failure transitions) -->
 2. Failed completion carries that cumulative list including the failed step, plus a top-level error description. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/setup/shared.ts::upsertStep --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (keeps one immutable ordered status list across running, success, and failure transitions) -->
-3. Lock contention produces an immediate terminal completion with success=false and no intervening step progress messages. <!-- @impl: src/routes/setup/index.ts::default -->
+3. Lock contention produces an immediate terminal completion with success=false and no intervening step progress messages. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-provisioning-flows.test.ts (REQ-SETUP-004: fresh Environment refusal releases admission for changed input without provisioning) -->
 4. Clients detect completion by parsing stream entries until the terminal completion marker, then read the success flag. <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (Setup Store) -->
 
 **Constraints:**
@@ -378,7 +378,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts)
+**Verification:** Automated: [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [setup-provisioning-flows.test.ts](../../src/__tests__/routes/setup-provisioning-flows.test.ts)
 
 **Status:** Implemented
 

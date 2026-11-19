@@ -346,7 +346,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. Cleanup is strictly scoped to the registered preseed key set; user-created files outside that set are never deleted. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2: prior release markers guard managed cleanup) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (REQ-STOR-010 AC2/AC3/AC4: real mode reconciliation overwrites variants, removes out-of-mode configs, and retains user bytes) -->
 4. Variant-per-mode keys (instruction files whose content differs between modes) are excluded from cleanup so a mode switch never deletes a file the new mode still owns. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (REQ-STOR-010 AC2/AC3/AC4: real mode reconciliation overwrites variants, removes out-of-mode configs, and retains user bytes) -->
 5. Best-effort baked cleanup reports partial deletion warnings; managed reconciliation treats cleanup warnings as failure and does not publish an incomplete release as applied. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForBootstrap --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-010 AC5: cleanup warnings fail the endpoint without replacing a protected applied identity) -->
-6. Pro mode seeds a strict superset of Standard's preseed files (Pro adds the memory plugin, agent definitions, hooks, slash commands, the discipline triad rules, and additional skills). <!-- @impl: src/lib/agent-seed.generated.ts::AGENTS_SEEDED_CONFIGS -->
+6. Pro mode seeds a strict superset of Standard's preseed files (Pro adds the memory plugin, agent definitions, hooks, slash commands, the discipline triad rules, and additional skills). <!-- @impl: src/lib/agent-seed.generated.ts::AGENTS_SEEDED_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-bake.test.ts (REQ-STOR-010 AC6: actual Pro seed is a strict file superset with all advanced capability families) -->
 
 **Constraints:**
 
@@ -359,7 +359,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated: [r2-seed.test.ts](../../src/__tests__/lib/r2-seed.test.ts), [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts), [r2-seed-mode.test.ts](../../src/__tests__/lib/r2-seed-mode.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts)
+**Verification:** Automated: [r2-seed.test.ts](../../src/__tests__/lib/r2-seed.test.ts), [r2-seed-managed.test.ts](../../src/__tests__/lib/r2-seed-managed.test.ts), [r2-seed-mode.test.ts](../../src/__tests__/lib/r2-seed-mode.test.ts), [storage-seed-managed.test.ts](../../src/__tests__/routes/storage-seed-managed.test.ts), [agent-seed-bake.test.ts](../../src/__tests__/lib/agent-seed-bake.test.ts)
 
 **Status:** Implemented
 
@@ -735,7 +735,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. The backend rejects another start until mismatch or pending-target reconciliation succeeds. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (returns a typed 409 before user-bucket or container work when the active release is not applied) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-STOR-022 AC3: blocks container start while interrupted targets remain pending) -->
 4. Disabling curation restores baked reconciliation expectations. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 5. Disabling curation clears company applied state. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
-6. Disabling curation preserves personal extension intent. <!-- @impl: src/routes/storage/seed.ts::default -->
+6. Disabling curation preserves personal extension intent. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 7. Disabling curation with no available prior release fails without bucket mutation or applied-state clearing. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC7 + REQ-STOR-024 AC7: cacheless disable fails closed with applied state intact) -->
 
 **Constraints:**
@@ -1561,7 +1561,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. Setup configuration accepts an enterprise-only Governed Mode Boolean and stores active/inactive setup state; non-enterprise configuration never writes it. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-018 AC1 + REQ-ENTERPRISE-019 AC1: configure server storage flag persistence) -->
 2. Enterprise Setup configuration reports the storage-encryption progress step. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-018 AC1 + REQ-ENTERPRISE-019 AC1: configure server storage flag persistence) -->
-3. Enterprise Setup prefill round-trips the Governed Mode Boolean. <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) prefill) -->
+3. Enterprise Setup prefill round-trips the Governed Mode Boolean. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) prefill) -->
 4. The Setup wizard renders an enterprise-only Governed Mode toggle (default off, not rendered outside enterprise) whose change requires an explicit admin confirmation of the re-encrypt consequence before it flips the store value. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
 
 **Constraints:**
@@ -1588,8 +1588,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. SSE helpers suppress headers for disabled buckets. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders --> <!-- @impl: src/lib/r2-sse.ts::getSseCopyHeaders --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (regime helpers (REQ-ENTERPRISE-018)) -->
-2. Every writer follows the bucket's committed regime. <!-- @impl: src/lib/r2-regime-state.ts::isR2SseDisabledForBucket --> <!-- @impl: src/lib/r2-seed.ts::seedDocuments -->
-3. Readers use dual-regime fallback throughout migration. <!-- @test: src/__tests__/lib/r2-migration.test.ts (regime helpers (REQ-ENTERPRISE-018)) -->
+2. Every writer follows the bucket's committed regime. <!-- @impl: src/lib/r2-regime-state.ts::isR2SseDisabledForBucket --> <!-- @impl: src/lib/r2-seed.ts::seedDocuments --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-SEC-005: %s emits SSE-C only for the committed encrypted regime) --> <!-- @manual: documentation/lanes/storage-and-sync.md#committed-regime-writer-acceptance -->
+3. Readers use dual-regime fallback throughout migration. <!-- @impl: src/lib/r2-migration.ts::fetchObjectWithRegimeFallback --> <!-- @test: src/__tests__/lib/r2-migration.test.ts (falls back without flagging a stray while the bucket is migrating) -->
 
 **Constraints:**
 
@@ -1600,7 +1600,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-ENTERPRISE-018](#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
 
-**Verification:** Automated: [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [r2-sse.test.ts](../../src/__tests__/lib/r2-sse.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts)
+**Verification:** Automated: [setup.test.ts](../../src/__tests__/routes/setup.test.ts), [handlers.test.ts](../../src/__tests__/routes/setup/handlers.test.ts), [r2-sse.test.ts](../../src/__tests__/lib/r2-sse.test.ts), [r2-migration.test.ts](../../src/__tests__/lib/r2-migration.test.ts), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-env-llm.test.ts](../../src/__tests__/container/container-env-llm.test.ts), [entrypoint-governed-sync.test.js](../../host/__tests__/entrypoint-governed-sync.test.js), [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [setup.test.ts](../../web-ui/src/__tests__/stores/setup.test.ts), [storage-upload.test.ts](../../src/__tests__/routes/storage-upload.test.ts); Manual: [Committed-regime writer acceptance](../../documentation/lanes/storage-and-sync.md#committed-regime-writer-acceptance)
 
 **Status:** Implemented
 
@@ -1615,8 +1615,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. The resolved bucket regime is forwarded to the container. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/container/container-env.ts::applyBucketName --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-env.test.ts (applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression) / REQ-AGENT-029 (container env vars contract)) -->
-2. Governed Mode withholds the server encryption key from the container environment. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
-3. Governed Mode omits SSE-C sync configuration and re-enables checksums. <!-- @impl: entrypoint.sh::create_rclone_config -->
+2. Governed Mode withholds the server encryption key from the container environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-018: omits ENCRYPTION_KEY in Governed Mode (SSE-C off → rclone never uses it); emits it when SSE-C on) -->
+3. Governed Mode omits SSE-C sync configuration and re-enables checksums. <!-- @impl: entrypoint.sh::create_rclone_config --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (Governed Mode (R2_SSE_DISABLED=true): omits SSE-C even with ENCRYPTION_KEY and enables checksums) -->
 
 **Constraints:**
 
@@ -1815,7 +1815,7 @@ The migration integrity, safe retry, termination and session-creation constraint
 2. Setup prefill round-trips download-disable policy: active stored policy prefills true, an absent key prefills false, and non-enterprise prefill omits it. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 3. Active enterprise view-only policy runs before R2 access: attachments and non-viewable inline types return distinct `403 DOWNLOADS_DISABLED`; text, Markdown, HTML-as-text, images, and PDF remain inline. <!-- @impl: src/routes/storage/download.ts::isInlineViewable --> <!-- @impl: src/lib/error-types.ts::DownloadsDisabledError --> <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled --> <!-- @test: src/__tests__/routes/storage-download.test.ts (Storage Download Routes) -->
 4. The user profile delivers download policy so Storage Panel controls remain blocked-looking, visible and tappable; any interaction opens an administrator-disabled notice instead of fetching. <!-- @impl: web-ui/src/lib/schemas.ts::UserResponseSchema --> <!-- @impl: web-ui/src/lib/download.ts::downloadFile --> <!-- @impl: web-ui/src/stores/storage.ts::storageStore --> <!-- @impl: web-ui/src/stores/storage.ts::refreshDownloadsDisabled --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-sheet presentation, R2 as source of truth via Worker API)) -->
-5. The resolver never reads policy KV outside enterprise; enterprise reads the stored toggle. <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled -->
+5. The resolver never reads policy KV outside enterprise; enterprise reads the stored toggle. <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled --> <!-- @test: src/__tests__/routes/storage-download.test.ts (REQ-ENTERPRISE-019 AC5: enterprise mode %s never enters the policy KV boundary) --> <!-- @test: src/__tests__/routes/storage-download.test.ts (blocks a non-inline (attachment) download with 403 and the DOWNLOADS_DISABLED code) -->
 
 **Constraints:**
 
@@ -1841,7 +1841,7 @@ The migration integrity, safe retry, termination and session-creation constraint
 
 **Acceptance Criteria:**
 
-1. With the enterprise stored toggle off, download behavior is unchanged, as are the download path and configure request/response shape. <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled -->
+1. With the enterprise stored toggle off, download behavior is unchanged, as are the download path and configure request/response shape. <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled --> <!-- @test: src/__tests__/routes/storage-download.test.ts (REQ-ENTERPRISE-305 AC1: enterprise download retains bytes and attachment headers with stored toggle %s) --> <!-- @test: src/__tests__/routes/setup.test.ts (persists $field=$enabled in enterprise and reports completed progress) -->
 2. Transient read failure defaults off, preserves downloads, and reports `downloadsDisabled: false`. <!-- @impl: src/lib/downloads-policy.ts::isDownloadsDisabled --> <!-- @test: src/__tests__/routes/storage-download.test.ts (REQ-ENTERPRISE-019 AC5: keeps downloads available when the enterprise policy KV read rejects) --> <!-- @test: src/__tests__/routes/user-profile.test.ts (REQ-ENTERPRISE-019 AC5: reports downloadsDisabled false when the policy KV read rejects) -->
 
 **Constraints:**

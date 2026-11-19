@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import setupRoutes from '../../routes/setup';
 import type { Env } from '../../types';
-import { ValidationError, AuthError, SetupError, ForbiddenError } from '../../lib/error-types';
+import { AppError, ValidationError, AuthError, SetupError, ForbiddenError } from '../../lib/error-types';
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
@@ -183,6 +183,9 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       if (err instanceof SetupError) {
         return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
       }
+      if (err instanceof AppError) {
+        return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+      }
       return c.json({ error: err.message }, 500);
     });
 
@@ -266,6 +269,50 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
     allowedUsers: ['user@example.com'],
     adminUsers: ['user@example.com'],
   };
+
+  describe('setup helper admission', () => {
+    it.each(['prefill', 'detect-token', 'configure'] as const)(
+      'REQ-SETUP-008 AC3: mixed setup requests exhaust the shared limiter before %s', async target => {
+        const app = createTestApp({ CLOUDFLARE_API_TOKEN: undefined });
+        const request = (endpoint: string) => app.request(`/api/setup/${endpoint}`, endpoint === 'configure'
+          ? { method: 'POST', headers: jsonHeaders, body: '{}' }
+          : undefined);
+        // Each endpoint stays below its independent limit; only the shared five-request bucket expires.
+        for (const endpoint of ['prefill', 'detect-token', 'configure', 'prefill', 'detect-token']) {
+          expect((await request(endpoint)).status).toBe(endpoint === 'configure' ? 400 : 200);
+        }
+        const denied = await request(target);
+        expect(denied.status).toBe(429);
+        expect(await denied.json()).toMatchObject({ code: 'RATE_LIMIT_ERROR' });
+        expect(denied.headers.get('X-RateLimit-Remaining')).toBe('0');
+        expect(Number(denied.headers.get('Retry-After'))).toBeGreaterThan(0);
+      },
+    );
+
+    it.each(['prefill', 'detect-token'] as const)(
+      'REQ-SETUP-008 AC4: %s permits bootstrap, then requires authenticated admin', async endpoint => {
+        const app = createTestApp({ CLOUDFLARE_API_TOKEN: undefined });
+        expect((await app.request(`/api/setup/${endpoint}`)).status).toBe(200);
+        mockKV._store.set('setup:complete', 'true');
+        mockKV._set('user:regular@example.com', { role: 'user', addedBy: 'setup', addedAt: '2024-01-01' });
+        mockKV._set('user:admin@example.com', { role: 'admin', addedBy: 'setup', addedAt: '2024-01-01' });
+        globalThis.fetch = async () => { throw new Error('Helper admission must not contact a provider'); };
+        expect((await app.request(`/api/setup/${endpoint}`)).status).toBe(401);
+        const regular = await app.request(`/api/setup/${endpoint}`, {
+          headers: { 'cf-access-authenticated-user-email': 'regular@example.com' },
+        });
+        expect(regular.status).toBe(403);
+        expect(await regular.json()).toMatchObject({ code: 'FORBIDDEN' });
+        const admin = await app.request(`/api/setup/${endpoint}`, {
+          headers: { 'cf-access-authenticated-user-email': 'admin@example.com' },
+        });
+        expect(admin.status).toBe(200);
+        expect(await admin.json()).toMatchObject(endpoint === 'prefill'
+          ? { adminUsers: [], allowedUsers: [] }
+          : { detected: false });
+      },
+    );
+  });
 
   describe('GET /api/setup/status', () => {
     it('returns configured: false without tokenDetected when setup is not complete', async () => {
@@ -564,8 +611,12 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
           body: JSON.stringify({ ...standardBody, dynamicRoutes: ['fixture-route'], [field]: enabled }),
         });
         expect(res.status).toBe(200);
+        expect(res.headers.get('Content-Type')).toContain('application/x-ndjson');
         const lines = await readNdjson(res);
-        expect(getNdjsonSummary(lines).success).toBe(true);
+        const summary = getNdjsonSummary(lines);
+        // REQ-ENTERPRISE-305 AC1: explicit false retains the configure wire contract.
+        expect(Object.keys(summary).sort()).toEqual(['customDomainUrl', 'done', 'steps', 'success', 'workersDevUrl']);
+        expect(summary).toMatchObject({ done: true, success: true, workersDevUrl: TEST_WORKER_BASE_URL, customDomainUrl: `https://${standardBody.customDomain}` });
         expect(await mockKV.get(key)).toBe(expected);
         expect(lines).toContainEqual(expect.objectContaining({ step, status: 'running' }));
         expect(lines).toContainEqual(expect.objectContaining({ step, status: 'success' }));

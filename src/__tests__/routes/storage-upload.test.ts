@@ -132,7 +132,18 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     const app = createApp('test-bucket', { ENCRYPTION_KEY });
     for (const regime of ['sse-c', 'plain']) {
       mockKV._set('r2-regime:test-bucket', { status: 'ready', regime, generation: 1 });
-      mockFetch.mockClear().mockImplementation(async () => new Response('', { headers: { ETag: 'part-etag' } }));
+      // REQ-ENTERPRISE-300 AC2: policy is a migration target, never current write authority.
+      mockKV._store.set('setup:r2_sse_disabled', regime === 'sse-c' ? 'active' : 'inactive');
+      mockFetch.mockImplementation(async (url: string, init: RequestInit) => {
+        const headers = new Headers(init.headers);
+        expect(headers.get('x-amz-server-side-encryption-customer-key')).toBe(regime === 'sse-c' ? ENCRYPTION_KEY : null);
+        expect(headers.get('x-amz-server-side-encryption-customer-algorithm')).toBe(regime === 'sse-c' ? 'AES256' : null);
+        expect(headers.has('x-amz-server-side-encryption-customer-key-MD5')).toBe(regime === 'sse-c');
+        expect(new URL(url).pathname).toContain('/Uploads/file.txt');
+        if (init.method === 'PUT') expect(await new Response(init.body).text()).toBe(path === '/upload' ? 'bytes' : 'part');
+        else expect(new URL(url).search).toBe('?uploads');
+        return new Response('', { headers: { ETag: 'part-etag' } });
+      });
       let uploadId: string | undefined;
       if (path === '/upload/part') {
         const initiated = await app.request('/upload/initiate', {
@@ -141,17 +152,15 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
         });
         expect(initiated.status).toBe(200);
         ({ uploadId } = await initiated.json() as { uploadId: string });
-        mockFetch.mockClear();
       }
       const response = await app.request(path, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'Uploads/file.txt', ...payload, ...(uploadId ? { uploadId } : {}) }),
       });
       expect(response.status).toBe(200);
-      const headers = new Headers(mockFetch.mock.calls[0][1].headers);
-      expect(headers.get('x-amz-server-side-encryption-customer-key')).toBe(regime === 'sse-c' ? ENCRYPTION_KEY : null);
-      expect(headers.get('x-amz-server-side-encryption-customer-algorithm')).toBe(regime === 'sse-c' ? 'AES256' : null);
-      expect(headers.has('x-amz-server-side-encryption-customer-key-MD5')).toBe(regime === 'sse-c');
+      expect(await response.json()).toMatchObject(path === '/upload'
+        ? { key: 'Uploads/file.txt', size: 5 }
+        : path === '/upload/initiate' ? { key: 'Uploads/file.txt', uploadId: 'upload-id-123' } : { etag: 'part-etag' });
     }
   });
 

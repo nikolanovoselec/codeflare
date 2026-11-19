@@ -20,13 +20,14 @@ const state = vi.hoisted(() => ({
   resourcePolicy: 'mutable' as 'mutable' | 'immutable' | 'exclusive',
   containerStatus: 'running',
   containerError: null as Error | null,
+  bakedDocuments: [] as ReturnType<typeof import('../../lib/r2-seed').getConfigsForMode>,
 }));
 const reconcile = vi.hoisted(() => vi.fn<typeof import('../../lib/r2-seed').reconcileAgentConfigs>(async () => (
   { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined }
 )));
 const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped: [] })));
 const createBucket = vi.hoisted(() => vi.fn(async () => ({ success: true, created: false })));
-const fetchR2 = vi.hoisted(() => vi.fn(async () => new Response('', { status: 200 })));
+const fetchR2 = vi.hoisted(() => vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => new Response('', { status: 200 })));
 
 vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn(() => ({
@@ -75,7 +76,7 @@ vi.mock('../../lib/r2-migration', () => ({
   resolveBucketSseOnEnsure: vi.fn(async () => false),
 }));
 vi.mock('../../lib/agent-seed.generated', () => ({
-  AGENTS_SEEDED_CONFIGS: [],
+  get AGENTS_SEEDED_CONFIGS() { return state.bakedDocuments; },
   PRESEED_CONTENT_HASH: 'baked-hash',
   RETIRED_PRESEED_KEYS: [],
 }));
@@ -136,7 +137,9 @@ describe('managed storage reconcile', () => {
     state.resourcePolicy = 'mutable';
     state.containerStatus = 'running';
     state.containerError = null;
+    state.bakedDocuments = [];
     fetchR2.mockClear();
+    fetchR2.mockImplementation(async () => new Response('', { status: 200 }));
   });
 
   it('REQ-SETUP-014 AC6: configured repository credentials never enter user-bucket writes', async () => {
@@ -532,6 +535,9 @@ describe('managed storage reconcile', () => {
 
   it('REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent', async () => {
     state.active = null;
+    const bakedDocument = { key: '.claude/rules/baked.md', contentType: 'text/markdown; charset=utf-8',
+      content: '# Baked replacement', modes: ['advanced' as const] };
+    state.bakedDocuments = [bakedDocument];
     const prior = { ...release, sequence: 8 };
     const compressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(prior)));
     state.cached = { compressed, release: await parseManagedReleaseStream(compressed) };
@@ -542,13 +548,51 @@ describe('managed storage reconcile', () => {
       managedEnvironmentApplied: { digest: '1'.repeat(64), managedExtensionsDigest: '2'.repeat(64), sequence: 8, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
     });
 
+    const personalIntent = JSON.stringify({ version: 1, securityWarningShown: true,
+      extensions: { 'example.personal': { version: '1.2.3' } }, settings: { 'personal.enabled': true } });
+    const objects = new Map<string, { body: string; marker?: string }>([
+      ['.codeflare/ide-extensions.json', { body: personalIntent }],
+      ['.codeflare/managed-extensions.json', { body: '{"extensions":[]}', marker: '1'.repeat(64) }],
+      ['.claude/company.md', { body: '# Company', marker: '1'.repeat(64) }],
+      [bakedDocument.key, { body: '# Outdated baked config', marker: 'old-baked-hash' }],
+      ['.claude/rules/retired.md', { body: '# Retired baked config', marker: 'old-baked-hash' }],
+    ]);
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      const parsed = new URL(url);
+      const key = parsed.pathname.slice('/user-bucket/'.length);
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && parsed.searchParams.get('list-type') === '2') {
+        const prefix = parsed.searchParams.get('prefix') ?? '';
+        const contents = [...objects].filter(([name]) => name.startsWith(prefix))
+          .map(([name, object]) => `<Contents><Key>${name}</Key><Size>${object.body.length}</Size><LastModified>2026-01-01T00:00:00.000Z</LastModified></Contents>`).join('');
+        return new Response(`<ListBucketResult>${contents}<IsTruncated>false</IsTruncated></ListBucketResult>`);
+      }
+      if (method === 'HEAD' || method === 'GET') {
+        const object = objects.get(key);
+        return new Response(method === 'HEAD' ? null : object?.body, { status: object ? 200 : 404,
+          headers: object ? { ETag: '"current"', ...(object.marker ? { 'x-amz-meta-codeflare-preseed': object.marker } : {}) } : {} });
+      }
+      if (method === 'PUT') {
+        const marker = new Headers(init?.headers).get('x-amz-meta-codeflare-preseed');
+        objects.set(key, { body: await new Response(init?.body).text(), ...(marker ? { marker } : {}) });
+        return new Response(null, { status: 200 });
+      }
+      if (method === 'DELETE') {
+        objects.delete(key);
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected disable I/O: ${method} ${key}`);
+    });
+    const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
+    reconcile.mockImplementationOnce(actual.reconcileAgentConfigs);
     const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
 
     expect(response.status).toBe(200);
-    expect(reconcile).toHaveBeenCalledWith(expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced', expect.objectContaining({
-      managedRelease: null,
-      priorManagedRelease: expect.objectContaining({ digest: '1'.repeat(64), mode: 'advanced' }),
-    }));
+    expect(objects.get('.codeflare/ide-extensions.json')?.body).toBe(personalIntent);
+    expect(objects.get(bakedDocument.key)).toEqual({ body: bakedDocument.content, marker: 'baked-hash' });
+    expect(objects.has('.claude/rules/retired.md')).toBe(false);
+    expect(objects.has('.codeflare/managed-extensions.json')).toBe(false);
+    expect(objects.has('.claude/company.md')).toBe(false);
     const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
     expect(preferences.managedEnvironmentApplied).toBeUndefined();
     expect(preferences.workspaceSyncEnabled).toBe(true);

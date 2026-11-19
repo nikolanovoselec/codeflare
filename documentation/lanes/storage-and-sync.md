@@ -573,6 +573,14 @@ Sync behaviour follows the committed regime: rclone drops the SSE-C block from `
 
 ---
 
+### Committed-regime writer acceptance
+
+For [REQ-ENTERPRISE-300 AC2](../../sdd/spec/storage.md#req-enterprise-300-committed-bucket-regime-for-storage-io), inspect existing, separately authorized disposable-bucket qualification evidence in both committed regimes. This procedure authorizes no policy flip, migration, credential disclosure or user-data write.
+
+1. Enumerate the current platform writer families from source, including direct/multipart uploads, seed/reconciliation writes, owner-scoped artifact writes and container sync. Map every family to its actual write boundary; one upload test does not establish coverage of every writer.
+2. Check that each writer's redacted request evidence follows the bucket's committed regime, not an uncommitted deployment target. Encrypted writes require SSE-C; plain writes omit it. Retain only header-presence/regime observations, never encryption keys, and require independent matching-byte readback.
+3. Check existing migration-refusal evidence and repeat the writer observations after an authorized regime commit. A missing writer family, regime or readback remains unverified; do not manufacture traffic or alter stored regime state to fill the gap.
+
 ## Related Documentation
 - [Architecture](architecture.md#container-do-container) - Container DO lifecycle
 - [Container](container.md#container-startup) - Startup sync sequence

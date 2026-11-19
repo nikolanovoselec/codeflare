@@ -308,13 +308,18 @@ describe('Storage Download Routes', () => {
       expect(mockMarkMixedRecovery).not.toHaveBeenCalled();
     });
 
-    it('leaves attachment downloads unchanged (200) when the KV toggle is absent in enterprise mode', async () => {
-      // ENTERPRISE_MODE on but no setup:downloads_disabled key → downloads allowed.
-      const app = createTestApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
-      const res = await app.request('/download?key=path/to/file.txt');
-      expect(res.status).toBe(200);
-      expect(res.headers.get('Content-Disposition')).toContain('attachment');
-    });
+    it.each([undefined, 'inactive'])(
+      'REQ-ENTERPRISE-305 AC1: enterprise download retains bytes and attachment headers with stored toggle %s', async stored => {
+        if (stored !== undefined) mockKV._store.set('setup:downloads_disabled', stored);
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+        const res = await app.request('/download?key=path/to/file.txt');
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Content-Disposition')).toContain('attachment; filename="file.txt"');
+        expect(res.headers.get('Content-Type')).toBe('text/plain');
+        expect(res.headers.get('Content-Length')).toBe('12');
+        expect(await res.text()).toBe('file-content');
+      },
+    );
 
     it('REQ-ENTERPRISE-019 AC5: keeps downloads available when the enterprise policy KV read rejects', async () => {
       mockKV.get.mockRejectedValueOnce(new Error('transient KV outage'));
@@ -327,14 +332,27 @@ describe('Storage Download Routes', () => {
       expect(await res.text()).toBe('file-content');
     });
 
-    it('leaves attachment downloads unchanged (200) in non-enterprise mode even when the key is set', async () => {
-      // Gate-then-read: a non-enterprise deploy never honors the toggle.
-      mockKV._store.set('setup:downloads_disabled', 'active');
-      const app = createTestApp();
-      const res = await app.request('/download?key=path/to/file.txt');
-      expect(res.status).toBe(200);
-      expect(res.headers.get('Content-Disposition')).toContain('attachment');
-    });
+    it.each([undefined, 'inactive'])(
+      'REQ-ENTERPRISE-019 AC5: enterprise mode %s never enters the policy KV boundary', async enterpriseMode => {
+        mockKV._store.set('setup:downloads_disabled', 'active');
+        const read = mockKV.get.getMockImplementation()!;
+        const forbiddenRequests: string[] = [];
+        mockKV.get.mockImplementation(async (key, type) => {
+          if (key === 'setup:downloads_disabled') {
+            forbiddenRequests.push(key);
+            throw new Error('Non-enterprise policy I/O is forbidden');
+          }
+          return read(key, type);
+        });
+        const app = createTestApp({ ENTERPRISE_MODE: enterpriseMode });
+        const res = await app.request('/download?key=path/to/file.txt');
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Content-Disposition')).toContain('attachment');
+        expect(await res.text()).toBe('file-content');
+        // The resolver catches KV failures, so successful bytes alone cannot prove nonentry.
+        expect(forbiddenRequests).toEqual([]);
+      },
+    );
   });
 
   describe('isInlineViewable', () => {

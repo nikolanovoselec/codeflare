@@ -414,7 +414,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - The sync daemon's PID record is the sole mechanism for shutdown; no in-memory fallback exists.
 - Final sync retains persistence filters and recovery exclusions; it has no absolute file-count deletion cap.
-- Shutdown kills the background init subshell before the pidfile sweep, then waits (capped, with the watchdog shortened to match) for the daemon's rclone to exit before the final sync, so the stale-lock guard never races a live process. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC5: the final sync waits for the daemon rclone to exit before it starts) -->
+- Shutdown kills the background init subshell before the pidfile sweep, then waits (capped, with the watchdog shortened to match) for the daemon's rclone to exit before the final sync, so the stale-lock guard never races a live process. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 constraint3: final sync never races an unsettled daemon) --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 constraint3: daemon completion beyond five seconds permits final sync) -->
 
 **Priority:** P0
 
