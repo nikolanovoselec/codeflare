@@ -111,14 +111,14 @@ afterEach(() => {
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function discoveryFixture() {
+function discoveryFixture(input?: Parameters<typeof fakePi>[0]) {
   const root = mkdtempSync(join(tmpdir(), 'capability-discovery-'));
   temporaryRoots.push(root);
   const agentDir = join(root, 'agent');
   mkdirSync(agentDir);
   vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
   const policyPath = join(agentDir, 'capability-skill-policy.json');
-  const base = fakePi();
+  const base = fakePi(input);
   const registered = new Map<string, CapabilityTool>();
   const handlers = new EventRegistry();
   const pi = {
@@ -437,6 +437,74 @@ describe('REQ-AGENT-095/096: event-backed skill discovery and policy boundaries'
     expect(identities(tools)).toEqual(['tool:subagent']);
     expect(Object.hasOwn(tools[0], 'filePath')).toBe(false);
     expect(fixture.pi.history).toEqual([]);
+  });
+});
+
+describe('REQ-AGENT-096: native Hermes tool discovery and activation', () => {
+  // Native pi-hermes-memory names: memory-search-tool.ts and
+  // memory-tool.ts / MEMORY_WRITE_TOOL_NAMES. Model only Pi's registry here;
+  // memory persistence and foreground ownership have their own native tests.
+  const memoryTools = [
+    { name: 'memory_search', description: 'Search durable memory entries' },
+    { name: 'memory_add', description: 'Add one durable memory entry' },
+    { name: 'memory_replace', description: 'Replace one existing memory entry' },
+    { name: 'memory_remove', description: 'Remove one existing memory entry' },
+  ];
+  const bootstrapTools = [
+    { name: 'read', description: 'Read files' },
+    { name: 'bash', description: 'Run shell commands' },
+    { name: 'edit', description: 'Edit files' },
+    { name: 'write', description: 'Write files' },
+    { name: 'capability', description: 'Search tools' },
+  ];
+  const bootstrapNames = bootstrapTools.map(tool => tool.name);
+
+  it('REQ-AGENT-096: each user turn keeps registered native Hermes tools inactive until selected', async () => {
+    const fixture = discoveryFixture({
+      active: [...bootstrapNames, ...memoryTools.map(tool => tool.name)],
+      tools: [...bootstrapTools, ...memoryTools],
+    });
+    toolExposureFinalizer(fixture.pi, () => 'after-first-goal');
+    await fixture.handlers.get('before_agent_start')({}, {});
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrapNames);
+    for (const tool of memoryTools) {
+      expect(identities(await fixture.search(`tool:${tool.name}`))).toEqual([`tool:${tool.name}`]);
+    }
+
+    await fixture.capability.execute('select-memory', { name: 'memory_search' });
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrapNames, 'memory_search']);
+    await fixture.handlers.get('before_agent_start')({}, {});
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrapNames);
+    expect(identities(await fixture.search('tool:memory_search'))).toEqual(['tool:memory_search']);
+  });
+
+  it.each(memoryTools)('REQ-AGENT-096: discovers registered inactive native $name with an executable activation action', async (tool) => {
+    const fixture = discoveryFixture({ active: bootstrapNames, tools: bootstrapTools });
+    expect(await fixture.search(`tool:${tool.name}`)).toEqual([]);
+    // A native owner can register tools after capability itself was loaded.
+    // Discovery must read the live registry, not a static memory-name index.
+    const registeredTools = [...bootstrapTools, tool];
+    fixture.pi.getAllTools = () => registeredTools;
+    const result = await fixture.capability.execute('find-memory', { query: `tool:${tool.name}` });
+    const matches = resultMatches(result);
+    expect(identities(matches)).toEqual([`tool:${tool.name}`]);
+    expect(matches[0]).toMatchObject({ nextAction: { action: 'activate-tool', name: tool.name } });
+    expect(fixture.pi.getActiveTools()).toEqual(bootstrapNames);
+  });
+
+  it.each(memoryTools)('REQ-AGENT-096: activates only registered native $name additively and idempotently', async (tool) => {
+    const fixture = discoveryFixture({ active: bootstrapNames, tools: [...bootstrapTools, ...memoryTools] });
+    expect(await fixture.capability.execute('activate-memory', { name: tool.name })).toMatchObject({
+      details: { name: tool.name, added: [tool.name] },
+    });
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrapNames, tool.name]);
+    expect(await fixture.capability.execute('activate-memory-again', { name: tool.name })).toMatchObject({
+      details: { name: tool.name, added: [] },
+    });
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrapNames, tool.name]);
+    await expect(fixture.capability.execute('unregistered-memory', { name: 'memory_unregistered' }))
+      .rejects.toThrow('Unknown tool: memory_unregistered');
+    expect(fixture.pi.getActiveTools()).toEqual([...bootstrapNames, tool.name]);
   });
 });
 

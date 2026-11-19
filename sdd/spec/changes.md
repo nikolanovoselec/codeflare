@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-19: Restore managed Hermes after the direct-package trial
+
+- REQ-MEM-035 retires the exact obsolete managed-adapter exclusion during Advanced startup while retaining adapter-owned package loading, default-mode behavior, other exclusions and capture preferences. Registered Hermes tools remain discoverable and individually activatable through the existing REQ-AGENT-096 live capability registry; no separate catalog or eager activation is introduced.
+
 ## 2026-11-19: Goal resume resets expired stall history before enforcement
 
 - REQ-AGENT-236 resets stopped-goal stall history, deadline and its public counter at explicit resume, before persistence or lifecycle enforcement can apply an old deadline. Deferred automatic-count reset, failed-delivery rollback, genuine restoration/waiting stalls and the five-stall/25-minute bound remain intact.

@@ -3323,8 +3323,13 @@ const managedReviewPaths = ['review-enforcement.ts', 'operator-review-remote.ts'
 // The adapter is the sole managed MCP lifecycle owner, including the first session.
 // Native Pi MCP would otherwise connect the same configured servers eagerly.
 const nativeMcpPaths = new Set(['builtin:mcp', '+builtin:mcp', '-builtin:mcp']);
+// A direct-package trial excluded the former full-file injector at this path.
+// Advanced now needs its replacement lifecycle owner; never clear other selectors.
+const obsoleteHermesExclusion = process.env.SESSION_MODE === 'advanced'
+  ? `-${require('path').join(reviewDir, 'hermes-memory-runtime.ts')}` : undefined;
 const extensions = Array.isArray(settings.extensions)
   ? settings.extensions.filter(item => !managedReviewPaths.includes(item) && !nativeMcpPaths.has(item)
+    && item !== obsoleteHermesExclusion
     && !(typeof item === 'string' && managedMcpIdentity(item.replace(/^[+!-]/, '')))) : [];
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()],
   extensions: [...extensions, '-builtin:mcp', ...reviewExclusions] }, null, 2) + '\n');

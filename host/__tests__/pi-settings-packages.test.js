@@ -35,7 +35,7 @@ function extractAdvisorGuidanceMerge() {
   return extractHeredoc(`node - "$advisor_config" <<'NODE'`, 'advisor guidance merge');
 }
 
-function runHeredoc(body, filename, initialJson, times = 1, reviewAssets = false) {
+function runHeredoc(body, filename, initialJson, times = 1, reviewAssets = false, sessionMode = 'default') {
   const dir = mkdtempSync(join(tmpdir(), 'pi-pkgs-'));
   const scriptPath = join(dir, 'script.cjs'); // .cjs: the program uses require()/argv
   const jsonPath = join(dir, filename);
@@ -51,14 +51,16 @@ function runHeredoc(body, filename, initialJson, times = 1, reviewAssets = false
       rmSync(join(dir, 'extensions', 'operator-review-selector.ts'));
       rmSync(join(dir, 'extensions', 'operator-review-remote.ts'));
     }
-    const result = spawnSync('node', [scriptPath, jsonPath], { encoding: 'utf-8' });
+    const result = spawnSync('node', [scriptPath, jsonPath], {
+      encoding: 'utf-8', env: { ...process.env, SESSION_MODE: sessionMode },
+    });
     if (result.status !== 0) throw new Error(`heredoc exited ${result.status}: ${result.stderr}`);
   }
   return JSON.parse(readFileSync(jsonPath, 'utf-8'));
 }
 
-function runAssembly(initialSettings, times = 1, reviewAssets = false) {
-  return runHeredoc(extractAssembly(), 'settings.json', initialSettings, times, reviewAssets);
+function runAssembly(initialSettings, times = 1, reviewAssets = false, sessionMode = 'default') {
+  return runHeredoc(extractAssembly(), 'settings.json', initialSettings, times, reviewAssets, sessionMode);
 }
 
 function runAdvisorGuidanceMerge(initialConfig) {
@@ -151,6 +153,78 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
 });
 
 describe('REQ-MEM-035 AC1: stock Hermes package delivery', () => {
+  it('REQ-MEM-035: Advanced startup removes the obsolete managed Hermes exclusion without changing user settings', () => {
+    let original;
+    const settings = runAssembly(agentDir => {
+      original = {
+        extensions: [`-${join(agentDir, 'extensions/hermes-memory-runtime.ts')}`, 'owner-extension.ts'],
+        packages: [{ source: 'npm:pi-hermes-memory@0.0.1', extensions: ['old.ts'] },
+          { source: 'npm:owner-package@1.0.0', extensions: ['keep.ts'], skills: [] }],
+        defaultProvider: 'owner-provider', defaultModel: 'owner-model', defaultThinkingLevel: 'high',
+        theme: 'owner-theme', auth: { owner: { type: 'oauth', access: 'fixture-only' } },
+        customPreference: { keep: ['one', 'two'] },
+        memoryCapture: { enabled: false, interval: 37 },
+        review: { enabled: false, provider: 'owner-review-provider' },
+      };
+      return JSON.stringify(original);
+    }, 1, false, 'advanced');
+
+    assert.deepEqual(settings.extensions, ['owner-extension.ts', '-builtin:mcp']);
+    assert.deepEqual(settings.packages.filter(entry => /^npm:pi-hermes-memory(?:@|$)/.test(sourceOf(entry))),
+      [{ source: `npm:pi-hermes-memory@${piPackage.dependencies['pi-hermes-memory']}`, extensions: [] }],
+      'the native package stays filtered so only the managed foreground adapter loads');
+    assert.deepEqual(settings.packages.find(entry => sourceOf(entry) === 'npm:owner-package@1.0.0'), original.packages[1]);
+    for (const key of Object.keys(original).filter(key => !['extensions', 'packages'].includes(key))) {
+      assert.deepEqual(settings[key], original[key], key);
+    }
+  });
+
+  it('REQ-MEM-035: Advanced Hermes exclusion migration is idempotent across repeated startups', () => {
+    const first = runAssembly(agentDir => JSON.stringify({
+      extensions: [`-${join(agentDir, 'extensions/hermes-memory-runtime.ts')}`, 'owner-extension.ts'],
+      defaultModel: 'owner-model',
+    }), 1, false, 'advanced');
+    assert.deepEqual(first.extensions, ['owner-extension.ts', '-builtin:mcp']);
+    const repeated = runAssembly(JSON.stringify(first), 2, false, 'advanced');
+    assert.deepEqual(repeated, first, 'later startups preserve the complete migrated settings');
+  });
+
+  it('REQ-MEM-035: default startup preserves the managed Hermes exclusion and user settings', () => {
+    let original;
+    const settings = runAssembly(agentDir => {
+      original = {
+        extensions: [`-${join(agentDir, 'extensions/hermes-memory-runtime.ts')}`, 'owner-extension.ts'],
+        defaultProvider: 'owner-provider', defaultModel: 'owner-model',
+        memoryCapture: { enabled: false }, review: { enabled: false },
+      };
+      return JSON.stringify(original);
+    }, 2, false, 'default');
+    assert.deepEqual(settings.extensions, [...original.extensions, '-builtin:mcp']);
+    for (const key of ['defaultProvider', 'defaultModel', 'memoryCapture', 'review']) {
+      assert.deepEqual(settings[key], original[key], key);
+    }
+    assert.deepEqual(settings.packages.filter(entry => /^npm:pi-hermes-memory(?:@|$)/.test(sourceOf(entry))),
+      [{ source: `npm:pi-hermes-memory@${piPackage.dependencies['pi-hermes-memory']}`, extensions: [] }]);
+  });
+
+  it('REQ-MEM-035: Advanced startup removes only the exact managed absolute negative Hermes selector', () => {
+    let preserved;
+    const settings = runAssembly(agentDir => {
+      const managed = join(agentDir, 'extensions/hermes-memory-runtime.ts');
+      preserved = [
+        managed, `+${managed}`, `!${managed}`,
+        '-./extensions/hermes-memory-runtime.ts', '-extensions/hermes-memory-runtime.ts',
+        `-${join(agentDir, 'extensions')}/*.ts`, `-${managed}*`, `-${managed}.backup`,
+        `-${join(agentDir, 'other/extensions/hermes-memory-runtime.ts')}`,
+        `-${join(agentDir, 'extensions')}/../extensions/hermes-memory-runtime.ts`,
+        '-/another-agent/extensions/hermes-memory-runtime.ts', 'owner-extension.ts',
+      ];
+      return JSON.stringify({ extensions: [`-${managed}`, ...preserved, `-${managed}`] });
+    }, 2, false, 'advanced');
+    assert.deepEqual(settings.extensions, [...preserved, '-builtin:mcp'],
+      'positive selectors, relative exclusions, globs, lookalikes and other agent homes remain unchanged');
+  });
+
   it('registers exactly one pinned, adapter-owned Hermes package without changing unrelated settings', () => {
     const version = piPackage.dependencies['pi-hermes-memory'];
     assert.match(version ?? '', /^\d+\.\d+\.\d+$/, 'Hermes must be an exact image dependency');
