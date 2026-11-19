@@ -18,7 +18,7 @@
   },
   "name": "codeflare-image-npm-tools",
   "overrides": {
-    "@hono/node-server": "2.1.9",
+    "@hono/node-server": "2.1.8",
     "@modelcontextprotocol/sdk": "1.32.2",
     "body-parser": "2.4.0",
     "brace-expansion": "5.0.13",
