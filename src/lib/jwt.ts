@@ -53,18 +53,17 @@ function parseOrThrow<T>(schema: z.ZodType<T>, value: unknown, context: string):
   return result.data;
 }
 
-// Module-level JWKS cache
-let cachedJWKS: JWKS | null = null;
-let cachedJWKSAuthDomain: string | null = null;
-let cacheExpiry: number = 0;
+interface JWKSSnapshot {
+  jwks: JWKS;
+  authDomain: string;
+  fetchedAt: number;
+}
+
+// Only completed, domain-bound snapshots may cross request lifetimes.
+let cachedJWKS: JWKSSnapshot | null = null;
+let jwksRevision = 0;
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
-
-// Track when JWKS was last fetched for cache-bust on kid miss
-let lastJWKSFetchTime: number = 0;
 const JWKS_FRESHNESS_THRESHOLD = 30 * 1000; // 30 seconds
-
-// Promise deduplication: if a JWKS fetch is already in progress, reuse it
-let pendingJWKSFetch: Promise<JWKS> | null = null;
 
 /**
  * Base64url decode a string to Uint8Array.
@@ -95,49 +94,25 @@ function base64UrlDecode(str: string): Uint8Array {
  * Fetches from https://{authDomain}/cdn-cgi/access/certs
  * Caches for 1 hour, invalidates if authDomain changes.
  */
-async function getPublicKeys(authDomain: string): Promise<JWKS> {
-  const now = Date.now();
-
-  // Return cached keys if valid and same auth domain
-  if (cachedJWKS && cachedJWKSAuthDomain === authDomain && now < cacheExpiry) {
-    return cachedJWKS;
+async function getPublicKeys(authDomain: string, refresh = false): Promise<JWKSSnapshot> {
+  const cached = cachedJWKS;
+  if (!refresh && cached?.authDomain === authDomain && Date.now() < cached.fetchedAt + CACHE_TTL) {
+    return cached;
   }
 
-  // If a fetch is already in progress for the same domain, reuse it
-  // This prevents thundering herd when multiple concurrent requests
-  // all discover an expired cache at the same time
-  if (pendingJWKSFetch && cachedJWKSAuthDomain === authDomain) {
-    return pendingJWKSFetch;
-  }
-
+  // Each miss owns its I/O. Starting a newer read (including a domain change or
+  // rotation) fences older completions without sharing their request promises.
+  const revision = ++jwksRevision;
+  cachedJWKS = null;
   const url = `https://${authDomain}/cdn-cgi/access/certs`;
-
-  pendingJWKSFetch = (async () => {
-    try {
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch JWKS from ${url}: ${response.status}`);
-      }
-
-      const jwks = parseOrThrow(JWKSSchema, await response.json(), 'Invalid JWKS response');
-
-      // Update cache
-      cachedJWKS = jwks;
-      cachedJWKSAuthDomain = authDomain;
-      cacheExpiry = Date.now() + CACHE_TTL;
-      lastJWKSFetchTime = Date.now();
-
-      return jwks;
-    } finally {
-      pendingJWKSFetch = null;
-    }
-  })();
-
-  // Update domain tracker so concurrent callers can match
-  cachedJWKSAuthDomain = authDomain;
-
-  return pendingJWKSFetch;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch JWKS from ${url}: ${response.status}`);
+  }
+  const jwks = parseOrThrow(JWKSSchema, await response.json(), 'Invalid JWKS response');
+  const snapshot = { jwks, authDomain, fetchedAt: Date.now() };
+  if (revision === jwksRevision) cachedJWKS = snapshot;
+  return snapshot;
 }
 
 /**
@@ -170,14 +145,13 @@ async function verifyAccessPayload(
       return null;
     }
 
-    let jwks = await getPublicKeys(authDomain);
-    let matchingKey = jwks.keys.find((key) => key.kid === header.kid);
+    let snapshot = await getPublicKeys(authDomain);
+    let matchingKey = snapshot.jwks.keys.find((key) => key.kid === header.kid);
 
-    // SEC8: Cache-bust on kid miss — re-fetch JWKS if cache is stale
-    if (!matchingKey && Date.now() - lastJWKSFetchTime > JWKS_FRESHNESS_THRESHOLD) {
-      cachedJWKS = null;
-      jwks = await getPublicKeys(authDomain);
-      matchingKey = jwks.keys.find((key) => key.kid === header.kid);
+    // SEC8: Freshness belongs to these keys, not another request's domain.
+    if (!matchingKey && Date.now() - snapshot.fetchedAt > JWKS_FRESHNESS_THRESHOLD) {
+      snapshot = await getPublicKeys(authDomain, true);
+      matchingKey = snapshot.jwks.keys.find((key) => key.kid === header.kid);
     }
 
     if (!matchingKey) {
@@ -332,8 +306,5 @@ export async function verifyHumanAccessJWT(
  */
 export function resetJWKSCache(): void {
   cachedJWKS = null;
-  cachedJWKSAuthDomain = null;
-  cacheExpiry = 0;
-  pendingJWKSFetch = null;
-  lastJWKSFetchTime = 0;
+  jwksRevision++;
 }

@@ -15,7 +15,7 @@
  *         shell with the redirecting state when the Access session expired.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@solidjs/testing-library';
+import { render, screen, waitFor, cleanup, fireEvent } from '@solidjs/testing-library';
 import { ApiError } from '../../api/fetch-helper';
 
 const getSetupStatusMock = vi.fn();
@@ -42,7 +42,7 @@ vi.mock('../../components/Layout', () => ({
 vi.mock('../../components/setup/SetupWizard', () => ({ default: () => <div data-testid="setup-wizard">setup</div> }));
 vi.mock('../../components/LoginPage', () => ({ default: () => <div data-testid="login-page">login</div> }));
 vi.mock('../../components/OnboardingLanding', () => ({ default: () => <div data-testid="onboarding">onboarding</div> }));
-vi.mock('../../stores/session', () => ({ sessionStore: { stopAllPolling: vi.fn(), setEnterpriseMode: vi.fn(), setSaasMode: vi.fn() } }));
+vi.mock('../../stores/session', () => ({ sessionStore: { stopAllPolling: vi.fn(), setEnterpriseMode: vi.fn(), setSaasMode: vi.fn(), setAllowedAgents: vi.fn() } }));
 vi.mock('../../stores/storage', () => ({ storageStore: { setWorkerName: vi.fn(), setDownloadsDisabled: vi.fn() } }));
 vi.mock('../../stores/terminal', () => ({ terminalStore: { disposeAll: vi.fn() } }));
 
@@ -80,6 +80,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   Object.defineProperty(window, 'location', { configurable: true, writable: true, value: originalLocation });
   cleanup();
 });
@@ -101,6 +102,40 @@ describe('REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not
     render(() => <App />);
     await waitFor(() => expect(screen.getByTestId('auth-redirecting')).toBeInTheDocument());
     expect(replaceLocationMock).toHaveBeenCalledWith('/');
+  });
+});
+
+describe('REQ-AUTH-022 AC8: bootstrap service failures remain recoverable without claiming expired authentication', () => {
+  it.each([
+    ['server failure', new ApiError('Internal error', 500, 'Internal Server Error')],
+    ['unavailable service', new ApiError('Unavailable', 503, 'Service Unavailable')],
+    ['network failure', new TypeError('Failed to fetch')],
+  ])('shows a service error and recovers after retry for %s', async (_label, error) => {
+    vi.stubEnv('DEV', false);
+    getUserMock.mockRejectedValueOnce(error).mockResolvedValue(authenticatedUser);
+    let view = render(() => <App />);
+    await waitFor(() => expect(screen.getByTestId('bootstrap-service-error')).toHaveAttribute('role', 'alert'));
+    expect(screen.queryByTestId('layout')).toBeNull();
+    expect(screen.queryByTestId('auth-redirecting')).toBeNull();
+
+    // Simulate the browser's document reload at the existing Retry boundary.
+    window.location.reload = () => {
+      view.unmount();
+      view = render(() => <App />);
+    };
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByTestId('layout')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps a forbidden account separate from a recoverable service failure', async () => {
+    vi.stubEnv('DEV', false);
+    getUserMock.mockRejectedValue(new ApiError('Forbidden', 403, 'Forbidden'));
+    render(() => <App />);
+    await waitFor(() => expect(screen.getByTestId('bootstrap-access-error')).toHaveAttribute('role', 'alert'));
+    expect(screen.queryByTestId('bootstrap-service-error')).toBeNull();
+    expect(screen.queryByTestId('layout')).toBeNull();
+    expect(screen.queryByTestId('auth-redirecting')).toBeNull();
   });
 });
 

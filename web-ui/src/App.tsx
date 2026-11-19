@@ -54,7 +54,7 @@ const AppContent: Component = () => {
   const [enterpriseMode, setEnterpriseMode] = createSignal<boolean | undefined>();
   const [operatorManagementEligible, setOperatorManagementEligible] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
-  const [authError, setAuthError] = createSignal<string | null>(null);
+  const [authError, setAuthError] = createSignal<{ kind: 'access' | 'service'; message: string } | null>(null);
   const [redirecting, setRedirecting] = createSignal(false);
   let initialAuthSettled = false;
   let resumeCheckInFlight = false;
@@ -190,7 +190,9 @@ const AppContent: Component = () => {
         setUserName('dev@localhost');
         setUserRole('admin');
       } else {
-        setAuthError('Authentication required. Please refresh the page.');
+        setAuthError(err instanceof ApiError && err.status === 403
+          ? { kind: 'access', message: 'You do not have permission to access this application.' }
+          : { kind: 'service', message: 'Your account could not be loaded. Please try again.' });
       }
     } finally {
       initialAuthSettled = true;
@@ -229,9 +231,9 @@ const AppContent: Component = () => {
         <Show
           when={!authError()}
           fallback={
-            <div class="app-auth-error">
-              <h1>Authentication Error</h1>
-              <p>{authError()}</p>
+            <div class="app-auth-error" role="alert" data-testid={`bootstrap-${authError()?.kind}-error`}>
+              <h1>{authError()?.kind === 'access' ? 'Access denied' : 'Unable to load account'}</h1>
+              <p>{authError()?.message}</p>
               <button type="button" onClick={() => window.location.reload()}>Retry</button>
             </div>
           }

@@ -102,8 +102,8 @@ None. Authentication is foundational; other domains depend on it.
 
 **Constraints:**
 
-- JWKS responses are cached per Worker isolate with a TTL and can be invalidated for testing.
-- Concurrent cold-start JWKS fetches are deduplicated.
+- Completed JWKS snapshots are cached per Worker isolate for one hour, bound to their authentication domain, and can be explicitly invalidated. A key-ID miss may refresh keys older than 30 seconds.
+- Cache misses own their network requests rather than sharing request-bound promises. An unfinished or failed request cannot stall another verifier or overwrite a newer/reset snapshot. <!-- @impl: src/lib/jwt.ts::getPublicKeys --> <!-- @test: src/__tests__/lib/jwt.test.ts (REQ-AUTH-003: request-owned JWKS reads and completed snapshots) -->
 - Admin-only deployments (no regular users) are supported.
 
 **Priority:** P0
@@ -303,7 +303,7 @@ None. Authentication is foundational; other domains depend on it.
 **Constraints:**
 
 - This is a per-isolate flag; new isolates must successfully fetch a nonempty auth domain and at least one configured audience before the pre-setup fallback is disabled.
-- Concurrent cold-start auth-config fetches are deduplicated; no redundant storage reads are issued.
+- Concurrent auth-config cache misses use independent request-owned reads and only cache complete snapshots; no request awaits another request's storage promise.
 
 **Priority:** P0
 
@@ -669,6 +669,7 @@ None.
 5. Access 3xx, opaque or status-zero redirects, and HTML login responses on either successful or unsuccessful authenticated API requests settle through the same clean sign-in recovery as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::baseFetch --> <!-- @impl: web-ui/src/api/fetch-helper.ts::isHtmlResponse --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)) -->
 6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions) -->
 7. Fingerprinted application CSS and JavaScript requests execute the Worker asset path and receive immutable browser caching only for successful non-HTML assets, preventing an expired Access session from replacing a restored document's styles while keeping SPA fallback HTML revalidating. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching) -->
+8. Bootstrap network and server failures render a recoverable service-error state with the existing Retry control, not an expired-session or access-denied state. Retry can restore the authenticated application after the service recovers. A genuine forbidden response remains access-denied and never mounts the protected application. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC8: bootstrap service failures remain recoverable without claiming expired authentication) -->
 
 **Constraints:**
 
@@ -760,21 +761,23 @@ None.
 
 ## Authentication configuration lifecycle
 
-### REQ-SEC-016: Concurrent cache deduplication for auth config
+<a id="req-sec-016-concurrent-cache-deduplication-for-auth-config"></a>
+### REQ-SEC-016: Request-independent authentication configuration caching
 
-**Intent:** Multiple concurrent cold-start requests must not issue redundant KV reads for authentication configuration.
+**Intent:** Authentication configuration caching must avoid repeated reads on warm requests without coupling independent requests to another request's I/O lifetime.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Concurrent cold-start requests share a single in-flight auth-config fetch; no redundant storage reads are issued. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
-2. Two concurrent cold-start requests reuse the in-flight fetch instead of issuing parallel storage reads. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) -->
-3. The cached auth config expires on TTL and can be explicitly invalidated, forcing a fresh storage read. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (Concurrent auth-config fetch deduplication / REQ-SEC-016 AC1/AC2/AC3 (pendingAuthConfigFetch sentinel coalesces concurrent cold-start KV reads; cleared on cache reset)) --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC3: $state cache expires and freshly saved configuration rejects header trust) -->
+1. Cache misses read a complete configuration within their own request lifetime; a held earlier read does not stall independent authentication. Warm requests reuse only completed snapshots. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC1/AC2: a held first request at %s does not stall independent authentication) -->
+2. A rejected earlier read cannot poison another request or its completed cache. Concurrent requests use their own complete domain/audience snapshot and cannot publish partial configuration. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC2: a rejected first request does not poison another request or the completed cache) --> <!-- @test: src/__tests__/lib/jwt.test.ts (REQ-SEC-016: concurrent auth config loads use their own complete domain and audience snapshot) -->
+3. Cached configuration expires after five minutes for a populated domain or 30 seconds for negative configuration. Explicit invalidation forces fresh reads and fences earlier in-flight work from repopulating the cache or configured-state latch. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC3: reset fences a held old configuration from repopulating the cache or configured latch) --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC3: $state cache expires and freshly saved configuration rejects header trust) -->
 
 **Constraints:**
 
-- Deduplication is per-isolate, not cross-isolate.
+- Completed configuration caching is per-isolate; request-owned I/O promises must never be stored in that shared cache.
+- Unit races verify request independence and invalidation; actual Workers request-lifetime enforcement and deployed recovery require integration evidence, not a simulated promise alone.
 
 **Priority:** P0
 

@@ -53,14 +53,11 @@ const AUTH_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // window. Expire it after 30s instead of 5min so a freshly-configured
 // instance stops trusting cf-access-authenticated-user-email much sooner.
 const AUTH_CONFIG_NULL_TTL_MS = 30 * 1000; // 30 seconds
-let cachedAuthDomain: string | null | undefined = undefined;
-let cachedAccessAud: string | null | undefined = undefined;
-let cachedAccessAudList: string[] | null | undefined = undefined;
-let authConfigCachedAt = 0;
-// CF-005: Tracks whether KV auth config has been fetched at least once.
+let cachedAuthConfig: { config: ResolvedAuthConfig; cachedAt: number } | null = null;
+// CF-005: Tracks whether populated KV auth config has been fetched since reset.
 let authConfigFetched = false;
-// CF-002: Promise dedup - prevents concurrent cold requests from issuing redundant KV reads.
-let pendingAuthConfigFetch: Promise<void> | null = null;
+let authConfigGeneration = 0;
+let latestAuthConfigRead = 0;
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -91,12 +88,10 @@ const VALID_SUBSCRIPTION_TIERS = new Set<string>([
  * Reset cached auth config. Call when setup completes or config changes.
  */
 export function resetAuthConfigCache(): void {
-  cachedAuthDomain = undefined;
-  cachedAccessAud = undefined;
-  cachedAccessAudList = undefined;
-  authConfigCachedAt = 0;
+  cachedAuthConfig = null;
   authConfigFetched = false;
-  pendingAuthConfigFetch = null;
+  authConfigGeneration++;
+  latestAuthConfigRead++;
 }
 
 function getCookieValue(cookieHeader: string | null, key: string): string | null {
@@ -378,7 +373,7 @@ export function canInvokeOperator(human: VerifiedHumanAccessClaims, grants: Part
   return resolveOperatorGrant(human, grants, 'invoker');
 }
 
-/** Auth config derived from the module-level cache after {@link loadAuthConfig}. */
+/** Complete auth configuration owned by a request or a completed cache entry. */
 interface ResolvedAuthConfig {
   accessAudList: string[];
   authConfigured: boolean;
@@ -386,69 +381,44 @@ interface ResolvedAuthConfig {
 }
 
 /**
- * Load auth config from KV REGARDLESS of JWT presence (FIX-1) and return the
- * derived audience list + configured flag. Mutates the module-level cache.
- *
- * This determines whether we're in pre-setup or post-setup state.
- * Invalidate stale cache after TTL (FIX-9).
- * CF-149: when the cached config is the negative/null (pre-setup) state, use
- * the shorter NULL TTL so the header-trust window shrinks from 5min to 30s.
- * A populated config (cachedAuthDomain is a non-empty string) keeps the 5min
- * TTL. cachedAuthDomain === undefined means "not yet fetched" and is handled
- * by the cold-fetch branch below, not here.
+ * Load auth config regardless of JWT presence (FIX-1). Only completed snapshots
+ * cross requests: Workers I/O promises belong to the request that created them.
+ * CF-149: negative config expires after 30s; a populated domain keeps 5min.
  */
 async function loadAuthConfig(env?: Env): Promise<ResolvedAuthConfig> {
-  const configIsPopulated = !!cachedAuthDomain;
-  const effectiveTtlMs = configIsPopulated ? AUTH_CONFIG_CACHE_TTL_MS : AUTH_CONFIG_NULL_TTL_MS;
-  if (authConfigCachedAt > 0 && Date.now() - authConfigCachedAt > effectiveTtlMs) {
-    cachedAuthDomain = undefined;
-    cachedAccessAud = undefined;
-    cachedAccessAudList = undefined;
-    pendingAuthConfigFetch = null; // HIGH-4: ensure stale promise doesn't block re-fetch
+  const cached = cachedAuthConfig;
+  if (cached) {
+    const ttl = cached.config.authDomain ? AUTH_CONFIG_CACHE_TTL_MS : AUTH_CONFIG_NULL_TTL_MS;
+    if (Date.now() - cached.cachedAt <= ttl) return cached.config;
   }
-  // CF-002: Deduplicate concurrent cold-start KV reads via Promise sentinel.
-  // Pattern mirrors pendingJWKSFetch in jwt.ts.
-  if (env?.KV && cachedAuthDomain === undefined) {
-    if (!pendingAuthConfigFetch) {
-      pendingAuthConfigFetch = (async () => {
-        const authDomain = await env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
-        let accessAudList: string[] | null;
-        const audListRaw = await env.KV.get(SETUP_KEYS.ACCESS_AUD_LIST);
-        if (audListRaw) {
-          try {
-            const parsed = JSON.parse(audListRaw);
-            if (Array.isArray(parsed) && parsed.every((value: unknown) => typeof value === 'string')) {
-              accessAudList = parsed;
-            } else {
-              accessAudList = null;
-            }
-          } catch {
-            logger.warn('Failed to parse access_aud_list', { raw: audListRaw });
-            accessAudList = null;
-          }
-        } else {
-          accessAudList = null;
-        }
-        const accessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
-        // Publish only a complete snapshot. A rejected read leaves the cache
-        // cold, so concurrent and later requests cannot use partial setup state.
-        cachedAuthDomain = authDomain;
-        cachedAccessAudList = accessAudList;
-        cachedAccessAud = accessAud;
-        authConfigCachedAt = Date.now();
-        if (authDomain && (accessAud || (accessAudList && accessAudList.length > 0))) {
-          authConfigFetched = true;
-        }
-      })().finally(() => { pendingAuthConfigFetch = null; });
-    }
-    await pendingAuthConfigFetch;
-  }
+  if (!env?.KV) return { accessAudList: [], authConfigured: false, authDomain: undefined };
 
-  const accessAudList = cachedAccessAudList && cachedAccessAudList.length > 0
-    ? cachedAccessAudList
-    : (cachedAccessAud ? [cachedAccessAud] : []);
-  const authConfigured = !!(cachedAuthDomain && accessAudList.length > 0);
-  return { accessAudList, authConfigured, authDomain: cachedAuthDomain };
+  const generation = authConfigGeneration;
+  const read = ++latestAuthConfigRead;
+  const authDomain = await env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
+  let audiences: string[] | null = null;
+  const audListRaw = await env.KV.get(SETUP_KEYS.ACCESS_AUD_LIST);
+  if (audListRaw) {
+    try {
+      const parsed = JSON.parse(audListRaw);
+      if (Array.isArray(parsed) && parsed.every((value: unknown) => typeof value === 'string')) {
+        audiences = parsed;
+      }
+    } catch {
+      logger.warn('Failed to parse access_aud_list', { raw: audListRaw });
+    }
+  }
+  const accessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
+  const accessAudList = audiences?.length ? audiences : (accessAud ? [accessAud] : []);
+  const config = { accessAudList, authConfigured: !!(authDomain && accessAudList.length), authDomain };
+
+  // Return this request's complete snapshot even if another read or reset won.
+  // An older read must not overwrite newer configuration or undo a reset.
+  if (generation === authConfigGeneration) {
+    if (config.authConfigured) authConfigFetched = true;
+    if (read === latestAuthConfigRead) cachedAuthConfig = { config, cachedAt: Date.now() };
+  }
+  return config;
 }
 
 /**

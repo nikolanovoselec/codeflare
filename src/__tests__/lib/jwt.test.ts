@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { verifyAccessJWT, verifyHumanAccessJWT, resetJWKSCache } from '../../lib/jwt';
-import { requireOperatorHumanContext, resetAuthConfigCache } from '../../lib/access';
+import { getUserFromRequest, requireOperatorHumanContext, resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import type { Env } from '../../types';
@@ -513,164 +513,248 @@ describe('JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS cachi
     });
   });
 
-  describe('JWKS caching', () => {
-    it('caches JWKS and reuses on second call', async () => {
-      const now = Math.floor(Date.now() / 1000);
-      const payload = {
-        aud: [TEST_AUD],
-        email: TEST_EMAIL,
-        exp: now + 3600,
-        iat: now - 60,
-        iss: `https://${TEST_AUTH_DOMAIN}`,
-        sub: 'user-id-123',
-        type: 'app',
-        country: 'US',
-      };
+  describe('REQ-AUTH-003: request-owned JWKS reads and completed snapshots', () => {
+    function deferred<T>() {
+      let resolve!: (value: T) => void;
+      let reject!: (reason: Error) => void;
+      const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+      return { promise, resolve, reject };
+    }
 
-      const token1 = await createTestJWT(payload, testKeyPair.privateKey, testKeyPair.kid);
-      const token2 = await createTestJWT(payload, testKeyPair.privateKey, testKeyPair.kid);
-
-      await verifyAccessJWT(token1, TEST_AUTH_DOMAIN, TEST_AUD);
-      await verifyAccessJWT(token2, TEST_AUTH_DOMAIN, TEST_AUD);
-
-      // fetch should have been called only once for JWKS
-      const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const jwksCalls = fetchCalls.filter((call) => {
-        const url = typeof call[0] === 'string' ? call[0] : call[0] instanceof URL ? call[0].toString() : call[0].url;
-        return url.includes('/cdn-cgi/access/certs');
-      });
-      expect(jwksCalls.length).toBe(1);
-    });
-
-    it('resetJWKSCache causes re-fetch', async () => {
-      const now = Math.floor(Date.now() / 1000);
-      const payload = {
-        aud: [TEST_AUD],
-        email: TEST_EMAIL,
-        exp: now + 3600,
-        iat: now - 60,
-        iss: `https://${TEST_AUTH_DOMAIN}`,
-        sub: 'user-id-123',
-        type: 'app',
-        country: 'US',
-      };
-
-      const token1 = await createTestJWT(payload, testKeyPair.privateKey, testKeyPair.kid);
-      const token2 = await createTestJWT(payload, testKeyPair.privateKey, testKeyPair.kid);
-
-      await verifyAccessJWT(token1, TEST_AUTH_DOMAIN, TEST_AUD);
-      resetJWKSCache();
-      await verifyAccessJWT(token2, TEST_AUTH_DOMAIN, TEST_AUD);
-
-      // fetch should have been called twice for JWKS
-      const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const jwksCalls = fetchCalls.filter((call) => {
-        const url = typeof call[0] === 'string' ? call[0] : call[0] instanceof URL ? call[0].toString() : call[0].url;
-        return url.includes('/cdn-cgi/access/certs');
-      });
-      expect(jwksCalls.length).toBe(2);
-    });
-
-    it('invalidates cache when auth domain changes', async () => {
-      const now = Math.floor(Date.now() / 1000);
-      const payload = {
-        aud: [TEST_AUD],
-        email: TEST_EMAIL,
-        exp: now + 3600,
-        iat: now - 60,
-        iss: `https://${TEST_AUTH_DOMAIN}`,
-        sub: 'user-id-123',
-        type: 'app',
-        country: 'US',
-      };
-
-      const token = await createTestJWT(payload, testKeyPair.privateKey, testKeyPair.kid);
-
-      // Update mock to also respond to a different domain
-      const differentDomain = 'other-team.cloudflareaccess.com';
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-        if (url.includes('/cdn-cgi/access/certs')) {
-          const jwksResponse = createMockJWKSResponse([testKeyPair.publicKeyJWK]);
-          return new Response(JSON.stringify(jwksResponse), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        return new Response('Not Found', { status: 404 });
-      }) as typeof globalThis.fetch;
-
-      // First call with original domain
-      await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD);
-      // Second call with different domain - should re-fetch
-      await verifyAccessJWT(token, differentDomain, TEST_AUD);
-
-      const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const jwksCalls = fetchCalls.filter((call) => {
-        const url = typeof call[0] === 'string' ? call[0] : call[0] instanceof URL ? call[0].toString() : call[0].url;
-        return url.includes('/cdn-cgi/access/certs');
-      });
-      expect(jwksCalls.length).toBe(2);
-    });
-
-    it('re-fetches JWKS when kid not found and cache is stale', async () => {
-      const now = Math.floor(Date.now() / 1000);
-      const payload = {
-        aud: [TEST_AUD],
-        email: TEST_EMAIL,
-        exp: now + 3600,
-        iat: now - 60,
-        iss: `https://${TEST_AUTH_DOMAIN}`,
-        sub: 'user-id-123',
-        type: 'app',
-        country: 'US',
-      };
-
-      // Generate a second key pair with a different kid
-      const secondKeyPair = await generateTestKeyPair('rotated-kid');
-
-      // First call: mock only returns the original key (caches JWKS without rotated-kid)
-      const token1 = await createTestJWT(payload, testKeyPair.privateKey, testKeyPair.kid);
-      await verifyAccessJWT(token1, TEST_AUTH_DOMAIN, TEST_AUD);
-
-      // Now create a token signed with the rotated key
-      const token2 = await createTestJWT(payload, secondKeyPair.privateKey, secondKeyPair.kid);
-
-      // Update fetch mock to return BOTH keys (simulates Cloudflare key rotation)
-      let _fetchCallCount = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-        if (url === `https://${TEST_AUTH_DOMAIN}/cdn-cgi/access/certs`) {
-          const jwksResponse = createMockJWKSResponse([testKeyPair.publicKeyJWK, secondKeyPair.publicKeyJWK]);
-          return new Response(JSON.stringify(jwksResponse), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        return new Response('Not Found', { status: 404 });
-      }) as typeof globalThis.fetch;
-
-      // Simulate stale cache by advancing time past the freshness threshold (30s)
-      const originalDateNow = Date.now;
-      let timeOffset = 0;
-      globalThis.Date.now = () => originalDateNow() + timeOffset;
-      timeOffset = 31 * 1000; // 31 seconds past freshness threshold
-
+    async function independently<T>(operation: Promise<T>): Promise<T> {
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        // This should trigger cache-bust: kid 'rotated-kid' not in cached JWKS, cache is stale
-        const result = await verifyAccessJWT(token2, TEST_AUTH_DOMAIN, TEST_AUD);
-        expect(result).toBe(TEST_EMAIL);
+        return await Promise.race([operation, new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Independent request stalled behind held I/O')), 2000);
+        })]);
+      } finally { clearTimeout(timer); }
+    }
 
-        // Verify that a re-fetch happened
-        const newFetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
-        const jwksCalls = newFetchCalls.filter((call) => {
-          const url = typeof call[0] === 'string' ? call[0] : call[0] instanceof URL ? call[0].toString() : call[0].url;
-          return url.includes('/cdn-cgi/access/certs');
-        });
-        expect(jwksCalls.length).toBe(1); // re-fetched once with the new mock
-      } finally {
-        globalThis.Date.now = originalDateNow;
+    const response = (keys: TestKeyPair[]) => Response.json(createMockJWKSResponse(keys.map(key => key.publicKeyJWK)));
+    const sign = (key = testKeyPair, domain = TEST_AUTH_DOMAIN, overrides: Record<string, unknown> = {}) => {
+      const now = Math.floor(Date.now() / 1000);
+      return createTestJWT({ aud: [TEST_AUD], email: TEST_EMAIL, exp: now + 7200,
+        iat: now - 60, iss: `https://${domain}`, sub: 'human', type: 'app', ...overrides }, key.privateKey, key.kid);
+    };
+
+    afterEach(() => { vi.restoreAllMocks(); resetAuthConfigCache(); });
+
+    it('reuses completed keys without I/O and preserves signature, issuer, audience and time checks', async () => {
+      const token = await sign();
+      expect(await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      globalThis.fetch = vi.fn(async () => { throw new Error('Transport unavailable'); });
+      expect(await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      const otherKey = await generateTestKeyPair(testKeyPair.kid);
+      for (const invalid of [
+        await sign(otherKey), await sign(testKeyPair, 'wrong.cloudflareaccess.com'),
+        await sign(testKeyPair, TEST_AUTH_DOMAIN, { aud: ['wrong'] }),
+        await sign(testKeyPair, TEST_AUTH_DOMAIN, { exp: 1 }),
+        await sign(testKeyPair, TEST_AUTH_DOMAIN, { iat: Math.floor(Date.now() / 1000) + 100 }),
+        await sign(testKeyPair, TEST_AUTH_DOMAIN, { nbf: Math.floor(Date.now() / 1000) + 100 }),
+      ]) expect(await verifyAccessJWT(invalid, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+    });
+
+    it('keeps completed keys for one hour, then reads the current key set', async () => {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      const oldToken = await sign();
+      expect(await verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      const rotated = await generateTestKeyPair(testKeyPair.kid);
+      const newToken = await sign(rotated);
+      globalThis.fetch = vi.fn(async () => response([rotated]));
+      clock.mockReturnValue(1_000_000 + 3_600_000 - 1);
+      expect(await verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      expect(await verifyAccessJWT(newToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+      clock.mockReturnValue(1_000_000 + 3_600_000);
+      expect(await verifyAccessJWT(newToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      expect(await verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+    });
+
+    it('reset replaces completed keys even when the replacement uses the same kid', async () => {
+      const oldToken = await sign();
+      expect(await verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      const rotated = await generateTestKeyPair(testKeyPair.kid);
+      const newToken = await sign(rotated);
+      globalThis.fetch = vi.fn(async () => response([rotated]));
+      resetJWKSCache();
+      expect(await verifyAccessJWT(newToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      expect(await verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+    });
+
+    it.each(['cold', 'expired'] as const)('a held %s fetch does not stall another request', async state => {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      const token = await sign();
+      if (state === 'expired') {
+        expect(await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+        clock.mockReturnValue(1_000_000 + 3_600_000);
       }
+      const started = deferred<void>();
+      const held = deferred<Response>();
+      let hold = true;
+      globalThis.fetch = vi.fn(async () => {
+        if (hold) { hold = false; started.resolve(); return held.promise; }
+        return response([testKeyPair]);
+      });
+      const first = verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD);
+      await started.promise;
+      try {
+        expect(await independently(verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD))).toBe(TEST_EMAIL);
+      } finally { held.resolve(response([testKeyPair])); expect(await first).toBe(TEST_EMAIL); }
+    });
+
+    it('a rejected request cannot poison an independent request or its completed keys', async () => {
+      const token = await sign();
+      const started = deferred<void>();
+      const held = deferred<Response>();
+      let hold = true;
+      globalThis.fetch = vi.fn(async () => {
+        if (hold) { hold = false; started.resolve(); return held.promise; }
+        return response([testKeyPair]);
+      });
+      const first = verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD);
+      await started.promise;
+      try {
+        expect(await independently(verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD))).toBe(TEST_EMAIL);
+      } finally { held.reject(new Error('Request ended')); expect(await first).toBeNull(); }
+      globalThis.fetch = vi.fn(async () => { throw new Error('Transport unavailable'); });
+      expect(await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+    });
+
+    it('reset fences an older in-flight key set from replacing newer completed keys', async () => {
+      const oldToken = await sign();
+      const rotated = await generateTestKeyPair(testKeyPair.kid);
+      const newToken = await sign(rotated);
+      const started = deferred<void>();
+      const held = deferred<Response>();
+      let hold = true;
+      globalThis.fetch = vi.fn(async () => {
+        if (hold) { hold = false; started.resolve(); return held.promise; }
+        return response([rotated]);
+      });
+      const first = verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD);
+      await started.promise;
+      resetJWKSCache();
+      try {
+        expect(await independently(verifyAccessJWT(newToken, TEST_AUTH_DOMAIN, TEST_AUD))).toBe(TEST_EMAIL);
+      } finally { held.resolve(response([testKeyPair])); expect(await first).toBe(TEST_EMAIL); }
+      globalThis.fetch = vi.fn(async () => { throw new Error('Transport unavailable'); });
+      expect(await verifyAccessJWT(newToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      expect(await verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+    });
+
+    it('switching domains never relabels cached keys while the new-domain request is held', async () => {
+      const domain = 'other-team.cloudflareaccess.com';
+      const otherKey = await generateTestKeyPair(testKeyPair.kid);
+      const token = await sign();
+      expect(await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      const otherToken = await sign(otherKey, domain);
+      const wrongSigner = await sign(testKeyPair, domain);
+      const started = deferred<void>();
+      const held = deferred<Response>();
+      let hold = true;
+      globalThis.fetch = vi.fn(async () => {
+        if (hold) { hold = false; started.resolve(); return held.promise; }
+        return response([otherKey]);
+      });
+      const first = verifyAccessJWT(otherToken, domain, TEST_AUD);
+      await started.promise;
+      try {
+        expect(await independently(verifyAccessJWT(wrongSigner, domain, TEST_AUD))).toBeNull();
+        expect(await independently(verifyAccessJWT(otherToken, domain, TEST_AUD))).toBe(TEST_EMAIL);
+      } finally { held.resolve(response([otherKey])); expect(await first).toBe(TEST_EMAIL); }
+    });
+
+    it('an old-domain completion cannot displace the current domain snapshot', async () => {
+      const domain = 'other-team.cloudflareaccess.com';
+      const otherKey = await generateTestKeyPair(testKeyPair.kid);
+      const oldToken = await sign();
+      const otherToken = await sign(otherKey, domain);
+      const started = deferred<void>();
+      const held = deferred<Response>();
+      globalThis.fetch = vi.fn(async input => {
+        if (String(input) === `https://${TEST_AUTH_DOMAIN}/cdn-cgi/access/certs`) {
+          started.resolve(); return held.promise;
+        }
+        return response([otherKey]);
+      });
+      const first = verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD);
+      await started.promise;
+      try {
+        expect(await independently(verifyAccessJWT(otherToken, domain, TEST_AUD))).toBe(TEST_EMAIL);
+      } finally { held.resolve(response([testKeyPair])); expect(await first).toBe(TEST_EMAIL); }
+      globalThis.fetch = vi.fn(async () => { throw new Error('Transport unavailable'); });
+      expect(await verifyAccessJWT(otherToken, domain, TEST_AUD)).toBe(TEST_EMAIL);
+      expect(await verifyAccessJWT(await sign(testKeyPair, domain), domain, TEST_AUD)).toBeNull();
+    });
+
+    it('unknown kids stay rejected for 30 seconds, then concurrent rotation reads remain independent', async () => {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      const oldToken = await sign();
+      expect(await verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      const rotated = await generateTestKeyPair('rotated-kid');
+      const newToken = await sign(rotated);
+      const started = deferred<void>();
+      const held = deferred<Response>();
+      let hold = true;
+      globalThis.fetch = vi.fn(async () => {
+        if (hold) { hold = false; started.resolve(); return held.promise; }
+        return response([rotated]);
+      });
+      clock.mockReturnValue(1_030_000);
+      expect(await verifyAccessJWT(newToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+      clock.mockReturnValue(1_030_001);
+      const first = verifyAccessJWT(newToken, TEST_AUTH_DOMAIN, TEST_AUD);
+      await started.promise;
+      try {
+        expect(await independently(verifyAccessJWT(newToken, TEST_AUTH_DOMAIN, TEST_AUD))).toBe(TEST_EMAIL);
+      } finally { held.resolve(response([testKeyPair])); expect(await first).toBeNull(); }
+      globalThis.fetch = vi.fn(async () => { throw new Error('Transport unavailable'); });
+      expect(await verifyAccessJWT(newToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      expect(await verifyAccessJWT(oldToken, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+    });
+
+    it.each(['HTTP error', 'invalid JSON', 'invalid schema', 'transport rejection'])(
+      'recovers from %s without caching failed JWKS', async failure => {
+        const token = await sign();
+        globalThis.fetch = vi.fn(async () => {
+          if (failure === 'HTTP error') return new Response(null, { status: 503 });
+          if (failure === 'invalid JSON') return new Response('not json');
+          if (failure === 'invalid schema') return Response.json({ keys: 'invalid' });
+          throw new Error('Transport unavailable');
+        });
+        expect(await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBeNull();
+        globalThis.fetch = vi.fn(async () => response([testKeyPair]));
+        expect(await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD)).toBe(TEST_EMAIL);
+      },
+    );
+
+    it('REQ-SEC-016: concurrent auth config loads use their own complete domain and audience snapshot', async () => {
+      resetAuthConfigCache();
+      const otherDomain = 'other-team.cloudflareaccess.com';
+      const oldToken = await sign();
+      const newToken = await sign(testKeyPair, otherDomain, { aud: ['new-audience'] });
+      globalThis.fetch = vi.fn(async () => response([testKeyPair]));
+      const started = deferred<void>();
+      const held = deferred<string | null>();
+      const oldEnv = { KV: { get: async (key: string) => {
+        if (key === SETUP_KEYS.AUTH_DOMAIN) return TEST_AUTH_DOMAIN;
+        if (key === SETUP_KEYS.ACCESS_AUD_LIST) { started.resolve(); return held.promise; }
+        return key === SETUP_KEYS.ACCESS_AUD ? TEST_AUD : null;
+      } } } as unknown as Env;
+      const newEnv = { KV: { get: async (key: string) => {
+        if (key === SETUP_KEYS.AUTH_DOMAIN) return otherDomain;
+        if (key === SETUP_KEYS.ACCESS_AUD_LIST) return JSON.stringify(['new-audience']);
+        return null;
+      } } } as unknown as Env;
+      const request = (token: string) => new Request('https://example.test/protected', {
+        headers: { 'cf-access-jwt-assertion': token },
+      });
+      const first = getUserFromRequest(request(oldToken), oldEnv);
+      await started.promise;
+      try {
+        expect(await independently(getUserFromRequest(request(newToken), newEnv))).toMatchObject({ authenticated: true, email: TEST_EMAIL });
+      } finally { held.resolve(null); expect(await first).toMatchObject({ authenticated: true, email: TEST_EMAIL }); }
+      expect(await getUserFromRequest(request(newToken), newEnv)).toMatchObject({ authenticated: true, email: TEST_EMAIL });
+      expect(await getUserFromRequest(request(oldToken), newEnv)).toMatchObject({ authenticated: false, email: '' });
     });
   });
 
