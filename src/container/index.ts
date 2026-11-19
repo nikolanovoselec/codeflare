@@ -189,6 +189,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   _githubToken: string | null = null;
   _cloudflareApiToken: string | null = null;
   _cloudflareAccountId: string | null = null;
+  _cloudflareOauthAccountId: string | null = null;
   _encryptionKey: string | null = null;
   _sessionMode: string = 'default';
   _sessionWorkspace: SessionWorkspace = 'terminal';

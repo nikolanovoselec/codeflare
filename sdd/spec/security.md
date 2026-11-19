@@ -708,7 +708,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated: [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts)
 
-**Status:** Planned — AC8 implementation and exact-revision verification pending; existing AC1–7 behavior is retained.
+**Status:** Implemented
 
 ---
 

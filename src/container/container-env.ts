@@ -48,6 +48,8 @@ export interface ContainerEnvState {
   _githubToken: string | null;
   _cloudflareApiToken: string | null;
   _cloudflareAccountId: string | null;
+  /** REQ-AGENT-029 AC5–6: non-secret owner selection, held only for startup. */
+  _cloudflareOauthAccountId: string | null;
   _encryptionKey: string | null;
   _sessionMode: string;
   _sessionWorkspace: SessionWorkspace;
@@ -111,6 +113,7 @@ interface RestartPrefsInput {
   githubToken?: string | null;
   cloudflareApiToken?: string | null;
   cloudflareAccountId?: string | null;
+  cloudflareOauthAccountId?: string | null;
   encryptionKey?: string;
   /** REQ-ENTERPRISE-018: Governed Mode regime, re-sent each start (read fresh from the bucket marker). */
   r2SseDisabled?: boolean;
@@ -160,6 +163,7 @@ export interface SetBucketNameCreds {
   githubToken?: string | null;
   cloudflareApiToken?: string | null;
   cloudflareAccountId?: string | null;
+  cloudflareOauthAccountId?: string | null;
   encryptionKey?: string;
   /** REQ-ENTERPRISE-018: Governed Mode regime forwarded from /start. */
   r2SseDisabled?: boolean;
@@ -455,8 +459,8 @@ export function buildEnvVars(
       (isEnterpriseMode(env) || restrictedOperator
         ? { GH_TOKEN: ENTERPRISE_GH_TOKEN_PLACEHOLDER }
         : { GH_TOKEN: state._githubToken })),
-    // CLOUDFLARE_API_TOKEN: non-enterprise emits the real Connect-to-Cloudflare deploy
-    // token (byte-identical to today). Enterprise has no Connect-to-Cloudflare; the only
+    // CLOUDFLARE_API_TOKEN: non-enterprise keeps its existing PAT/OAuth-placeholder
+    // behavior. Enterprise owner OAuth stays Worker-side; the only
     // CLOUDFLARE_API_TOKEN it may emit is the non-secret browser-run PLACEHOLDER
     // (REQ-BROWSER-008) — applyEnterpriseBrowserToken sets `_cloudflareApiToken` to the
     // placeholder when an admin Browser Rendering token is configured (else null). The real
@@ -470,6 +474,10 @@ export function buildEnvVars(
     // the wizard-configured Browser Rendering account (browser-run builds its API URL from it,
     // and the interceptor matches that account). Emitted in both modes when present.
     ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
+    // REQ-AGENT-029 AC5/7: independent owner metadata, even without Browser Run.
+    ...(!restrictedOperator && state._cloudflareOauthAccountId && {
+      CLOUDFLARE_OAUTH_ACCOUNT_ID: state._cloudflareOauthAccountId,
+    }),
     // REQ-GITHUB-004: session clone directive. entrypoint.sh clones the repo into
     // $USER_WORKSPACE/<repo-name> at start (after the git credential helper is
     // configured, before the agent autostarts), refusing on a name collision.
@@ -607,6 +615,10 @@ export async function applyBucketName(
   if (r2Creds?.githubToken) state._githubToken = r2Creds.githubToken;
   if (r2Creds?.cloudflareApiToken) state._cloudflareApiToken = r2Creds.cloudflareApiToken;
   if (r2Creds?.cloudflareAccountId) state._cloudflareAccountId = r2Creds.cloudflareAccountId;
+  // REQ-AGENT-029 AC6: partial omission preserves; explicit null clears. Never persist.
+  if (r2Creds?.cloudflareOauthAccountId !== undefined) {
+    state._cloudflareOauthAccountId = r2Creds.cloudflareOauthAccountId;
+  }
 
   // Store encryption key in instance memory
   if (r2Creds?.encryptionKey) state._encryptionKey = r2Creds.encryptionKey;
@@ -777,6 +789,10 @@ export async function applyPrefsOnRestart(
   }
   if (input.cloudflareAccountId !== undefined) {
     state._cloudflareAccountId = input.cloudflareAccountId || null;
+    changed = true;
+  }
+  if (input.cloudflareOauthAccountId !== undefined) {
+    state._cloudflareOauthAccountId = input.cloudflareOauthAccountId;
     changed = true;
   }
   if (input.encryptionKey !== undefined) {

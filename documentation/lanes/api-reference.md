@@ -584,15 +584,19 @@ Without a global default, clients submit an empty route with `reasoning: "off"`;
 
 ## Deploy Keys
 
+Direct deploy-credential management is **non-Enterprise only**. In Enterprise, authenticated GET, PUT and DELETE requests to `/api/deploy-keys` return `403 { "error": "Access denied", "code": "FORBIDDEN" }` for users and administrators alike, before route-specific limiters, JSON parsing, credential reads, provider validation or mutation. This includes malformed JSON, Cloudflare-only and mixed credential payloads; the response discloses no credential fields and stored managed connections remain unchanged ([REQ-ENTERPRISE-009](../../sdd/spec/security.md#req-enterprise-009-enterprise-backend-route-hardening) AC8). <!-- @impl: src/routes/deploy-keys.ts::app -->
+
+The following table describes non-Enterprise behavior. Managed GitHub App/OAuth App Connect, disconnect, refresh and administrator provider configuration remain unchanged; the direct-router denial does not revoke or migrate stored credentials.
+
 | Method | Path | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Return masked deploy credentials, never full tokens; at-rest encryption is conditional on configured platform `ENCRYPTION_KEY` |
 | PUT | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Save/update deploy credentials (GitHub PAT, CF API token); shared PUT/DELETE authenticated-owner budget: 20/minute |
 | DELETE | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) | Erase all deploy credentials; shares the PUT/DELETE authenticated-owner 20/minute budget |
 
-Deploy-key mutation exhaustion returns `429 RATE_LIMIT_ERROR` with `Retry-After` and rate-limit advisory headers, before credential/provider I/O. GET does not consume this budget. General resource-protection fallback and stress-bypass policy remain in [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy).
+Outside Enterprise, deploy-key mutation exhaustion returns `429 RATE_LIMIT_ERROR` with `Retry-After` and rate-limit advisory headers, before credential/provider I/O. GET does not consume this budget. General resource-protection fallback and stress-bypass policy remain in [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy).
 
-At-rest deploy-credential encryption uses the configured platform key; absent `ENCRYPTION_KEY`, storage uses plaintext JSON while GET remains masked. The deployment key is immutable: key rotation or key-change migration is unsupported; legacy plaintext encryption under the unchanged key is separate ([REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token) AC2/AC4; [REQ-SEC-004](../../sdd/spec/security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)).
+At-rest deploy-credential encryption uses the configured platform key; absent `ENCRYPTION_KEY`, storage uses plaintext JSON. Non-Enterprise GET responses remain masked; Enterprise GET requests are denied as above. The deployment key is immutable: key rotation or key-change migration is unsupported; legacy plaintext encryption under the unchanged key is separate ([REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token) AC2/AC4; [REQ-SEC-004](../../sdd/spec/security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)).
 
 ## GitHub Integration
 

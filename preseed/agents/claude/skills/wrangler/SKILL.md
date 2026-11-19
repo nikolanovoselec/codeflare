@@ -26,6 +26,16 @@ Read the [version-matched changelog](https://github.com/cloudflare/workers-sdk/b
 - In 4.155, `remote: true` on Analytics Engine bindings sends real dataset writes from local development. Never enable it as a harmless local fallback; obtain authorization for remote writes.
 - `.assetsignore` must be UTF-8 without null characters; invalid encoding now fails instead of silently losing patterns. Pretty tail output escapes terminal control characters; JSON retains structured values. Do not suppress the resulting warnings or validation failures.
 
+## Wrangler 4.158–4.160 compatibility (upgrade guidance)
+
+Check the installed version before applying these notes; they do not describe 4.157. Read the [version-matched changelog](https://github.com/cloudflare/workers-sdk/blob/wrangler%404.160.0/packages/wrangler/CHANGELOG.md). Preserve the project's pinned Wrangler CLI and configuration; no implicit upgrade or migration to `cf`. Codeflare's managed authentication and account isolation still govern: these features do not authorize login flows, credential discovery, authentication overrides or remote writes.
+
+- **4.158 Artifacts:** with local simulation support, omitted `remote` still selects the **deployed, real repository** in Wrangler/Vite, not local storage. Use `remote: false` for simulation; `wrangler dev --local` also selects it. Workers Vitest instead defaults Artifacts to local when `remote` is omitted; `remote: true` selects the deployed repository. Local Artifacts simulation requires Git >=2.32, not Cloudflare credentials. Never treat a remote write as a harmless fallback.
+- **4.159 runtime:** Wrangler and Miniflare require Node.js **>=22.12.0**; check the actual runtime before upgrading.
+- **4.159 CLI exits:** signal-terminated CLI children now produce conventional nonzero status rather than false success. Preserve failure handling; do not report a terminated deployment as successful.
+- **4.159 profiles:** `CLOUDFLARE_AUTH_PROFILE` carries profile selection to child processes. Explicit profile arguments take precedence, then the variable, directory bindings and default profile. Preserve the intended account and managed access path.
+- **4.160 headers:** `CLOUDFLARE_API_HEADERS` accepts a JSON object and overrides unprotected request headers; body/transport headers remain protected. Diagnostics redact header values outside the safe allowlist even when log sanitization is disabled. Do not bypass these protections or use custom headers to replace managed authentication.
+
 ## FIRST: Check if Wrangler is installed, and if not, install it
 
 Check if Wrangler is installed by running:
@@ -47,7 +57,7 @@ Wherever possible, you should use Wrangler instead of manually constructing API 
 - **Use `wrangler.jsonc`**: Prefer JSON config over TOML. Newer features are JSON-only.
 - **Set `compatibility_date`**: Use a recent date (within 30 days). Check https://developers.cloudflare.com/workers/configuration/compatibility-dates/
 - **Generate types after config changes**: Run `wrangler types` to update TypeScript bindings.
-- **Local dev defaults to local storage**: Bindings use local simulation unless `remote: true`.
+- **Check binding-specific local defaults**: Local mode does not guarantee local data. Inspect the installed version and binding settings; note the version-qualified Artifacts exception above before any writes.
 - **Profile Worker startup**: Run `wrangler check startup` to measure startup time and detect scripts that exceed the startup time limit.
 - **Use environments for staging/prod**: Define `env.staging` and `env.production` in config.
 
@@ -174,7 +184,7 @@ wrangler types --check
 ### Start Dev Server
 
 ```bash
-# Local mode (default) - uses local storage simulation
+# Local mode (default) - check binding-specific remote behavior above
 wrangler dev
 
 # With specific environment

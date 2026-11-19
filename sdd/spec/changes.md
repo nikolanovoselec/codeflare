@@ -4,6 +4,13 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-19: Enterprise credential boundary and independent native context
+
+- REQ-ENTERPRISE-009 AC8 disables the complete authenticated deploy-keys router in Enterprise, including administrators, before parsing, credential access or provider work. Non-Enterprise PAT support and both managed GitHub providers remain unchanged; no legacy cleanup is included.
+- REQ-AGENT-029 AC5–8 carries the owner's selected OAuth account as non-secret startup metadata, separately from administrator Browser Run. Explicit clears, partial omission, transport validation and Operator exclusion preserve credential routing and account authority.
+- REQ-MEM-035 AC6 strengthens proactive scoped recall; REQ-MEM-036 replaces full-file context injection and its incompatible size budgets with native policy-only search. Keep lifecycle/path/native-binding qualification, foreground ownership, workspace scope, final writes and the old requirement fragment.
+- Test-only source was preserved before runtime changes. Source/readiness and supplemental checks are not exact-revision CI, signed publication, deployment or runtime acceptance evidence.
+
 ## 2026-11-18: Dependency compatibility and shadow-pin repair
 
 - Shadow-pin metadata authenticates only GitHub API requests; the GitHub CLI source build and installed support package now advance as one release identity (REQ-OPS-020).

@@ -169,7 +169,7 @@ async function fixture(initial: 'missing' | 'expired' | 'valid' = 'missing') {
     _r2AccountId: null, _r2Endpoint: null, _r2AccessKeyId: null, _r2SecretAccessKey: null,
     _workspaceSyncEnabled: false, _fastStartEnabled: false, _tabConfig: null,
     _openaiApiKey: null, _geminiApiKey: null, _githubToken: null,
-    _cloudflareApiToken: null, _cloudflareAccountId: null, _encryptionKey: null,
+    _cloudflareApiToken: null, _cloudflareAccountId: null, _cloudflareOauthAccountId: null, _encryptionKey: null,
     _sessionMode: 'default', _sessionWorkspace: 'terminal', _terminalMode: 'classic',
     _containerAuthToken: 'synthetic-container-token', _vaultKey: null,
     _userGroups: ['Engineering'], _routeCatalog: [], _defaultRoute: null, _defaultReasoning: null,

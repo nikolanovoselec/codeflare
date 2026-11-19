@@ -64,6 +64,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     githubToken: params.deployKeys?.githubToken ?? null,
     cloudflareApiToken: params.deployKeys?.cloudflareApiToken ?? null,
     cloudflareAccountId: params.deployKeys?.cloudflareAccountId ?? null,
+    cloudflareOauthAccountId: params.cloudflareOauthAccountId ?? null,
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     // REQ-ENTERPRISE-018: forward the bucket's Governed Mode regime so the container's
     // rclone drops SSE-C and enables checksums. Always sent as a definite boolean (like

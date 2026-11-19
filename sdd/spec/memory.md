@@ -1015,6 +1015,6 @@ Persistence and derived-graph artifact identities are documented in [Vault](../.
 
 **Verification:** Automated: [pi-hermes-memory.test.js](../../host/__tests__/pi-hermes-memory.test.js), [pi-hermes-native.test.js](../../host/__tests__/pi-hermes-native.test.js); Manual: [Native policy-only recall acceptance](../../documentation/lanes/vault.md#native-policy-only-recall-acceptance)
 
-**Status:** Planned — implementation and exact-revision verification pending.
+**Status:** Implemented
 
 ---

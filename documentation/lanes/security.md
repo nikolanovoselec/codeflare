@@ -93,6 +93,10 @@ For mediated platform routes, boundary interceptors resolve credentials from the
 <a id="github-token-handling"></a>
 ### GitHub credentials
 
+Manual deploy-credential management is non-Enterprise only. In Enterprise, the backend rejects authenticated GET, PUT and DELETE requests to `/api/deploy-keys` with `403 FORBIDDEN`, including administrators, before route-specific parsing, credential reads, provider validation or mutation. It discloses no credential fields and cannot replace or clear managed GitHub App/OAuth App connections or Cloudflare credentials, including through mixed payloads. Frontend suppression is not authorization; this router guard enforces the boundary independently ([REQ-ENTERPRISE-009](../../sdd/spec/security.md#req-enterprise-009-enterprise-backend-route-hardening) AC8). <!-- @impl: src/routes/deploy-keys.ts::app -->
+
+The denial prevents new substitution through this direct API; it does not enumerate, migrate, revoke or invalidate stored credentials and is not universal data-loss prevention. The administrator-configured GitHub App or OAuth App and its managed Connect, disconnect and refresh flows remain unchanged.
+
 Non-Enterprise GitHub PATs remain direct and user-scoped. Enterprise git traffic uses the configured organization/repository boundary and does not expose the real token in the container. Ordinary GitHub App/OAuth disconnect attempts provider revocation and clears the local credential even on failure. Explicit offboarding instead requires confirmed container cleanup and provider revocation while user bytes and scoped access remain, then scoped-token/storage/local cleanup with the user record last; provider failure retains outstanding encrypted KV retry credentials ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). Cloudflare OAuth retains its provider-owned failure and retry-state contract. <!-- @impl: src/lib/cloudflare-token.ts::disconnectCloudflare -->
 
 <a id="container-auth-token-req-sec-012-req-sec-022"></a>

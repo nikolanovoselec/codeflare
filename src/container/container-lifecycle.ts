@@ -100,6 +100,7 @@ function clearOperationalMemory(host: LifecycleHost): void {
   host._githubToken = null;
   host._cloudflareApiToken = null;
   host._cloudflareAccountId = null;
+  host._cloudflareOauthAccountId = null;
   host._encryptionKey = null;
   host._remoteCurationActive = false;
   host._remoteCurationReleaseDigest = null;

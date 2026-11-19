@@ -4461,8 +4461,10 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 # The Cloudflare API token is passed as an Authorization: Bearer header via
 # --wsHeaders (per Cloudflare's MCP-clients doc; --wsHeaders only works with
 # --wsEndpoint). The token must carry the "Browser Rendering - Edit" scope -
-# this is the user-pasted deploy-keys CF token (injected as CLOUDFLARE_API_TOKEN
-# + CLOUDFLARE_ACCOUNT_ID by the container env pipeline), not the CI token.
+# CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID retain the existing browser
+# credential/account projection (an administrator-owned placeholder in Enterprise).
+# CLOUDFLARE_OAUTH_ACCOUNT_ID is separate owner management metadata; do not use it
+# for Browser Run endpoints or overwrite the browser account globally.
 #
 # Double gate, both must hold (otherwise NOT registered, so default/standard
 # sessions and deployments without a CF token are byte-identical to today):

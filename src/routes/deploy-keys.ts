@@ -7,7 +7,8 @@ import { z } from 'zod';
 import type { Env, DeployKeys } from '../types';
 import { getDeployKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
-import { ValidationError } from '../lib/error-types';
+import { ForbiddenError, ValidationError } from '../lib/error-types';
+import { isEnterpriseMode } from '../lib/subscription';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
 import { maskSecret, parseJsonBody } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
@@ -64,6 +65,15 @@ async function validateCloudflareToken(token: string): Promise<CloudflareAccount
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.use('*', authMiddleware);
+
+// REQ-ENTERPRISE-009 AC8: deny direct credential management for every Enterprise
+// role before parsing, credential I/O or provider validation.
+app.use('*', async (c, next) => {
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('Deploy credential management is disabled in enterprise mode.');
+  }
+  return next();
+});
 
 // These routes are mounted without a shared mutation wrapper. Charge both
 // mutation methods to one authenticated-user budget before any credential I/O.

@@ -351,6 +351,18 @@ Build-selected terminal Claude runs official global npm as root with `IS_SANDBOX
 
 Global image ENV includes `NPM_CONFIG_UPDATE_NOTIFIER=false`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `DISABLE_AUTOUPDATER=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`, and canonical `CODEFLARE_CODING_AGENTS` evidence. Prewarm mode/marker controls remain above; `.bashrc` autostart carries dangerous-permission flag.
 
+Ordinary owner sessions keep Cloudflare account purposes separate ([REQ-AGENT-029 AC5–8](../../sdd/spec/agents.md#req-agent-029-deploy-credential-propagation-to-container)):
+
+| Variable | Startup meaning |
+|---|---|
+| `CLOUDFLARE_ACCOUNT_ID` | Existing account semantics are unchanged: Enterprise uses the administrator's configured Browser Run account; browser REST/CDP consumers keep using it. |
+| `CLOUDFLARE_OAUTH_ACCOUNT_ID` | Non-secret selected 32-hex account ID from the original owner's stored OAuth connection, only when its access-token field is present. This independent hint also reaches non-Enterprise OAuth sessions and does not require Browser Run configuration. |
+| `CLOUDFLARE_API_TOKEN` | Existing PAT/managed-placeholder behavior is unchanged. Real OAuth access/refresh tokens and administrator Browser Run tokens remain Worker-side. |
+
+Authoritative start/restart payloads send `cloudflareOauthAccountId` as the selected ID or explicit `null`; null removes the hint, while omission in a partial update preserves it. The optional nullable member is validated before configuration effects and held only in instance memory, never new KV/DO persistence. Fresh instances and old senders invent no selection. PAT, disconnected, unselected or malformed owner records produce no hint; restricted Operator environments omit it. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @impl: src/routes/container/lifecycle-init.ts::buildSetBucketNameBody --> <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-env.ts::buildEnvVars -->
+
+The hint is neither an authorization check nor the full account list. Connect, disconnect or account changes can leave an existing shell stale until session restart; no hot environment refresh is added. Preserve explicit user targets and use managed `/client/v4/accounts` discovery when selection/access is uncertain. Wrangler may use the hint via a command-scoped `CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_OAUTH_ACCOUNT_ID"` override, after confirming it is present; never globally replace the Browser Run variable. Account-purpose guidance is delivered through the canonical deploy-credentials skill; routing and credential authority remain with the Worker.
+
 <a id="graphify-knowledge-graph-context-req-agent-023"></a>
 ### Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
 
