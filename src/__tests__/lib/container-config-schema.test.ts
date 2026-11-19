@@ -192,6 +192,31 @@ describe('CF-046: SetBucketNameBodySchema', () => {
     });
   });
 
+  describe('REQ-AGENT-029: selected OAuth account transport boundary', () => {
+    it.each(['b'.repeat(32), '0123456789abcdef0123456789ABCDEF01', null])(
+      'accepts a 32-hex selected ID or explicit clear without altering it: %s', cloudflareOauthAccountId => {
+        const result = SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), cloudflareOauthAccountId });
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data).toHaveProperty('cloudflareOauthAccountId', cloudflareOauthAccountId);
+      },
+    );
+
+    it('accepts old senders and preserves omission rather than inventing a selected account', () => {
+      const result = SetBucketNameBodySchema.safeParse(validBucketNameBody());
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data).not.toHaveProperty('cloudflareOauthAccountId');
+    });
+
+    it.each([
+      '', ' ', 'b'.repeat(31), 'b'.repeat(33), 'g'.repeat(32),
+      ` ${'b'.repeat(32)}`, `${'b'.repeat(32)} `, `${'b'.repeat(32)}\n`,
+      42, false, {}, [], ['b'.repeat(32)],
+    ].map(value => [value]))('rejects malformed non-null metadata before it can enter container environment: %j', cloudflareOauthAccountId => {
+      const result = SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), cloudflareOauthAccountId });
+      expect(result.success).toBe(false);
+    });
+  });
+
   // REQ-AGENT-029 AC2: an explicit null deploy credential is a deliberate clear
   // that must validate so it propagates to the container and unsets the value.
   describe('REQ-AGENT-029 AC2: nullable deploy credentials', () => {

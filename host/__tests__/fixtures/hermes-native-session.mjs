@@ -11,7 +11,8 @@ import { importPiExtension } from './pi-extension-module.mjs';
 const [scenario, home, repo] = process.argv.slice(2);
 const deps = join(repo, 'preseed/agents/pi/node_modules');
 const agentDir = join(home, '.pi/agent'), cwd = join(home, 'workspace');
-const memoryDir = join(home, 'Vault/Memory'), workspaceMemoryDir = join(memoryDir, 'Projects/workspace');
+const memoryDir = join(home, 'Vault/Memory');
+const workspaceMemoryDir = join(memoryDir, 'Projects/workspace');
 const paths = { user: join(memoryDir, 'USER.md'), global: join(memoryDir, 'MEMORY.md'),
   workspace: join(workspaceMemoryDir, 'MEMORY.md'), lesson: join(memoryDir, 'failures.md') };
 const facts = JSON.parse(readFileSync(join(home, 'facts.json'), 'utf8'));
@@ -20,6 +21,7 @@ const put = (key, value) => writeFileSync(paths[key], value);
 const text = message => typeof message.content === 'string' ? message.content
   : (message.content ?? []).map(part => part.type === 'text' ? part.text : '').join('\n');
 const wireText = body => body.messages.map(text).join('\n');
+const permissionBoundary = 'HERMES_PERMISSION_BOUNDARY: analysis only; no deployment authorization.';
 async function until(predicate, description) {
   for (let i = 0; i < 300; i++) {
     if (await predicate()) return;
@@ -39,8 +41,8 @@ native.close();
 const sdk = await import(pathToFileURL(join(deps, '@earendil-works/pi-coding-agent/dist/index.js')).href);
 sdk.initTheme();
 const { default: stock } = await import(pathToFileURL(join(home, 'stock.mjs')).href);
-const { attachHermesMemoryToForeground, registerHermesMemoryContext } = await importPiExtension('hermes-memory-runtime');
-const registry = {}, errors = [], requests = [], sessions = [], primaryMemoryWrites = [];
+const { attachHermesMemoryToForeground } = await importPiExtension('hermes-memory-runtime');
+const registry = {}, errors = [], requests = [], sessions = [], primaryMemoryWrites = [], notifications = [];
 let sequence = 0, reviewSaved = false, correctionSaved = false;
 let contextPhase = 'ordinary', contextReply = 0;
 let childMode = false;
@@ -65,7 +67,7 @@ globalThis.fetch = async (input, init) => {
     requests.push(body);
     assert.equal(body.model, expectedModel, 'foreground and review use the current configured model');
     assert.equal(body.stream, true);
-    if (['cold', 'warm', 'recall', 'managed'].includes(scenario)) assert.fail('eager rebuild/search must not call a provider');
+    if (['cold', 'warm', 'recall', 'managed', 'large'].includes(scenario)) assert.fail('eager rebuild/search must not call a provider');
     const lastUser = text(body.messages.findLast(message => message.role === 'user') ?? {});
     if (lastUser.includes('--- User Correction to Save ---')) {
       assert.equal(childMode, false, 'helper prompts cannot start correction extraction');
@@ -94,11 +96,11 @@ globalThis.fetch = async (input, init) => {
       }
       if (contextPhase === 'summary') {
         assert.ok(wireText(body).includes('HERMES_TASK_EVIDENCE'), 'real compaction receives the conversation to summarize');
-        put('user', facts.corrected);
+        put('user', facts.corrected + '\n' + facts.roleCanary + ' Compaction calibration reference.'.repeat(200));
         return completion('The user requested HERMES_TASK_EVIDENCE analysis. Continue the unfinished analysis.');
       }
       if (contextPhase === 'retry') {
-        assertReference(body, facts.corrected, facts.user);
+        assertNoAutomaticFacts(body);
         assert.ok(wireText(body).includes('HERMES_TASK_EVIDENCE'), 'the pending task survives real compaction');
         contextPhase = 'finished';
       }
@@ -114,15 +116,23 @@ globalThis.fetch = async (input, init) => {
   }
 };
 
-function assertReference(body, currentUser, staleUser) {
-  for (const fact of [currentUser, facts.global, facts.workspace]) {
-    const carrying = body.messages.filter(message => text(message).includes(fact));
-    assert.equal(carrying.length, 1, `exactly one outbound reference for ${fact}`);
-    assert.equal(carrying[0].role, 'user', 'public Pi serializer turns custom reference data into user-role content, never system authority');
-    assert.equal(text(carrying[0]).split(fact).length - 1, 1);
+function assertNoAutomaticFacts(body) {
+  for (const key of ['user', 'corrected', 'global', 'workspace', 'lesson', 'roleCanary']) {
+    assert.ok(!wireText(body).includes(facts[key]), `stored ${key} canary must not enter provider context without search`);
   }
-  if (staleUser) assert.ok(!wireText(body).includes(staleUser), 'stale snapshot absent from outbound context');
-  assert.ok(!body.messages.filter(message => message.role === 'system').some(message => text(message).includes(currentUser)));
+  assert.ok(body.messages.some(message => message.role === 'system' && text(message).includes(permissionBoundary)),
+    'ordinary prompt permission boundaries remain intact');
+  assert.ok(body.messages.some(message => message.role === 'system' && text(message).includes('memory_search')),
+    'native retrieval policy remains present when full-file data is absent');
+  for (const name of ['memory_search', 'memory_add', 'memory_replace', 'memory_remove']) {
+    assert.ok(body.tools.some(tool => tool.function?.name === name), `${name} remains available to the foreground`);
+  }
+}
+
+function assertNoSizeWarnings() {
+  const sizeWarnings = notifications.filter(({ level, message }) => ['warning', 'error'].includes(level)
+    && /memory.*(?:degraded|budget|size limit)|(?:USER|MEMORY)\.md.*(?:large|limit|size|budget)/i.test(message));
+  assert.deepEqual(sizeWarnings, [], 'valid large policy-only stores do not emit the former per-request size warning');
 }
 
 async function start({ parentSession, context = false, managed = false } = {}) {
@@ -142,13 +152,24 @@ async function start({ parentSession, context = false, managed = false } = {}) {
     additionalExtensionPaths,
     extensionFactories: [...(managed ? [] : [async pi => {
       await attachHermesMemoryToForeground(registry, pi, stock);
-      if (context || parentSession) registerHermesMemoryContext(pi, { memoryDir, workspaceMemoryDir });
     }]), pi => {
+      if (context) pi.on('before_agent_start', event => ({ systemPrompt: event.systemPrompt + '\n' + permissionBoundary }));
       pi.on('tool_call', event => {
         if (['memory_add', 'memory_replace', 'memory_remove'].includes(event.toolName)) {
           primaryMemoryWrites.push(event.toolName);
           return { block: true, reason: 'This qualification permits no primary memory writes' };
         }
+      });
+      pi.registerCommand('hermes-native-tool', {
+        description: 'CI-only explicit invocation of a public stock memory tool',
+        async handler(args, ctx) {
+          const { name, params } = JSON.parse(args);
+          assert.ok(['memory_add', 'memory_replace', 'memory_remove'].includes(name));
+          assert.equal(scenario, 'large', 'automatic capture qualification never invokes primary writes');
+          const definitions = loader.getExtensions().extensions.map(extension => extension.tools.get(name)).filter(Boolean);
+          assert.equal(definitions.length, 1);
+          queryResult = await definitions[0].definition.execute('hermes-native-tool', params, undefined, undefined, ctx);
+        },
       });
       pi.registerCommand('hermes-native-search', {
         description: 'CI-only direct invocation of the real stock read-only definition',
@@ -177,11 +198,24 @@ async function start({ parentSession, context = false, managed = false } = {}) {
     sessionManager: sdk.SessionManager.inMemory(sessionCwd, parentSession ? { parentSession } : undefined), noTools: 'builtin' });
   sessions.push(session);
   if (managed) process.title = 'pi';
-  await session.bindExtensions({ mode: managed ? 'tui' : 'print', onError: error => errors.push(error) });
+  await session.bindExtensions({ mode: managed ? 'tui' : 'print', onError: error => errors.push(error),
+    ...(context ? { uiContext: {
+      notify(message, level = 'info') { notifications.push({ message: String(message), level }); },
+      setStatus() {}, setWidget() {}, confirm: async () => true,
+    } } : {}),
+  });
   assert.deepEqual(errors, []);
   return {
     session,
     nextModel: modelRuntime.getModel('hermes-fixture', 'fixture-after-switch'),
+    async mutate(name, params) {
+      queryResult = undefined;
+      await session.prompt(`/hermes-native-tool ${JSON.stringify({ name, params })}`);
+      assert.ok(queryResult, 'explicit command executed the public stock mutation');
+      assert.equal(queryResult.isError ?? false, false);
+      assert.equal(queryResult.details.success, true, JSON.stringify(queryResult));
+      return queryResult;
+    },
     async search(args) {
       queryResult = undefined;
       await session.prompt(`/hermes-native-search ${JSON.stringify(args)}`);
@@ -257,14 +291,51 @@ async function run() {
     assert.deepEqual(markdown(), before);
     return { reviewSaved, correctionSaved, primaryMemoryWrites, childHasMemoryTools: false, childLeakedContext: false, childChangedMarkdown: false };
   }
+  if (scenario === 'large') {
+    const before = markdown();
+    const f = await start({ managed: true });
+    assert.equal(f.session.sessionManager.getCwd(), join(cwd, 'unrelated-clone'));
+    for (const [key, target] of [['user', 'user'], ['global', 'memory'], ['workspace', 'project']]) {
+      assert.ok(before[key].length > 5000, `${target} starts above the former injection limit`);
+      const original = await f.search({ query: facts[key].split(' ')[0], target });
+      assert.equal(original.details.count, 1);
+      assert.ok(original.details.output.includes(facts[key]));
+      if (target === 'project') assert.ok(original.details.output.includes('scope=project:workspace'), 'clone cwd still recalls shared workspace');
+      const token = `Probe${facts[key].split(' ')[0]}`;
+      const added = `${token} calibration record is amber.`;
+      const replaced = `${token} calibration record is violet.`;
+      await f.mutate('memory_add', { target, content: added });
+      let found = await f.search({ query: token, target });
+      assert.equal(found.details.count, 1);
+      assert.ok(found.details.output.includes(added));
+      await f.mutate('memory_replace', { target, old_text: added, content: replaced });
+      found = await f.search({ query: token, target });
+      assert.equal(found.details.count, 1);
+      assert.ok(found.details.output.includes(replaced));
+      assert.ok(!found.details.output.includes(added));
+      await f.mutate('memory_remove', { target, old_text: replaced });
+      assert.equal((await f.search({ query: token, target })).details.count, 0, 'removed entries cannot be recalled');
+      assert.equal(markdown()[key], before[key], 'add/replace/remove restores the original large Markdown byte-for-byte');
+      assert.ok((await f.search({ query: facts[key].split(' ')[0], target })).details.output.includes(facts[key]));
+    }
+    assert.deepEqual(markdown(), before);
+    assert.equal(requests.length, 0, 'search/CRUD over a large policy-only store needs no consolidation/provider');
+    return { searchableScopes: 3, crudScopes: 3, originalsPreserved: true, providerRequests: requests.length };
+  }
   if (scenario === 'context') {
-    const f = await start({ context: true });
+    const f = await start({ context: true, managed: true });
+    assert.equal(f.session.sessionManager.getCwd(), join(cwd, 'unrelated-clone'));
+    const initialMarkdown = markdown();
+    assert.ok(initialMarkdown.user.length > 5000, 'initial request starts with a valid over-limit store');
     await promptText(f, 'HERMES_TASK_EVIDENCE: analyze the calibration procedure.');
-    assertReference(requests.at(-1), facts.user);
+    assertNoAutomaticFacts(requests.at(-1));
+    assertNoSizeWarnings();
     // Edit canonical data, not the SDK state or the integration's context.
-    put('user', facts.corrected);
+    put('user', facts.corrected + '\n' + facts.roleCanary + ' Ordinary calibration reference.'.repeat(200));
+    assert.ok(markdown().user.length > 5000);
     await promptText(f, 'HERMES_TASK_EVIDENCE: continue the ordinary analysis.');
-    assertReference(requests.at(-1), facts.corrected, facts.user);
+    assertNoAutomaticFacts(requests.at(-1));
+    assertNoSizeWarnings();
     const beforeUserTurns = f.session.messages.filter(message => message.role === 'user').length;
     let compactionResult;
     // Native compaction may summarize both history and a split-turn prefix.
@@ -277,8 +348,9 @@ async function run() {
       }
     });
     // Revert on disk, then correct DURING the actual summary request. The
-    // automatic retry must read the correction without any further prompt.
-    put('user', facts.user);
+    // automatic retry must not expose the correction (or any full-file data)
+    // without explicit recall and without any further user prompt.
+    put('user', facts.user + '\n' + facts.roleCanary + ' Precompaction calibration reference.'.repeat(200));
     contextPhase = 'overflow';
     await promptText(f, 'HERMES_TASK_EVIDENCE: finish the interrupted analysis.');
     unsubscribe();
@@ -292,8 +364,20 @@ async function run() {
       'automatic continuation required no new user prompt');
     const persistedReferenceCopies = f.session.sessionManager.getEntries().filter(entry => entry.type === 'message'
       && [facts.user, facts.corrected, facts.global, facts.workspace].some(fact => text(entry.message).includes(fact))).length;
-    assert.equal(persistedReferenceCopies, 0, 'request-local custom memory is not persisted to the session tree');
-    return { freshFirstAndNext: true, compactedAndRetried: true, persistedReferenceCopies };
+    assert.equal(persistedReferenceCopies, 0, 'unsolicited stored facts are not persisted to the session tree');
+    assertNoAutomaticFacts(requests.at(-1));
+    assertNoSizeWarnings();
+    assert.ok(markdown().user.length > 5000);
+    assert.ok(markdown().user.includes(facts.corrected));
+    for (const key of ['global', 'workspace', 'lesson']) assert.equal(markdown()[key], initialMarkdown[key], 'requests never rewrite unrelated stored facts');
+    const beforeSearch = requests.length;
+    const recalled = await f.search({ query: facts.corrected.split(' ')[0], target: 'user' });
+    assert.equal(recalled.details.count, 1);
+    assert.ok(recalled.details.output.includes(facts.corrected), 'explicit native search returns the large stored fact');
+    assert.ok(recalled.details.output.includes(facts.roleCanary), 'role-like stored text stays retrievable as tool data, not unsolicited system authority');
+    assert.equal(requests.length, beforeSearch, 'read-only explicit search needs no model request');
+    return { initialAndSubsequentWithoutFacts: true, compactedAndRetried: true, postCompactionWithoutFacts: true,
+      sizeWarnings: 0, explicitSearchReturnedFact: true, persistedReferenceCopies };
   }
   assert.ok(['cold', 'warm', 'recall', 'managed'].includes(scenario));
   if (scenario === 'cold') assert.equal(existsSync(databasePath), false, 'fixture begins with canonical Markdown only');

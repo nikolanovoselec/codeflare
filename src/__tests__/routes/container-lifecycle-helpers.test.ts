@@ -517,6 +517,51 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       });
     });
 
+    it.each(['old-bucket', 'test-bucket'])(
+      'REQ-AGENT-029: transports OAuth B independently of browser A for stored bucket %s', async storedBucket => {
+        mockGetStoredBucketName.mockResolvedValue(storedBucket);
+        const params = {
+          ...baseParams,
+          cloudflareOauthAccountId: 'b'.repeat(32),
+          deployKeys: { cloudflareAccountId: 'a'.repeat(32), cloudflareApiToken: 'codeflare-enterprise' },
+        };
+        const result = await configureContainerDO(params);
+        expect(JSON.parse(result.setBucketBody)).toMatchObject({
+          cloudflareAccountId: 'a'.repeat(32),
+          cloudflareApiToken: 'codeflare-enterprise',
+          cloudflareOauthAccountId: 'b'.repeat(32),
+        });
+        const request = mockContainer.fetch.mock.calls.at(-1)![0] as Request;
+        expect(await request.clone().json()).toMatchObject({ cloudflareOauthAccountId: 'b'.repeat(32) });
+      },
+    );
+
+    it('REQ-AGENT-029: restart snapshots replace B with C then send explicit null for a removed selection', async () => {
+      mockGetStoredBucketName.mockResolvedValue('test-bucket');
+      for (const cloudflareOauthAccountId of ['b'.repeat(32), 'c'.repeat(32), null]) {
+        const params = {
+          ...baseParams,
+          cloudflareOauthAccountId,
+          deployKeys: { cloudflareAccountId: 'a'.repeat(32), cloudflareApiToken: 'codeflare-enterprise' },
+        };
+        const result = await configureContainerDO(params);
+        const body = JSON.parse(result.setBucketBody);
+        expect(body).toMatchObject({ cloudflareOauthAccountId, cloudflareAccountId: 'a'.repeat(32) });
+        const request = mockContainer.fetch.mock.calls.at(-1)![0] as Request;
+        expect(await request.clone().json()).toMatchObject({ cloudflareOauthAccountId });
+      }
+    });
+
+    it.each(['old-bucket', 'test-bucket'])(
+      'REQ-AGENT-029: an old caller without OAuth metadata sends an authoritative clear for stored bucket %s', async storedBucket => {
+        mockGetStoredBucketName.mockResolvedValue(storedBucket);
+        const result = await configureContainerDO(baseParams);
+        expect(JSON.parse(result.setBucketBody)).toHaveProperty('cloudflareOauthAccountId', null);
+        const request = mockContainer.fetch.mock.calls.at(-1)![0] as Request;
+        expect(await request.clone().json()).toHaveProperty('cloudflareOauthAccountId', null);
+      },
+    );
+
     it('REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots', async () => {
       mockGetStoredBucketName.mockResolvedValue('test-bucket');
       await configureContainerDO({ ...baseParams,

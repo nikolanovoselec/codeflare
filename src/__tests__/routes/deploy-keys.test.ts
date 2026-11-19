@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
-import { AppError } from '../../lib/error-types';
+import { AppError, AuthError } from '../../lib/error-types';
+
+const mockIdentity = vi.hoisted(() => ({ role: 'user' as 'user' | 'admin' }));
 
 // Hoisted mocks
 vi.mock('../../lib/logger', () => ({
@@ -14,7 +16,7 @@ vi.mock('../../lib/logger', () => ({
 
 vi.mock('../../lib/access', () => ({
   authenticateRequest: vi.fn(async () => ({
-    user: { email: 'test@example.com', authenticated: true, role: 'user' },
+    user: { email: 'test@example.com', authenticated: true, role: mockIdentity.role },
     bucketName: 'test-bucket',
   })),
 }));
@@ -24,12 +26,13 @@ const mockGlobalFetch = vi.fn();
 vi.stubGlobal('fetch', mockGlobalFetch);
 
 import deployKeysRoutes from '../../routes/deploy-keys';
+import { authenticateRequest } from '../../lib/access';
 
 // REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
 describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
-  function createTestApp() {
+  function createTestApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env }>();
     app.onError((err, c) => {
       if (err instanceof AppError) {
@@ -38,7 +41,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       return c.json({ error: 'Unexpected error' }, 500);
     });
     app.use('*', async (c, next) => {
-      (c.env as any) = { KV: mockKV };
+      (c.env as any) = { KV: mockKV, ...envOverrides };
       return next();
     });
     app.route('/api/deploy-keys', deployKeysRoutes);
@@ -47,8 +50,213 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGlobalFetch.mockReset();
+    // A provider request without an explicit success fixture becomes an observable
+    // boundary error, not an accidentally successful validation or live traffic.
+    mockGlobalFetch.mockRejectedValue(new AppError(
+      'TEST_PROVIDER_BOUNDARY', 502, 'Synthetic provider boundary rejects validation',
+    ));
+    mockIdentity.role = 'user';
     mockKV = createMockKV();
   });
+
+  function allowProviderValidation() {
+    mockGlobalFetch.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url === 'https://api.github.com/user') {
+        return Response.json({ login: 'synthetic-replacement' });
+      }
+      if (url === 'https://api.cloudflare.com/client/v4/accounts') {
+        return Response.json({
+          success: true,
+          result: [{ id: 'synthetic-account-new', name: 'Synthetic account' }],
+        });
+      }
+      throw new AppError('TEST_PROVIDER_BOUNDARY', 502, 'Unexpected synthetic provider destination');
+    });
+  }
+
+  describe('REQ-ENTERPRISE-009 AC8: enterprise deploy credentials are disabled', () => {
+    const replacementPayloads = [
+      { label: 'GitHub replacement', payload: { githubToken: 'synthetic-personal-github-token' } },
+      { label: 'Cloudflare replacement', payload: { cloudflareApiToken: 'synthetic-personal-cloudflare-token' } },
+      {
+        label: 'mixed replacement',
+        payload: {
+          githubToken: 'synthetic-personal-github-token',
+          cloudflareApiToken: 'synthetic-personal-cloudflare-token',
+          cloudflareAccountId: 'synthetic-account-new',
+        },
+      },
+      { label: 'Cloudflare account selection', payload: { cloudflareAccountId: 'synthetic-account-new' } },
+    ];
+    const updatePayloads = [
+      ...replacementPayloads,
+      { label: 'GitHub clearing', payload: { githubToken: null } },
+      { label: 'Cloudflare clearing', payload: { cloudflareApiToken: null } },
+      { label: 'mixed clearing', payload: { githubToken: null, cloudflareApiToken: null } },
+      { label: 'Cloudflare account clearing', payload: { cloudflareAccountId: null } },
+      { label: 'empty update', payload: {} },
+      { label: 'invalid credential schema', payload: { githubToken: 42 } },
+    ];
+
+    describe.each(['user', 'admin'] as const)('authenticated %s', role => {
+      describe.each(['app', 'oauth'] as const)('managed GitHub %s connection', source => {
+        let managedConnection: DeployKeys;
+        let storedBefore: string;
+
+        beforeEach(() => {
+          mockIdentity.role = role;
+          managedConnection = {
+            githubToken: `synthetic-managed-${source}-token`,
+            githubTokenSource: source,
+            githubLogin: 'synthetic-connected-user',
+            ...(source === 'app' ? {
+              githubRefreshToken: 'synthetic-managed-app-refresh',
+              githubTokenExpiresAt: 4102444800000,
+            } : {}),
+            cloudflareApiToken: 'synthetic-managed-cloudflare-token',
+            cloudflareAccountId: 'synthetic-account-original',
+            cloudflareTokenSource: 'oauth',
+            cloudflareRefreshToken: 'synthetic-managed-cloudflare-refresh',
+            cloudflareTokenExpiresAt: 4102444800000,
+          };
+          mockKV._set('deploy-keys:test-bucket', managedConnection);
+          storedBefore = mockKV._store.get('deploy-keys:test-bucket')!;
+        });
+
+        async function expectCredentialDenial(res: Response) {
+          expect(res.status).toBe(403);
+          // The existing ForbiddenError wire contract discloses neither masked
+          // credentials, account/login metadata, refresh tokens nor token source.
+          expect(await res.json()).toEqual({ error: 'Access denied', code: 'FORBIDDEN' });
+          expect(mockKV._store.get('deploy-keys:test-bucket')).toBe(storedBefore);
+        }
+
+        it.each(['GET', 'PUT', 'DELETE'] as const)(
+          'REQ-ENTERPRISE-009 AC8: %s returns 403 without credential disclosure or mutation',
+          async method => {
+            allowProviderValidation();
+            const res = await createTestApp({ ENTERPRISE_MODE: 'active' }).request('/api/deploy-keys', {
+              method,
+              ...(method === 'PUT' ? {
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ githubToken: 'synthetic-personal-github-token' }),
+              } : {}),
+            });
+            await expectCredentialDenial(res);
+          },
+        );
+
+        it.each(['GET', 'PUT', 'DELETE'] as const)(
+          'REQ-ENTERPRISE-009 AC8: %s is forbidden even when credential storage rejects access',
+          async method => {
+            const unavailable = new AppError('TEST_CREDENTIAL_BOUNDARY', 503, 'Synthetic storage unavailable');
+            mockKV.get.mockRejectedValue(unavailable);
+            mockKV.put.mockRejectedValue(unavailable);
+            mockKV.delete.mockRejectedValue(unavailable);
+            const res = await createTestApp({ ENTERPRISE_MODE: 'active' }).request('/api/deploy-keys', {
+              method,
+              ...(method === 'PUT' ? {
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ githubToken: null }),
+              } : {}),
+            });
+            await expectCredentialDenial(res);
+          },
+        );
+
+        it.each(updatePayloads)(
+          'REQ-ENTERPRISE-009 AC8: $label is forbidden without changing a managed connection',
+          async ({ payload }) => {
+            allowProviderValidation();
+            const res = await createTestApp({ ENTERPRISE_MODE: 'active' }).request('/api/deploy-keys', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            await expectCredentialDenial(res);
+          },
+        );
+
+        it.each(replacementPayloads)(
+          'REQ-ENTERPRISE-009 AC8: $label is forbidden before the rejecting provider boundary',
+          async ({ payload }) => {
+            // The default provider fixture rejects with TEST_PROVIDER_BOUNDARY /
+            // 502. A 403 FORBIDDEN outcome proves denial precedes validation;
+            // no private-helper assertions or mock invocation counts are needed.
+            const res = await createTestApp({ ENTERPRISE_MODE: 'active' }).request('/api/deploy-keys', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            await expectCredentialDenial(res);
+          },
+        );
+
+        it('REQ-ENTERPRISE-009 AC8: malformed JSON is forbidden before body parsing', async () => {
+          const res = await createTestApp({ ENTERPRISE_MODE: 'active' }).request('/api/deploy-keys', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{"githubToken":',
+          });
+          await expectCredentialDenial(res);
+        });
+      });
+    });
+
+    it.each(['GET', 'PUT', 'DELETE'] as const)(
+      'REQ-ENTERPRISE-009 AC8: unauthenticated %s retains authentication failure before Enterprise denial',
+      async method => {
+        vi.mocked(authenticateRequest).mockRejectedValueOnce(new AuthError());
+        const res = await createTestApp({ ENTERPRISE_MODE: 'active' }).request('/api/deploy-keys', {
+          method,
+          ...(method === 'PUT' ? { body: '{"githubToken":' } : {}),
+        });
+        expect(res.status).toBe(401);
+        expect(await res.json()).toEqual({ error: 'Authentication required', code: 'AUTH_ERROR' });
+        expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toBeNull();
+      },
+    );
+  });
+
+  it.each(['user', 'admin'] as const)(
+    'REQ-ENTERPRISE-009 AC7 / REQ-AGENT-010: flag-unset %s retains deploy credential write, masked read and delete',
+    async role => {
+      mockIdentity.role = role;
+      allowProviderValidation();
+      const app = createTestApp();
+      const res = await app.request('/api/deploy-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          githubToken: 'synthetic-personal-github-token',
+          cloudflareApiToken: 'synthetic-personal-cloudflare-token',
+          cloudflareAccountId: 'synthetic-account-new',
+        }),
+      });
+      const maskedCredentials = {
+        githubToken: '****oken',
+        cloudflareApiToken: '****oken',
+        cloudflareAccountId: 'synthetic-account-new',
+      };
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(maskedCredentials);
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
+        githubToken: 'synthetic-personal-github-token',
+        githubTokenSource: 'pat',
+        cloudflareApiToken: 'synthetic-personal-cloudflare-token',
+        cloudflareAccountId: 'synthetic-account-new',
+      });
+      const read = await app.request('/api/deploy-keys');
+      expect(read.status).toBe(200);
+      expect(await read.json()).toEqual(maskedCredentials);
+      const deleted = await app.request('/api/deploy-keys', { method: 'DELETE' });
+      expect(deleted.status).toBe(200);
+      expect(await deleted.json()).toEqual({ success: true });
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toBeNull();
+    },
+  );
 
   it.each(['PUT', 'DELETE'])('CON-SEC-004 / REQ-SEC-007 AC1/3/4: unwrapped %s shares the authenticated mutation bound', async method => {
     const app = createTestApp();
@@ -70,7 +278,6 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
     expect(res.headers.get('X-RateLimit-Remaining')).toBe('0');
     expect(JSON.parse(mockKV._store.get('deploy-keys:test-bucket')!)).toMatchObject({ githubToken: 'synthetic-preserved-token' });
     expect((await app.request('/api/deploy-keys')).status).toBe(200);
-    expect(mockGlobalFetch).not.toHaveBeenCalled();
   });
 
   // ─── GET ───────────────────────────────────────────────────────────────
@@ -161,27 +368,32 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(stored.githubToken).toBe('github_pat_test1234567890');
     });
 
-    it('validates GitHub token against API', async () => {
-      mockGlobalFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ login: 'testuser' }),
+    it('REQ-AGENT-010 AC1: authenticates the supplied GitHub token at the provider before storing it', async () => {
+      mockGlobalFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const authorized = request.url === 'https://api.github.com/user'
+          && request.headers.get('Authorization') === 'Bearer synthetic-github-valid';
+        return Response.json({ login: 'synthetic-user' }, { status: authorized ? 200 : 401 });
       });
 
       const app = createTestApp();
-      await app.request('/api/deploy-keys', {
+      const res = await app.request('/api/deploy-keys', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ githubToken: 'github_pat_valid' }),
+        body: JSON.stringify({ githubToken: 'synthetic-github-valid' }),
       });
-
-      expect(mockGlobalFetch).toHaveBeenCalledWith(
-        'https://api.github.com/user',
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Authorization: 'Bearer github_pat_valid',
-          }),
-        }),
-      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ githubToken: '****alid' });
+      const rejected = await app.request('/api/deploy-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ githubToken: 'synthetic-github-invalid' }),
+      });
+      expect(rejected.status).toBe(400);
+      expect(await rejected.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
+        githubToken: 'synthetic-github-valid', githubTokenSource: 'pat',
+      });
     });
 
     it('rejects invalid GitHub token', async () => {
@@ -289,12 +501,12 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(body.cloudflareApiToken).toMatch(/^\*{4}/);
     });
 
-    it('drops a stale OAuth/App githubLogin (and refresh/expiry) when a PAT overwrites the connection', async () => {
+    it.each(['app', 'oauth'] as const)('REQ-GITHUB-001 AC6: non-Enterprise PAT replacement clears stale %s login and refresh metadata', async source => {
       // A PAT may be for a different account and carries no login metadata, so a
       // leftover githubLogin would make /api/github/status report the wrong account.
       mockKV._set('deploy-keys:test-bucket', {
-        githubToken: 'gho_prior_oauth_token',
-        githubTokenSource: 'oauth',
+        githubToken: 'synthetic-prior-managed-token',
+        githubTokenSource: source,
         githubLogin: 'octo',
         githubRefreshToken: 'ghr_refresh',
         githubTokenExpiresAt: 9999999999,
@@ -420,9 +632,9 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(res.status).toBe(400);
     });
 
-    it('reuses single-request validation when token and account ID are co-submitted', async () => {
-      // Token has multiple accounts; the same request also selects one.
-      // Only one validation fetch should run (reused, not re-fetched).
+    it('REQ-AGENT-010 AC1: co-submitted Cloudflare token and account selection succeed without a second validation', async () => {
+      // The provider permits this validation once; another request hits the
+      // default rejecting boundary. Success verifies reuse through the response.
       mockGlobalFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -440,24 +652,27 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, unknown>;
       expect(body.cloudflareAccountId).toBe('acct-b');
-      // validateCloudflareToken called exactly once for the co-submitted token.
-      expect(mockGlobalFetch).toHaveBeenCalledTimes(1);
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toEqual({
+        cloudflareApiToken: 'cf-multi', cloudflareAccountId: 'acct-b',
+      });
     });
 
-    it('deletes KV entry when all keys cleared', async () => {
+    it('REQ-AGENT-010 AC3: clearing all keys removes persisted credentials', async () => {
       mockKV._set('deploy-keys:test-bucket', {
         githubToken: 'github_pat_old',
         cloudflareApiToken: 'cf-old',
       });
 
       const app = createTestApp();
-      await app.request('/api/deploy-keys', {
+      const res = await app.request('/api/deploy-keys', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ githubToken: null, cloudflareApiToken: null }),
       });
 
-      expect(mockKV.delete).toHaveBeenCalledWith('deploy-keys:test-bucket');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ cloudflareAccountId: null });
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toBeNull();
     });
 
     it('rejects unknown fields', async () => {
@@ -474,7 +689,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
   // ─── DELETE ────────────────────────────────────────────────────────────
 
   describe('DELETE /api/deploy-keys', () => {
-    it('removes all keys from KV', async () => {
+    it('REQ-AGENT-010 AC3: DELETE removes all persisted deploy credentials', async () => {
       mockKV._set('deploy-keys:test-bucket', {
         githubToken: 'github_pat_delete_me',
         cloudflareApiToken: 'cf-delete-me',
@@ -486,7 +701,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, unknown>;
       expect(body.success).toBe(true);
-      expect(mockKV.delete).toHaveBeenCalledWith('deploy-keys:test-bucket');
+      expect(await mockKV.get('deploy-keys:test-bucket', 'json')).toBeNull();
     });
   });
 

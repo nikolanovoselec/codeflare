@@ -7,7 +7,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
 import type { Env } from '../../types';
-import { ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../../lib/constants';
+import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER,
+  ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../../lib/constants';
 import { setBucketName, type ContainerHost } from '../../container/container-config';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS, getDeployKeysKey } from '../../lib/kv-keys';
@@ -30,6 +31,7 @@ function baseState(): ContainerEnvState {
     _githubToken: null,
     _cloudflareApiToken: null,
     _cloudflareAccountId: null,
+    _cloudflareOauthAccountId: null,
     _encryptionKey: null,
     _sessionMode: 'default',
     _sessionWorkspace: 'terminal',
@@ -812,5 +814,159 @@ describe('REQ-BROWSER-008/REQ-AGENT-078: Enterprise startup with a connected own
       expect(ownerKeys.cloudflareApiToken).toBe('worker-held-owner-token');
       expect(ownerKeys.cloudflareAccountId).toBe('owner-account');
     } finally { fetchSpy.mockRestore(); }
+  });
+});
+
+// Assert the startup environment, not the receiver's private assignments.
+describe('REQ-AGENT-029: independent selected OAuth account environment', () => {
+  const browserAccountA = 'a'.repeat(32);
+  const oauthAccountB = 'b'.repeat(32);
+  const oauthAccountC = 'c'.repeat(32);
+  const storage = { put: async (_key: string, _value: unknown) => undefined };
+  // Keep the test batch type-compatible with the old receiver while exercising
+  // the additive transport member, which old runtime code currently ignores.
+  function selection(cloudflareOauthAccountId: string | null): Parameters<typeof applyPrefsOnRestart>[2]
+    & { cloudflareOauthAccountId: string | null } {
+    return { cloudflareOauthAccountId };
+  }
+  const browserCreds = {
+    cloudflareAccountId: browserAccountA,
+    cloudflareApiToken: ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER,
+  };
+
+  it.each([false, true])('initial assignment emits B independently of browser A (Enterprise=%s)', async enterprise => {
+    const env = enterprise ? { ENTERPRISE_MODE: 'active' } as Env : baseEnv;
+    const state = baseState();
+    await applyBucketName(state, 'codeflare-test', env, storage, {
+      ...browserCreds, ...selection(oauthAccountB), githubToken: 'synthetic-github-token',
+    });
+    const vars = buildEnvVars(state, env);
+    expect(vars).toMatchObject({
+      CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB,
+      CLOUDFLARE_ACCOUNT_ID: browserAccountA,
+      CLOUDFLARE_API_TOKEN: ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER,
+      GH_TOKEN: enterprise ? ENTERPRISE_GH_TOKEN_PLACEHOLDER : 'synthetic-github-token',
+      R2_BUCKET_NAME: 'codeflare-test', R2_ACCESS_KEY_ID: 'AK', R2_SECRET_ACCESS_KEY: 'SK',
+    });
+  });
+
+  it.each([false, true])('restart assigns B, changes only the selection to C, and clears it with null (Enterprise=%s)', async enterprise => {
+    const env = enterprise ? { ENTERPRISE_MODE: 'active' } as Env : baseEnv;
+    const state = baseState();
+    await applyBucketName(state, 'codeflare-test', env, storage, browserCreds);
+    expect(await applyPrefsOnRestart(state, storage, selection(oauthAccountB))).toBe(true);
+    expect(buildEnvVars(state, env).CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountB);
+    expect(await applyPrefsOnRestart(state, storage, selection(oauthAccountC))).toBe(true);
+    expect(buildEnvVars(state, env).CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountC);
+    expect(await applyPrefsOnRestart(state, storage, selection(null))).toBe(true);
+    const vars = buildEnvVars(state, env);
+    expect(vars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+    expect(vars).toMatchObject({
+      CLOUDFLARE_ACCOUNT_ID: browserAccountA, CLOUDFLARE_API_TOKEN: ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER,
+    });
+  });
+
+  it('partial omitted restart metadata preserves the selected hint while another preference changes', async () => {
+    const state = baseState();
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, { ...browserCreds, ...selection(oauthAccountB) });
+    await applyPrefsOnRestart(state, storage, { userTimezone: 'Europe/Zurich' });
+    expect(buildEnvVars(state, baseEnv)).toMatchObject({
+      CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB, USER_TIMEZONE: 'Europe/Zurich',
+      CLOUDFLARE_ACCOUNT_ID: browserAccountA,
+    });
+  });
+
+  it('initial-assignment seam preserves omission but clears an existing hint with explicit null', async () => {
+    const state = baseState();
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, { ...browserCreds, ...selection(oauthAccountB) });
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, { userTimezone: 'UTC' });
+    expect(buildEnvVars(state, baseEnv).CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountB);
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, selection(null));
+    expect(buildEnvVars(state, baseEnv)).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+    expect(buildEnvVars(state, baseEnv).CLOUDFLARE_ACCOUNT_ID).toBe(browserAccountA);
+  });
+
+  it('fresh startup with an old sender never infers OAuth selection from browser account A', async () => {
+    const state = baseState();
+    expect(buildEnvVars(state, baseEnv)).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, browserCreds);
+    await applyPrefsOnRestart(state, storage, {});
+    expect(buildEnvVars(state, baseEnv)).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+    expect(buildEnvVars(state, baseEnv).CLOUDFLARE_ACCOUNT_ID).toBe(browserAccountA);
+  });
+
+  it('the hint is transient and a reconstructed startup without fresh selection does not recover the old account', async () => {
+    const durableValues: Record<string, unknown> = {};
+    const durableStorage = { put: async (key: string, value: unknown) => { durableValues[key] = value; } };
+    const original = baseState();
+    await applyBucketName(original, 'codeflare-test', baseEnv, durableStorage, { ...browserCreds, ...selection(oauthAccountB) });
+    expect(buildEnvVars(original, baseEnv).CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountB);
+    // A startup hint is not a new durable credential/account record, under any key.
+    expect(JSON.stringify(durableValues)).not.toContain(oauthAccountB);
+    const reconstructed = baseState();
+    await applyBucketName(reconstructed, 'codeflare-test', baseEnv, durableStorage, browserCreds);
+    expect(buildEnvVars(reconstructed, baseEnv)).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+    expect(buildEnvVars(reconstructed, baseEnv).CLOUDFLARE_ACCOUNT_ID).toBe(browserAccountA);
+  });
+
+  it('OAuth B remains available without any Browser Run account or token', async () => {
+    const state = baseState();
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, selection(oauthAccountB));
+    const vars = buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env);
+    expect(vars.CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountB);
+    expect(vars).not.toHaveProperty('CLOUDFLARE_ACCOUNT_ID');
+    expect(vars).not.toHaveProperty('CLOUDFLARE_API_TOKEN');
+  });
+
+  it('non-Enterprise OAuth can share the existing account value without changing its managed token', async () => {
+    const state = baseState();
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, {
+      ...selection(oauthAccountB), cloudflareAccountId: oauthAccountB,
+      cloudflareApiToken: CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER,
+    });
+    expect(buildEnvVars(state, baseEnv)).toMatchObject({
+      CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB, CLOUDFLARE_ACCOUNT_ID: oauthAccountB,
+      CLOUDFLARE_API_TOKEN: CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER,
+    });
+  });
+
+  it('the public bucket configuration path forwards the selected account into the actual startup environment', async () => {
+    const host = {
+      ...baseState(), env: { KV: createMockKV(), ENTERPRISE_MODE: 'active' },
+      ctx: { storage }, logger: createLogger('oauth-account-startup-test'),
+      envVars: {}, idleTimeoutPref: '12h', _vaultKey: null,
+    } as unknown as ContainerHost;
+    await setBucketName(host, 'codeflare-test', { ...browserCreds, ...selection(oauthAccountB) });
+    expect(host.envVars).toMatchObject({
+      CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB, CLOUDFLARE_ACCOUNT_ID: browserAccountA,
+    });
+  });
+
+  it.each([false, true])('restricted Operators omit the hint and retain credential containment (Enterprise=%s)', async enterprise => {
+    const state = baseState();
+    state._operatorContainerProfile = {
+      schemaVersion: 1, activityId: 'activity-1', operatorId: 'operator-1', sessionId: 'session-1',
+      ownerBucket: 'codeflare-test', policyDigest: 'b'.repeat(64), deadline: Date.now() + 500_000,
+      outputPrefix: 'Operators/',
+      human: { subject: 'human-1', email: 'owner@example.test', issuer: 'https://issuer.example.test/', audiences: ['aud-1'] },
+      policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+        storage: { readPrefixes: ['input/'], writePrefixes: ['output/'] },
+        inference: { routeIds: ['route-1'], defaultRouteId: 'route-1', reasoningLevels: ['medium'],
+          defaultReasoningLevel: 'medium', inheritUserDefaults: false } },
+      jwtPolicy: { mode: 'off', destinations: [] },
+      piProfile: { provider: 'anthropic', model: 'approved', thinkingLevel: 'medium',
+        systemPrompt: 'Approved operator context', tools: ['read', 'bash'] },
+    };
+    const env = enterprise ? { ENTERPRISE_MODE: 'active' } as Env : baseEnv;
+    await applyBucketName(state, 'codeflare-test', env, storage, {
+      ...browserCreds, ...selection(oauthAccountB), githubToken: 'synthetic-github-secret',
+    });
+    const vars = buildEnvVars(state, env);
+    expect(vars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+    expect(vars).not.toHaveProperty('CLOUDFLARE_API_TOKEN');
+    expect(vars.GH_TOKEN).toBe(ENTERPRISE_GH_TOKEN_PLACEHOLDER);
+    expect(vars.R2_ACCESS_KEY_ID).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect(vars.R2_SECRET_ACCESS_KEY).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect(Object.values(vars)).not.toContain('synthetic-github-secret');
   });
 });

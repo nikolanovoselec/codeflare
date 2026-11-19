@@ -11,7 +11,7 @@
  * harness; same code path as REQ-STOR-003 / REQ-STOR-004).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { AccessUser, Env } from '../../types';
+import type { AccessUser, DeployKeys, Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
@@ -111,7 +111,8 @@ import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed
 import { readVerifiedManagedR2Policy } from '../../lib/managed-r2-policy';
 import seedRoutes from '../../routes/storage/seed';
 import { gzipBytes, parseManagedReleaseStream, type ManagedRelease } from '../../lib/remote-curation';
-import { SETUP_KEYS } from '../../lib/kv-keys';
+import { SETUP_KEYS, getDeployKeysKey } from '../../lib/kv-keys';
+import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from '../../lib/constants';
 
 describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -168,6 +169,118 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
     };
   }
+
+  describe('REQ-AGENT-029: selected OAuth account startup snapshot', () => {
+    const browserAccountA = 'a'.repeat(32);
+    const oauthAccountB = 'b'.repeat(32);
+    const otherOwnerAccount = 'd'.repeat(32);
+    const ownerConnection: DeployKeys = {
+      githubToken: 'synthetic-github-token',
+      cloudflareTokenSource: 'oauth',
+      cloudflareApiToken: 'synthetic-owner-access-secret',
+      cloudflareRefreshToken: 'synthetic-owner-refresh-secret',
+      cloudflareAccountId: oauthAccountB,
+    };
+
+    async function configureBrowser() {
+      mockKV._set(SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: 'synthetic-browser-secret' });
+      await mockKV.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, browserAccountA);
+    }
+
+    async function startSnapshot(extraEnv: Partial<Env> = { ENTERPRISE_MODE: 'active' }) {
+      const response = await createApp(extraEnv)(
+        '/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' },
+      );
+      expect(response.status, await response.clone().text()).toBe(200);
+      const request = testState.container!.fetch.mock.calls
+        .map(([input]) => input as Request)
+        .find(input => new URL(input.url).pathname === '/_internal/setBucketName');
+      expect(request).toBeDefined();
+      return await request!.clone().json() as Record<string, unknown>;
+    }
+
+    it('keeps browser A and owner OAuth B separate without refreshing or serializing real tokens', async () => {
+      await configureBrowser();
+      mockKV._set(getDeployKeysKey('test-bucket'), {
+        ...ownerConnection, cloudflareTokenExpiresAt: Date.now() - 60_000,
+      });
+      mockKV._set(getDeployKeysKey('another-owner'), {
+        ...ownerConnection, cloudflareAccountId: otherOwnerAccount,
+      });
+      const outgoing: string[] = [];
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+        outgoing.push(input instanceof Request ? input.url : String(input));
+        throw new Error('Startup metadata must not perform provider requests');
+      });
+      try {
+        const body = await startSnapshot();
+        expect(body).toMatchObject({
+          cloudflareAccountId: browserAccountA,
+          cloudflareOauthAccountId: oauthAccountB,
+          cloudflareApiToken: ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER,
+          githubToken: 'synthetic-github-token',
+          r2AccessKeyId: 'scoped-ak', r2SecretAccessKey: 'scoped-sk',
+        });
+        const serialized = JSON.stringify(body);
+        for (const secret of ['synthetic-owner-access-secret', 'synthetic-owner-refresh-secret', 'synthetic-browser-secret']) {
+          expect(serialized).not.toContain(secret);
+        }
+        expect(serialized).not.toContain(otherOwnerAccount);
+        expect(outgoing).toEqual([]);
+      } finally { fetchSpy.mockRestore(); }
+    });
+
+    it.each([
+      ['absent connection', null],
+      ['missing source', { ...ownerConnection, cloudflareTokenSource: undefined }],
+      ['PAT source', { ...ownerConnection, cloudflareTokenSource: 'pat' }],
+      ['disconnected access token', { ...ownerConnection, cloudflareApiToken: null }],
+      ['empty access token', { ...ownerConnection, cloudflareApiToken: '' }],
+      ['unselected account', { ...ownerConnection, cloudflareAccountId: null }],
+      ['missing selection', { ...ownerConnection, cloudflareAccountId: undefined }],
+      ['empty selection', { ...ownerConnection, cloudflareAccountId: '' }],
+      ['whitespace selection', { ...ownerConnection, cloudflareAccountId: ' ' }],
+      ['short selection', { ...ownerConnection, cloudflareAccountId: 'b'.repeat(31) }],
+      ['long selection', { ...ownerConnection, cloudflareAccountId: 'b'.repeat(33) }],
+      ['nonhex selection', { ...ownerConnection, cloudflareAccountId: 'g'.repeat(32) }],
+      ['padded selection', { ...ownerConnection, cloudflareAccountId: ` ${oauthAccountB}` }],
+      ['nonstring stored selection', { ...ownerConnection, cloudflareAccountId: 42 }],
+    ])('sends authoritative null for %s, never the browser account as fallback', async (_label, stored) => {
+      await configureBrowser();
+      if (stored) mockKV._set(getDeployKeysKey('test-bucket'), stored);
+      const body = await startSnapshot();
+      expect(body).toMatchObject({
+        cloudflareAccountId: browserAccountA,
+        cloudflareApiToken: ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER,
+        cloudflareOauthAccountId: null,
+      });
+    });
+
+    it('does not hide valid owner OAuth B when Browser Run is unconfigured', async () => {
+      mockKV._set(getDeployKeysKey('test-bucket'), ownerConnection);
+      const body = await startSnapshot();
+      expect(body).toMatchObject({
+        cloudflareOauthAccountId: oauthAccountB,
+        cloudflareAccountId: null,
+        cloudflareApiToken: null,
+      });
+      expect(JSON.stringify(body)).not.toContain('synthetic-owner-access-secret');
+      expect(JSON.stringify(body)).not.toContain('synthetic-owner-refresh-secret');
+    });
+
+    it('adds the hint outside Enterprise without changing the existing OAuth account or placeholder', async () => {
+      mockKV._set(getDeployKeysKey('test-bucket'), ownerConnection);
+      const body = await startSnapshot({});
+      expect(body).toMatchObject({
+        cloudflareAccountId: oauthAccountB,
+        cloudflareOauthAccountId: oauthAccountB,
+        cloudflareApiToken: CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER,
+        githubToken: 'synthetic-github-token',
+      });
+      expect(JSON.stringify(body)).not.toContain('synthetic-owner-access-secret');
+      expect(JSON.stringify(body)).not.toContain('synthetic-owner-refresh-secret');
+    });
+  });
 
   describe('managed environment start gate', () => {
     it('returns a typed 409 before user-bucket or container work when enabled curation is unavailable for a fresh user', async () => {
