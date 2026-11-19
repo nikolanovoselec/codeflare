@@ -1216,7 +1216,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 ### REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
 
-**Intent:** Users must be able to store GitHub and Cloudflare credentials so that git push, repository management, and Cloudflare deployments work without re-authenticating each session.
+**Intent:** Non-Enterprise users can store GitHub and Cloudflare deploy credentials for reuse across sessions. Enterprise retains its managed provider connections and rejects direct credential management under [REQ-ENTERPRISE-009](security.md#req-enterprise-009-enterprise-backend-route-hardening) AC8.
 
 **Applies To:** User
 
@@ -1229,6 +1229,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Constraints:**
 
+- This direct credential-storage contract applies outside Enterprise. Enterprise denies GET/PUT/DELETE for users and administrators before route-specific validation or credential access; no legacy token migration or invalidation is required.
 - Tokens are validated against the provider's API before being persisted; an unreachable provider is surfaced as an upstream error and the credential is not stored, so the store never contains a token of unknown validity.
 
 **Priority:** P1
@@ -1916,10 +1917,16 @@ None.
 1. Stored GitHub and Cloudflare deploy credentials are injected into the container as environment variables on session start. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 2. Credentials are sent as explicit `null` when absent (not omitted) so revocation propagates on session restart. <!-- @impl: src/routes/container/lifecycle-init.ts::buildSetBucketNameBody --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (DEEP-20-002: sends newly absent deploy credentials as explicit null on restart) --> <!-- @test: src/__tests__/container/container-env.test.ts (applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression) / REQ-AGENT-029 (container env vars contract)) -->
 3. When a GitHub credential is present, the container configures git for authenticated HTTPS access. <!-- @test: host/__tests__/entrypoint-credentials.test.js (does NOT configure git credential.helper when GH_TOKEN is unset (REQ-AGENT-029 AC3: guard)) --> <!-- @manual -->
-4. Cloudflare accounts are discovered from the stored token without manual ID entry; a sole account is selected automatically, otherwise account choices are returned and explicit selection is validated against that token. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (stores Cloudflare token and auto-selects single account) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (returns account list when multiple Cloudflare accounts) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (sets cloudflareAccountId after validating it against the stored token) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (rejects a cloudflareAccountId not accessible with the stored token) -->
+4. In non-Enterprise direct credential management, Cloudflare accounts are discovered from the stored token without manual ID entry; a sole account is selected automatically, otherwise account choices are returned and explicit selection is validated against that token. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (stores Cloudflare token and auto-selects single account) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (returns account list when multiple Cloudflare accounts) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (sets cloudflareAccountId after validating it against the stored token) --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (rejects a cloudflareAccountId not accessible with the stored token) -->
+
+5. Ordinary owner sessions receive non-secret `CLOUDFLARE_OAUTH_ACCOUNT_ID` startup metadata only from their original stored OAuth connection with an access token and a valid selected 32-hex account ID. PAT, disconnected, unselected or malformed connections produce no hint. It never falls back to administrator Browser Run, deployment or R2 account IDs. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-AGENT-029: selected OAuth account startup snapshot) -->
+6. The optional nullable `cloudflareOauthAccountId` transport member is validated at the configuration boundary. Authoritative starts/restarts send a value or explicit null; null clears stale metadata, omission in a partial update preserves it, and old senders/fresh instances invent no account. The field remains transient startup state. <!-- @impl: src/routes/container/lifecycle-init.ts::buildSetBucketNameBody --> <!-- @impl: src/lib/container-config-schema.ts::SetBucketNameBodySchema --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/lib/container-config-schema.test.ts (REQ-AGENT-029: selected OAuth account transport boundary) --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-029: independent selected OAuth account environment) -->
+7. Browser Run account/token configuration and credential routing remain unchanged and independent of this hint. A valid OAuth hint does not require Browser Run configuration, non-Enterprise OAuth also receives it, and restricted Operator environments omit it. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-029: independent selected OAuth account environment) -->
+8. Delivered credential guidance distinguishes Browser Run from the owner's selected OAuth management account, treats the hint as potentially stale metadata rather than authorization, preserves explicit user targets, uses managed account discovery when needed and only overrides Wrangler's account variable for the individual command. <!-- @impl: preseed/agents/claude/skills/deploy-credentials/SKILL.md --> <!-- @manual -->
 
 **Constraints:**
 
+- The new hint contains no credential or refresh token, grants no permission, adds no persistence/migration, and is not hot-refreshed into existing shells.
 - Misconfigured Copilot scope can cause silent agent auth failure; full Copilot support requires the Advanced tier (see [REQ-AGENT-028](#req-agent-028-deploy-credential-token-creation-ux)).
 
 **Priority:** P1
@@ -1928,7 +1935,7 @@ None.
 
 **Verification:** Automated: [entrypoint-credentials.test.js](../../host/__tests__/entrypoint-credentials.test.js), [container-env.test.ts](../../src/__tests__/container/container-env.test.ts), [container-lifecycle-helpers.test.ts](../../src/__tests__/routes/container-lifecycle-helpers.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts); Manual: [Agent settings and seed acceptance](../../documentation/lanes/preseed.md#agent-settings-and-seed-acceptance)
 
-**Status:** Implemented
+**Status:** Planned — AC5–8 implementation and exact-revision verification pending; existing propagation behavior is retained.
 
 ---
 

@@ -38,14 +38,14 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 3. The stored token is never returned to the browser. <!-- @impl: src/lib/github-token.ts::storeGithubConnection --> <!-- @test: src/__tests__/lib/github-token.test.ts (github-token storage & status) -->
 4. GitHub App tokens carry an expiry and refresh token; resolving a token returns a currently-valid one, refreshing within the skew window and **failing closed** (returning none) when an expired App token cannot be refreshed — never a stale token. <!-- @impl: src/lib/github-token.ts::getValidGithubToken --> <!-- @test: src/__tests__/lib/github-token.test.ts (getValidGithubToken) -->
 5. Every mode checks Setup KV first, honoring its selected App or OAuth provider. Unavailable/incomplete Setup permits deploy-env fallback, where GitHub App outranks OAuth App. Without a usable provider from either source, the integration is unavailable. <!-- @impl: src/lib/github-token.ts::getGithubProvider --> <!-- @impl: src/lib/github-token.ts::getProviderFromKv --> <!-- @test: src/__tests__/lib/github-token.test.ts (getGithubProvider) -->
-6. A manually-pasted fine-grained PAT (existing deploy-keys flow) coexists, marked source `'pat'`, and is never sent to the App/OAuth refresh or revoke endpoints. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/lib/github-token.test.ts (getValidGithubToken) -->
+6. Outside Enterprise mode, a manually-pasted fine-grained PAT (existing deploy-keys flow) coexists, marked source `'pat'`, and is never sent to the App/OAuth refresh or revoke endpoints. Enterprise disables the entire direct credential router for every role under [REQ-ENTERPRISE-009](security.md#req-enterprise-009-enterprise-backend-route-hardening) AC8; managed GitHub App and OAuth App connection flows remain unchanged. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/lib/github-token.test.ts (getValidGithubToken) -->
 
 **Constraints:**
 
 - Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6 and [REQ-GITHUB-013](#req-github-013-connected-github-tokens-grant-gist-access)); the GitHub App's equivalent permissions are fixed at registration and ignore the tier.
 - Enterprise GitHub Apps must be **internal** to the customer's enterprise — EMU managed users cannot authorize third-party apps.
 - GitHub connection controls use OAuth without manual token paste on the dashboard ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)); Settings → Integrations manages owner Cloudflare connections independently of administrator Browser Run credentials ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
-- The deploy-keys PAT backend remains unchanged.
+- Non-Enterprise deploy-keys PAT behavior remains unchanged. Enterprise denies direct credential management without changing provider resolution or adding legacy credential handling.
 
 **Priority:** P1
 

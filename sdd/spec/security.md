@@ -693,8 +693,11 @@ Security requirements for authentication enforcement, credential isolation, encr
 6. When the Enterprise-mode binding is set, preferences updates are not fail-closed: the SaaS advanced-mode entitlement gate is bypassed so any user may select Pro, and effective session mode is forced to Pro regardless of stored value. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC6: PATCH /api/preferences is not fail-closed in enterprise mode) --> <!-- @test: src/__tests__/routes/preferences-enterprise.test.ts (AC2 (REQ-ENTERPRISE-001): PATCH response reports advanced under enterprise while persisting the raw preference) -->
 7. When the Enterprise-mode binding is unset, these routes retain their ordinary authorization, validation and response contracts: admin user and tier reads return their normal JSON, billing actions reach ordinary Stripe configuration checks, subscription requests retain eligible signup/email behavior, unsigned Stripe webhooks are rejected, and preferences persist the requested eligible session mode. Enterprise-only refusals do not replace those paths. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC7: flag unset is byte-identical to current behavior) -->
 
+8. Authenticated Enterprise GET, PUT and DELETE requests to `/api/deploy-keys` return 403 for every role, including administrators, before route-specific parsing, credential reads, provider validation or mutations. Both configured GitHub provider types remain supported through their managed connection flows; the direct router neither discloses, substitutes nor clears credentials. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (REQ-ENTERPRISE-009 AC8: enterprise deploy credentials are disabled) -->
+
 **Constraints:**
 
+- This boundary prevents new direct credential substitution; it does not migrate, enumerate, revoke or invalidate previously stored credentials.
 - All guards consult the single `isEnterpriseMode(env)` resolver ([REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC4); no route reads the raw binding.
 - Action endpoints fail closed with 403; the read-only billing-status endpoint returns an empty state (200) so non-enterprise clients that still poll it do not error.
 - These guards are defense-in-depth behind the frontend suppression in [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression); neither layer alone is sufficient.
@@ -703,9 +706,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-ENTERPRISE-001](subscription.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](subscription.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-008](setup.md#req-enterprise-008-enterprise-frontend-surface-suppression)
 
-**Verification:** Automated: [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts)
+**Verification:** Automated: [auth-subscribe.test.ts](../../src/__tests__/routes/auth-subscribe.test.ts), [billing.test.ts](../../src/__tests__/routes/billing.test.ts), [enterprise-route-hardening.test.ts](../../src/__tests__/routes/enterprise-route-hardening.test.ts), [preferences-enterprise.test.ts](../../src/__tests__/routes/preferences-enterprise.test.ts), [stripe-webhook.test.ts](../../src/__tests__/routes/stripe-webhook.test.ts), [deploy-keys.test.ts](../../src/__tests__/routes/deploy-keys.test.ts)
 
-**Status:** Implemented
+**Status:** Planned — AC8 implementation and exact-revision verification pending; existing AC1–7 behavior is retained.
 
 ---
 
