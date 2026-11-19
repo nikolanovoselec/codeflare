@@ -60,7 +60,6 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 
 ## 2026-11-19: Review applicability before Operator execution authority
 
-- REQ-OPERATOR-214 isolates the existing parent-bound enrollment preflight from REQ-OPERATOR-053 AC3 checkout lifecycle handling; this specification split adds no runtime behavior.
 - REQ-OPERATOR-053 AC1/AC3 resolves trusted target-Action applicability before requiring an Operator session generation, human credential or Activity binding. Confirmed unconfigured/absent or explicitly inactive enrollment preserves local Review; custom Action paths, unknown-state refusal and active remote authorization remain intact.
 - This is a backend applicability-ordering correction, not a new review launcher or authorization bypass. Source and regression coverage do not establish deployed behavior or CI success.
 - The unchanged, matching baked/curated selectors retain authoritative local/remote/unavailable routing. Both trees carry native behavioral routing regression coverage; the Codeflare interceptor suite additionally exercises the packaged selector against the backend. The workspace-only local-review override is not managed content.
