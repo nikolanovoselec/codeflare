@@ -3,8 +3,8 @@
  *
  *   REQ-SEC-014 AC1  — cf-access-client-id header only trusted when !isSaasModeActive()
  *   REQ-SEC-014 AC2  — In SaaS mode the header is ignored (attacker-controlled)
- *   REQ-SEC-016 AC1/2 — Independent requests do not share pending storage I/O
- *   REQ-SEC-016 AC3   — Completed caches are reusable and explicitly invalidated
+ *   REQ-SEC-016 AC1   — Independent requests do not share pending storage I/O
+ *   REQ-SEC-016 AC2/6 — Completed caches are reusable and explicitly invalidated
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -119,7 +119,7 @@ describe('REQ-SEC-016: independent auth requests and completed cache reuse', () 
     headers: { 'cf-access-authenticated-user-email': 'setup@example.test' },
   });
 
-  it('REQ-SEC-016 AC1/AC2: held storage I/O cannot stall a second authentication request', async () => {
+  it('REQ-SEC-016 AC1: held storage I/O cannot stall a second authentication request', async () => {
     const mockKV = createMockKV();
     mockKV._store.set('setup:auth_domain', 'team.cloudflareaccess.com');
     mockKV._store.set('setup:access_aud', 'aud-123');
@@ -156,7 +156,7 @@ describe('REQ-SEC-016: independent auth requests and completed cache reuse', () 
     }
   });
 
-  it('REQ-SEC-016 AC1: completed configuration remains usable during a storage outage', async () => {
+  it('REQ-SEC-016 AC2: completed configuration remains usable during a storage outage', async () => {
     const mockKV = createMockKV();
     mockKV._store.set('setup:auth_domain', 'team.cloudflareaccess.com');
     mockKV._store.set('setup:access_aud', 'aud-123');
@@ -166,7 +166,7 @@ describe('REQ-SEC-016: independent auth requests and completed cache reuse', () 
     expect((await getUserFromRequest(request(), env)).authenticated).toBe(false);
   });
 
-  it('REQ-SEC-016 AC3: reset makes newly configured authentication visible', async () => {
+  it('REQ-SEC-016 AC6: reset makes newly configured authentication visible', async () => {
     const mockKV = createMockKV();
     const env = makeEnv({}, mockKV);
     expect((await getUserFromRequest(request(), env)).authenticated).toBe(true);

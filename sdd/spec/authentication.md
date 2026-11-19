@@ -102,8 +102,12 @@ None. Authentication is foundational; other domains depend on it.
 
 **Constraints:**
 
-- Completed JWKS snapshots are cached per Worker isolate for one hour, bound to their authentication domain, and can be explicitly invalidated. A key-ID miss may refresh keys older than 30 seconds.
-- Cache misses own their network requests rather than sharing request-bound promises. An unfinished or failed request cannot stall another verifier or overwrite a newer/reset snapshot. <!-- @impl: src/lib/jwt.ts::getPublicKeys --> <!-- @test: src/__tests__/lib/jwt.test.ts (REQ-AUTH-003: request-owned JWKS reads and completed snapshots) -->
+- Completed JWKS snapshots are cached per Worker isolate for one hour, bound to their authentication domain.
+- Explicit invalidation clears cached JWKS snapshots.
+- A key-ID miss may refresh keys older than 30 seconds.
+- Cache misses own their network requests rather than sharing request-bound promises.
+- An unfinished or failed request cannot stall another verifier.
+- Earlier completions cannot overwrite a newer or reset snapshot. <!-- @impl: src/lib/jwt.ts::getPublicKeys --> <!-- @test: src/__tests__/lib/jwt.test.ts (REQ-AUTH-003: request-owned JWKS reads and completed snapshots) -->
 - Admin-only deployments (no regular users) are supported.
 
 **Priority:** P0
@@ -669,7 +673,6 @@ None.
 5. Access 3xx, opaque or status-zero redirects, and HTML login responses on either successful or unsuccessful authenticated API requests settle through the same clean sign-in recovery as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::baseFetch --> <!-- @impl: web-ui/src/api/fetch-helper.ts::isHtmlResponse --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)) -->
 6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions) -->
 7. Fingerprinted application CSS and JavaScript requests execute the Worker asset path and receive immutable browser caching only for successful non-HTML assets, preventing an expired Access session from replacing a restored document's styles while keeping SPA fallback HTML revalidating. <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching) -->
-8. Bootstrap network and server failures render a recoverable service-error state with the existing Retry control, not an expired-session or access-denied state. Retry can restore the authenticated application after the service recovers. A genuine forbidden response remains access-denied and never mounts the protected application. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC8: bootstrap service failures remain recoverable without claiming expired authentication) -->
 
 **Constraints:**
 
@@ -686,6 +689,32 @@ None.
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode)
 
 **Verification:** Automated: [index.test.ts](../../src/__tests__/index.test.ts), [fetch-helper-401-redirect.test.ts](../../web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts), [auth-022-resume-redirect.test.tsx](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx)
+
+**Status:** Implemented
+
+---
+
+### REQ-AUTH-024: Bootstrap service-error recovery
+
+**Intent:** Account-loading failures must provide recovery without misreporting a server outage as expired authentication.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Bootstrap network and server failures render a recoverable service-error state with the existing Retry control, not an expired-session or access-denied state. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-024 AC1/AC2: bootstrap service failures remain recoverable without claiming expired authentication) -->
+2. Retry restores the authenticated application after the account service recovers. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-024 AC1/AC2: bootstrap service failures remain recoverable without claiming expired authentication) -->
+3. A genuine forbidden response remains access-denied and never mounts the protected application. <!-- @impl: web-ui/src/App.tsx::AppContent --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (keeps a forbidden account separate from a recoverable service failure) -->
+
+**Constraints:**
+
+- Genuine authentication expiry retains the sign-in recovery required by [REQ-AUTH-022](#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AUTH-022](#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)
+
+**Verification:** Automated: [auth-022-resume-redirect.test.tsx](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx)
 
 **Status:** Implemented
 
@@ -770,9 +799,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. Cache misses read a complete configuration within their own request lifetime; a held earlier read does not stall independent authentication. Warm requests reuse only completed snapshots. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC1/AC2: a held first request at %s does not stall independent authentication) -->
-2. A rejected earlier read cannot poison another request or its completed cache. Concurrent requests use their own complete domain/audience snapshot and cannot publish partial configuration. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC2: a rejected first request does not poison another request or the completed cache) --> <!-- @test: src/__tests__/lib/jwt.test.ts (REQ-SEC-016: concurrent auth config loads use their own complete domain and audience snapshot) -->
-3. Cached configuration expires after five minutes for a populated domain or 30 seconds for negative configuration. Explicit invalidation forces fresh reads and fences earlier in-flight work from repopulating the cache or configured-state latch. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC3: reset fences a held old configuration from repopulating the cache or configured latch) --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC3: $state cache expires and freshly saved configuration rejects header trust) -->
+1. Cache misses read configuration within their own request lifetime; a held earlier read does not stall independent authentication. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC1: a held first request at %s does not stall independent authentication) -->
+2. Warm requests reuse only completed configuration snapshots, including during a storage outage. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/security/access-security.test.ts (REQ-SEC-016 AC2: completed configuration remains usable during a storage outage) -->
+3. A rejected earlier read cannot poison another request or its completed cache. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC3: a rejected first request does not poison another request or the completed cache) -->
+4. Concurrent requests use their own complete domain/audience snapshot without publishing partial configuration. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/jwt.test.ts (REQ-SEC-016 AC4: concurrent auth config loads use their own complete domain and audience snapshot) --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-001 AC4: a request arriving between domain and audience reads cannot trust an unsigned header) -->
+5. Cached configuration expires after five minutes for a populated domain or 30 seconds for negative configuration. <!-- @impl: src/lib/access.ts::loadAuthConfig --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC5: $state cache expires and freshly saved configuration rejects header trust) -->
+6. Explicit invalidation forces fresh reads and prevents earlier in-flight work from repopulating the cache or configured-state latch. <!-- @impl: src/lib/access.ts::resetAuthConfigCache --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC6: reset fences a held old configuration from repopulating the cache or configured latch) --> <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (REQ-SEC-016 AC6: reset after a completed snapshot makes the saved configuration visible) -->
 
 **Constraints:**
 

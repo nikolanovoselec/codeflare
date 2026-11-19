@@ -50,7 +50,7 @@ describe('REQ-SEC-016: request-owned auth config reads and completed snapshots',
   afterEach(() => { vi.restoreAllMocks(); });
 
   it.each(['setup:auth_domain', 'setup:access_aud_list', 'setup:access_aud'])(
-    'REQ-SEC-016 AC1/AC2: a held first request at %s does not stall independent authentication', async heldKey => {
+    'REQ-SEC-016 AC1: a held first request at %s does not stall independent authentication', async heldKey => {
       const started = deferred<void>();
       const held = deferred<string | null>();
       let hold = true;
@@ -103,7 +103,7 @@ describe('REQ-SEC-016: request-owned auth config reads and completed snapshots',
     },
   );
 
-  it('REQ-SEC-016 AC2: a rejected first request does not poison another request or the completed cache', async () => {
+  it('REQ-SEC-016 AC3: a rejected first request does not poison another request or the completed cache', async () => {
     const started = deferred<void>();
     const held = deferred<string | null>();
     let hold = true;
@@ -120,7 +120,7 @@ describe('REQ-SEC-016: request-owned auth config reads and completed snapshots',
     expect(await getUserFromRequest(unsignedRequest(), env)).toMatchObject({ authenticated: false, email: '' });
   });
 
-  it('REQ-SEC-016 AC3: reset fences a held old configuration from repopulating the cache or configured latch', async () => {
+  it('REQ-SEC-016 AC6: reset fences a held old configuration from repopulating the cache or configured latch', async () => {
     const started = deferred<void>();
     const held = deferred<string | null>();
     const oldEnv = { KV: { get: async (key: string) => {
@@ -140,7 +140,7 @@ describe('REQ-SEC-016: request-owned auth config reads and completed snapshots',
     expect(await getUserFromRequest(unsignedRequest(), currentEnv)).toMatchObject({ authenticated: true, email: 'setup@example.test' });
   });
 
-  it('REQ-SEC-016 AC3: reset after a completed snapshot makes the saved configuration visible', async () => {
+  it('REQ-SEC-016 AC6: reset after a completed snapshot makes the saved configuration visible', async () => {
     const values: Record<string, string | null> = {};
     const env = environment(values);
     expect((await getUserFromRequest(unsignedRequest(), env)).authenticated).toBe(true);
@@ -152,7 +152,7 @@ describe('REQ-SEC-016: request-owned auth config reads and completed snapshots',
   it.each([
     { domain: null, ttl: 30_000, state: 'negative' },
     { domain: 'team.cloudflareaccess.com', ttl: 300_000, state: 'domain-populated, audience not yet saved' },
-  ])('REQ-SEC-016 AC3: $state cache expires and freshly saved configuration rejects header trust', async ({ domain, ttl }) => {
+  ])('REQ-SEC-016 AC5: $state cache expires and freshly saved configuration rejects header trust', async ({ domain, ttl }) => {
     const values: Record<string, string | null> = { 'setup:auth_domain': domain };
     const env = environment(values);
     const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);

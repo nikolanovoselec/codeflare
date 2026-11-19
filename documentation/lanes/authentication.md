@@ -100,11 +100,11 @@ This primitive is not operator admission or renewal: callers must still enforce 
 The Worker verifies Access JWTs against the configured issuer/JWKS and derives the principal from verified claims. Setup may create the Access application, groups, and policies in applicable modes; exact resource configuration belongs to [Configuration](configuration.md).
 <!-- @impl: src/index.ts::app -->
 
-Auth configuration and domain-bound JWKS caches retain completed snapshots only. Cache misses own their I/O instead of awaiting another request's promise, and invalidation fences older reads from replacing newer cached state. Configuration keeps its five-minute populated-domain / 30-second negative TTL; JWKS keeps its one-hour TTL and 30-second key-miss refresh threshold. Authentication failures remain fail-closed.
+Auth configuration ([REQ-SEC-016](../../sdd/spec/authentication.md#req-sec-016-request-independent-authentication-configuration-caching)) and domain-bound JWKS caches ([REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments)) retain completed snapshots only. Cache misses own their I/O instead of awaiting another request's promise, and invalidation fences older reads from replacing newer cached state. Configuration keeps its five-minute populated-domain / 30-second negative TTL; JWKS keeps its one-hour TTL and 30-second key-miss refresh threshold. Authentication failures remain fail-closed.
 <!-- @impl: src/lib/access.ts::loadAuthConfig -->
 <!-- @impl: src/lib/jwt.ts::getPublicKeys -->
 
-During application bootstrap, network and server failures show a recoverable account-loading error with Retry, rather than claiming the user is unauthenticated. Genuine session expiry still starts sign-in, and forbidden access does not mount the protected application.
+During application bootstrap ([REQ-AUTH-024](../../sdd/spec/authentication.md#req-auth-024-bootstrap-service-error-recovery)), network and server failures show a recoverable account-loading error with Retry, rather than claiming the user is unauthenticated. Genuine session expiry still starts sign-in, and forbidden access does not mount the protected application.
 <!-- @impl: web-ui/src/App.tsx::AppContent -->
 
 ```mermaid

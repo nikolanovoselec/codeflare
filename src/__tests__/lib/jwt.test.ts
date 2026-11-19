@@ -727,7 +727,7 @@ describe('JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS cachi
       },
     );
 
-    it('REQ-SEC-016: concurrent auth config loads use their own complete domain and audience snapshot', async () => {
+    it('REQ-SEC-016 AC4: concurrent auth config loads use their own complete domain and audience snapshot', async () => {
       resetAuthConfigCache();
       const otherDomain = 'other-team.cloudflareaccess.com';
       const oldToken = await sign();

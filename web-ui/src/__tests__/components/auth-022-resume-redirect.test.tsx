@@ -105,7 +105,7 @@ describe('REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not
   });
 });
 
-describe('REQ-AUTH-022 AC8: bootstrap service failures remain recoverable without claiming expired authentication', () => {
+describe('REQ-AUTH-024 AC1/AC2: bootstrap service failures remain recoverable without claiming expired authentication', () => {
   it.each([
     ['server failure', new ApiError('Internal error', 500, 'Internal Server Error')],
     ['unavailable service', new ApiError('Unavailable', 503, 'Service Unavailable')],
