@@ -17,7 +17,7 @@ async function withRegistry(test: (registry: OperatorRegistry) => Promise<void>)
 }
 
 describe('REQ-OPERATOR-053: target Action trust is admin-owned and distinct from package build provenance', () => {
-  it('does not select a target repository from an operator release workflow or absent protected binding', () => withRegistry(async registry => {
+  it('returns no target Action for repositories without protected bindings', () => withRegistry(async registry => {
     expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toBeNull();
     expect(await registry.getBoundaryAction(139, 'refs/heads/main')).toBeNull();
   }));
@@ -37,15 +37,64 @@ describe('REQ-OPERATOR-053: target Action trust is admin-owned and distinct from
     expect((await registry.setManagementControls({ ...empty, boundaryActions: [inactive] },
       { email: 'admin@example.test', expiresAt: Date.now() + 60_000 }, true)).ok).toBe(true);
     expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toBeNull();
-    const selection = await selectVerifiedBoundaryAction({ OPERATOR_REGISTRY: { getByName: () => registry },
-      OPERATOR_ACTIVITY: { getByName: () => ({}) } } as never,
-    { subject: 'human', email: 'human@example.test', issuer: 'https://issuer.example.test', audiences: ['aud'],
-      issuedAt: Math.floor(Date.now() / 1000) - 1, expiresAt: Math.floor(Date.now() / 1000) + 300 },
+    const selection = await selectVerifiedBoundaryAction({ OPERATOR_REGISTRY: { getByName: () => registry } } as never,
+    async () => { throw Error('Inactive enrollment must not require remote human authority'); },
     { owner: 'owner', repository: 'repo', repositoryId: 138, baseRef: 'main', baseSha: 'a'.repeat(40) },
     async path => path === '/repos/owner/repo'
       ? Response.json({ id: 138, full_name: 'owner/repo', default_branch: 'main' })
       : Response.json({ name: 'main', protected: true, commit: { sha: 'a'.repeat(40) } }));
     expect(selection).toBe('local');
+  }));
+  it.each(['unavailable', 'expired'] as const)(
+    'REQ-OPERATOR-053: confirmed absent target Action stays local with %s human authority and no Activity binding',
+    authority => withRegistry(async registry => {
+      const selection = await selectVerifiedBoundaryAction({ OPERATOR_REGISTRY: { getByName: () => registry } } as never,
+        async () => {
+          if (authority === 'unavailable') throw Error('No remote human authority');
+          return { subject: 'human', email: 'human@example.test', issuer: 'https://issuer.example.test',
+            audiences: ['aud'], issuedAt: 1, expiresAt: Math.floor(Date.now() / 1000) - 1 };
+        },
+        { owner: 'owner', repository: 'repo', repositoryId: 138, baseRef: 'main', baseSha: 'a'.repeat(40) },
+        async path => {
+          if (path === '/repos/owner/repo') return Response.json({ id: 138, full_name: 'owner/repo' });
+          if (path === '/repos/owner/repo/branches/main') return Response.json({ name: 'main', protected: true,
+            commit: { sha: 'a'.repeat(40) } });
+          if (path === `/repos/owner/repo/contents/.github/workflows?ref=${'a'.repeat(40)}`) {
+            return Response.json([{ name: 'ci.yml' }]);
+          }
+          throw Error(`Unexpected discovery request: ${path}`);
+        });
+      expect(selection).toBe('local');
+      expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toBeNull();
+    }));
+  it.each([
+    { name: 'forbidden listing', status: 403, body: 'forbidden' },
+    { name: 'inaccessible parent listings', status: 404, body: 'not found' },
+    { name: 'malformed listing JSON', status: 200, body: '{' },
+    { name: 'invalid UTF-8 listing', status: 200, body: new Uint8Array([0xff]) },
+    { name: 'non-array listing', status: 200, body: '{}' },
+    { name: 'null listing entry', status: 200, body: '[null]' },
+    { name: 'entry with no child name', status: 200, body: '[{}]' },
+    { name: 'null child name', status: 200, body: '[{"name":null}]' },
+    { name: 'non-string child name', status: 200, body: '[{"name":42}]' },
+    { name: 'empty child name', status: 200, body: '[{"name":""}]' },
+    { name: 'nested path instead of child name', status: 200, body: '[{"name":"nested/ci.yml"}]' },
+    { name: 'dot instead of child name', status: 200, body: '[{"name":"."}]' },
+    { name: 'parent instead of child name', status: 200, body: '[{"name":".."}]' },
+    { name: 'existing unconfigured yml workflow', status: 200, body: '[{"name":"boundary-reviews.yml"}]' },
+    { name: 'existing unconfigured yaml workflow', status: 200, body: '[{"name":"boundary-reviews.yaml"}]' },
+  ])('REQ-OPERATOR-053: $name cannot establish absent target Action', ({ status, body }) => withRegistry(async registry => {
+    const selection = await selectVerifiedBoundaryAction({ OPERATOR_REGISTRY: { getByName: () => registry } } as never,
+      async () => { throw Error('Uncertain applicability grants no remote human authority'); },
+      { owner: 'owner', repository: 'repo', repositoryId: 138, baseRef: 'main', baseSha: 'a'.repeat(40) },
+      async path => {
+        if (path === '/repos/owner/repo') return Response.json({ id: 138, full_name: 'owner/repo' });
+        if (path === '/repos/owner/repo/branches/main') return Response.json({ name: 'main', protected: true,
+          commit: { sha: 'a'.repeat(40) } });
+        return new Response(body, { status });
+      });
+    expect(selection).toBe('unavailable');
+    expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toBeNull();
   }));
   it('refuses duplicate bindings and expired configuration authority', () => withRegistry(async registry => {
     await expect(registry.setManagementControls({ ...empty, boundaryActions: [action, action] },

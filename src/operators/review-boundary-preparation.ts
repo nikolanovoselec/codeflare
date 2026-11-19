@@ -24,19 +24,18 @@ async function digest(value: unknown): Promise<string> {
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-/** Applicability selection reads trusted bindings; the interceptor separately stages input on remote selection. */
+/** Resolve trusted applicability before requesting remote-only execution authority. */
 export async function selectVerifiedBoundaryAction(
   env: Env,
-  authority: VerifiedHumanAccessClaims,
+  readAuthority: () => Promise<VerifiedHumanAccessClaims>,
   target: { owner: string; repository: string; repositoryId: number; baseRef: string; baseSha: string },
   api: (path: string) => Promise<Response>,
 ): Promise<'local' | 'remote' | 'unavailable'> {
-  if (!env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY
+  if (!env.OPERATOR_REGISTRY
     || !/^[A-Za-z0-9_.-]+$/.test(target.owner) || !/^[A-Za-z0-9_.-]+$/.test(target.repository)
     || !Number.isSafeInteger(target.repositoryId) || target.repositoryId < 1
     || !/^(main|master|develop)$/.test(target.baseRef)
-    || !/^[a-f0-9]{40}$/i.test(target.baseSha)
-    || authority.expiresAt * 1000 <= Date.now()) return 'unavailable';
+    || !/^[a-f0-9]{40}$/i.test(target.baseSha)) return 'unavailable';
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const root = `/repos/${target.owner}/${target.repository}`;
   async function json(path: string): Promise<unknown> {
@@ -76,7 +75,9 @@ export async function selectVerifiedBoundaryAction(
         if (response.status !== 200) return 'unavailable';
         const entries = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
           await readBoundedResponse(response, 128 * 1024, 'Action absence listing'))) as unknown;
-        if (!Array.isArray(entries) || entries.length >= 1000) return 'unavailable';
+        if (!Array.isArray(entries) || entries.length >= 1000
+          || entries.some(entry => typeof entry?.name !== 'string' || !entry.name
+            || entry.name === '.' || entry.name === '..' || entry.name.includes('/'))) return 'unavailable';
         if (entries.some(entry => entry?.name === next
           || (next === 'boundary-reviews.yml' && entry?.name === 'boundary-reviews.yaml'))) return 'unavailable';
         return 'local';
@@ -91,7 +92,9 @@ export async function selectVerifiedBoundaryAction(
     };
     const decision = await resolveBoundaryAction({ action, repository, baseRef: protectedRef, workflow, branch, contents,
       event: 'pull_request_target' });
-    if (decision.selection !== 'remote') return 'unavailable';
+    if (decision.selection !== 'remote' || !env.OPERATOR_ACTIVITY) return 'unavailable';
+    const authority = await readAuthority();
+    if (authority.expiresAt * 1000 <= Date.now()) return 'unavailable';
     const installed = await registry.resolveManagementExecution(decision.installationId);
     return installed.ok && installed.value.controlsRevision === decision.controlsRevision
       && installed.value.operator.profile === 'conductor'

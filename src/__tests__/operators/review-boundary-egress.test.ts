@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { selectOperatorReviewApplicability } from '../../../preseed/agents/pi/extensions/operator-review-selector';
 import type { Env } from '../../types';
 import { getBucketName } from '../../lib/access';
 import { GitHubInterceptor } from '../../github-interceptor';
@@ -17,7 +21,7 @@ vi.mock('../../lib/access', async (importOriginal) => {
     audiences: ['aud'], issuedAt: 1, expiresAt: Math.floor(Date.now() / 1000) + 300,
   }, accessJwt: 'private.jwt' }) };
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 const ownerBucket = getBucketName('owner@example.test');
 const oldHead = 'a'.repeat(40), head = 'b'.repeat(40), base = 'c'.repeat(40), mergeBase = 'd'.repeat(40);
 const packet = (text: string) => `${(new TextEncoder().encode(text).length + 4).toString(16).padStart(4, '0')}${text}`;
@@ -32,8 +36,19 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
   missingInput?: boolean; noAuthority?: boolean; tamperedAction?: boolean;
   multipleHeadPulls?: boolean; lifecycleChange?: boolean; wrongCreationRepository?: boolean;
   actionUnprotectedMidflight?: boolean; handoffUncertain?: boolean;
-  restartedBeforePush?: boolean; piFirst?: boolean; wrongOwnerBucket?: boolean } = {}) {
+  restartedBeforePush?: boolean; piFirst?: boolean; wrongOwnerBucket?: boolean;
+  missingGeneration?: boolean; missingSessionId?: boolean; unavailableSession?: boolean;
+  missingActivity?: boolean; inactiveAction?: boolean; customActionPath?: boolean; untrustedAction?: boolean;
+  lookup?: 'forbidden' | 'malformed' | 'malformed-entry' | 'workflow-present';
+  registryFailure?: 'missing' | 'unreadable' | 'malformed-controls' | 'ambiguous';
+  nonEnterprise?: boolean } = {}) {
   let piEvidence = !options.piFirst;
+  let stagedInput: unknown = options.missingInput || options.piFirst ? null : boundaryInput;
+  const actionPath = options.customActionPath
+    ? '.github/workflows/custom-review.yml' : '.github/workflows/boundary-reviews.yml';
+  const binding = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
+    workflowPath: actionPath, protectedRef: 'refs/heads/main', workflowDigest,
+    events: options.untrustedAction ? ['pull_request'] : ['pull_request_target'], controlsRevision: 4 };
   let prepared: { activityId: string; contextDigest: string } | null = null;
   let activity: { activityId: string; phase: string } | null = null;
   let boundary: BoundaryActivityBinding | null = null;
@@ -48,10 +63,13 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
         invokers: { users: ['owner@example.test'], groups: [] } },
       release: { id: 'review-release', bundleDigest: 'e'.repeat(64) }, controlsRevision: 4,
     } }),
-    getManagementControls: async () => ({ boundaryActions: [] }),
-    getBoundaryAction: async () => options.denied ? null : ({ repositoryId: 138, installationId: 'review-install',
-      workflowId: 531, workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main',
-      workflowDigest, events: ['pull_request_target'], controlsRevision: 4 }),
+    getManagementControls: async () => {
+      if (options.registryFailure === 'unreadable') throw Error('Registry unavailable');
+      if (options.registryFailure === 'malformed-controls') return { boundaryActions: {} };
+      return { boundaryActions: options.inactiveAction ? [{ ...binding, enabled: false }]
+        : options.registryFailure === 'ambiguous' ? [{ ...binding, protectedRef: 'refs/heads/develop' }] : [] };
+    },
+    getBoundaryAction: async () => options.denied || options.inactiveAction ? null : binding,
     reserveBoundaryPreparation: async (request: { contextDigest: string }) => {
       prepared = { activityId: 'reserved-activity', contextDigest: request.contextDigest };
       return { ok: true, value: { activityId: prepared.activityId, created: true } };
@@ -71,8 +89,10 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
       issuer: 'https://team.cloudflareaccess.com', audiences: ['aud'], issuedAt: 1,
       expiresAt: Math.floor(Date.now() / 1000) + 300 }, accessJwt: 'private.jwt' };
     },
-    getBoundaryInput: async () => options.missingInput ? null : boundaryInput,
-    stageBoundaryInput: async () => { piEvidence = true; return null; },
+    getBoundaryInput: async () => stagedInput,
+    stageBoundaryInput: async (request: { input: unknown }) => {
+      stagedInput = request.input; piEvidence = true; return null;
+    },
     stagePushEvidence: async (push: { owner: string; repository: string; ref: string; head: string }) =>
       options.missingInput || !piEvidence ? null : { generation: 1, push, input: boundaryInput },
     stagePrCreationEvidence: async (evidence: { pullRequest: number; repositoryNodeId: string;
@@ -91,17 +111,21 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
     activity = { activityId: intent.activityId, phase: 'prepared' }; return { ok: true, phase: 'prepared' };
   }, getBrowserDetail: async () => activity, getBoundaryStartBinding: async () => boundary,
     getPreparedInvocation: async () => admittedInvocation };
-  const env = { ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: btoa('a'.repeat(32)),
-    CONTAINER: { getByName: () => container, idFromName: (name: string) => name,
+  const env = { ENTERPRISE_MODE: options.nonEnterprise ? undefined : 'active', ENCRYPTION_KEY: btoa('a'.repeat(32)),
+    CONTAINER: { getByName: () => {
+      if (options.unavailableSession) throw Error('Remote Review session unavailable');
+      return container;
+    }, idFromName: (name: string) => name,
       get: (id: string) => ({ claimBucketOwner: async (email: string) =>
         id === `bucket-owner:${ownerBucket}` && email === 'owner@example.test' ? 'owned' : 'conflict' }) },
-    OPERATOR_REGISTRY: { getByName: () => registry },
-    OPERATOR_ACTIVITY: { getByName: () => operatorActivity } } as unknown as Env;
+    OPERATOR_REGISTRY: options.registryFailure === 'missing' ? undefined : { getByName: () => registry },
+    OPERATOR_ACTIVITY: options.missingActivity ? undefined : { getByName: () => operatorActivity } } as unknown as Env;
   const waiting: Promise<unknown>[] = [];
   let branchReads = 0;
   const client = new GitHubInterceptor({ props: { user: 'owner@example.test',
     bucket: options.wrongOwnerBucket ? 'another-owner-bucket' : ownerBucket,
-    sessionId: 'review1234', lifecycleGeneration: 1 },
+    sessionId: options.missingSessionId ? undefined : 'review1234',
+    lifecycleGeneration: options.missingGeneration ? undefined : 1 },
     waitUntil: (work: Promise<unknown>) => { waiting.push(work); } } as unknown as ExecutionContext, env);
   vi.spyOn(globalThis, 'fetch').mockImplementation(async request => {
     const next = request as Request;
@@ -132,8 +156,13 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
     if (path.includes('/compare/')) return Response.json({ merge_base_commit: {
       sha: path.includes(`/compare/${oldHead}...`) ? oldHead : mergeBase } });
     if (path.includes('/actions/workflows/')) return Response.json({ id: 531,
-      path: '.github/workflows/boundary-reviews.yml', state: 'active' });
-    if (path.endsWith('/contents/.github/workflows')) return Response.json([]);
+      path: actionPath, state: 'active' });
+    if (path.endsWith('/contents/.github/workflows')) {
+      if (options.lookup === 'forbidden') return new Response('forbidden', { status: 403 });
+      if (options.lookup === 'malformed') return new Response('{');
+      if (options.lookup === 'malformed-entry') return Response.json([{}]);
+      return Response.json(options.lookup === 'workflow-present' ? [{ name: 'boundary-reviews.yml' }] : []);
+    }
     if (path.includes('/contents/')) return new URL(next.url).searchParams.get('ref') === 'e'.repeat(40)
       ? Response.json({ encoding: 'base64',
         content: btoa(options.tamperedAction ? workflowSource.replace('Boundary Reviews', 'Tampered') : workflowSource) })
@@ -143,12 +172,180 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
       commit: { sha: 'e'.repeat(40) } });
     return new Response('unknown GitHub request', { status: 404 });
   });
-  return { client, registry, operatorActivity, waiting };
+  return { client, registry, operatorActivity, waiting, container };
 }
 
 describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation', () => {
+  it.each([
+    { name: 'absent Action', options: { denied: true }, expected: 'local' },
+    { name: 'inactive Action', options: { inactiveAction: true }, expected: 'local' },
+    { name: 'active Action without authority', options: {}, expected: 'unavailable' },
+  ])('REQ-OPERATOR-053: packaged Pi selection preserves $name through the real interceptor', async ({ options, expected }) => {
+    vi.stubEnv('ENTERPRISE_MODE', 'active');
+    const repo = mkdtempSync(join(tmpdir(), 'review-packaged-applicability-'));
+    try {
+      mkdirSync(join(repo, '.git'));
+      mkdirSync(join(repo, 'sdd'));
+      writeFileSync(join(repo, 'sdd/README.md'), 'requirements');
+      const { client, registry, container, waiting } = fixture({ ...options, piFirst: true,
+        missingGeneration: true, noAuthority: true, missingActivity: true, unavailableSession: true });
+      const runner = (async (_program: string, args: string[]) => {
+        if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 34, state: 'OPEN',
+          baseRefName: 'main', headRefOid: head }) };
+        if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/repo',
+          url: 'https://github.com/owner/repo' }) };
+        if (!args.includes('--include')) return { stdout: '138' };
+        const headers = new Headers();
+        for (let index = 0; index < args.length - 1; index += 1) {
+          if (args[index] !== '-H') continue;
+          const header = args[++index]!;
+          const separator = header.indexOf(':');
+          headers.set(header.slice(0, separator), header.slice(separator + 1).trim());
+        }
+        const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', { headers }));
+        const responseHeaders = [...response.headers].map(([key, value]) => `${key}: ${value}`).join('\n');
+        return { stdout: `HTTP/2 ${response.status}\n${responseHeaders}\n\n${await response.text()}` };
+      }) as never;
+      expect(await selectOperatorReviewApplicability({ type: 'session_start' }, { cwd: repo }, runner)).toBe(expected);
+      await Promise.all(waiting);
+      expect(await container.getBoundaryInput()).toBeNull();
+      expect(await registry.getBoundaryPreparation()).toBeNull();
+      expect(await registry.getOwnedActivity()).toBeNull();
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+  it.each([
+    { name: 'missing generation', options: { missingGeneration: true } },
+    { name: 'unavailable or expired human', options: { noAuthority: true } },
+    { name: 'unreachable remote session', options: { unavailableSession: true } },
+    { name: 'missing Activity binding', options: { missingActivity: true } },
+    { name: 'missing remote session identity', options: { missingSessionId: true } },
+    { name: 'all remote prerequisites missing', options: { missingGeneration: true,
+      noAuthority: true, unavailableSession: true, missingActivity: true, missingSessionId: true } },
+  ])('REQ-OPERATOR-053: absent target Action stays local with $name without staging', async ({ options }) => {
+    for (const mode of ['check', '1']) {
+      const { client, registry, operatorActivity, container, waiting } = fixture({ ...options, denied: true, piFirst: true });
+      const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+        headers: { 'x-codeflare-operator-boundary-select': mode,
+          'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+      }));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('local');
+      expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+      await Promise.all(waiting);
+      expect(await container.getBoundaryInput()).toBeNull();
+      expect(await registry.getBoundaryPreparation()).toBeNull();
+      expect(await registry.getOwnedActivity()).toBeNull();
+      expect(await operatorActivity.getBrowserDetail()).toBeNull();
+    }
+  });
+  it('REQ-OPERATOR-053: explicit inactive enrollment stays local with no remote prerequisites', async () => {
+    const { client, registry, operatorActivity, container, waiting } = fixture({ inactiveAction: true, piFirst: true,
+      noAuthority: true, unavailableSession: true, missingGeneration: true, missingSessionId: true, missingActivity: true });
+    const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+      headers: { 'x-codeflare-operator-boundary-select': '1',
+        'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('local');
+    expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+    await Promise.all(waiting);
+    expect(await container.getBoundaryInput()).toBeNull();
+    expect(await registry.getBoundaryPreparation()).toBeNull();
+    expect(await registry.getOwnedActivity()).toBeNull();
+    expect(await operatorActivity.getBrowserDetail()).toBeNull();
+  });
+  it.each([
+    { name: 'forbidden workflow discovery', options: { lookup: 'forbidden' } },
+    { name: 'malformed workflow discovery', options: { lookup: 'malformed' } },
+    { name: 'directory entry without a valid child name', options: { lookup: 'malformed-entry' } },
+    { name: 'existing unconfigured workflow', options: { lookup: 'workflow-present' } },
+    { name: 'missing Registry', options: { registryFailure: 'missing' } },
+    { name: 'unreadable Registry controls', options: { registryFailure: 'unreadable' } },
+    { name: 'malformed Registry controls', options: { registryFailure: 'malformed-controls' } },
+    { name: 'binding on another protected base', options: { registryFailure: 'ambiguous' } },
+  ] as const)('REQ-OPERATOR-053: $name stays unavailable even without remote authority', async ({ options }) => {
+    const { client, registry, operatorActivity, container, waiting } = fixture({ ...options, denied: true,
+      missingGeneration: true, noAuthority: true, missingActivity: true, piFirst: true });
+    const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+      headers: { 'x-codeflare-operator-boundary-select': '1',
+        'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('unavailable');
+    expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+    await Promise.all(waiting);
+    expect(await container.getBoundaryInput()).toBeNull();
+    expect(await registry.getBoundaryPreparation()).toBeNull();
+    expect(await registry.getOwnedActivity()).toBeNull();
+    expect(await operatorActivity.getBrowserDetail()).toBeNull();
+  });
+  it.each([
+    { name: 'missing generation', options: { missingGeneration: true } },
+    { name: 'unavailable or expired human', options: { noAuthority: true } },
+    { name: 'unreachable remote session', options: { unavailableSession: true } },
+    { name: 'missing Activity binding', options: { missingActivity: true } },
+    { name: 'missing remote session identity', options: { missingSessionId: true } },
+  ])('REQ-OPERATOR-053: active trusted Action with $name stays unavailable without staging', async ({ options }) => {
+    const { client, registry, operatorActivity, container, waiting } = fixture({ ...options, piFirst: true });
+    const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+      headers: { 'x-codeflare-operator-boundary-select': '1',
+        'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('unavailable');
+    expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+    await Promise.all(waiting);
+    expect(await container.getBoundaryInput()).toBeNull();
+    expect(await registry.getBoundaryPreparation()).toBeNull();
+    expect(await registry.getOwnedActivity()).toBeNull();
+    expect(await operatorActivity.getBrowserDetail()).toBeNull();
+  });
+  it.each([
+    { name: 'verified custom workflow path', options: { customActionPath: true }, selection: 'remote' },
+    { name: 'tampered custom workflow bytes', options: { customActionPath: true, tamperedAction: true }, selection: 'unavailable' },
+    { name: 'untrusted active event metadata', options: { untrustedAction: true }, selection: 'unavailable' },
+  ])('REQ-OPERATOR-053: $name preserves trusted selection and staging boundaries', async ({ options, selection }) => {
+    const { client, registry, operatorActivity, container, waiting } = fixture({ ...options, piFirst: true });
+    const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+      headers: { 'x-codeflare-operator-boundary-select': '1',
+        'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe(selection);
+    expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+    if (selection === 'remote') {
+      expect(await container.getBoundaryInput()).toEqual(boundaryInput);
+      const push = await client.fetch(new Request('https://github.com/owner/repo.git/git-receive-pack', {
+        method: 'POST', body: upload,
+      }));
+      expect(push.status).toBe(200);
+      expect(await push.text()).toBe(result);
+      await Promise.all(waiting);
+      expect(await registry.getBoundaryPreparation()).toMatchObject({ activityId: 'reserved-activity' });
+      expect(await operatorActivity.getBrowserDetail()).toEqual({ activityId: 'reserved-activity', phase: 'prepared' });
+    } else {
+      await Promise.all(waiting);
+      expect(await container.getBoundaryInput()).toBeNull();
+      expect(await registry.getBoundaryPreparation()).toBeNull();
+      expect(await registry.getOwnedActivity()).toBeNull();
+      expect(await operatorActivity.getBrowserDetail()).toBeNull();
+    }
+  });
+  it.each([false, true])('REQ-OPERATOR-053: non-Enterprise interception cannot select Operator Review (absent=%s)', async denied => {
+    const { client, registry, container, waiting } = fixture({ nonEnterprise: true, denied, piFirst: true });
+    const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+      headers: { 'x-codeflare-operator-boundary-select': '1',
+        'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('unavailable');
+    expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+    await Promise.all(waiting);
+    expect(await container.getBoundaryInput()).toBeNull();
+    expect(await registry.getBoundaryPreparation()).toBeNull();
+  });
   it('checks protected applicability for manual local completion without staging Pi input', async () => {
-    const { client, registry, waiting } = fixture({ piFirst: true });
+    const { client, registry, waiting, container } = fixture({ piFirst: true });
     const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
       headers: { 'x-codeflare-operator-boundary-select': 'check',
         'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
@@ -156,6 +353,7 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
     expect(response.status).toBe(200);
     expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('remote');
     expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+    expect(await container.getBoundaryInput()).toBeNull();
     const push = await client.fetch(new Request('https://github.com/owner/repo.git/git-receive-pack', {
       method: 'POST', body: upload,
     }));

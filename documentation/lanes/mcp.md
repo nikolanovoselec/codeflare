@@ -57,6 +57,8 @@ Tool availability is not permission for production, billing, destructive or user
 
 The native adapter is the sole managed MCP owner in default/basic and advanced Pi; built-in MCP stays disabled. Registration changes apply at subsequent startup, not by rewriting an active Pi configuration. Managed connections disconnect after ten idle minutes, protect active calls, retain discovery and reconnect for the next authorized call. ([REQ-AGENT-228](../../sdd/spec/mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery))
 
+Exact managed exclusions for the Review handlers or `hermes-memory-runtime.ts` are unrelated to MCP ownership, including when native Hermes replaces its Codeflare wrapper. They do not block an otherwise uniquely selected MCP client; lookalike paths, wildcards and genuinely ambiguous client selections still fail closed.
+
 Migration preserves unrelated servers, local stdio OAuth and recoverable originals. A valid native destination remains authoritative; selected supported legacy entries may be imported. Conflicting custom definitions, unsafe expressions and failed preparation fail closed. Only successful native handoff excludes obsolete root `mcp.json` from later baseline/bisync; initial restore and failed preparation retain its eligibility. Do not delete bucket content or create a second client to bypass a migration failure. ([REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration))
 
 ### Delivery and acceptance boundaries
