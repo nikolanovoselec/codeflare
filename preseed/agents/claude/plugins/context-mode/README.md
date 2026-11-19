@@ -24,7 +24,7 @@ The plugin folder ships a bare manifest (`name`, `description`, `version`) and t
 
 Each hook is `context-mode hook claude-code <event>` invoking the build-time-installed global binary at `/usr/local/bin/context-mode`. No runtime download.
 
-The image installs exact `context-mode@2.1.7` into both committed npm trees (`preseed/npm-tools` and `preseed/agents/pi`), with `/usr/local/bin/context-mode` linked to the shared copy. The dedicated Shadow Pins context-mode job owns the plugin manifest, both manifests/locks, Pi runtime pin, entrypoint settings and generated seed atomically; a Pi-only Dependabot diff is not sufficient.
+The image installs exact `context-mode@2.1.9` into both committed npm trees (`preseed/npm-tools` and `preseed/agents/pi`), with `/usr/local/bin/context-mode` linked to the shared copy. The dedicated Shadow Pins context-mode job owns the plugin manifest, both manifests/locks, Pi runtime pin, entrypoint settings and generated seed atomically; a Pi-only Dependabot diff is not sufficient.
 
 v2 requires Node >=24.15.0 and built-in SQLite; it bundles dependencies rather than installing better-sqlite3. The CLI entry is `cli.mjs`, MCP entry is `server.mjs`, and Pi's in-process extension is `pi/index.js`. Codeflare registers `context-mode server --agent claude-code` explicitly: no arguments now print help. Legacy `context-mode hook claude-code <event>` remains supported. Pi retains `/ctx` opt-in and the single-foreground-owner guard, without a bridge child.
 
@@ -32,7 +32,7 @@ The image helper validates both versions and retains the idempotent ESM shim/upd
 
 Tool migration: `ctx_batch({commands: ["command"], queries: ["query"]})` replaces object-based `ctx_batch_execute`; `ctx_index({url: "https://…"})` replaces `ctx_fetch_and_index`; `ctx_execute` accepts `file` instead of a separate `ctx_execute_file`. Discover live schemas; no context-mode tool is required when disabled.
 
-**Security qualification is separate:** the integrity-verified 2.1.7 tarball contains its own Zod v4.0.0 code as well as MCP's v4.6.7 copies. Removing lockfile Zod v3 records does not prove embedded validators patched. A manifest override cannot alter bundled code; upstream remediation or a separately reviewed rebuild is required before claiming full Zod remediation. [Published package](https://registry.npmjs.org/context-mode/2.1.7), [source manifest](https://github.com/mksglu/context-mode/blob/v2.1.7/package.json), [Pi entry](https://github.com/mksglu/context-mode/blob/v2.1.7/src/entries/pi.ts).
+**Security qualification is separate:** the integrity-verified 2.1.9 tarball contains its own Zod v4.0.0 code as well as MCP's v4.6.7 copies. Removing lockfile Zod v3 records does not prove embedded validators patched. A manifest override cannot alter bundled code; upstream remediation or a separately reviewed rebuild is required before claiming full Zod remediation. [Published package](https://registry.npmjs.org/context-mode/2.1.9), [source manifest](https://github.com/mksglu/context-mode/blob/v2.1.9/package.json), [Pi entry](https://github.com/mksglu/context-mode/blob/v2.1.9/src/entries/pi.ts).
 
 ## 2.1.9 upgrade guidance
 
