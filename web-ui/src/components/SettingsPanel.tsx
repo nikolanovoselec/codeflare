@@ -24,7 +24,7 @@ import {
   agentNotificationsEnabled,
   setAgentNotificationsEnabled,
 } from '../lib/agent-notifications';
-import type { AgentNotificationEnablement, AgentNotificationProgress } from '../lib/agent-notifications';
+import type { AgentNotificationEnablement } from '../lib/agent-notifications';
 // SubscriptionManagement moved to standalone admin page at /admin/subscriptions
 import '../styles/settings-panel.css';
 
@@ -130,7 +130,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [notificationAvailable, setNotificationAvailable] = createSignal(false);
   const [notificationEnabled, setNotificationEnabled] = createSignal(false);
   const [notificationPending, setNotificationPending] = createSignal<'enable' | 'disable' | null>(null);
-  const [notificationProgress, setNotificationProgress] = createSignal<AgentNotificationProgress | null>(null);
   const [notificationError, setNotificationError] = createSignal<string | null>(null);
   let notificationRevision = 0;
 
@@ -276,11 +275,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     if (notificationPending()) return;
     const enabled = !notificationEnabled();
     notificationRevision += 1;
-    setNotificationProgress(null);
     setNotificationPending(enabled ? 'enable' : 'disable');
     setNotificationError(null);
     try {
-      const state = await setAgentNotificationsEnabled(enabled, undefined, setNotificationProgress);
+      const state = await setAgentNotificationsEnabled(enabled);
       if (state === 'on' || state === 'off') {
         setNotificationEnabled(state === 'on');
       } else if (state === 'unavailable') {
@@ -292,7 +290,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
       setNotificationError(`Could not ${enabled ? 'enable' : 'disable'} notifications. Try again.`);
     } finally {
       setNotificationPending(null);
-      setNotificationProgress(null);
     }
   };
 
@@ -423,7 +420,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               notificationAvailable={notificationAvailable}
               notificationEnabled={notificationEnabled}
               notificationPending={notificationPending}
-              notificationProgress={notificationProgress}
               notificationError={notificationError}
               sleepAfter={sleepAfter}
               canChangeSleepAfter={canChangeSleepAfter}

@@ -4,10 +4,6 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
-## 2026-11-19: Identify the pending notification enrollment step
-
-- REQ-TERM-025 names the awaited enrollment/removal step in the existing accessible status. Fixed labels contain no subscription data or raw errors; operation ordering, duplicate-gesture prevention and late-write ownership remain unchanged. This improves diagnosis of the still-unresolved installed-PWA hang, not proof of successful enrollment.
-
 ## 2026-11-19: Goal resume resets expired stall history before enforcement
 
 - REQ-AGENT-236 resets stopped-goal stall history, deadline and its public counter at explicit resume, before persistence or lifecycle enforcement can apply an old deadline. Deferred automatic-count reset, failed-delivery rollback, genuine restoration/waiting stalls and the five-stall/25-minute bound remain intact.

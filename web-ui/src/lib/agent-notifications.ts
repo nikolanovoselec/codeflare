@@ -35,17 +35,6 @@ export interface AgentNotificationPayload {
 }
 
 export type AgentNotificationEnablement = NotificationPermission | 'unavailable';
-export type AgentNotificationProgress =
-  | 'permission'
-  | 'configuration'
-  | 'worker-read'
-  | 'subscription-read'
-  | 'subscription-remove'
-  | 'worker-registration'
-  | 'worker-activation'
-  | 'subscription-create'
-  | 'subscription-save'
-  | 'subscription-cleanup';
 
 export interface AgentNotificationWorker {
   // renotify is real Notification API surface the pinned lib.dom typing omits.
@@ -68,9 +57,9 @@ export interface AgentNotificationBrowser {
   requestPermission(): Promise<AgentNotificationEnablement>;
   registerWorker?(): Promise<AgentNotificationWorker | undefined>;
   getWorker?(): Promise<AgentNotificationWorker | undefined>;
-  currentSubscription?(onProgress?: (phase: AgentNotificationProgress) => void): Promise<AgentNotificationSubscription | undefined>;
+  currentSubscription?(): Promise<AgentNotificationSubscription | undefined>;
   getVapidPublicKey?(): Promise<string>;
-  subscribe?(publicKey: string, onProgress?: (phase: AgentNotificationProgress) => void): Promise<AgentNotificationSubscription>;
+  subscribe?(publicKey: string): Promise<AgentNotificationSubscription>;
   saveSubscription?(subscription: ReturnType<AgentNotificationSubscription['toJSON']>): Promise<void>;
   deleteSubscription?(endpoint: string): Promise<void>;
   unsubscribe?(subscription: AgentNotificationSubscription): Promise<boolean>;
@@ -209,11 +198,9 @@ function applicationServerKeysMatch(
 async function removeLocalSubscription(
   subscription: AgentNotificationSubscription,
   browser: AgentNotificationBrowser,
-  onProgress?: (phase: AgentNotificationProgress) => void,
 ): Promise<boolean> {
   if (subscription.endpoint && browser.deleteSubscription) {
     try {
-      onProgress?.('subscription-cleanup');
       await browser.deleteSubscription(subscription.endpoint);
     } catch {
       // Server cleanup is best-effort; local removal is required before replacement.
@@ -221,7 +208,6 @@ async function removeLocalSubscription(
   }
   if (!browser.unsubscribe) return false;
   try {
-    onProgress?.('subscription-remove');
     return await browser.unsubscribe(subscription);
   } catch {
     return false;
@@ -250,19 +236,15 @@ export async function agentNotificationsEnabled(browser: AgentNotificationBrowse
 export async function setAgentNotificationsEnabled(
   enabled: boolean,
   browser: AgentNotificationBrowser = defaultBrowser,
-  onProgress?: (phase: AgentNotificationProgress) => void,
 ): Promise<AgentNotificationSwitchState> {
   if (!enabled) {
     try {
-      onProgress?.('worker-read');
-      const subscription = await browser.currentSubscription?.(onProgress);
+      const subscription = await browser.currentSubscription?.();
       if (!subscription) return 'off';
       if (!validSubscription(subscription) || !browser.deleteSubscription || !browser.unsubscribe) {
         return 'unavailable';
       }
-      onProgress?.('subscription-cleanup');
       await browser.deleteSubscription(subscription.endpoint);
-      onProgress?.('subscription-remove');
       return await browser.unsubscribe(subscription) ? 'off' : 'unavailable';
     } catch {
       return 'unavailable';
@@ -275,7 +257,6 @@ export async function setAgentNotificationsEnabled(
     if (permission === 'denied') return 'denied';
     if (permission === 'unavailable') return 'unavailable';
     if (permission !== 'granted') {
-      onProgress?.('permission');
       permission = await browser.requestPermission();
       if (permission === 'denied') return 'denied';
       if (permission !== 'granted') return 'unavailable';
@@ -284,50 +265,35 @@ export async function setAgentNotificationsEnabled(
     if (!browser.getVapidPublicKey || !browser.subscribe || !browser.saveSubscription) {
       return 'unavailable';
     }
-    onProgress?.('configuration');
     const publicKey = await browser.getVapidPublicKey();
     const decodedPublicKey = decodeVapidPublicKey(publicKey);
-    onProgress?.('worker-read');
-    const existingSubscription = await browser.currentSubscription?.(onProgress);
+    const existingSubscription = await browser.currentSubscription?.();
     if (
       existingSubscription
       && validSubscription(existingSubscription)
       && applicationServerKeysMatch(existingSubscription, decodedPublicKey)
     ) {
-      onProgress?.('subscription-save');
       await browser.saveSubscription(existingSubscription.toJSON());
       return 'on';
     }
-    if (existingSubscription && !(await removeLocalSubscription(existingSubscription, browser, onProgress))) {
+    if (existingSubscription && !(await removeLocalSubscription(existingSubscription, browser))) {
       return 'unavailable';
     }
 
-    if (browser.registerWorker) {
-      onProgress?.('worker-registration');
-      if (!(await browser.registerWorker())) return 'unavailable';
-    }
-    createdSubscription = await (onProgress
-      ? browser.subscribe(publicKey, onProgress)
-      : browser.subscribe(publicKey));
+    if (browser.registerWorker && !(await browser.registerWorker())) return 'unavailable';
+    createdSubscription = await browser.subscribe(publicKey);
     if (!validSubscription(createdSubscription)) throw new Error('Invalid Push subscription');
-    onProgress?.('subscription-save');
     await browser.saveSubscription(createdSubscription.toJSON());
     return 'on';
   } catch {
     if (createdSubscription) {
       try {
-        if (browser.deleteSubscription) {
-          onProgress?.('subscription-cleanup');
-          await browser.deleteSubscription(createdSubscription.endpoint);
-        }
+        await browser.deleteSubscription?.(createdSubscription.endpoint);
       } catch {
         // A failed registration may not have created a server record.
       }
       try {
-        if (browser.unsubscribe) {
-          onProgress?.('subscription-remove');
-          await browser.unsubscribe(createdSubscription);
-        }
+        await browser.unsubscribe?.(createdSubscription);
       } catch {
         // Preserve the original unavailable result after best-effort rollback.
       }
@@ -415,13 +381,9 @@ function serializedSubscription(
   };
 }
 
-async function readyNotificationWorker(
-  onProgress?: (phase: AgentNotificationProgress) => void,
-): Promise<ServiceWorkerRegistration | undefined> {
+async function readyNotificationWorker(): Promise<ServiceWorkerRegistration | undefined> {
   if (!('serviceWorker' in navigator)) return undefined;
-  onProgress?.('worker-registration');
   const registration = await navigator.serviceWorker.register(WORKER_PATH, { scope: WORKER_SCOPE });
-  onProgress?.('worker-activation');
   return new Promise<ServiceWorkerRegistration>((resolve, reject) => {
     const workers = new Set<ServiceWorker>();
     const finish = (ready: boolean) => {
@@ -462,19 +424,17 @@ const defaultBrowser: AgentNotificationBrowser = {
     if (!registration) return undefined;
     return registration.active ? registration : navigator.serviceWorker.ready;
   },
-  currentSubscription: async (onProgress) => {
+  currentSubscription: async () => {
     if (!('serviceWorker' in navigator)) return undefined;
     const registration = await navigator.serviceWorker.getRegistration(WORKER_SCOPE);
     // Reading enrollment must not wait for activation: explicit Enable owns repair.
     if (!registration?.active) return undefined;
-    onProgress?.('subscription-read');
     return (await registration.pushManager.getSubscription()) ?? undefined;
   },
   getVapidPublicKey: getAgentNotificationVapidPublicKey,
-  subscribe: async (publicKey, onProgress) => {
-    const registration = await readyNotificationWorker(onProgress);
+  subscribe: async (publicKey) => {
+    const registration = await readyNotificationWorker();
     if (!registration) throw new Error('Push notifications unavailable');
-    onProgress?.('subscription-create');
     return registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: decodeVapidPublicKey(publicKey),

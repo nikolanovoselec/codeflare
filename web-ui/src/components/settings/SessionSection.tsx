@@ -12,7 +12,7 @@ import {
 } from '@mdi/js';
 import Icon from '../Icon';
 import type { Settings } from '../../lib/settings';
-import type { AgentNotificationEnablement, AgentNotificationProgress } from '../../lib/agent-notifications';
+import type { AgentNotificationEnablement } from '../../lib/agent-notifications';
 import type { SessionWorkspace } from '../../types';
 import { isTouchDevice, needsHomeScreenInstallForNotifications } from '../../lib/mobile';
 import AdminActionButton from './AdminActionButton';
@@ -31,7 +31,6 @@ interface SessionSectionProps {
   notificationAvailable: Accessor<boolean>;
   notificationEnabled?: Accessor<boolean>;
   notificationPending?: Accessor<'enable' | 'disable' | null>;
-  notificationProgress?: Accessor<AgentNotificationProgress | null>;
   notificationError?: Accessor<string | null>;
   sleepAfter: Accessor<string>;
   canChangeSleepAfter: Accessor<boolean>;
@@ -55,19 +54,6 @@ interface SessionSectionProps {
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
 }
 
-const NOTIFICATION_PROGRESS: Readonly<Record<AgentNotificationProgress, string>> = {
-  permission: 'Requesting browser permission.',
-  configuration: 'Loading notification configuration.',
-  'worker-read': 'Reading notification worker.',
-  'subscription-read': 'Reading device subscription.',
-  'subscription-remove': 'Removing device subscription.',
-  'worker-registration': 'Registering notification worker.',
-  'worker-activation': 'Waiting for notification worker activation.',
-  'subscription-create': 'Creating device subscription.',
-  'subscription-save': 'Saving device subscription.',
-  'subscription-cleanup': 'Removing server registration.',
-};
-
 const SessionSection: Component<SessionSectionProps> = (props) => {
   const notificationEnabled = () => props.notificationEnabled?.()
     ?? props.notificationPermission() === 'granted';
@@ -75,9 +61,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
     || Boolean(props.notificationError?.())) && needsHomeScreenInstallForNotifications();
   const notificationStatus = () => {
     if (props.notificationPending?.()) {
-      const pending = props.notificationPending() === 'enable' ? 'Enabling notifications…' : 'Disabling notifications…';
-      const progress = props.notificationProgress?.();
-      return progress ? `${pending} ${NOTIFICATION_PROGRESS[progress]}` : pending;
+      return props.notificationPending() === 'enable' ? 'Enabling notifications…' : 'Disabling notifications…';
     }
     if (props.notificationPermission() === 'denied') return 'Blocked in browser site settings';
     if (notificationNeedsInstall()) {
