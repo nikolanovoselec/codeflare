@@ -1,8 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { selectOperatorReviewApplicability } from '../../../preseed/agents/pi/extensions/operator-review-selector';
 import type { Env } from '../../types';
 import { getBucketName } from '../../lib/access';
 import { GitHubInterceptor } from '../../github-interceptor';
@@ -176,43 +172,6 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
 }
 
 describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation', () => {
-  it.each([
-    { name: 'absent Action', options: { denied: true }, expected: 'local' },
-    { name: 'inactive Action', options: { inactiveAction: true }, expected: 'local' },
-    { name: 'active Action without authority', options: {}, expected: 'unavailable' },
-  ])('REQ-OPERATOR-053: packaged Pi selection preserves $name through the real interceptor', async ({ options, expected }) => {
-    vi.stubEnv('ENTERPRISE_MODE', 'active');
-    const repo = mkdtempSync(join(tmpdir(), 'review-packaged-applicability-'));
-    try {
-      mkdirSync(join(repo, '.git'));
-      mkdirSync(join(repo, 'sdd'));
-      writeFileSync(join(repo, 'sdd/README.md'), 'requirements');
-      const { client, registry, container, waiting } = fixture({ ...options, piFirst: true,
-        missingGeneration: true, noAuthority: true, missingActivity: true, unavailableSession: true });
-      const runner = (async (_program: string, args: string[]) => {
-        if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 34, state: 'OPEN',
-          baseRefName: 'main', headRefOid: head }) };
-        if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/repo',
-          url: 'https://github.com/owner/repo' }) };
-        if (!args.includes('--include')) return { stdout: '138' };
-        const headers = new Headers();
-        for (let index = 0; index < args.length - 1; index += 1) {
-          if (args[index] !== '-H') continue;
-          const header = args[++index]!;
-          const separator = header.indexOf(':');
-          headers.set(header.slice(0, separator), header.slice(separator + 1).trim());
-        }
-        const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', { headers }));
-        const responseHeaders = [...response.headers].map(([key, value]) => `${key}: ${value}`).join('\n');
-        return { stdout: `HTTP/2 ${response.status}\n${responseHeaders}\n\n${await response.text()}` };
-      }) as never;
-      expect(await selectOperatorReviewApplicability({ type: 'session_start' }, { cwd: repo }, runner)).toBe(expected);
-      await Promise.all(waiting);
-      expect(await container.getBoundaryInput()).toBeNull();
-      expect(await registry.getBoundaryPreparation()).toBeNull();
-      expect(await registry.getOwnedActivity()).toBeNull();
-    } finally { rmSync(repo, { recursive: true, force: true }); }
-  });
   it.each([
     { name: 'missing generation', options: { missingGeneration: true } },
     { name: 'unavailable or expired human', options: { noAuthority: true } },

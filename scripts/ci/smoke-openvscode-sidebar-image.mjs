@@ -287,7 +287,7 @@ export async function verifyNodeTarRuntimes({
     '/usr/local/lib/node_modules/npm/node_modules/tar',
     '/opt/code-server/lib/vscode/node_modules/tar',
   ],
-  expectedVersion = '7.5.22',
+  expectedVersion = '7.5.23',
   expectedVersions = runtimePaths.map(path => path === '/opt/code-server/lib/vscode/node_modules/tar' ? '7.5.22' : expectedVersion),
   temporaryRoot = tmpdir(),
 } = {}) {

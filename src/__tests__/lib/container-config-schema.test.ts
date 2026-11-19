@@ -193,7 +193,7 @@ describe('CF-046: SetBucketNameBodySchema', () => {
   });
 
   describe('REQ-AGENT-029: selected OAuth account transport boundary', () => {
-    it.each(['b'.repeat(32), '0123456789abcdef0123456789ABCDEF01', null])(
+    it.each(['b'.repeat(32), '0123456789abcdef0123456789ABCDEF', null])(
       'accepts a 32-hex selected ID or explicit clear without altering it: %s', cloudflareOauthAccountId => {
         const result = SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), cloudflareOauthAccountId });
         expect(result.success).toBe(true);
@@ -208,7 +208,7 @@ describe('CF-046: SetBucketNameBodySchema', () => {
     });
 
     it.each([
-      '', ' ', 'b'.repeat(31), 'b'.repeat(33), 'g'.repeat(32),
+      '', ' ', 'b'.repeat(31), 'b'.repeat(33), '0123456789abcdef0123456789ABCDEF01', 'g'.repeat(32),
       ` ${'b'.repeat(32)}`, `${'b'.repeat(32)} `, `${'b'.repeat(32)}\n`,
       42, false, {}, [], ['b'.repeat(32)],
     ].map(value => [value]))('rejects malformed non-null metadata before it can enter container environment: %j', cloudflareOauthAccountId => {

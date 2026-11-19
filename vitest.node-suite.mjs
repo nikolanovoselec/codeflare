@@ -40,6 +40,7 @@ export const NODE_SUITE_FILES = [
   // Review extension; workerd has no node:child_process module.
   'src/__tests__/lib/operator-review-selector.test.ts',
   'src/__tests__/lib/operator-review-remote.test.ts',
+  'src/__tests__/operators/review-boundary-selector.test.ts',
   'src/__tests__/operators/review-published-result.test.ts',
   'src/__tests__/operators/review-connected-lifecycle.test.ts',
   'src/__tests__/operators/conductor-prepared-runtime.test.ts',

@@ -238,7 +238,8 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         "exports.extract = async ({ cwd, file }) => copyFile(file, join(cwd, 'probe.txt'));",
         '',
       ].join('\n');
-      // Both independently pinned locations must pass the actual smoke defaults.
+      // The host overlay uses the default; the independently pinned IDE copy
+      // needs its own expected version when represented by a temporary path.
       const docker = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
       const expectedVersions = ['NODE_TAR_VERSION', 'CODE_SERVER_IDE_TAR_VERSION']
         .map(name => docker.match(new RegExp(`${name}="([^"]+)"`))[1]);
@@ -249,20 +250,21 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         writeFileSync(join(runtimePath, 'index.cjs'), moduleSource);
       }
 
-      const verified = await verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture });
-      assert.deepEqual(verified, runtimePaths);
-      for (const runtimePath of runtimePaths) {
+      assert.deepEqual(await verifyNodeTarRuntimes({ runtimePaths: [runtimePaths[0]], temporaryRoot: fixture }),
+        [runtimePaths[0]]);
+      const verifyBoth = () => verifyNodeTarRuntimes({ runtimePaths, expectedVersions, temporaryRoot: fixture });
+      assert.deepEqual(await verifyBoth(), runtimePaths);
+      for (const [index, runtimePath] of runtimePaths.entries()) {
         writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
-        await assert.rejects(verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture }),
-          /must contain node-tar 7\.5\.22/);
-        writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.22', main: 'index.cjs' }));
+        await assert.rejects(verifyBoth(), { message: `${runtimePath} must contain node-tar ${expectedVersions[index]}` });
+        writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: expectedVersions[index], main: 'index.cjs' }));
       }
 
       const brokenRuntime = join(fixture, 'broken-tar');
       mkdirSync(brokenRuntime, { recursive: true });
       writeFileSync(
         join(brokenRuntime, 'package.json'),
-        JSON.stringify({ name: 'tar', version: '7.5.22', main: 'index.cjs' }),
+        JSON.stringify({ name: 'tar', version: expectedVersions[0], main: 'index.cjs' }),
       );
       writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.create = async () => {};\n');
 
