@@ -5,6 +5,8 @@ import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { getOrImportKey, encryptForKV, decryptFromKV } from '../lib/kv-crypto';
 
 const FRAME = 64 * 1024; // Transport framing only; no record or capture length limit.
+// Leave room below native 128 KiB for AES-GCM's IV/tag, base64 and string serialization.
+const MANIFEST_BYTES = 96 * 1024 - 64;
 const identity = z.string().min(1);
 const count = z.number().int().nonnegative().safe();
 const scopeSchema = z.strictObject({ ownerKey: identity,
@@ -17,7 +19,12 @@ const receiptSchema = z.strictObject({ status: z.literal('complete'), captureId:
   records: count, segments: count, bytes: count, termination: terminationSchema });
 const frameSchema = z.strictObject({ record: count, part: count, bytes: z.number().int().min(1).max(FRAME),
   digest: z.string().regex(/^[a-f0-9]{64}$/) });
-const manifestSchema = z.strictObject({ version: z.literal(1), receipt: receiptSchema, frames: z.array(frameSchema) });
+const manifestSchema = z.discriminatedUnion('version', [
+  z.strictObject({ version: z.literal(1), receipt: receiptSchema, frames: z.array(frameSchema) }),
+  z.strictObject({ version: z.literal(2), receipt: receiptSchema, pages: count.min(1) }),
+]);
+const manifestPageSchema = z.strictObject({ frames: z.array(frameSchema).min(1) });
+const pageName = (ordinal: number) => `manifest-${ordinal}`;
 export type RawCaptureBinding = z.infer<typeof bindingSchema>;
 export type RawCaptureScope = z.infer<typeof scopeSchema>;
 export interface RawCaptureStorage {
@@ -219,6 +226,7 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
     try { binding = bindingSchema.parse(input.binding); } catch { failed = true; }
   }
   const frames: Frame[] = [];
+  let frameBytes = 2; let written = 0; let pages = 0;
   const pending: string[] = [];
   let batches = 0;
   const storageSource = () => source ??= resolveStorage();
@@ -229,6 +237,12 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
   };
   const receipt = (termination: Termination, status: RawCaptureReceipt['status']): RawCaptureReceipt =>
     ({ status, captureId: binding.captureId, records, segments, bytes, termination });
+  const writePage = async (sink: Awaited<ReturnType<typeof open>>) => {
+    if (!frames.length) return;
+    const name = pageName(pages);
+    await sink.put(name, JSON.stringify({ frames }), sink.aad(name));
+    pages++; frames.length = 0; frameBytes = 2;
+  };
   const write: RawCapture['record'] = (stage, lazy) => {
     if (!enabled || failed) return;
     try {
@@ -248,9 +262,17 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
           if (failed) denied();
           const chunk = encoded.subarray(offset, offset + FRAME);
           const frame = { record, part, bytes: chunk.length };
-          const ordinal = frames.length;
+          const ordinal = written;
           const checksum = await sink.put(frameName(ordinal, frame), Buffer.from(chunk).toString('base64'), sink.aad(ordinal, frame));
-          frames.push({ ...frame, digest: checksum });
+          const descriptor = { ...frame, digest: checksum };
+          const descriptorBytes = Buffer.byteLength(JSON.stringify(descriptor));
+          // Keep small captures in the existing v1 wire. Once it would overflow,
+          // persist only a bounded page at a time, never an accumulating page index.
+          const overhead = Buffer.byteLength(JSON.stringify(pages ? { frames: [] }
+            : { version: 1, receipt: receipt('cancelled', 'complete'), frames: [] })) - 2;
+          if (frames.length && frameBytes + 1 + descriptorBytes + overhead > MANIFEST_BYTES) await writePage(sink);
+          frameBytes += (frames.length ? 1 : 0) + descriptorBytes;
+          frames.push(descriptor); written++;
         }
       });
     } catch { failed = true; }
@@ -285,8 +307,11 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
         await Promise.all(producers);
         enqueue(async () => {
           const sink = await storage();
-          if (frames.length !== segments || pending.length || failed) denied();
-          await sink.put('receipt', JSON.stringify({ version: 1, receipt: receipt(termination, 'complete'), frames }), sink.aad('receipt'));
+          if (written !== segments || pending.length || failed) denied();
+          if (pages) await writePage(sink);
+          const manifest = pages ? { version: 2, receipt: receipt(termination, 'complete'), pages }
+            : { version: 1, receipt: receipt(termination, 'complete'), frames };
+          await sink.put('receipt', JSON.stringify(manifest), sink.aad('receipt'));
           // Revalidate all earlier frames as well as the final receipt, not just the last write.
           const verified = await walkArchive(sink, binding);
           if (verified.receipt.records !== records || verified.receipt.segments !== segments
@@ -308,25 +333,47 @@ export function createRawCapture(input: { binding: RawCaptureBinding; enabled: b
   };
 }
 
+async function* archiveFrames(io: Awaited<ReturnType<typeof open>>, manifest: z.infer<typeof manifestSchema>,
+  signal?: AbortSignal): AsyncGenerator<Frame> {
+  if (manifest.version === 1) yield* manifest.frames;
+  else {
+    if (manifest.pages > manifest.receipt.segments) denied();
+    for (let page = 0; page < manifest.pages; page++) {
+      signal?.throwIfAborted();
+      const name = pageName(page);
+      const plaintext = await io.decrypt(await io.get(name), io.aad(name));
+      if (Buffer.byteLength(plaintext) > MANIFEST_BYTES) denied();
+      yield* manifestPageSchema.parse(JSON.parse(plaintext)).frames;
+    }
+  }
+  // Neither an unreceipted first page nor a trailing continuation is completion.
+  signal?.throwIfAborted();
+  await io.absent(pageName(manifest.version === 1 ? 0 : manifest.pages));
+}
+
 async function walkArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCaptureBinding,
   onRecord?: (record: { stage: string; value: unknown }) => void | Promise<void>, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const manifest = manifestSchema.parse(JSON.parse(await io.decrypt(await io.get('receipt'), io.aad('receipt'))));
   const receipt = manifest.receipt;
-  if (receipt.captureId !== binding.captureId || receipt.segments !== manifest.frames.length) denied();
-  let records = 0;
+  if (receipt.captureId !== binding.captureId
+    || manifest.version === 1 && receipt.segments !== manifest.frames.length) denied();
+  let records = 0; let ordinal = 0; let last: Frame | undefined;
   let chunks: Uint8Array[] = []; let length = 0; let total = 0; let part = 0; let batch = 0;
-  for (const [ordinal, frame] of manifest.frames.entries()) {
+  const frames = archiveFrames(io, manifest, signal);
+  let current = await frames.next();
+  while (!current.done) {
     signal?.throwIfAborted();
-    if (frame.record !== batch || frame.part !== part++) denied();
+    const frame = current.value;
+    if (ordinal >= receipt.segments || frame.record !== batch || frame.part !== part++) denied();
     const ciphertext = await io.get(frameName(ordinal, frame));
     if (await digest(ciphertext) !== frame.digest) denied();
     const plaintext = await io.decrypt(ciphertext, io.aad(ordinal, frame));
     const chunk = Buffer.from(plaintext, 'base64');
     if (chunk.toString('base64') !== plaintext || chunk.length !== frame.bytes) denied();
     chunks.push(chunk); length += chunk.length; total += chunk.length;
-    const next = manifest.frames[ordinal + 1];
-    if (!next || next.record !== frame.record) {
+    const next = await frames.next();
+    if (next.done || next.value.record !== frame.record) {
       const encoded = Buffer.concat(chunks, length);
       const decoded = z.array(z.strictObject({ stage: z.string(), value: z.unknown() })).min(1).parse(
         JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(encoded)));
@@ -338,10 +385,10 @@ async function walkArchive(io: Awaited<ReturnType<typeof open>>, binding: RawCap
       }
       chunks = []; length = 0; part = 0; batch++;
     }
+    last = frame; ordinal++; current = next;
   }
-  if (records !== receipt.records || total !== receipt.bytes) denied();
+  if (ordinal !== receipt.segments || records !== receipt.records || total !== receipt.bytes) denied();
   // A valid append has only two possible next coordinates: a continuation or the next batch.
-  const last = manifest.frames.at(-1);
   signal?.throwIfAborted();
   if (last) await io.absent(frameName(receipt.segments, { record: last.record, part: last.part + 1 }));
   signal?.throwIfAborted();
@@ -391,7 +438,7 @@ Promise<{ status: 'complete' | 'incomplete'; receipt: RawCaptureReceipt | null }
 }
 
 /** Private streaming read, not a completion proof until the final receipt arrives.
- * Preflight retains only the manifest/current persisted batch. The second pass
+ * Preflight retains only the current manifest page/persisted batch. The second pass
  * awaits each local write; cancellation stops it rather than draining the archive. */
 export async function exportRawCapture(input: { binding: RawCaptureBinding; storage: RawCaptureStorage }): Promise<Response> {
   try {
