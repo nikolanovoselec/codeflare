@@ -3188,7 +3188,8 @@ try:
     defaults = {'memoryCharLimit': 5000, 'userCharLimit': 5000, 'projectCharLimit': 5000,
         'nudgeInterval': 10, 'nudgeToolCalls': 15, 'flushMinTurns': 1,
         'reviewEnabled': True, 'correctionDetection': True, 'flushOnCompact': True, 'flushOnShutdown': True,
-        'memoryOverflowStrategy': 'reject', 'autoConsolidate': False, 'sessionRetentionDays': 1}
+        'memoryOverflowStrategy': 'reject', 'autoConsolidate': False,
+        'consolidationChunking': True, 'sessionRetentionDays': 1}
     for key, value in defaults.items():
         config.setdefault(key, value)
     config.update({'memoryDir': str(cache / 'global'), 'projectsMemoryDir': 'hermes-project-memory',

@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-19: Chunked manual Hermes consolidation by default
+
+- REQ-MEM-035 prepares Advanced Pi with chunked manual consolidation enabled when the setting is absent. Explicit choices survive startup; automatic consolidation and default-mode behavior remain unchanged.
+
 ## 2026-11-19: Review corrections and bounded raw-capture manifests
 
 - REQ-OPERATOR-090/091 extends existing encrypted framing to bounded authenticated manifest pages so paced captures retain complete cold readback without an event-count ceiling. Existing v1 archives and small receipts remain compatible; missing, modified or incorrectly bound pages cannot certify completion.

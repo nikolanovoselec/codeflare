@@ -219,6 +219,9 @@ function assertDefaults(fx) {
     correctionDetection: true,
     flushOnCompact: true,
     flushOnShutdown: true,
+    consolidationChunking: true,
+    autoConsolidate: false,
+    memoryOverflowStrategy: 'reject',
     reviewRecentMessages: 20,
     flushRecentMessages: 20,
     sessionIndexExclude: ['*'],
@@ -342,6 +345,18 @@ describe('Pi Hermes startup (actual entrypoint helper)', () => {
     for (const [key, value] of Object.entries(preferences)) assert.deepEqual(written[key], value, key);
     assert.equal(readFileSync(join(fx.home, '.pi/agent/settings.json'), 'utf8'), settings);
   });
+
+  for (const enabled of [false, true]) {
+    it(`REQ-MEM-035: AC3 preserves explicit consolidation chunking (${enabled}) across preparation`, t => {
+      const fx = fixture(t);
+      put(join(fx.home, configFile), JSON.stringify({ consolidationChunking: enabled }));
+      succeeds(run(fx));
+      assert.equal(config(fx).consolidationChunking, enabled);
+      const prepared = readFileSync(join(fx.home, configFile));
+      succeeds(run(fx));
+      assert.deepEqual(readFileSync(join(fx.home, configFile)), prepared);
+    });
+  }
 
   it('REQ-MEM-035: explicit capture and flush opt-outs survive container preparation', t => {
     const fx = fixture(t);
