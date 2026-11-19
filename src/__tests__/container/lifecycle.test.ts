@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { D1SessionRepository } from '../../lib/session-repository';
+import { FINAL_SYNC_AUDIT_KEY } from '../../container/container-metrics';
 
 // Shared, hoisted call-order log so the mocked base Container can record when
 // super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
@@ -530,6 +532,53 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(afterRevocation.CONTAINER_AUTH_TOKEN).toBe(auth);
       expect(afterRevocation.ENCRYPTION_KEY).toBe('immutable');
     });
+
+    it.each(['stopSession', 'killSession'] as const)(
+      'REQ-AGENT-029 AC6: completed authorized %s followed by legacy reuse does not re-emit an old OAuth account', async teardown => {
+        const sessionId = 'abcdef1234567890';
+        const browserAccountA = 'a'.repeat(32);
+        const oauthAccountB = 'b'.repeat(32);
+        sessionKV._set(`session:test-bucket:${sessionId}`, {
+          id: sessionId, userId: 'test-bucket', name: 'OAuth session', status: 'running',
+          lifecycleGeneration: 0, createdAt: '2027-01-01T00:00:00.000Z',
+        });
+        const durable = new Map<string, unknown>([
+          ['bucketName', 'test-bucket'], ['_sessionId', sessionId], ['lifecycleGeneration', 0],
+        ]);
+        mockStorage.get.mockImplementation(async key => durable.get(key) ?? null);
+        mockStorage.put.mockImplementation(async (key, value) => { durable.set(key, value); });
+        mockStorage.delete.mockImplementation(async (keys: string | string[]) => {
+          for (const key of Array.isArray(keys) ? keys : [keys]) durable.delete(key);
+        });
+        mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
+        (mockCtx as any).waitUntil = vi.fn();
+        // Do not wait on the SDK running hint; graceful teardown still drains.
+        mockContainerRuntime.running = false;
+        mockTcpPortFetch.mockImplementation(async (url: string) => {
+          if (url.endsWith('/internal/agent-events/drain')) return Response.json({ hostNow: Date.now(), events: [] });
+          if (url.endsWith('/internal/final-sync')) return Response.json({ synced: true });
+          throw new Error('Unexpected teardown request');
+        });
+        const instance = new ContainerClass(mockCtx as any, mockEnv);
+        await vi.waitFor(() => expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toEqual(expect.any(String)));
+        const configure = (body: Record<string, unknown>) => instance.fetch(new Request('http://container/_internal/setBucketName', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bucketName: 'test-bucket', ...body }),
+        }));
+        expect((await configure({ sessionId, cloudflareAccountId: browserAccountA, cloudflareOauthAccountId: oauthAccountB })).status).toBe(409);
+        expect(instance.envVars?.CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountB);
+
+        await instance[teardown]({ bucket: 'test-bucket', sessionId, generation: 0 });
+        expect((await new D1SessionRepository(mockEnv.USAGE_DB).getSession('test-bucket', sessionId))?.lifecycleState).toBe('stopped');
+        if (teardown === 'stopSession') expect(durable.get(FINAL_SYNC_AUDIT_KEY)).toMatchObject({ outcome: 'completed' });
+        expect(instance.envVars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+
+        // An old sender omits OAuth metadata when this same coordinator is reused.
+        expect((await configure({ cloudflareAccountId: browserAccountA })).status).toBe(200);
+        expect(instance.envVars?.CLOUDFLARE_ACCOUNT_ID).toBe(browserAccountA);
+        expect(instance.envVars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+      },
+    );
 
     it.each(['delete', 'transaction'] as const)('REQ-SESSION-009: rejected KILL %s revokes warm credentials and keeps the termination claim retryable', async failure => {
       mockStorage.get.mockImplementation(async key => key === 'bucketName' ? 'test-bucket' : null);

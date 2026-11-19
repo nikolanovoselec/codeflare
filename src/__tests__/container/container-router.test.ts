@@ -42,6 +42,7 @@ function makeHost(overrides: Partial<ContainerHost> = {}): ContainerHost {
     _vaultKey: null,
     _sessionId: null,
     _userEmail: null,
+    _cloudflareOauthAccountId: null,
     _routeCatalog: [],
     _routeContextWindows: {},
     _routeReasoningLevels: {},
@@ -654,4 +655,85 @@ it.each([{ routeCatalog: [] }, { routeCatalog: ['development'] }])('REQ-ENTERPRI
     if (source === 'pi-native') expect(host.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).toBe('pi-native');
     else expect(host.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).not.toBe('pi-native');
   }
+});
+
+// The real HTTP receiver must carry the hint, not just the standalone env helper.
+describe('REQ-AGENT-029: selected OAuth account HTTP receiver', () => {
+  const browserAccountA = 'a'.repeat(32);
+  const oauthAccountB = 'b'.repeat(32);
+  const oauthAccountC = 'c'.repeat(32);
+  function configure(host: ContainerHost, body: Record<string, unknown>) {
+    return dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bucketName: 'owner-bucket', ...body }),
+    }))!;
+  }
+
+  it('initial HTTP configuration emits OAuth B independently of browser A without adding durable metadata', async () => {
+    const persisted = new Map<string, unknown>();
+    const host = makeHost({ env: { ENTERPRISE_MODE: 'active' } as any });
+    vi.mocked(host.ctx.storage.put).mockImplementation(async (key: any, value: any) => { persisted.set(key, value); });
+    const response = await configure(host, {
+      cloudflareAccountId: browserAccountA, cloudflareApiToken: 'codeflare-enterprise',
+      cloudflareOauthAccountId: oauthAccountB,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true, bucketName: 'owner-bucket' });
+    expect(host.envVars).toMatchObject({
+      CLOUDFLARE_ACCOUNT_ID: browserAccountA, CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB,
+      CLOUDFLARE_API_TOKEN: 'codeflare-enterprise',
+    });
+    expect(JSON.stringify([...persisted])).not.toContain(oauthAccountB);
+  });
+
+  it('restart HTTP configuration changes B to C, preserves an omitted hint, then clears it with null', async () => {
+    const host = makeHost({ env: { ENTERPRISE_MODE: 'active' } as any });
+    expect((await configure(host, {
+      cloudflareAccountId: browserAccountA, cloudflareApiToken: 'codeflare-enterprise',
+      cloudflareOauthAccountId: oauthAccountB,
+    })).status).toBe(200);
+    expect(host.envVars.CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountB);
+    expect((await configure(host, { cloudflareOauthAccountId: oauthAccountC })).status).toBe(409);
+    expect(host.envVars.CLOUDFLARE_OAUTH_ACCOUNT_ID).toBe(oauthAccountC);
+    expect((await configure(host, { userTimezone: 'Europe/Zurich' })).status).toBe(409);
+    expect(host.envVars).toMatchObject({ CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountC, USER_TIMEZONE: 'Europe/Zurich' });
+    expect((await configure(host, { cloudflareOauthAccountId: null })).status).toBe(409);
+    expect(host.envVars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+    expect(host.envVars).toMatchObject({
+      CLOUDFLARE_ACCOUNT_ID: browserAccountA, CLOUDFLARE_API_TOKEN: 'codeflare-enterprise',
+    });
+  });
+
+  it.each([undefined, null])('legacy minimal HTTP configuration accepts hint %s without inventing selection', async cloudflareOauthAccountId => {
+    const host = makeHost();
+    const response = await configure(host, { cloudflareAccountId: browserAccountA, cloudflareOauthAccountId });
+    expect(response.status).toBe(200);
+    expect(host.envVars.CLOUDFLARE_ACCOUNT_ID).toBe(browserAccountA);
+    expect(host.envVars).not.toHaveProperty('CLOUDFLARE_OAUTH_ACCOUNT_ID');
+  });
+
+  it.each([false, true])('malformed hint returns 400 without clearing authority, writing storage or changing environment (warm=%s)', async warm => {
+    for (const cloudflareOauthAccountId of [
+      '', ' ', 'b'.repeat(31), 'b'.repeat(33), 'g'.repeat(32), `${oauthAccountB}\n`,
+      42, false, {}, [], [oauthAccountB],
+    ]) {
+      const persisted = new Map<string, unknown>([
+        ['review:session-human', 'synthetic-existing-authority'],
+        ['review:boundary-input', 'synthetic-existing-boundary'],
+      ]);
+      const before = [...persisted];
+      const storage = {
+        get: async (key: string) => persisted.get(key),
+        put: async (key: string, value: unknown) => { persisted.set(key, value); },
+        delete: async (key: string) => persisted.delete(key),
+      };
+      const host = makeHost({ _bucketName: warm ? 'owner-bucket' : null,
+        ctx: { storage } as any,
+        envVars: { CLOUDFLARE_ACCOUNT_ID: browserAccountA, CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB } });
+      const response = await configure(host, { cloudflareOauthAccountId, userTimezone: 'Europe/Zurich' });
+      expect(response.status).toBe(400);
+      expect([...persisted]).toEqual(before);
+      expect(host.envVars).toEqual({ CLOUDFLARE_ACCOUNT_ID: browserAccountA, CLOUDFLARE_OAUTH_ACCOUNT_ID: oauthAccountB });
+    }
+  });
 });
