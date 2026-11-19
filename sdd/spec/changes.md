@@ -4,6 +4,16 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-19: Compact Operator recovery controls
+
+- REQ-OPERATOR-210 keeps the shared recovery launcher as an accessible lock-reset icon: left of Run once in Installed, right of Activate/Deactivate in Administration. Preview and explicit confirmation remain unchanged.
+- REQ-OPERATOR-209 removes default fieldset borders from expanded Configure forms without removing keyboard-focus indicators. Rendered visual acceptance remains separate from source checks.
+
+## 2026-11-19: Identify internal GitHub discovery requests
+
+- REQ-GITHUB-003 supplies the required User-Agent on internal REST metadata lookups used by Review selection and preparation.
+- REQ-OPERATOR-053 uses remote Review only for a trusted target Action and a Conductor installation enabled for the user. Confirmed absent, disabled or ineligible installations automatically select the existing local review system before remote-only authority checks. Failed or untrusted discovery grants no remote authority; ownership and workflow-trust protections remain intact.
+
 ## 2026-11-19: Restore managed Hermes after the direct-package trial
 
 - REQ-MEM-035 retires the exact obsolete managed-adapter exclusion during Advanced startup while retaining adapter-owned package loading, default-mode behavior, other exclusions and capture preferences. Registered Hermes tools remain discoverable and individually activatable through the existing REQ-AGENT-096 live capability registry; no separate catalog or eager activation is introduced.

@@ -37,13 +37,16 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
   missingActivity?: boolean; inactiveAction?: boolean; customActionPath?: boolean; untrustedAction?: boolean;
   lookup?: 'forbidden' | 'malformed' | 'malformed-entry' | 'workflow-present';
   registryFailure?: 'missing' | 'unreadable' | 'malformed-controls' | 'ambiguous';
-  nonEnterprise?: boolean } = {}) {
+  execution?: 'not-found' | 'disabled' | 'other-profile' | 'installation-disabled' | 'operator-disabled'
+    | 'other-invoker' | 'unreadable' | 'artifact-unapproved' | 'stale-controls';
+  workflowLookup?: 'forbidden' | 'malformed';
+  nonEnterprise?: boolean; requireUserAgent?: boolean } = {}) {
   let piEvidence = !options.piFirst;
   let stagedInput: unknown = options.missingInput || options.piFirst ? null : boundaryInput;
   const actionPath = options.customActionPath
     ? '.github/workflows/custom-review.yml' : '.github/workflows/boundary-reviews.yml';
   const binding = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
-    workflowPath: actionPath, protectedRef: 'refs/heads/main', workflowDigest,
+    workflowPath: actionPath, protectedRef: 'refs/heads/main', workflowDigest, enabled: true,
     events: options.untrustedAction ? ['pull_request'] : ['pull_request_target'], controlsRevision: 4 };
   let prepared: { activityId: string; contextDigest: string } | null = null;
   let activity: { activityId: string; phase: string } | null = null;
@@ -51,21 +54,38 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
   let admittedInvocation: unknown = null;
   let visible: { activityId: string; executionStatus: string; attention: boolean } | null = null;
   const registry = {
-    resolveManagementExecution: async () => ({ ok: true, value: {
-      installation: { id: 'review-install', operatorId: 'conductor-operator', revision: 2,
-        policy: { capabilities: [], resourceProfileId: 'review-profile' }, configurationJson: '{}' },
-      operator: { operatorId: 'conductor-operator', revision: 3, profile: 'conductor', enabled: true,
-        policy: { capabilities: [], resourceProfileId: 'review-profile' },
-        invokers: { users: ['owner@example.test'], groups: [] } },
-      release: { id: 'review-release', bundleDigest: 'e'.repeat(64) }, controlsRevision: 4,
-    } }),
+    resolveManagementExecution: async () => {
+      if (options.execution === 'unreadable') throw Error('Registry execution lookup unavailable');
+      if (options.execution === 'not-found' || options.execution === 'disabled' || options.execution === 'artifact-unapproved') {
+        return { ok: false, reason: options.execution };
+      }
+      return { ok: true, value: {
+        installation: { id: 'review-install', operatorId: 'conductor-operator', revision: 2,
+          enabled: options.execution !== 'installation-disabled',
+          policy: { capabilities: [], resourceProfileId: 'review-profile' }, configurationJson: '{}' },
+        operator: { operatorId: 'conductor-operator', revision: 3,
+          profile: options.execution === 'other-profile' ? 'dispatcher' : 'conductor',
+          enabled: options.execution !== 'operator-disabled',
+          policy: { capabilities: [], resourceProfileId: 'review-profile' },
+          invokers: { users: [options.execution === 'other-invoker' ? 'other@example.test' : 'owner@example.test'], groups: [] } },
+        release: { id: 'review-release', bundleDigest: 'e'.repeat(64) },
+        controlsRevision: options.execution === 'stale-controls' ? 3 : 4,
+      } };
+    },
     getManagementControls: async () => {
       if (options.registryFailure === 'unreadable') throw Error('Registry unavailable');
       if (options.registryFailure === 'malformed-controls') return { boundaryActions: {} };
       return { boundaryActions: options.inactiveAction ? [{ ...binding, enabled: false }]
-        : options.registryFailure === 'ambiguous' ? [{ ...binding, protectedRef: 'refs/heads/develop' }] : [] };
+        : options.registryFailure === 'ambiguous' ? [{ ...binding, protectedRef: 'refs/heads/develop' }]
+        : options.denied ? [] : [binding] };
     },
-    getBoundaryAction: async () => options.denied || options.inactiveAction ? null : binding,
+    getBoundaryAction: async (repositoryId: number, protectedRef: string): Promise<typeof binding | null> => {
+      const controls = await registry.getManagementControls();
+      if (!Array.isArray(controls.boundaryActions)) throw Error('Malformed Registry controls');
+      const matches = controls.boundaryActions.filter(action => action.repositoryId === repositoryId
+        && action.protectedRef === protectedRef && action.enabled !== false);
+      return matches.length === 1 ? matches[0]! : null;
+    },
     reserveBoundaryPreparation: async (request: { contextDigest: string }) => {
       prepared = { activityId: 'reserved-activity', contextDigest: request.contextDigest };
       return { ok: true, value: { activityId: prepared.activityId, created: true } };
@@ -125,7 +145,12 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
     waitUntil: (work: Promise<unknown>) => { waiting.push(work); } } as unknown as ExecutionContext, env);
   vi.spyOn(globalThis, 'fetch').mockImplementation(async request => {
     const next = request as Request;
-    const path = new URL(next.url).pathname;
+    const url = new URL(next.url);
+    const path = url.pathname;
+    if (options.requireUserAgent && url.hostname === 'api.github.com'
+      && !next.headers.get('user-agent')?.trim()) {
+      return new Response('Please make sure your request has a User-Agent header', { status: 403 });
+    }
     if (path === '/graphql') {
       await next.text();
       return Response.json(options.graphqlRejected ? { errors: [{ message: 'PR creation rejected' }] } : {
@@ -151,8 +176,11 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
       base: { sha: base, ref: 'main', repo: { id: 138 } } });
     if (path.includes('/compare/')) return Response.json({ merge_base_commit: {
       sha: path.includes(`/compare/${oldHead}...`) ? oldHead : mergeBase } });
-    if (path.includes('/actions/workflows/')) return Response.json({ id: 531,
-      path: actionPath, state: 'active' });
+    if (path.includes('/actions/workflows/')) {
+      if (options.workflowLookup === 'forbidden') return new Response('forbidden', { status: 403 });
+      if (options.workflowLookup === 'malformed') return new Response('{');
+      return Response.json({ id: 531, path: actionPath, state: 'active' });
+    }
     if (path.endsWith('/contents/.github/workflows')) {
       if (options.lookup === 'forbidden') return new Response('forbidden', { status: 403 });
       if (options.lookup === 'malformed') return new Response('{');
@@ -172,6 +200,26 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
 }
 
 describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation', () => {
+  it.each([
+    { name: 'confirmed absent Action selects local', selection: 'local',
+      options: { denied: true, noAuthority: true, missingGeneration: true, missingSessionId: true, missingActivity: true } },
+    { name: 'trusted active Action selects remote', selection: 'remote', options: {} },
+  ])('REQ-OPERATOR-053: $name when GitHub requires User-Agent, without staging on check', async ({ options, selection }) => {
+    const { client, registry, operatorActivity, container, waiting } = fixture({ ...options,
+      requireUserAgent: true, piFirst: true });
+    const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+      headers: { 'user-agent': 'GitHub CLI', 'x-codeflare-operator-boundary-select': 'check',
+        'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe(selection);
+    expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+    await Promise.all(waiting);
+    expect(await container.getBoundaryInput()).toBeNull();
+    expect(await registry.getBoundaryPreparation()).toBeNull();
+    expect(await registry.getOwnedActivity()).toBeNull();
+    expect(await operatorActivity.getBrowserDetail()).toBeNull();
+  });
   it.each([
     { name: 'missing generation', options: { missingGeneration: true } },
     { name: 'unavailable or expired human', options: { noAuthority: true } },
@@ -214,20 +262,79 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
     expect(await operatorActivity.getBrowserDetail()).toBeNull();
   });
   it.each([
-    { name: 'forbidden workflow discovery', options: { lookup: 'forbidden' } },
-    { name: 'malformed workflow discovery', options: { lookup: 'malformed' } },
-    { name: 'directory entry without a valid child name', options: { lookup: 'malformed-entry' } },
-    { name: 'existing unconfigured workflow', options: { lookup: 'workflow-present' } },
     { name: 'missing Registry', options: { registryFailure: 'missing' } },
+    { name: 'unregistered workflow YAML', options: { denied: true, lookup: 'workflow-present' } },
+    { name: 'binding on another protected base', options: { registryFailure: 'ambiguous' } },
+    { name: 'Conductor not installed', options: { execution: 'not-found' } },
+    { name: 'Conductor disabled', options: { execution: 'disabled' } },
+    { name: 'non-Conductor installation', options: { execution: 'other-profile' } },
+    { name: 'explicitly disabled installation', options: { execution: 'installation-disabled' } },
+    { name: 'explicitly disabled operator', options: { execution: 'operator-disabled' } },
+  ] as const)('REQ-OPERATOR-053: $name automatically retains local Review without remote prerequisites', async ({ options }) => {
+    const { client, registry, operatorActivity, container, waiting } = fixture({ ...options,
+      missingGeneration: true, noAuthority: true, missingActivity: true, unavailableSession: true, piFirst: true });
+    for (const mode of ['check', '1']) {
+      const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+        headers: { 'x-codeflare-operator-boundary-select': mode,
+          'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+      }));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('local');
+      expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+      await Promise.all(waiting);
+      expect(await container.getBoundaryInput()).toBeNull();
+      expect(await registry.getBoundaryPreparation()).toBeNull();
+      expect(await registry.getOwnedActivity()).toBeNull();
+      expect(await operatorActivity.getBrowserDetail()).toBeNull();
+    }
+  });
+  it('REQ-OPERATOR-053: a current user outside Conductor invokers automatically retains local Review', async () => {
+    const { client, registry, operatorActivity, container, waiting } = fixture({ execution: 'other-invoker', piFirst: true });
+    for (const mode of ['check', '1']) {
+      const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+        headers: { 'x-codeflare-operator-boundary-select': mode,
+          'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+      }));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('local');
+      expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+      await Promise.all(waiting);
+      expect(await container.getBoundaryInput()).toBeNull();
+      expect(await registry.getBoundaryPreparation()).toBeNull();
+      expect(await registry.getOwnedActivity()).toBeNull();
+      expect(await operatorActivity.getBrowserDetail()).toBeNull();
+    }
+  });
+  it.each([
     { name: 'unreadable Registry controls', options: { registryFailure: 'unreadable' } },
     { name: 'malformed Registry controls', options: { registryFailure: 'malformed-controls' } },
-    { name: 'binding on another protected base', options: { registryFailure: 'ambiguous' } },
-  ] as const)('REQ-OPERATOR-053: $name stays unavailable even without remote authority', async ({ options }) => {
-    const { client, registry, operatorActivity, container, waiting } = fixture({ ...options, denied: true,
-      missingGeneration: true, noAuthority: true, missingActivity: true, piFirst: true });
+    { name: 'failed Conductor lookup', options: { execution: 'unreadable' } },
+    { name: 'unapproved Conductor artifact', options: { execution: 'artifact-unapproved' } },
+    { name: 'changed controls revision', options: { execution: 'stale-controls' } },
+    { name: 'forbidden active workflow read', options: { workflowLookup: 'forbidden' } },
+    { name: 'malformed active workflow read', options: { workflowLookup: 'malformed' } },
+  ] as const)('REQ-OPERATOR-053: $name stays unavailable rather than implying local eligibility', async ({ options }) => {
+    const { client, registry, operatorActivity, container, waiting } = fixture({ ...options, piFirst: true });
     const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
       headers: { 'x-codeflare-operator-boundary-select': '1',
         'x-codeflare-operator-boundary-input': btoa(JSON.stringify(boundaryInput)) },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('unavailable');
+    expect(await response.json()).toMatchObject({ number: 34, head: { sha: head } });
+    await Promise.all(waiting);
+    expect(await container.getBoundaryInput()).toBeNull();
+    expect(await registry.getBoundaryPreparation()).toBeNull();
+    expect(await registry.getOwnedActivity()).toBeNull();
+    expect(await operatorActivity.getBrowserDetail()).toBeNull();
+  });
+  it.each([
+    { name: 'invalid JSON', input: '{' },
+    { name: 'invalid repository ID', input: JSON.stringify({ ...boundaryInput, repositoryId: 0 }) },
+  ])('REQ-OPERATOR-053: $name remains unavailable even without a Registry binding', async ({ input }) => {
+    const { client, registry, operatorActivity, container, waiting } = fixture({ registryFailure: 'missing', piFirst: true });
+    const response = await client.fetch(new Request('https://api.github.com/repos/owner/repo/pulls/34', {
+      headers: { 'x-codeflare-operator-boundary-select': '1', 'x-codeflare-operator-boundary-input': btoa(input) },
     }));
     expect(response.status).toBe(200);
     expect(response.headers.get('x-codeflare-operator-boundary-selection')).toBe('unavailable');

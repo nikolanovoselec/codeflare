@@ -234,11 +234,11 @@ const OperatorInstalled: Component<Props> = props => {
               <RoleHelp profile={item.profile} />
             </header>
             <InstalledSettings item={item} blocked={pending()} onPending={changePending} saved={message => { setNotice(message); queueMicrotask(refresh); }} />
-            <Show when={item.canManage && item.application?.recovery}><OperatorRecovery
-              installationId={item.id} revision={item.revision} recovery={item.application!.recovery!}
-              blocked={pending()} onPending={changePending} /></Show>
-            <footer class="operator-installed-manual">
+            <footer class="operator-installed-manual" role="group" aria-label="Installed actions">
               <span>{item.application?.controlVersion === 1 ? 'Review one invocation' : 'Install a compatible release before starting.'}</span>
+              <Show when={item.canManage && item.application?.recovery}><OperatorRecovery
+                installationId={item.id} revision={item.revision} recovery={item.application!.recovery!}
+                blocked={pending()} onPending={changePending} /></Show>
               <Show when={item.application?.controlVersion === 1}>
                 <button type="button" class="operator-primary-action" disabled={pending() || !item.canInvoke || !item.enabled || !item.approved}
                   onClick={() => { if (!pending() && item.canInvoke && item.enabled && item.approved && item.application?.controlVersion === 1) setSelected(item); }}>Run once</button>

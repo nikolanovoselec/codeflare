@@ -35,17 +35,31 @@ const head = 'b'.repeat(40), base = 'c'.repeat(40);
 const workflowSource = 'name: Boundary Reviews\non: pull_request_target\njobs: {}\n';
 const workflowDigest = '5d25cbe537cab5e78efad44b51b472c4e278ca6510342b3eb34914dc6ee4e95d';
 
-function fixture(options: { denied?: boolean; inactiveAction?: boolean; piFirst: true;
+function fixture(options: { denied?: boolean; inactiveAction?: boolean; execution?: 'not-found' | 'disabled'; piFirst: true;
   missingGeneration: true; noAuthority: true; missingActivity: true; unavailableSession: true }) {
   let stagedInput: unknown = null;
   let prepared: { activityId: string; contextDigest: string } | null = null;
   let visible: unknown = null;
   const binding = { repositoryId: 138, installationId: 'review-install', workflowId: 531,
     workflowPath: '.github/workflows/boundary-reviews.yml', protectedRef: 'refs/heads/main', workflowDigest,
-    events: ['pull_request_target'], controlsRevision: 4 };
+    events: ['pull_request_target'], enabled: true, controlsRevision: 4 };
   const registry = {
-    getManagementControls: async () => ({ boundaryActions: options.inactiveAction ? [{ ...binding, enabled: false }] : [] }),
-    getBoundaryAction: async () => options.denied || options.inactiveAction ? null : binding,
+    resolveManagementExecution: async () => options.execution ? { ok: false, reason: options.execution } : { ok: true, value: {
+      installation: { id: 'review-install', operatorId: 'conductor-operator', revision: 2, enabled: true,
+        policy: { capabilities: [], resourceProfileId: 'review-profile' }, configurationJson: '{}' },
+      operator: { operatorId: 'conductor-operator', revision: 3, profile: 'conductor', enabled: true,
+        policy: { capabilities: [], resourceProfileId: 'review-profile' },
+        invokers: { users: ['owner@example.test'], groups: [] } },
+      release: { id: 'review-release', bundleDigest: 'e'.repeat(64) }, controlsRevision: 4,
+    } },
+    getManagementControls: async () => ({ boundaryActions: options.inactiveAction ? [{ ...binding, enabled: false }]
+      : options.denied ? [] : [binding] }),
+    getBoundaryAction: async (repositoryId: number, protectedRef: string): Promise<typeof binding | null> => {
+      const controls = await registry.getManagementControls();
+      const matches = controls.boundaryActions.filter(action => action.repositoryId === repositoryId
+        && action.protectedRef === protectedRef && action.enabled !== false);
+      return matches.length === 1 ? matches[0]! : null;
+    },
     reserveBoundaryPreparation: async (request: { contextDigest: string }) => {
       prepared = { activityId: 'reserved-activity', contextDigest: request.contextDigest };
       return { ok: true, value: { activityId: prepared.activityId, created: true } };
@@ -95,7 +109,9 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
   it.each([
     { name: 'absent Action', options: { denied: true }, expected: 'local' },
     { name: 'inactive Action', options: { inactiveAction: true }, expected: 'local' },
-    { name: 'active Action without authority', options: {}, expected: 'unavailable' },
+    { name: 'active Action without installed Conductor', options: { execution: 'not-found' as const }, expected: 'local' },
+    { name: 'active Action with disabled Conductor', options: { execution: 'disabled' as const }, expected: 'local' },
+    { name: 'eligible Action and Conductor without authority', options: {}, expected: 'unavailable' },
   ])('REQ-OPERATOR-053: packaged Pi selection preserves $name through the real interceptor', async ({ options, expected }) => {
     vi.stubEnv('ENTERPRISE_MODE', 'active');
     const repo = mkdtempSync(join(tmpdir(), 'review-packaged-applicability-'));

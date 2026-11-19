@@ -610,8 +610,8 @@ describe('Task101 Administration automatic-off parity', () => {
     });
 });
 
-async function recoverySurface(surface: 'settings' | 'dropdown', declared = true) {
-  state.releases[0].application = { ...application, ...(declared ? { recovery } : {}) };
+async function recoverySurface(surface: 'settings' | 'dropdown', declared = true, definition = recovery) {
+  state.releases[0].application = { ...application, ...(declared ? { recovery: definition } : {}) };
   if (surface === 'settings') return open();
   render(() => <OperatorActivityButton enabled />);
   fireEvent.click(await screen.findByRole('button', { name: 'Operator activity' }));
@@ -626,6 +626,29 @@ describe('application-owned lock recovery', () => {
     const panel = await recoverySurface(surface, false);
     expect(within(panel).queryByRole('button', { name: 'Reset Locks' })).not.toBeInTheDocument();
     expect(writes).toEqual([]);
+  });
+
+  it.each([
+    { surface: 'settings' as const, enabled: true, actions: ['Deactivate', 'Reset Locks'] },
+    { surface: 'settings' as const, enabled: false, actions: ['Activate', 'Reset Locks'] },
+    { surface: 'dropdown' as const, enabled: true, actions: ['Reset Locks', 'Run once'] },
+  ])('$surface groups recovery beside the primary action when enabled=$enabled', async ({ surface, enabled, actions }) => {
+    state.installations[0].enabled = enabled;
+    const panel = await recoverySurface(surface);
+    const group = within(panel).getByRole('group', { name: 'Installed actions' });
+    // Accessible action order is the placement contract; opening recovery retains both actions.
+    const buttons = within(group).getAllByRole('button');
+    expect(buttons).toHaveLength(actions.length);
+    actions.forEach((action, index) => expect(buttons[index]).toHaveAccessibleName(action));
+    const trigger = within(group).getByRole('button', { name: recovery.label });
+    expect(trigger).toBeEnabled();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(trigger);
+    const preview = await within(group).findByRole('region', { name: recovery.label });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(trigger).toHaveAttribute('aria-controls', preview.id);
+    expect(within(group).getByRole('button', { name: actions.find(action => action !== recovery.label)! })).toBeInTheDocument();
+    expect(writes).toEqual([{ path: previewPath, body: { revision: 4 } }]);
   });
 
   it.each(['settings', 'dropdown'] as const)('%s previews read-only and confirms only exact eligible versions', async surface => {
@@ -652,12 +675,13 @@ describe('application-owned lock recovery', () => {
     expect(state).toEqual(before);
   });
 
-  it('cancels a read-only preview and returns keyboard focus without changing settings', async () => {
-    const panel = await recoverySurface('settings');
+  it.each(['settings', 'dropdown'] as const)('%s cancels a read-only preview and returns keyboard focus without changing settings', async surface => {
+    const panel = await recoverySurface(surface);
     const before = structuredClone(state);
     const button = within(panel).getByRole('button', { name: 'Reset Locks' });
     fireEvent.click(button);
     await within(panel).findByText('1 eligible locks.');
+    await waitFor(() => expect(within(panel).getByRole('heading', { name: 'Recovery preview' })).toHaveFocus());
     fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
     expect(button).toHaveFocus();
     expect(within(panel).queryByRole('button', { name: 'Reset 1 locks' })).not.toBeInTheDocument();
@@ -685,12 +709,13 @@ describe('application-owned lock recovery', () => {
       expect(writes).toEqual([{ path: previewPath, body: { revision: 4 } }]);
     });
 
-  it('uses arbitrary package copy rather than operator identity to expose recovery', async () => {
-    state.releases[0].application = { controlVersion: 1, recovery: {
-      label: 'Repair queue', description: 'Inspect failed queue entries.', prefix: 'queue:' } };
-    await open();
-    expect(screen.getByRole('button', { name: 'Repair queue' })).toHaveAccessibleDescription('Inspect failed queue entries.');
-    expect(screen.queryByRole('button', { name: 'Reset Locks' })).not.toBeInTheDocument();
+  it.each(['settings', 'dropdown'] as const)('%s uses arbitrary package copy rather than operator identity to expose recovery', async surface => {
+    const definition = { label: 'Repair queue', description: 'Inspect failed queue entries.', prefix: 'queue:' };
+    const panel = await recoverySurface(surface, true, definition);
+    const button = within(panel).getByRole('button', { name: definition.label });
+    expect(button).toHaveAccessibleDescription(definition.description);
+    expect(button).toHaveAttribute('title', definition.description);
+    expect(within(panel).queryByRole('button', { name: 'Reset Locks' })).not.toBeInTheDocument();
     expect(writes).toEqual([]);
   });
 
@@ -870,19 +895,29 @@ describe('application-owned lock recovery', () => {
     expect(writes).toEqual([{ path: previewPath, body: { revision: 4 } }, original, original]);
   });
 
-  it('holds dropdown navigation and other actions while confirmation is pending', async () => {
+  it.each(['settings', 'dropdown'] as const)('%s holds recovery and other actions while confirmation is pending', async surface => {
     let resolve!: (response: Response) => void;
     let request!: ApplicationRecoveryResetInput;
     recoveryReset = body => { request = body; return new Promise(done => { resolve = done; }); };
-    const panel = await recoverySurface('dropdown');
-    fireEvent.click(within(panel).getByRole('button', { name: 'Reset Locks' }));
+    const panel = await recoverySurface(surface);
+    const trigger = within(panel).getByRole('button', { name: 'Reset Locks' });
+    fireEvent.click(trigger);
     fireEvent.click(await within(panel).findByRole('button', { name: 'Reset 1 locks' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Close operators' })).toBeDisabled());
-    expect(within(panel).getByRole('button', { name: 'Run once' })).toBeDisabled();
-    expect(within(panel).getByRole('button', { name: 'Configure' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Refresh installations' })).toBeDisabled();
+    await waitFor(() => expect(trigger).toBeDisabled());
+    expect(within(panel).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    if (surface === 'dropdown') {
+      expect(screen.getByRole('button', { name: 'Close operators' })).toBeDisabled();
+      expect(within(panel).getByRole('button', { name: 'Run once' })).toBeDisabled();
+      expect(within(panel).getByRole('button', { name: 'Configure' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Refresh installations' })).toBeDisabled();
+    } else {
+      expect(within(panel).getByRole('button', { name: 'Deactivate' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Back to catalog' })).toBeDisabled();
+    }
     resolve(json({ requestId: request.requestId, reset: 1, skipped: [] }));
     await within(panel).findByText('1 locks reset; 0 skipped. No run or settings change was requested.');
-    expect(screen.getByRole('button', { name: 'Close operators' })).toBeEnabled();
+    expect(trigger).toBeEnabled();
+    if (surface === 'dropdown') expect(screen.getByRole('button', { name: 'Close operators' })).toBeEnabled();
+    else expect(within(panel).getByRole('button', { name: 'Deactivate' })).toBeEnabled();
   });
 });

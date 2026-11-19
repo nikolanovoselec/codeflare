@@ -1,4 +1,7 @@
 import { For, Show, createSignal, createUniqueId, onCleanup, type Component } from 'solid-js';
+import { mdiLockReset } from '@mdi/js';
+import Icon from './Icon';
+import '../styles/operator-recovery.css';
 import { ApiError } from '../api/fetch-helper';
 import { APPLICATION_RECOVERY_BATCH_SIZE, previewApplicationRecovery, resetApplicationRecovery,
   type ApplicationDefinition, type ApplicationRecoveryItem, type ApplicationRecoveryResetInput } from '../api/operator-management';
@@ -142,13 +145,13 @@ const OperatorRecovery: Component<Props> = props => {
     } finally { if (alive) busy(false); }
   };
   const close = () => { if (!pending()) { setOpen(false); trigger?.focus(); } };
-  return <section class="operator-scheduling" aria-label={props.recovery.label}>
-    <button ref={trigger} type="button" class="admin-secondary-button" title={props.recovery.description}
-      aria-describedby={`${id}-help`} aria-expanded={open()} aria-controls={id} disabled={pending() || props.blocked}
-      onClick={() => { if (uncertain()) setOpen(true); else void preview(); }}>{props.recovery.label}</button>
+  return <>
+    <button ref={trigger} type="button" class="admin-icon-button operator-recovery-trigger" title={props.recovery.description}
+      aria-label={props.recovery.label} aria-describedby={`${id}-help`} aria-expanded={open()} aria-controls={id} disabled={pending() || props.blocked}
+      onClick={() => { if (uncertain()) setOpen(true); else void preview(); }}><Icon path={mdiLockReset} size={20} aria-hidden="true" /></button>
     <span id={`${id}-help`} style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden',
       'clip-path': 'inset(50%)', 'white-space': 'nowrap' }}>{props.recovery.description}</span>
-    <Show when={open()}><div id={id}>
+    <Show when={open()}><div id={id} class="operator-recovery-panel" role="region" aria-label={props.recovery.label}>
       <h4 ref={heading} tabindex="-1">Recovery preview</h4>
       <p>{eligible().length} eligible locks{next() || invalid() ? ' in the loaded preview (incomplete)' : ''}.</p>
       <ul><For each={items()}>{item => <li>{item.label} — {item.status === 'blocked' ? `Blocked: ${item.reason}` : 'Eligible'}</li>}</For></ul>
@@ -172,6 +175,6 @@ const OperatorRecovery: Component<Props> = props => {
         <button type="button" class="admin-secondary-button" disabled={pending()} onClick={close}>Cancel</button>
       </div>
     </div></Show>
-  </section>;
+  </>;
 };
 export default OperatorRecovery;

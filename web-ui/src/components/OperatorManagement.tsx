@@ -692,8 +692,12 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           <button type="button" class="admin-secondary-button" disabled={props.locked} onClick={() => void props.perform(
             () => api.refreshManagedReleases(operator().id, operator().revision), 'Release details refreshed; the installed version and enablement are unchanged.', 'installed-metadata')}>Refresh release details</button>
           {props.feedback('installed-metadata')}</div></Show>
-        <div class="operator-actions"><button class="admin-primary-button" type="button" disabled={!canChangeAvailability()}
-          onClick={changeAvailability}>{deactivate() ? 'Deactivate' : 'Activate'}</button></div>
+        <div class="operator-actions" role="group" aria-label="Installed actions"><button class="admin-primary-button" type="button" disabled={!canChangeAvailability()}
+          onClick={changeAvailability}>{deactivate() ? 'Deactivate' : 'Activate'}</button>
+          <Show when={installation() && application()?.recovery}><OperatorRecovery
+            installationId={installation()!.id} revision={installation()!.revision} recovery={application()!.recovery!}
+            blocked={props.locked} onPending={props.recoveryPending} /></Show>
+        </div>
         <Show when={savedAutomatic()}><p class="admin-help-text" role="status">Automatic runs: {installation()?.enabled ? automaticStatus() : 'inactive'}.
           New activation delegates your verified permissions until the original Access expiry; no running workspace is required. Use Deactivate to revoke this delegation; Cloudflare sign-out does not revoke it.</p>
           <Show when={dirtyRunSettings()}><p class="admin-help-text">Save run settings before activating.</p></Show>
@@ -713,9 +717,6 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           <button type="button" class="admin-secondary-button" onClick={() => { setInstallOpen(false); setReleaseId(''); }}>Cancel</button></div>
       </div></Show>
       {props.feedback('installed-install')}
-      <Show when={installation() && application()?.recovery}><OperatorRecovery
-        installationId={installation()!.id} revision={installation()!.revision} recovery={application()!.recovery!}
-        blocked={props.locked} onPending={props.recoveryPending} /></Show>
 <Show when={configuredRuns() && installation()}><form onSubmit={event => {
   event.preventDefault();
   const selected = installation();

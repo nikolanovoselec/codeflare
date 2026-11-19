@@ -67,33 +67,12 @@ describe('REQ-OPERATOR-053: target Action trust is admin-owned and distinct from
       expect(selection).toBe('local');
       expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toBeNull();
     }));
-  it.each([
-    { name: 'forbidden listing', status: 403, body: 'forbidden' },
-    { name: 'inaccessible parent listings', status: 404, body: 'not found' },
-    { name: 'malformed listing JSON', status: 200, body: '{' },
-    { name: 'invalid UTF-8 listing', status: 200, body: new Uint8Array([0xff]) },
-    { name: 'non-array listing', status: 200, body: '{}' },
-    { name: 'null listing entry', status: 200, body: '[null]' },
-    { name: 'entry with no child name', status: 200, body: '[{}]' },
-    { name: 'null child name', status: 200, body: '[{"name":null}]' },
-    { name: 'non-string child name', status: 200, body: '[{"name":42}]' },
-    { name: 'empty child name', status: 200, body: '[{"name":""}]' },
-    { name: 'nested path instead of child name', status: 200, body: '[{"name":"nested/ci.yml"}]' },
-    { name: 'dot instead of child name', status: 200, body: '[{"name":"."}]' },
-    { name: 'parent instead of child name', status: 200, body: '[{"name":".."}]' },
-    { name: 'existing unconfigured yml workflow', status: 200, body: '[{"name":"boundary-reviews.yml"}]' },
-    { name: 'existing unconfigured yaml workflow', status: 200, body: '[{"name":"boundary-reviews.yaml"}]' },
-  ])('REQ-OPERATOR-053: $name cannot establish absent target Action', ({ status, body }) => withRegistry(async registry => {
+  it('REQ-OPERATOR-053: unconfigured Review stays local without remote discovery or authority', () => withRegistry(async registry => {
     const selection = await selectVerifiedBoundaryAction({ OPERATOR_REGISTRY: { getByName: () => registry } } as never,
-      async () => { throw Error('Uncertain applicability grants no remote human authority'); },
+      async () => { throw Error('No remote human authority'); },
       { owner: 'owner', repository: 'repo', repositoryId: 138, baseRef: 'main', baseSha: 'a'.repeat(40) },
-      async path => {
-        if (path === '/repos/owner/repo') return Response.json({ id: 138, full_name: 'owner/repo' });
-        if (path === '/repos/owner/repo/branches/main') return Response.json({ name: 'main', protected: true,
-          commit: { sha: 'a'.repeat(40) } });
-        return new Response(body, { status });
-      });
-    expect(selection).toBe('unavailable');
+      async () => { throw Error('GitHub discovery unavailable'); });
+    expect(selection).toBe('local');
     expect(await registry.getBoundaryAction(138, 'refs/heads/main')).toBeNull();
   }));
   it('refuses duplicate bindings and expired configuration authority', () => withRegistry(async registry => {

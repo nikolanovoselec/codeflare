@@ -31,12 +31,11 @@ export async function selectVerifiedBoundaryAction(
   target: { owner: string; repository: string; repositoryId: number; baseRef: string; baseSha: string },
   api: (path: string) => Promise<Response>,
 ): Promise<'local' | 'remote' | 'unavailable'> {
-  if (!env.OPERATOR_REGISTRY
-    || !/^[A-Za-z0-9_.-]+$/.test(target.owner) || !/^[A-Za-z0-9_.-]+$/.test(target.repository)
+  if (!/^[A-Za-z0-9_.-]+$/.test(target.owner) || !/^[A-Za-z0-9_.-]+$/.test(target.repository)
     || !Number.isSafeInteger(target.repositoryId) || target.repositoryId < 1
     || !/^(main|master|develop)$/.test(target.baseRef)
     || !/^[a-f0-9]{40}$/i.test(target.baseSha)) return 'unavailable';
-  const registry = env.OPERATOR_REGISTRY.getByName('registry');
+  if (!env.OPERATOR_REGISTRY) return 'local';
   const root = `/repos/${target.owner}/${target.repository}`;
   async function json(path: string): Promise<unknown> {
     const response = await api(path);
@@ -45,45 +44,27 @@ export async function selectVerifiedBoundaryAction(
       await readBoundedResponse(response, 128 * 1024, 'Action selection metadata'))) as unknown;
   }
   try {
+    const registry = env.OPERATOR_REGISTRY.getByName('registry');
+    const protectedRef = `refs/heads/${target.baseRef}`;
+    const action = await registry.getBoundaryAction(target.repositoryId, protectedRef);
+    // Only an explicitly enabled target binding can opt out of normal local Review.
+    if (!action || action.enabled === false) return 'local';
+    const installed = await registry.resolveManagementExecution(action.installationId);
+    if (!installed.ok) return installed.reason === 'not-found' || installed.reason === 'disabled'
+      ? 'local' : 'unavailable';
+    if (installed.value.operator.profile !== 'conductor' || installed.value.operator.enabled === false
+      || installed.value.installation.enabled === false) return 'local';
+    if (installed.value.controlsRevision !== action.controlsRevision) return 'unavailable';
     const repository = await json(root) as { id: number; full_name: string; default_branch: string };
     if (repository?.id !== target.repositoryId
       || repository.full_name?.toLowerCase() !== `${target.owner}/${target.repository}`.toLowerCase()) {
       return 'unavailable';
     }
-    const protectedRef = `refs/heads/${target.baseRef}`;
     const branch = await json(`${root}/branches/${encodeURIComponent(target.baseRef)}`) as {
       name: string; protected: boolean; commit: { sha: string };
     };
     if (branch?.name !== target.baseRef || !branch.protected
       || !/^[a-f0-9]{40}$/i.test(branch.commit?.sha ?? '')) return 'unavailable';
-    const action = await registry.getBoundaryAction(repository.id, protectedRef);
-    if (!action) {
-      // An explicit binding on another base is not evidence of an absent Action here.
-      const controls = await registry.getManagementControls();
-      const bindings = controls.boundaryActions?.filter(binding => binding.repositoryId === repository.id) ?? [];
-      if (bindings.some(binding => binding.protectedRef === protectedRef && binding.enabled === false)
-        && bindings.every(binding => binding.enabled === false)) return 'local';
-      if (bindings.length) return 'unavailable';
-      // A 404 alone can conceal missing permissions. Require a readable parent listing
-      // establishing that the protected workflow file is genuinely absent.
-      for (const [directory, next] of [
-        ['.github/workflows', 'boundary-reviews.yml'], ['.github', 'workflows'], ['', '.github'],
-      ] as const) {
-        const path = `${root}/contents${directory ? `/${directory}` : ''}?ref=${encodeURIComponent(branch.commit.sha)}`;
-        const response = await api(path);
-        if (response.status === 404) continue;
-        if (response.status !== 200) return 'unavailable';
-        const entries = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
-          await readBoundedResponse(response, 128 * 1024, 'Action absence listing'))) as unknown;
-        if (!Array.isArray(entries) || entries.length >= 1000
-          || entries.some(entry => typeof entry?.name !== 'string' || !entry.name
-            || entry.name === '.' || entry.name === '..' || entry.name.includes('/'))) return 'unavailable';
-        if (entries.some(entry => entry?.name === next
-          || (next === 'boundary-reviews.yml' && entry?.name === 'boundary-reviews.yaml'))) return 'unavailable';
-        return 'local';
-      }
-      return 'unavailable';
-    }
     const workflow = await json(`${root}/actions/workflows/${action.workflowId}`) as {
       id: number; path: string; state: string;
     };
@@ -92,13 +73,11 @@ export async function selectVerifiedBoundaryAction(
     };
     const decision = await resolveBoundaryAction({ action, repository, baseRef: protectedRef, workflow, branch, contents,
       event: 'pull_request_target' });
-    if (decision.selection !== 'remote' || !env.OPERATOR_ACTIVITY) return 'unavailable';
+    if (decision.selection !== 'remote') return 'unavailable';
     const authority = await readAuthority();
     if (authority.expiresAt * 1000 <= Date.now()) return 'unavailable';
-    const installed = await registry.resolveManagementExecution(decision.installationId);
-    return installed.ok && installed.value.controlsRevision === decision.controlsRevision
-      && installed.value.operator.profile === 'conductor'
-      && canInvokeOperator(authority, installed.value.operator) ? 'remote' : 'unavailable';
+    if (!canInvokeOperator(authority, installed.value.operator)) return 'local';
+    return env.OPERATOR_ACTIVITY ? 'remote' : 'unavailable';
   } catch { return 'unavailable'; }
 }
 

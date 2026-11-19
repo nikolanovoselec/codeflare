@@ -354,7 +354,8 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       } else observedPush.abort();
     }
     const api = (path: string) => send(new Request(`https://${apiHost}${path}`, {
-      headers: { authorization: `Bearer ${token}`, 'x-github-api-version': GITHUB_API_VERSION },
+      headers: { authorization: `Bearer ${token}`, 'x-github-api-version': GITHUB_API_VERSION,
+        'user-agent': 'Codeflare' },
       redirect: 'manual', signal: AbortSignal.timeout(3_000),
     }));
     const apiJson = async (path: string): Promise<unknown> => {
