@@ -34,6 +34,12 @@ Tool migration: `ctx_batch({commands: ["command"], queries: ["query"]})` replace
 
 **Security qualification is separate:** the integrity-verified 2.1.7 tarball contains its own Zod v4.0.0 code as well as MCP's v4.6.7 copies. Removing lockfile Zod v3 records does not prove embedded validators patched. A manifest override cannot alter bundled code; upstream remediation or a separately reviewed rebuild is required before claiming full Zod remediation. [Published package](https://registry.npmjs.org/context-mode/2.1.7), [source manifest](https://github.com/mksglu/context-mode/blob/v2.1.7/package.json), [Pi entry](https://github.com/mksglu/context-mode/blob/v2.1.7/src/entries/pi.ts).
 
+## 2.1.9 upgrade guidance
+
+These upstream changes apply only after the 2.1.9 bump is merged and the upgraded image is deployed; this source still pins 2.1.7. In 2.1.9, Pi result replacement preserves `structuredContent` and lets Pi retain original `details`, including continuation metadata. Optional `contextMode.excludeTools` uses exact tool names through public `pi.getSettings()` (Pi >=1.4) to keep selected results whole; excluded tools are still journaled. Missing, malformed or unavailable settings retain default replacement. Do not introduce an automatic exclusion list. See the [pinned upstream Pi guidance](https://github.com/mksglu/context-mode/blob/edbebef22f63733c4dc61f3a45826cd481aa32c2/docs/install/pi.md).
+
+Retain the single foreground owner, disabled package auto-discovery (`extensions: []`), `/ctx` opt-in and managed authentication. Do not run upstream setup/upgrade over Codeflare-managed configuration. Node >=24.15.0 with built-in SQLite remains required; old-Node native-tool recovery is not server support. The reviewed 2.1.9 bundle still embeds Zod 4.0.0, so the security warning above remains applicable; the version bump is not remediation.
+
 ## Why preseed not runtime config
 
 We deliver the plugin folder as a preseed asset (R2 bisync) rather than installing the plugin at runtime so:
