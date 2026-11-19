@@ -256,7 +256,9 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       assert.deepEqual(await verifyBoth(), runtimePaths);
       for (const [index, runtimePath] of runtimePaths.entries()) {
         writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
-        await assert.rejects(verifyBoth(), { message: `${runtimePath} must contain node-tar ${expectedVersions[index]}` });
+        await assert.rejects(verifyBoth(), {
+          code: 'ERR_ASSERTION', actual: '7.5.21', expected: expectedVersions[index],
+        });
         writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: expectedVersions[index], main: 'index.cjs' }));
       }
 

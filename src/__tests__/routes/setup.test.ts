@@ -291,7 +291,21 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
 
     it.each(['prefill', 'detect-token'] as const)(
       'REQ-SETUP-008 AC4: %s permits bootstrap, then requires authenticated admin', async endpoint => {
-        const app = createTestApp({ CLOUDFLARE_API_TOKEN: undefined });
+        const owners = new Map<string, string>();
+        const container = {
+          idFromName: (name: string) => name,
+          get: (id: string) => ({
+            claimBucketOwner: async (email: string, allowInitialClaim: boolean) => {
+              const owner = owners.get(id);
+              if (owner === email) return 'owned';
+              if (owner) return 'conflict';
+              if (!allowInitialClaim) return 'ambiguous';
+              owners.set(id, email);
+              return 'owned';
+            },
+          }),
+        } as unknown as Env['CONTAINER'];
+        const app = createTestApp({ CLOUDFLARE_API_TOKEN: undefined, CONTAINER: container });
         expect((await app.request(`/api/setup/${endpoint}`)).status).toBe(200);
         mockKV._store.set('setup:complete', 'true');
         mockKV._set('user:regular@example.com', { role: 'user', addedBy: 'setup', addedAt: '2024-01-01' });
