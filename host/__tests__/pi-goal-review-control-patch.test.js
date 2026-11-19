@@ -1422,6 +1422,26 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.deepEqual(readFixturePackage(upgraded), prepared);
   });
 
+  it('REQ-AGENT-236 AC4: prior progress-prepared safety upgrades to the same idempotent artifact as pristine sources', t => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-resume-upgrade-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(versions.goalArchive, versions.goalIntegrity, root);
+    patchPiGoalDirectory(versions.goal, root);
+    const current = readFixturePackage(root);
+    let previousSafety = readFileSync(join(FIXTURES_DIRECTORY, 'pi-goal-progress-safety.ts'), 'utf8');
+    // Exact prior prepared artifact contract, captured from installed 0.55.1.
+    assert.equal(createHash('sha256').update(previousSafety).digest('hex'),
+      'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d');
+    if (['0.54.3', '0.54.4'].includes(versions.goal)) {
+      previousSafety = previousSafety.replace(/^(?:  )+/gm, indent => '\t'.repeat(indent.length / 2));
+    }
+    writeFileSync(join(root, 'src/safety.ts'), previousSafety);
+    patchPiGoalDirectory(versions.goal, root);
+    assert.deepEqual(readFixturePackage(root), current);
+    patchPiGoalDirectory(versions.goal, root);
+    assert.deepEqual(readFixturePackage(root), current);
+  });
+
   it('REQ-AGENT-111/129: partial progress markers and unknown prepared layouts fail before any package writes', t => {
     const destinations = ['lifecycle', 'prompts', 'runtime', 'settings', 'tool-policy', 'tools', 'safety', 'persistence'];
     for (const name of destinations) {
@@ -1683,12 +1703,143 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(s.state().stalledSince, undefined);
     const resumed = await s.report('stalled', 'Explicitly retrying the unresolved external prerequisite.');
     assert.doesNotMatch(resumed.content[0].text, /rejected/);
+    await s.report('advanced', 'Completed the first resumed objective item and verified its artifact.');
     await s.finish();
-    for (let index = 0; index < 4; index++) {
+    for (let index = 0; index < 5; index++) {
       await s.next();
       await s.finish(`Fresh retry ${index}`);
-      assert.equal(s.state().status, 'active');
+      assert.equal(s.state().status, index === 4 ? 'blocked' : 'active');
     }
+  });
+
+  for (const stoppedStatus of ['paused', 'blocked']) {
+    it(`REQ-AGENT-236 AC4: ${stoppedStatus} resume clears expired history before pending delivery and lifecycle enforcement`, async t => {
+      const s = await createStallScenario(t, versions, { automaticTurns: 12 });
+      await s.begin();
+      await s.report('advanced');
+      await s.finish();
+      await s.next();
+      await s.finish();
+      if (stoppedStatus === 'paused') await s.harness.commands.get('goal').handler('pause', s.harness.ctx);
+      t.mock.timers.setTime(Date.now() + 26 * 60_000);
+      if (stoppedStatus === 'blocked') await s.harness.runContext();
+      const stopped = structuredClone(s.state());
+      assert.equal(stopped.status, stoppedStatus);
+      assert.equal(stopped.stalledRuns, 1);
+      let releaseDelivery;
+      const delivery = s.harness.api.sendUserMessage;
+      s.harness.api.sendUserMessage = async (content, options) => {
+        await new Promise(resolve => { releaseDelivery = resolve; });
+        await delivery(content, options);
+      };
+      const resuming = s.harness.commands.get('goal').handler('resume', s.harness.ctx);
+      try {
+        assert.equal(s.state().status, 'active');
+        assert.notEqual(s.state().id, stopped.id);
+        assert.equal(s.state().stalledSince, undefined, 'expired deadline is gone before prompt delivery');
+        assert.equal(s.state().stalledRuns, undefined);
+        assert.equal(s.state().nextAutomaticAt, undefined);
+        assert.equal(s.state().toolFreeRepeatCount, 0);
+        assert.equal(s.state().automaticModelTurns, stopped.automaticModelTurns, 'finite epoch stays deferred');
+        assert.equal(s.state().safetyResetPending, true);
+        for (const field of ['text', 'tokensUsed', 'timeUsedSeconds', 'tokenBudget', 'iteration']) {
+          assert.equal(s.state()[field], stopped[field], `${field} survives resume`);
+        }
+        await s.harness.dispatch('input', { text: 'Review the resumed objective', source: 'user' });
+        await s.harness.runContext();
+        t.mock.timers.tick(1);
+        assert.equal(s.state().status, 'active', 'pre-prompt lifecycle and old timers cannot restore the expired deadline');
+      } finally {
+        releaseDelivery?.();
+        await resuming;
+      }
+      await s.begin();
+      assert.equal(s.state().automaticModelTurns, 0, 'owned prompt commits the deferred finite epoch');
+      await s.report('stalled', 'Fresh retry still awaits the external prerequisite.');
+      const freshSince = s.state().stalledSince;
+      assert.ok(freshSince > stopped.stalledSince);
+      await s.finish();
+      t.mock.timers.setTime(freshSince + 25 * 60_000 - 1);
+      await s.harness.runContext();
+      assert.equal(s.state().status, 'active');
+      t.mock.timers.setTime(freshSince + 25 * 60_000);
+      await s.harness.runContext();
+      assert.equal(s.state().status, 'blocked', 'a genuine fresh 25-minute stall still blocks');
+      assert.equal(s.state().toolFreeRepeatCount, 0);
+      assert.equal(s.harness.messages.length, 0);
+    });
+  }
+
+  it('REQ-AGENT-236 AC4: prompt-suppressed control resume clears the expired deadline before any new owned prompt', async t => {
+    const s = await createStallScenario(t, versions);
+    await s.begin();
+    await s.report('stalled', 'External prerequisite is not ready.');
+    await s.finish();
+    let response;
+    await s.harness.emit(CONTROL_CHANNEL, { action: 'pause', goalId: s.state().id, respond: value => { response = value; } });
+    assert.equal(response.ok, true);
+    const stopped = structuredClone(s.state());
+    t.mock.timers.setTime(Date.now() + 26 * 60_000);
+    await s.harness.emit(CONTROL_CHANNEL, { action: 'resume', goalId: stopped.id, respond: value => { response = value; } });
+    assert.equal(response.ok, true);
+    assert.notEqual(response.goalId, stopped.id);
+    assert.equal(s.state().stalledSince, undefined);
+    assert.equal(s.state().stalledRuns, undefined);
+    assert.equal(s.state().nextAutomaticAt, undefined);
+    assert.equal(s.state().toolFreeRepeatCount, 0);
+    assert.equal(s.harness.messages.length, 0, 'control resume does not send its own prompt');
+    await s.harness.dispatch('input', { text: 'Continue after review', source: 'user' });
+    await s.harness.runContext();
+    t.mock.timers.tick(1);
+    assert.equal(s.state().status, 'active');
+    await s.harness.dispatch('session_shutdown');
+    await s.harness.startSession();
+    await s.harness.runContext();
+    assert.equal(s.state().status, 'active', 'restoring a resumed goal cannot resurrect the expired history');
+    assert.equal(s.state().stalledSince, undefined);
+  });
+
+  for (const stoppedStatus of ['paused', 'blocked']) {
+    it(`REQ-AGENT-236 AC4: failed ${stoppedStatus} resume restores original history and remains stopped after reload`, async t => {
+      const s = await createStallScenario(t, versions);
+      await s.begin();
+      await s.finish();
+      if (stoppedStatus === 'paused') await s.harness.commands.get('goal').handler('pause', s.harness.ctx);
+      t.mock.timers.setTime(Date.now() + 26 * 60_000);
+      if (stoppedStatus === 'blocked') await s.harness.runContext();
+      const stopped = structuredClone(s.state());
+      s.harness.api.sendUserMessage = async () => { throw new Error('resume delivery unavailable'); };
+      await s.harness.commands.get('goal').handler('resume', s.harness.ctx);
+      assert.deepEqual(s.state(), stopped, 'failed delivery restores the stopped instance without mutating its stall history');
+      await s.harness.dispatch('session_shutdown');
+      await s.harness.startSession();
+      await s.harness.runContext();
+      assert.equal(s.state().status, stoppedStatus);
+      assert.equal(s.state().id, stopped.id);
+      assert.equal(s.state().stalledSince, stopped.stalledSince);
+      assert.equal(s.state().toolFreeRepeatCount, stopped.toolFreeRepeatCount);
+      assert.equal(s.harness.messages.length, 0);
+      assert.ok(s.harness.notifications.some(({ message }) => message.includes('resume delivery unavailable')));
+    });
+  }
+
+  it('REQ-AGENT-236 AC4: waking an active waiting goal keeps its genuine stalled deadline', async t => {
+    const s = await createStallScenario(t, versions);
+    await s.begin();
+    await s.report('stalled', 'External prerequisite is not ready.');
+    await s.tool('goal_wait').execute('wait', { goal_id: s.state().id, reason: 'External event is arranged.' },
+      undefined, undefined, s.harness.ctx);
+    await s.finish();
+    const waiting = structuredClone(s.state());
+    t.mock.timers.tick(60_000);
+    await s.harness.commands.get('goal').handler('resume', s.harness.ctx);
+    await s.begin();
+    assert.equal(s.state().id, waiting.id);
+    assert.equal(s.state().waiting, undefined);
+    assert.equal(s.state().stalledSince, waiting.stalledSince);
+    t.mock.timers.setTime(waiting.stalledSince + 25 * 60_000);
+    await s.harness.runContext();
+    assert.equal(s.state().status, 'blocked');
   });
 
   it('REQ-AGENT-111/129: legacy output-repeat counters are not fabricated stalled-attempt history', async t => {

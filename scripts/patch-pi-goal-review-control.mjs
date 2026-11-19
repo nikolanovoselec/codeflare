@@ -41,7 +41,7 @@ const REVIEWED_05415 = {
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', '8595c4a6aee3b485504f6c0d0ab51091d669fc6bfd9ff89ba94c251934ef2231', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
   'src/runtime.ts': ['4dbb2be140a035241265724ebb91401a08417f4d8abed2e58973bf8baa72f706', '3c44ff728961ab627b334a32ce847cfdfefa6125763e9839680df63d2eee1ea0', '86c40489e8c4b0dd8ddf1e04fd7ca02efc9b7056aa11f0173035a8483ef613bb'],
-  'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d'],
+  'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d', 'bbc3cf5eb62de385a45ba305234714ecaa6dc45388c4a5850c15f4afcc54934a'],
   'src/settings-ui.ts': ['a0482ed1fb6bf15a00a251ea576419248e9ae81fbae485145ae78a62798127d5'],
   'src/settings.ts': ['0a16915b084ffc1ec69e3884fe29e8ab2edb3675e5d87f8ccff67e386c3bd4b9', 'e2fafa65a07b40a8c7fbd46fcf95c3177ecd16afaa961443dbdd69d312689ba4', 'b849014f307cafca8195ecbaafd95c2c075226542b9c86a4a025214aa06210e3'],
   'src/tool-policy.ts': ['c0aec081211be439d6dd8ee752240989697e6178673540d7212d1708ba15c627', '863ad95d1d4b5891fbc7b9756be89a4f366027b44e7c46b7c6929f72ef3f5ee0', '6b64f8dea9b2d03119371b3e27352837f97239fa028938447cfb4198e3ec2665'],
@@ -71,7 +71,7 @@ const REVIEWED_0550 = {
   'src/prompts.ts': ['9aec92ac4d8319dd1086a072271c75be8f638a0692fd8a03d10fda4b9337c88c', 'f32fec7ff2b06897024610b420064f007191732c7f7559a79212ced6063f1f93'],
   'src/run-protocol.ts': ['05a387d77f28502eca06213460fdb375614d784741a306b7e66a7fff9bd3bba3'],
   'src/runtime.ts': ['4209576f004cf53acfd2921e61e3c2bdfc1239de02213e9389162b7ac570e108', '2e218d9fdd50c17b4d944cce87f5c1dd7dd33684e09ae0b09294955f69914572'],
-  'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d'],
+  'src/safety.ts': ['e12c9fb224286697b4424c976a5c159c2a2bdca70feb34e756b208f92182b8e8', 'd08d3a99ac0b4e4e0c87c5c81eb30ea5df832632078a6ab6283aeb01a3a6ff5d', 'bbc3cf5eb62de385a45ba305234714ecaa6dc45388c4a5850c15f4afcc54934a'],
   'src/settings-ui.ts': ['f53f1bdd172677f94086e2337f70156fb32b96fdf5575bc990cb514aff6b46ca'],
   'src/settings.ts': ['13f44680f34aa5faf06e7fbb172afbed815d705dc225f57930435a4cb5a54dcd', 'fde069d225410345e89e6ec20ec0bf3a01294a76034f09a395d4823d8f8d8293'],
   'src/tool-policy.ts': ['c0aec081211be439d6dd8ee752240989697e6178673540d7212d1708ba15c627', '6b64f8dea9b2d03119371b3e27352837f97239fa028938447cfb4198e3ec2665'],
@@ -983,11 +983,30 @@ function patchProgressPersistence(source) {
 }
 
 function patchProgressSafety(source) {
-  if (isCompleteMarkedPatch(source, PROGRESS_MARKER, ['stalledRuns: undefined,', 'stalledSince: undefined,', 'nextAutomaticAt: undefined,'], 'Goal progress safety reset')) return source;
-  return replaceOnce(source, '\t\tautomaticModelTurns: 0,', `\t\tautomaticModelTurns: 0,
+  let patched = source;
+  if (!isCompleteMarkedPatch(source, PROGRESS_MARKER, ['stalledRuns: undefined,', 'stalledSince: undefined,', 'nextAutomaticAt: undefined,'], 'Goal progress safety reset')) {
+    patched = replaceOnce(source, '\t\tautomaticModelTurns: 0,', `\t\tautomaticModelTurns: 0,
 \t\tstalledRuns: undefined, // ${PROGRESS_MARKER}
 \t\tstalledSince: undefined,
 \t\tnextAutomaticAt: undefined,`, 'explicit resume progress reset');
+  }
+  // Resume is persisted before its owned prompt starts. Clear Codeflare's stall
+  // deadline now, retaining upstream's deferred finite automatic-counter reset.
+  const queuedReset = `export function queueGoalSafetyReset(goal: ActiveGoal): ActiveGoal {
+\t// CODEFLARE_GOAL_IMMEDIATE_STALL_RESET
+\treturn {
+\t\t...goal,
+\t\tstalledRuns: undefined,
+\t\tstalledSince: undefined,
+\t\tnextAutomaticAt: undefined,
+\t\ttoolFreeRepeatCount: 0,
+\t\tsafetyResetPending: true,
+\t};
+}`;
+  if (isCompleteMarkedPatch(patched, 'CODEFLARE_GOAL_IMMEDIATE_STALL_RESET', [queuedReset], 'Goal queued stall reset')) return patched;
+  return replaceOnce(patched, `export function queueGoalSafetyReset(goal: ActiveGoal): ActiveGoal {
+\treturn { ...goal, safetyResetPending: true };
+}`, queuedReset, 'queued resume progress reset');
 }
 
 function patchProgressSettings(source) {

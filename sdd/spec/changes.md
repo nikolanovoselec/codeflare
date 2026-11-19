@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-19: Goal resume resets expired stall history before enforcement
+
+- REQ-AGENT-236 resets stopped-goal stall history, deadline and its public counter at explicit resume, before persistence or lifecycle enforcement can apply an old deadline. Deferred automatic-count reset, failed-delivery rollback, genuine restoration/waiting stalls and the five-stall/25-minute bound remain intact.
+
 ## 2026-11-19: Responsive notification enrollment and quiet Pi startup
 
 - REQ-TERM-025 repairs inactive notification registrations without waiting indefinitely on global service-worker readiness. Activation alone is bounded; subscription creation and authenticated writes retain completion ownership. Settings exposes pending work, rejects duplicate gestures and preserves enrollment after failed removal, with retryable privacy-safe feedback.
