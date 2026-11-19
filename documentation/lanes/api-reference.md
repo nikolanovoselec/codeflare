@@ -12,6 +12,7 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 - [Session Management](#session-management)
 - [Container Lifecycle](#container-lifecycle)
 - [Operator Activities](#operator-activities)
+- [Internal Review enrollment](#internal-review-enrollment)
 - [Internal Operator Host APIs](#internal-operator-host-apis)
 - [Terminal](#terminal)
 - [Vault](#vault)

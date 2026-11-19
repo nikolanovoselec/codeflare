@@ -123,6 +123,7 @@ These compatibility anchors resolve dated changelog references to retired review
 **Verification:** Automated: [codex-prompt-cache-patch.test.mjs](../../preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs), [npm-tool-manifest-update.test.js](../../host/__tests__/npm-tool-manifest-update.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
 
 **Status:** Planned
+
 ---
 
 ### REQ-AGENT-233: Agent image bake exclusions and IDE inventory

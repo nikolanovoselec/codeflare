@@ -5,7 +5,7 @@
 //
 // REQ-OPS-003: PR checks run lint, test, typecheck and security audit.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, matchesGlob, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -281,19 +281,44 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(matchesAny('documentation/lanes/container.md', piPatterns)).toBe(false);
   });
 
-  it('caches the exact Pi prompt runtime without enabling package scripts', () => {
+  it('installs a pristine lock-matched Pi prompt runtime without executing package scripts', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-      jobs: { 'pi-prompt': { steps: Array<{ uses?: string; with?: Record<string, string> }> } };
+      jobs: { 'pi-prompt': { steps: Array<{ run?: string; 'working-directory'?: string }> } };
     };
     const install = workflow.jobs['pi-prompt'].steps.find(
-      (step) => step.uses === '$/.github/actions/install-deps' && step.with?.directory === 'preseed/agents/pi',
+      (step) => step['working-directory'] === 'preseed/agents/pi' && step.run,
     );
-    expect(install?.with).toEqual({
-      directory: 'preseed/agents/pi',
-      'key-prefix': 'pi-prompt',
-      'ignore-scripts': 'true',
-    });
+    expect(install?.run).toBeTypeOf('string');
 
+    const packageDirectory = join(work, 'preseed/agents/pi');
+    const staleRuntime = join(packageDirectory, 'node_modules/cached-patched-runtime');
+    mkdirSync(staleRuntime, { recursive: true });
+    writeFileSync(join(staleRuntime, 'package.json'), JSON.stringify({ name: 'cached-patched-runtime', version: '1.0.0' }));
+    const manifest = {
+      name: 'pi-ci-install-fixture', version: '1.0.0',
+      scripts: { install: `node -e "require('node:fs').writeFileSync('lifecycle-ran', 'yes')"` },
+    };
+    const lock = {
+      name: manifest.name, version: manifest.version, lockfileVersion: 3,
+      packages: { '': { name: manifest.name, version: manifest.version, hasInstallScript: true } },
+    };
+    writeFileSync(join(packageDirectory, 'package.json'), JSON.stringify(manifest));
+    writeFileSync(join(packageDirectory, 'package-lock.json'), JSON.stringify(lock));
+    const result = spawnSync('bash', ['-e', '-c', install!.run!], {
+      cwd: packageDirectory,
+      encoding: 'utf8',
+      env: {
+        ...process.env, npm_config_offline: 'true', npm_config_cache: join(work, 'npm-cache'),
+        npm_config_ignore_scripts: 'false',
+      },
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(staleRuntime)).toBe(false);
+    expect(existsSync(join(packageDirectory, 'lifecycle-ran'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(packageDirectory, 'package-lock.json'), 'utf8'))).toEqual(lock);
+  });
+
+  it('preserves the shared cached installer package-script opt-out', () => {
     const action = parseYaml(readFileSync(join(REPO, '.github/actions/install-deps/action.yml'), 'utf8')) as {
       runs: { steps: Array<{ id?: string; uses?: string; if?: string; run?: string; with?: { path?: string } }> };
     };
