@@ -1,6 +1,6 @@
 ---
 name: planning
-description: "Plan changes with Vault, questionnaires, dependent TODOs and Goal handoffs."
+description: "Create, save, update or review implementation plans, including Vault plans."
 license: MIT
 ---
 
@@ -8,7 +8,7 @@ license: MIT
 
 Turn the user's request into the smallest complete, executable plan. Decide what the implementer cannot infer: scope, owning files, interfaces, observable tests, evidence and delivery gates. Do not write the implementation in prose or add optional features. Planning is not permission to execute.
 
-Use for multi-step implementation planning or an explicit plan review. Skip trivial one-file work, ordinary factual questions, and execution of an already-approved plan unless the user requests replanning. Respect the current task and any instruction to stop, pause or switch.
+Load this skill before creating, saving, updating or reviewing an implementation plan, including “save this plan to Vault”; `vault-note-capture` is for ordinary notes, not a replacement planning workflow. If the user only asks to save an existing approved plan, preserve its content and approval state without unnecessary questions or replanning. Skip ordinary factual questions, trivial execution and execution of an already-approved plan unless the user requests replanning. Respect instructions to stop, pause or switch.
 
 ## 1. Establish the contract from evidence
 

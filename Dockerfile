@@ -593,13 +593,14 @@ RUN --mount=from=openvscode-official-claude-extension,source=/out,target=/codefl
 # Antigravity native linux-x64 release. The vendor manifest authorizes updates
 # only in bump-shadow-pins.yml; image builds consume this committed identity,
 # never the mutable manifest or installer. Verify before reading archive members.
+# The 512 MiB extraction ceiling is a resource bound, not a per-release size pin.
 ARG ANTIGRAVITY_VERSION=1.5.12
 ARG ANTIGRAVITY_URL=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.12-5281398513336320/linux-x64/cli_linux_x64.tar.gz
 ARG ANTIGRAVITY_SHA512=26de25fccb3fbf0b093e090ce14a14ac1df1ec3e90ef4ea6106887d3a81b0cc9edb0dadea7b9101d07f9606eba159062a6fb7b78e91b73f7520684a24db73428
 RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CODING_AGENTS" antigravity; then \
       curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 300 --max-filesize 268435456 "$ANTIGRAVITY_URL" -o /tmp/agy.tar.gz && \
       printf '%s  %s\n' "$ANTIGRAVITY_SHA512" /tmp/agy.tar.gz | sha512sum -c - && \
-      python3 -c 'import shutil, sys, tarfile; archive = tarfile.open("/tmp/agy.tar.gz", "r:gz"); members = archive.getmembers(); (len(members) == 1 and members[0].name == "antigravity" and members[0].isfile() and 0 < members[0].size <= 268841672) or sys.exit("unexpected Antigravity archive members"); source = archive.extractfile(members[0]); target = open("/tmp/agy", "wb"); shutil.copyfileobj(source, target); target.close(); archive.close()' && \
+      python3 -c 'import shutil, sys, tarfile; archive = tarfile.open("/tmp/agy.tar.gz", "r:gz"); members = archive.getmembers(); (len(members) == 1 and members[0].name == "antigravity" and members[0].isfile() and 0 < members[0].size <= 536870912) or sys.exit("unexpected Antigravity archive members"); source = archive.extractfile(members[0]); target = open("/tmp/agy", "wb"); shutil.copyfileobj(source, target); target.close(); archive.close()' && \
       install -m 0755 /tmp/agy /usr/local/bin/agy && \
       /usr/local/bin/agy --version; \
     else \

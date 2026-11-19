@@ -132,7 +132,7 @@ function fixture(t) {
   t.after(() => rmSync(path, { recursive: true, force: true }));
   return path;
 }
-for (const kind of ['valid', 'valid-pinned-size', 'oversized', 'digest-mismatch', 'traversal', 'symlink', 'extra-member', 'omitted']) {
+for (const kind of ['valid', 'valid-pinned-size', 'valid-ceiling', 'oversized', 'digest-mismatch', 'traversal', 'symlink', 'extra-member', 'omitted']) {
   test(`REQ-AGENT-001 AC3: selected native install fixture (${kind}) verifies before extracting or running`, (t) => {
     const dir = fixture(t);
     const payload = join(dir, 'vendor.tar.gz');
@@ -153,8 +153,9 @@ with tarfile.open(sys.argv[1], 'w:gz') as archive:
         member.type = tarfile.SYMTYPE
         member.linkname = '/bin/sh'
     else:
-        # Verified Antigravity 1.5.11 payload size; stream padding without allocating it.
-        member.size = 268841672 + (sys.argv[2] == 'oversized') if sys.argv[2] in ('valid-pinned-size', 'oversized') else len(content)
+        # Accept the verified 1.5.12 payload; reject above the independent 512 MiB ceiling.
+        # Stream padding without allocating the expanded payload.
+        member.size = {'valid-pinned-size': 269443784, 'valid-ceiling': 536870912, 'oversized': 536870913}.get(sys.argv[2], len(content))
     archive.addfile(member, PaddedPayload(content))
     if sys.argv[2] == 'extra-member':
         archive.addfile(tarfile.TarInfo('unexpected'))
@@ -189,7 +190,7 @@ with tarfile.open(sys.argv[1], 'w:gz') as archive:
       ANTIGRAVITY_VERSION: '1.5.4', ANTIGRAVITY_URL: agyCandidate.url,
       ANTIGRAVITY_SHA512: kind === 'digest-mismatch' ? '0'.repeat(128) : digest,
     } });
-    const installed = kind === 'valid' || kind === 'valid-pinned-size';
+    const installed = kind === 'valid' || kind === 'valid-pinned-size' || kind === 'valid-ceiling';
     const success = installed || kind === 'omitted';
     assert.equal(result.status === 0, success, result.stdout + result.stderr);
     assert.equal(existsSync(join(dir, 'installed-agy')), installed);
