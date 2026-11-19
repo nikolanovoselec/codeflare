@@ -3244,7 +3244,7 @@ const required = [
   'npm:pi-smart-compact@10.8.1',
   // The Advanced-only Codeflare adapter owns foreground initialization.
   { source: 'npm:pi-hermes-memory@0.11.0', extensions: [] },
-  'npm:@narumitw/pi-goal@0.55.0',
+  'npm:@narumitw/pi-goal@0.55.1',
   'npm:@narumitw/pi-plan-mode@0.60.0',
   // The managed terminal adapter initializes the native UI once.
   { source: 'npm:pi-open-tui@0.4.5', extensions: [] },
