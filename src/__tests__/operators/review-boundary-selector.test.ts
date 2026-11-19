@@ -123,9 +123,9 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
       const { client, registry, container, waiting, env } = fixture({ ...options, piFirst: true,
         missingGeneration: true, noAuthority: true, missingActivity: true, unavailableSession: true });
       const runner = (async (_program: string, args: string[]) => {
-        if (_program === 'git') return { stdout: args[0] === 'config' ? '' : 'origin\thttps://github.com/owner/repo.git (fetch)\n' };
+        if (_program === 'git') return { stdout: args[0] === 'config' ? '' : args[0] === 'rev-parse' ? head : args[0] === 'symbolic-ref' ? 'feature' : 'origin\thttps://github.com/owner/repo.git (fetch)\n' };
         if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 34, state: 'OPEN',
-          baseRefName: 'main', headRefOid: head, url: 'https://github.com/owner/repo/pull/34' }) };
+          baseRefName: 'main', headRefOid: head, headRefName: 'feature', url: 'https://github.com/owner/repo/pull/34' }) };
         if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/repo',
           url: 'https://github.com/owner/repo' }) };
         if (!args.includes('--include')) return { stdout: '138' };

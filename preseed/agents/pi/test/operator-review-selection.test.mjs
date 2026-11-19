@@ -40,7 +40,7 @@ const unavailable = {
   content: 'Review applicability is unavailable. Neither local nor remote Review can clear this boundary.',
   display: true,
 };
-function wire(mode, body = { number: 42, head: { sha: head } }) {
+function wire(mode, body = { number: 42, head: { sha: head, ref: 'feature' } }) {
   return `HTTP/2 200\r\nx-codeflare-operator-boundary-selection: ${mode}\r\n\r\n${JSON.stringify(body)}`;
 }
 
@@ -66,9 +66,13 @@ function fixture(t, enrollment = 'remote-candidate', target = 'owner/repo', loca
     responses.set(cwd, response);
     return cwd;
   };
-  // Only external gh I/O is simulated. No workflow filenames are inspected or inferred.
+  // Only external Git/GitHub I/O is simulated. No workflow filenames are inferred.
+  let checkoutHead = local.head ?? head;
+  let checkoutBranch = 'feature';
   const runner = async (program, args, { cwd }) => {
     if (program === 'git') {
+      if (args[0] === 'rev-parse') return { stdout: checkoutHead };
+      if (args[0] === 'symbolic-ref') return { stdout: checkoutBranch };
       if (args[0] === 'config') return { stdout: local.resolved ?? (target === 'owner/repo' ? '' : `remote.origin.gh-resolved ${target}`) };
       if (args[1] === '-v') return { stdout: local.remotes ?? 'origin\thttps://github.com/owner/repo.git (fetch)\n' };
       return { stdout: 'https://github.com/owner/repo.git' };
@@ -77,16 +81,19 @@ function fixture(t, enrollment = 'remote-candidate', target = 'owner/repo', loca
     const response = responses.get(cwd);
     if (response instanceof Error) throw response;
     if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN',
-      baseRefName: 'main', headRefOid: head, url: `https://github.com/${local.prRepository ?? target}/pull/42` }) };
+      baseRefName: 'main', headRefOid: local.graphqlHead ?? head,
+      headRefName: local.graphqlBranch ?? 'feature', url: `https://github.com/${local.prRepository ?? target}/pull/42` }) };
     if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: target,
       url: `https://github.com/${target}` }) };
     if (args[0] === 'api' && !args.includes('--include')) return { stdout: '138' };
     // Intentional wire contract: applicability is a read-only exact-head check, not a launch.
     assert.deepEqual(args, ['api', '--hostname', 'github.com', '--include', '-H', 'x-codeflare-operator-boundary-select: check',
       '-H', `x-codeflare-operator-boundary-input: ${Buffer.from(JSON.stringify({
-        repositoryId: 138, pullRequest: 42, acknowledgedHead: null, targetHead: head,
+        repositoryId: 138, pullRequest: 42, acknowledgedHead: null, targetHead: local.head ?? head,
         payload: { range: null, rejectedFindingsStatus: 'unavailable' },
       })).toString('base64')}`, `repos/${target}/pulls/42`]);
+    if (local.movedHead) checkoutHead = local.movedHead;
+    if (local.movedBranch) checkoutBranch = local.movedBranch;
     return { stdout: response };
   };
   const handlers = new Map();
@@ -287,6 +294,34 @@ test('REQ-OPERATOR-053: a mismatched GH_HOST cannot borrow public GitHub enrollm
   const app = fixture(t, 'local');
   process.env.GH_HOST = 'github.example.test';
   assert.equal(await app.select(app.repo('wrong-host', wire('local'))), 'unavailable');
+});
+
+test('REQ-AGENT-036: stale GraphQL discovery cannot replace the pushed local head', async t => {
+  const app = fixture(t, 'remote-candidate', 'owner/repo', { graphqlHead: 'b'.repeat(40) });
+  const cwd = app.repo('graphql-lag', wire('remote'));
+  assert.equal(await app.select(cwd), 'remote');
+  await app.emit('session_start', cwd);
+  assert.deepEqual(app.messages, [{ customType: 'remote-session_start', cwd }]);
+});
+
+test('REQ-AGENT-036: matching stale remote views cannot authorize a different local head', async t => {
+  const stale = 'b'.repeat(40);
+  const app = fixture(t, 'remote-candidate', 'owner/repo', { graphqlHead: stale });
+  assert.equal(await app.select(app.repo('both-lag', wire('remote', {
+    number: 42, head: { sha: stale, ref: 'feature' },
+  }))), 'unavailable');
+});
+
+for (const [name, changed] of [['head', { movedHead: 'b'.repeat(40) }], ['branch', { movedBranch: 'other' }]]) {
+  test(`REQ-AGENT-036: checkout ${name} change during lookup discards selection`, async t => {
+    const app = fixture(t, 'remote-candidate', 'owner/repo', changed);
+    assert.equal(await app.select(app.repo('changed-checkout', wire('remote'))), 'unavailable');
+  });
+}
+
+test('REQ-AGENT-036: discovery for a different branch cannot select this checkout', async t => {
+  const app = fixture(t, 'remote-candidate', 'owner/repo', { graphqlBranch: 'other' });
+  assert.equal(await app.select(app.repo('different-branch', wire('remote'))), 'unavailable');
 });
 
 for (const [name, failure] of [

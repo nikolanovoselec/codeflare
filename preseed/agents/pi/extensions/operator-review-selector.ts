@@ -240,9 +240,24 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
     if (!repository) return 'unavailable';
     const disposition = await enrollment(repository);
     if (disposition !== 'remote-candidate') return disposition;
+    const readCheckout = async () => {
+      let branch: string;
+      try {
+        const result = await runner('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8' });
+        branch = String(result.stdout).trim();
+      } catch (error) {
+        if ((error as { code?: unknown }).code === 1) return null;
+        throw error;
+      }
+      const result = await runner('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' });
+      return { branch, head: String(result.stdout).trim() };
+    };
+    const checkout = await readCheckout();
+    if (!checkout) return 'none';
+    if (!checkout.branch || !sha.test(checkout.head)) return 'unavailable';
     let prText: unknown;
     try {
-      const response = await runner('gh', ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid,url'],
+      const response = await runner('gh', ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid,headRefName,url'],
         { cwd: repo, encoding: 'utf8', timeout: 10_000 });
       prText = response.stdout;
     } catch (error) {
@@ -254,6 +269,7 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
     if (!Number.isSafeInteger(pr.number) || pr.number < 1 || !['OPEN', 'CLOSED', 'MERGED'].includes(pr.state)
       || typeof pr.baseRefName !== 'string' || !pr.baseRefName.trim() || !sha.test(pr.headRefOid)) return 'unavailable';
     if (pr.state !== 'OPEN' || !['main', 'master', 'develop'].includes(pr.baseRefName)) return 'none';
+    if (pr.headRefName !== checkout.branch) return 'unavailable';
     const target = new URL(pr.url);
     if (target.origin !== 'https://github.com' || target.username || target.password || target.search || target.hash
       || target.pathname.toLowerCase() !== `/${repository}/pull/${pr.number}`) return 'unavailable';
@@ -262,7 +278,7 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
     const id = Number(String(idText).trim());
     if (!Number.isSafeInteger(id) || id < 1) return 'unavailable';
     const encoded = Buffer.from(JSON.stringify({ repositoryId: id, pullRequest: pr.number,
-      acknowledgedHead: null, targetHead: pr.headRefOid,
+      acknowledgedHead: null, targetHead: checkout.head,
       payload: { range: null, rejectedFindingsStatus: 'unavailable' } }), 'utf8').toString('base64');
     const { stdout } = await runner('gh', ['api', '--hostname', 'github.com', '--include',
       '-H', 'x-codeflare-operator-boundary-select: check',
@@ -277,7 +293,10 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
     const mode = headers[0]!.split(':').slice(1).join(':').trim();
     if (mode !== 'remote' && mode !== 'local') return 'unavailable';
     const response = JSON.parse(output.slice(split + 2));
-    return response.number === pr.number && response.head?.sha === pr.headRefOid ? mode : 'unavailable';
+    const current = await readCheckout();
+    if (!current || current.branch !== checkout.branch || current.head !== checkout.head) return 'unavailable';
+    return response.number === pr.number && response.head?.sha === checkout.head
+      && response.head?.ref === checkout.branch ? mode : 'unavailable';
   } catch { return 'unavailable'; }
 }
 
