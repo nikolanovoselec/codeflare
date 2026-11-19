@@ -5,6 +5,7 @@ import { createSignal } from 'solid-js';
 import SettingsPanel from '../../components/SettingsPanel';
 import { loadSettings, saveSettings, defaultSettings } from '../../lib/settings';
 import type { Settings } from '../../lib/settings';
+import type { AgentNotificationBrowser, AgentNotificationProgress } from '../../lib/agent-notifications';
 import type { UserPreferences } from '../../types';
 import * as storageApi from '../../api/storage';
 
@@ -38,7 +39,11 @@ const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(
 const mockAgentNotificationsAvailable = vi.hoisted(() => vi.fn(async () => true));
 const mockAgentNotificationsEnabled = vi.hoisted(() => vi.fn(async () => false));
 const mockSetAgentNotificationsEnabled = vi.hoisted(() => vi.fn(
-  async (_enabled: boolean): Promise<'on' | 'off' | 'denied' | 'unavailable'> => 'on',
+  async (
+    _enabled: boolean,
+    _browser?: AgentNotificationBrowser,
+    _onProgress?: (phase: AgentNotificationProgress) => void,
+  ): Promise<'on' | 'off' | 'denied' | 'unavailable'> => 'on',
 ));
 
 // Defaults
@@ -355,7 +360,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
     it('requests permission and subscribes only after the user turns the switch on', async () => {
       mockAgentNotificationsEnabled.mockResolvedValueOnce(false);
-      mockSetAgentNotificationsEnabled.mockResolvedValueOnce('on');
+      mockSetAgentNotificationsEnabled.mockImplementationOnce(async enabled => enabled ? 'on' : 'unavailable');
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
@@ -363,13 +368,12 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(mockSetAgentNotificationsEnabled).not.toHaveBeenCalled();
       await fireEvent.click(control);
 
-      expect(mockSetAgentNotificationsEnabled).toHaveBeenCalledWith(true);
       expect(control).toHaveAttribute('aria-checked', 'true');
     });
 
     it('turning the switch off unsubscribes locally and deletes server registration', async () => {
       mockAgentNotificationsEnabled.mockResolvedValueOnce(true);
-      mockSetAgentNotificationsEnabled.mockResolvedValueOnce('off');
+      mockSetAgentNotificationsEnabled.mockImplementationOnce(async enabled => enabled ? 'unavailable' : 'off');
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
@@ -377,7 +381,6 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(control).toHaveAttribute('aria-checked', 'true');
       await fireEvent.click(control);
 
-      expect(mockSetAgentNotificationsEnabled).toHaveBeenCalledWith(false);
       expect(control).toHaveAttribute('aria-checked', 'false');
     });
 
@@ -424,9 +427,54 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(control).toBeEnabled();
     });
 
-    it.each(['unavailable', 'rejection'] as const)('allows retry after %s without blaming browser support or leaking errors', async failure => {
+    it.each([
+      ['permission', 'Requesting browser permission.'],
+      ['configuration', 'Loading notification configuration.'],
+      ['worker-read', 'Reading notification worker.'],
+      ['subscription-read', 'Reading device subscription.'],
+      ['subscription-remove', 'Removing device subscription.'],
+      ['worker-registration', 'Registering notification worker.'],
+      ['worker-activation', 'Waiting for notification worker activation.'],
+      ['subscription-create', 'Creating device subscription.'],
+      ['subscription-save', 'Saving device subscription.'],
+      ['subscription-cleanup', 'Removing server registration.'],
+    ] satisfies ReadonlyArray<readonly [AgentNotificationProgress, string]>)(
+      'REQ-TERM-025 AC7: shows %s progress while enrollment remains pending', async (phase, copy) => {
+        let report: ((phase: AgentNotificationProgress) => void) | undefined;
+        let finish!: (value: 'on') => void;
+        mockSetAgentNotificationsEnabled.mockImplementationOnce((_enabled, _browser, onProgress) => {
+          report = onProgress;
+          return new Promise(resolve => { finish = resolve; });
+        });
+        render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+        fireEvent.click(screen.getByTestId('accordion-header-session'));
+        const control = await screen.findByTestId('settings-agent-notifications');
+        fireEvent.click(control);
+        const status = screen.getByTestId('settings-agent-notifications-status');
+        expect(status.textContent).toBe('Enabling notifications…');
+        report?.(phase);
+        await waitFor(() => expect(status.textContent).toBe(`Enabling notifications… ${copy}`));
+        expect(status).toHaveAttribute('role', 'status');
+        expect(control).toBeDisabled();
+        expect(control).toHaveAttribute('aria-busy', 'true');
+        expect(control).toHaveAttribute('aria-checked', 'false');
+        // A duplicate gesture must not start the default, immediately successful operation.
+        fireEvent.click(control);
+        await Promise.resolve();
+        expect(control).toHaveAttribute('aria-checked', 'false');
+        finish('on');
+        await waitFor(() => expect(status.textContent).toBe('Enabled for this device'));
+        expect(control).toHaveAttribute('aria-checked', 'true');
+        expect(control).toHaveAttribute('aria-busy', 'false');
+        expect(control).toBeEnabled();
+      },
+    );
+
+    it.each(['unavailable', 'rejection'] as const)('REQ-TERM-025 AC7: clears progress and allows retry after %s without leaking errors', async failure => {
+      let report: ((phase: AgentNotificationProgress) => void) | undefined;
       let finish!: () => void;
-      mockSetAgentNotificationsEnabled.mockImplementationOnce(() => new Promise((resolve, reject) => {
+      mockSetAgentNotificationsEnabled.mockImplementationOnce((_enabled, _browser, onProgress) => new Promise((resolve, reject) => {
+        report = onProgress;
         finish = () => failure === 'rejection'
           ? reject(new Error('endpoint=secret-key')) : resolve('unavailable');
       }));
@@ -434,14 +482,22 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       fireEvent.click(screen.getByTestId('accordion-header-session'));
       const control = await screen.findByTestId('settings-agent-notifications');
       fireEvent.click(control);
-      finish();
+      report?.('subscription-read');
       const status = screen.getByTestId('settings-agent-notifications-status');
-      await waitFor(() => expect(status).toHaveTextContent('Could not enable notifications. Try again.'));
+      await waitFor(() => expect(status.textContent).toBe('Enabling notifications… Reading device subscription.'));
+      finish();
+      await waitFor(() => expect(status.textContent).toBe('Could not enable notifications. Try again.'));
       expect(status).not.toHaveTextContent(/unsupported|Unavailable in this browser|endpoint|secret-key/);
       expect(control).toHaveAttribute('aria-checked', 'false');
       expect(control).toBeEnabled();
+      let retry!: (value: 'on') => void;
+      mockSetAgentNotificationsEnabled.mockImplementationOnce(() => new Promise(resolve => { retry = resolve; }));
       fireEvent.click(control);
+      expect(status.textContent).toBe('Enabling notifications…');
+      expect(control).toHaveAttribute('aria-checked', 'false');
+      retry('on');
       await waitFor(() => expect(control).toHaveAttribute('aria-checked', 'true'));
+      expect(status.textContent).toBe('Enabled for this device');
     });
 
     it.each(['unavailable', 'rejection'] as const)('retains enrollment after %s disable, then allows retry', async failure => {

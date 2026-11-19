@@ -6,6 +6,7 @@ import {
   setAgentNotificationsEnabled,
   showGrantedAgentEvent,
   type AgentNotificationBrowser,
+  type AgentNotificationProgress,
   type AgentPresence,
 } from '../../lib/agent-notifications';
 
@@ -195,6 +196,93 @@ describe('REQ-TERM-025 AC1-AC6: one per-device enrollment switch', () => {
     expect(env.saveSubscription).toHaveBeenCalledWith(created.toJSON());
   });
 
+  it('REQ-TERM-025 AC3/AC7: reports permission and configuration while those operations are pending', async () => {
+    let permit!: () => void;
+    let configure!: () => void;
+    const permission = new Promise<void>(resolve => { permit = resolve; });
+    const configuration = new Promise<void>(resolve => { configure = resolve; });
+    let stored: unknown;
+    const created = subscription();
+    const env = browser({
+      permission: () => 'default',
+      requestPermission: async () => { await permission; return 'granted'; },
+      getVapidPublicKey: async () => { await configuration; return VAPID_PUBLIC_KEY; },
+      currentSubscription: async () => undefined,
+      subscribe: async () => created,
+      saveSubscription: async value => { stored = value; },
+    });
+    let phase: AgentNotificationProgress | undefined;
+    let state = 'pending';
+    const work = setAgentNotificationsEnabled(true, env, value => { phase = value; })
+      .then(value => { state = value; });
+    await vi.waitFor(() => expect(phase).toBe('permission'));
+    expect(state).toBe('pending');
+    expect(stored).toBeUndefined();
+    permit();
+    await vi.waitFor(() => expect(phase).toBe('configuration'));
+    expect(state).toBe('pending');
+    expect(stored).toBeUndefined();
+    configure();
+    await work;
+    expect(state).toBe('on');
+    expect(stored).toEqual(created.toJSON());
+  });
+
+  it('REQ-TERM-025 AC3/AC7: reports replacement and rollback without releasing their pending ownership', async () => {
+    const old = subscription('https://fcm.googleapis.com/fcm/send/old');
+    const created = subscription('https://fcm.googleapis.com/fcm/send/new');
+    let local: typeof old | undefined = old;
+    let deleteOld!: () => void;
+    let removeOld!: () => void;
+    let deleteNew!: () => void;
+    let removeNew!: () => void;
+    const oldDeletion = new Promise<void>(resolve => { deleteOld = resolve; });
+    const oldRemoval = new Promise<void>(resolve => { removeOld = resolve; });
+    const newDeletion = new Promise<void>(resolve => { deleteNew = resolve; });
+    const newRemoval = new Promise<void>(resolve => { removeNew = resolve; });
+    const server = new Set([old.endpoint]);
+    const env = browser({
+      currentSubscription: async () => local,
+      deleteSubscription: async endpoint => {
+        await (endpoint === old.endpoint ? oldDeletion : newDeletion);
+        server.delete(endpoint);
+      },
+      unsubscribe: async value => {
+        await (value.endpoint === old.endpoint ? oldRemoval : newRemoval);
+        local = undefined;
+        return true;
+      },
+      subscribe: async () => { local = created; return created; },
+      saveSubscription: async () => { throw new Error('endpoint=secret'); },
+    });
+    let phase: AgentNotificationProgress | undefined;
+    let state = 'pending';
+    const work = setAgentNotificationsEnabled(true, env, value => { phase = value; })
+      .then(value => { state = value; });
+    await vi.waitFor(() => expect(phase).toBe('subscription-cleanup'));
+    expect(state).toBe('pending');
+    expect(local).toBe(old);
+    expect([...server]).toEqual([old.endpoint]);
+    deleteOld();
+    await vi.waitFor(() => expect(phase).toBe('subscription-remove'));
+    expect(state).toBe('pending');
+    expect(local).toBe(old);
+    expect([...server]).toEqual([]);
+    removeOld();
+    await vi.waitFor(() => expect(phase).toBe('subscription-cleanup'));
+    expect(state).toBe('pending');
+    expect(local).toBe(created);
+    deleteNew();
+    await vi.waitFor(() => expect(phase).toBe('subscription-remove'));
+    expect(state).toBe('pending');
+    expect(local).toBe(created);
+    removeNew();
+    await work;
+    expect(state).toBe('unavailable');
+    expect(local).toBeUndefined();
+    expect([...server]).toEqual([]);
+  });
+
   it('re-registers an existing matching subscription before reporting enrollment on', async () => {
     const current = subscription(
       'https://fcm.googleapis.com/fcm/send/existing-device',
@@ -270,8 +358,10 @@ describe('REQ-TERM-025 AC1-AC6: one per-device enrollment switch', () => {
       deleteSubscription: async () => { await deletion; serverPresent = false; },
       unsubscribe: async () => { local = undefined; return true; } });
     let state = 'pending';
-    const work = setAgentNotificationsEnabled(false, env).then(value => { state = value; });
-    await Promise.resolve();
+    const phases: AgentNotificationProgress[] = [];
+    const work = setAgentNotificationsEnabled(false, env, phase => { phases.push(phase); })
+      .then(value => { state = value; });
+    await vi.waitFor(() => expect(phases.at(-1)).toBe('subscription-cleanup'));
     expect(local).toBe(current);
     expect(serverPresent).toBe(true);
     expect(state).toBe('pending');
@@ -280,6 +370,7 @@ describe('REQ-TERM-025 AC1-AC6: one per-device enrollment switch', () => {
     expect(serverPresent).toBe(false);
     expect(local).toBeUndefined();
     expect(state).toBe('off');
+    expect(phases.at(-1)).toBe('subscription-remove');
 
     local = current;
     env.deleteSubscription = async () => { throw new Error('denied'); };
@@ -356,7 +447,7 @@ function nativeEnrollment() {
     installing: null as NativeWorker | null,
     waiting: null as NativeWorker | null,
     pushManager: {
-      getSubscription: async () => local,
+      getSubscription: async () => { await subscriptionReadGate; return local; },
       subscribe: async () => {
         await subscribeGate;
         local = current;
@@ -372,6 +463,9 @@ function nativeEnrollment() {
   let registered = false;
   let repairedWorker: NativeWorker | undefined;
   let existing: typeof registration | undefined;
+  let workerReadGate: Promise<void> = Promise.resolve();
+  let subscriptionReadGate: Promise<void> = Promise.resolve();
+  let registerGate: Promise<void> = Promise.resolve();
   let subscribeGate: Promise<void> = Promise.resolve();
   let saveStatus = 200;
   let saveGate: Promise<void> = Promise.resolve();
@@ -380,8 +474,9 @@ function nativeEnrollment() {
   const serviceWorker = {
     // Intentionally never settles, even when register returns an active worker.
     ready: new Promise<never>(() => {}),
-    getRegistration: async () => existing,
+    getRegistration: async () => { await workerReadGate; return existing; },
     register: async () => {
+      await registerGate;
       registered = true;
       if (repairedWorker) registration.active = repairedWorker;
       return registration;
@@ -410,6 +505,9 @@ function nativeEnrollment() {
     get registered() { return registered; },
     setExisting: () => { existing = registration; },
     repairWith: (worker: NativeWorker) => { repairedWorker = worker; },
+    holdWorkerRead: (gate: Promise<void>) => { workerReadGate = gate; },
+    holdSubscriptionRead: (gate: Promise<void>) => { subscriptionReadGate = gate; },
+    holdRegister: (gate: Promise<void>) => { registerGate = gate; },
     holdSubscribe: (gate: Promise<void>) => { subscribeGate = gate; },
     holdSave: (gate: Promise<void>) => { saveGate = gate; },
     failSave: () => { saveStatus = 500; },
@@ -426,6 +524,69 @@ describe('REQ-TERM-025 AC3: native registration repair and activation', () => {
     native?.restore();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it('REQ-TERM-025 AC3/AC7: reports pending native phases without enrolling before the save completes', async () => {
+    native = nativeEnrollment();
+    native.registration.active = new NativeWorker('activated');
+    native.setExisting();
+    let readWorker!: () => void;
+    let readSubscription!: () => void;
+    let register!: () => void;
+    let subscribe!: () => void;
+    let save!: () => void;
+    native.holdWorkerRead(new Promise<void>(resolve => { readWorker = resolve; }));
+    native.holdSubscriptionRead(new Promise<void>(resolve => { readSubscription = resolve; }));
+    native.holdRegister(new Promise<void>(resolve => { register = resolve; }));
+    native.holdSubscribe(new Promise<void>(resolve => { subscribe = resolve; }));
+    native.holdSave(new Promise<void>(resolve => { save = resolve; }));
+    const phases: AgentNotificationProgress[] = [];
+    let state = 'pending';
+    const work = setAgentNotificationsEnabled(true, undefined, phase => { phases.push(phase); })
+      .then(value => { state = value; });
+
+    for (const [phase, release] of [
+      ['worker-read', readWorker],
+      ['subscription-read', readSubscription],
+      ['worker-registration', register],
+    ] as const) {
+      await vi.waitFor(() => expect(phases.at(-1)).toBe(phase));
+      expect(state).toBe('pending');
+      expect(native.local).toBeNull();
+      expect(native.requests).toEqual([]);
+      if (phase === 'worker-registration') {
+        native.registration.active = null;
+        native.registration.installing = new NativeWorker('installing');
+      }
+      release();
+    }
+
+    await vi.waitFor(() => expect(phases.at(-1)).toBe('worker-activation'));
+    expect(phases).not.toContain('subscription-create');
+    expect(state).toBe('pending');
+    expect(native.local).toBeNull();
+    expect(native.requests).toEqual([]);
+    const worker = native.registration.installing!;
+    native.registration.installing = null;
+    native.registration.active = worker;
+    worker.transition('activated');
+
+    await vi.waitFor(() => expect(phases.at(-1)).toBe('subscription-create'));
+    expect(state).toBe('pending');
+    expect(native.local).toBeNull();
+    expect(native.requests).toEqual([]);
+    subscribe();
+
+    await vi.waitFor(() => expect(phases.at(-1)).toBe('subscription-save'));
+    expect(state).toBe('pending');
+    expect(native.local).not.toBeNull();
+    expect(native.saved).toEqual([]);
+    save();
+    await work;
+    expect(state).toBe('on');
+    expect(native.saved).toEqual([native.local!.toJSON()]);
+    // Progress reporting must not introduce additional writes or removals.
+    expect(native.requests).toEqual([{ method: 'POST', credentials: 'same-origin' }]);
   });
 
   it('reads an inactive registration as off so an explicit gesture can repair it', async () => {
