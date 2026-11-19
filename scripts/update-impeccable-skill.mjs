@@ -8,6 +8,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REVIEWED_IMPECCABLE_BUNDLES = Object.freeze({
+  '4.10.0': { sha256: '76c056a775bef9f5ce1a80889b6f961e7d0f9a3e8ef6343789392130d0383148', commit: 'b49177d32788f2dc585c42831d845dacf1ebed2c',
+    url: 'https://github.com/pbakaus/impeccable/releases/download/skill-v4.10.0/universal.zip' },
   '4.6.0': { sha256: 'c537beca343b69f8da98ee1c1ad9534b9c7c3883225b060ad36a4466075d73d1', commit: '8a0e198da34ebc5b936a9d5975fb7a3b1cf353b7' },
   '4.7.0': { sha256: '358c8b6bbc2113e9910bf4adbdba4523612453ec58d56a5c1b14654416a13fe3', commit: 'aeeb3d8c30b5f95aeeb3e893b0f1a308af8fdb8f' },
   '4.8.0': { sha256: '82e6f6ff3a2b18f46f0f2fc388c1ab7abf3ccc52bbfc522456396d13011d6706', commit: '414603bf14c7a344edb466bb1f85690c77ce8b7d',
@@ -88,18 +90,37 @@ export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = 
   const overlays = native
     ? CODEFLARE_IMPECCABLE_OVERLAY.filter(([path]) => path !== 'scripts/serve-question.mjs')
     : CODEFLARE_IMPECCABLE_OVERLAY;
-  const transformed = overlays.map(([relativePath, replacements]) => {
+  // 4.10.0 moves the detailed persona and touch-target guidance into the
+  // rubric. Keep the same Codeflare corrections at their new owning paths.
+  const qualifiedOverlays = skillVersion === '4.10.0'
+    ? overlays.map(([path, replacements]) => path === 'reference/critique.md'
+      ? [path, replacements.filter(([search]) => search.startsWith('If `CLAUDE.md`') && !search.includes('derive'))]
+      : [path, replacements]).concat([['reference/critique-rubric.md',
+        CODEFLARE_IMPECCABLE_OVERLAY.find(([path]) => path === 'reference/critique.md')[1]
+          .filter(([search]) => !search.startsWith('If `CLAUDE.md`') || search.includes('derive'))]])
+    : overlays;
+  const transformed = qualifiedOverlays.map(([relativePath, replacements]) => {
     const file = join(source, relativePath);
     let text = readFileSync(file, 'utf8');
     for (const [search, replacement] of replacements) {
-      let anchor = ['4.7.0', '4.8.0', '4.8.2', '4.9.1'].includes(skillVersion) && relativePath === 'SKILL.md'
+      let anchor = ['4.7.0', '4.8.0', '4.8.2', '4.9.1', '4.10.0'].includes(skillVersion) && relativePath === 'SKILL.md'
         ? 'This skill gives you the tools and permission to make design that earns the name out-of-distribution craft. Work as an award-winning design director would: production-grade code, a clear POV, a deep grasp of what the client and its users need, and exceptional craft.\n\n'
         : search;
-      if (skillVersion === '4.9.1' && relativePath === 'reference/critique.md') {
+      if ((skillVersion === '4.9.1' || skillVersion === '4.10.0')
+        && (relativePath === 'reference/critique.md' || relativePath === 'reference/critique-rubric.md')) {
         if (search.startsWith('If `CLAUDE.md`')) anchor = 'If PRODUCT.md has a `## Users` section, also generate 1-2 project-specific personas from it and from `## Brand Commitments`.';
         if (search.startsWith('If `CLAUDE.md`') && search.includes('derive')) anchor = 'If PRODUCT.md has a `## Users` section (written by `impeccable init`), derive 1–2 additional personas from it and from `## Brand Commitments`:';
       }
       text = replaceOverlayAnchor(text, anchor, replacement, relativePath, allowAlreadyApplied);
+    }
+    if (skillVersion === '4.10.0' && (relativePath === 'reference/audit.md' || relativePath === 'reference/audit.native.md')) {
+      text = replaceOverlayAnchor(text,
+        '"total_score":<n>,"max_score":20',
+        '"total_score":<earned>,"max_score":<available maximum>', relativePath, allowAlreadyApplied);
+      text = replaceOverlayAnchor(text,
+        'The helper prints the path it wrote, which you mention in one line;',
+        'Set score metadata only from evidenced dimensions; when none are evidenced, omit total_score and max_score rather than inventing numbers. Mention the saved path printed by the helper in one line;',
+        relativePath, allowAlreadyApplied);
     }
     if (native && relativePath === 'SKILL.md') {
       text = replaceOverlayAnchor(text,
@@ -116,11 +137,14 @@ export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = 
     const browserPath = join(source, 'scripts/live-browser.js');
     let browser = readFileSync(browserPath, 'utf8');
     for (const verb of ['restart', 'run', 'Run']) {
+      const quote = skillVersion === '4.10.0' && verb === 'restart' ? '`' : '';
+      const anchor = skillVersion === '4.10.0'
+        ? `${verb} ${quote}impeccable live-poll${quote}` : `${verb} live-poll.mjs`;
       const installedCount = ['~/.claude', '~/.pi/agent'].reduce((count, root) =>
-        count + browser.split(`${verb} ${root}/skills/impeccable/scripts/impeccable live-poll`).length - 1, 0);
-      if (allowAlreadyApplied && !browser.includes(`${verb} live-poll.mjs`) && installedCount === 1) continue;
-      browser = replaceOverlayAnchor(browser, `${verb} live-poll.mjs`,
-        `${verb} .claude/skills/impeccable/scripts/impeccable live-poll`, browserPath, allowAlreadyApplied);
+        count + browser.split(`${verb} ${quote}${root}/skills/impeccable/scripts/impeccable live-poll${quote}`).length - 1, 0);
+      if (allowAlreadyApplied && !browser.includes(anchor) && installedCount === 1) continue;
+      browser = replaceOverlayAnchor(browser, anchor,
+        `${verb} ${quote}.claude/skills/impeccable/scripts/impeccable live-poll${quote}`, browserPath, allowAlreadyApplied);
     }
     transformed.push([browserPath, browser]);
     transformed.push([join(source, 'scripts/impeccable'), managedImpeccableLauncher()]);
@@ -164,7 +188,9 @@ export async function updateImpeccableSkill(expectedVersion = process.env.LAT) {
         const notice = await fetch(`https://raw.githubusercontent.com/pbakaus/impeccable/${reviewedBundle.commit}/${name}`);
         if (!notice.ok) throw new Error(`Impeccable ${name} download failed: ${notice.status}`);
         const bytes = Buffer.from(await notice.arrayBuffer());
-        if (createHash('sha256').update(bytes).digest('hex') !== digest) throw new Error(`Impeccable ${name} digest mismatch`);
+        const expectedDigest = version === '4.10.0' && name === 'NOTICE.md'
+          ? '01bf53e5d24d64e19e9e1c33b24c37cef0d314323df7bf678c6ba22d4528a115' : digest;
+        if (createHash('sha256').update(bytes).digest('hex') !== expectedDigest) throw new Error(`Impeccable ${name} digest mismatch`);
         writeFileSync(join(source, name), bytes);
       }
     }

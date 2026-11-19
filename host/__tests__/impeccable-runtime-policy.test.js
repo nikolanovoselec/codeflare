@@ -34,22 +34,24 @@ function copyReviewedFixture(skillVersion, destination) {
     writeFileSync(join(destination, 'scripts/VERSION'), '0.1.21\n');
     return;
   }
-  if (!['4.8.0', '4.9.1'].includes(skillVersion)) {
+  if (!['4.8.0', '4.9.1', '4.10.0'].includes(skillVersion)) {
     cpSync(join(repoRoot, `host/__fixtures__/impeccable-${skillVersion}`), destination, { recursive: true });
     return;
   }
   const capture = readFileSync(join(repoRoot, `host/__fixtures__/impeccable-${skillVersion}-source.json`));
   // Immutable fixture contract: compact byte deltas retain the real release
   // inputs without duplicating its half-megabyte browser client on disk.
-  assert.equal(createHash('sha256').update(capture).digest('hex'), skillVersion === '4.9.1'
+  assert.equal(createHash('sha256').update(capture).digest('hex'), skillVersion === '4.10.0'
+    ? 'a9158e382ee512185c8c0091a714660226e21371bfca6e190a81d9fcdd534e14' : skillVersion === '4.9.1'
     ? 'b87682a2988dc4cf102ed9b1ac95a308f2e1a31babfdb27bbf4d91780592050a'
     : '920d9b5f81c0e7c5e1083c068910e9e80d291018ecd5a9776eb88c2da7d95ff5');
   const fixture = JSON.parse(capture);
-  assert.equal(fixture.bundleSha256, skillVersion === '4.9.1'
+  assert.equal(fixture.bundleSha256, skillVersion === '4.10.0'
+    ? '76c056a775bef9f5ce1a80889b6f961e7d0f9a3e8ef6343789392130d0383148' : skillVersion === '4.9.1'
     ? 'f0e94487ffcf8e28d0d1cfb47f41918e3748c657f33f0f128ecf0a478ac85942'
     : '82e6f6ff3a2b18f46f0f2fc388c1ab7abf3ccc52bbfc522456396d13011d6706');
   for (const [name, file] of Object.entries(fixture.files)) {
-    const base = join(repoRoot, 'host/__fixtures__', fixture.baseFixture, name);
+    const base = join(repoRoot, 'host/__fixtures__', fixture.baseFixture, file.baseFile ?? name);
     let bytes = readFileSync(base);
     assert.equal(createHash('sha256').update(bytes).digest('hex'), file.baseSha256, name);
     for (const change of [...file.changes].reverse()) {
@@ -118,7 +120,7 @@ describe('Impeccable managed runtime policy', () => {
     assert.deepEqual(result.stdout.trim().split('\n'), ['context', '--target', 'file.ts']);
   }));
 
-  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10'], ['4.5.0', '0.1.11'], ['4.6.0', '0.1.15'], ['4.7.0', '0.1.16'], ['4.8.0', '0.1.18'], ['4.8.2', '0.1.21'], ['4.9.1', '0.1.24']]) {
+  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10'], ['4.5.0', '0.1.11'], ['4.6.0', '0.1.15'], ['4.7.0', '0.1.16'], ['4.8.0', '0.1.18'], ['4.8.2', '0.1.21'], ['4.9.1', '0.1.24'], ['4.10.0', '0.1.27']]) {
     it(`REQ-AGENT-181: reviewed ${skillVersion} dispatches only to its matching image engine ${engineVersion}`, () => withTempDir(root => {
       const source = join(root, 'source');
       copyReviewedFixture(skillVersion, source);
@@ -128,7 +130,7 @@ describe('Impeccable managed runtime policy', () => {
         runtimePath: agent === 'claude' ? '~/.claude/skills/impeccable' : '~/.pi/agent/skills/impeccable' }));
       replaceImpeccableTargets(source, readFileSync(join(source, 'SKILL.md'), 'utf8'), targets);
       const engines = join(root, 'engines');
-      for (const otherVersion of ['0.1.5', '0.1.10', '0.1.11', '0.1.15', '0.1.16', '0.1.18', '0.1.21', '0.1.24'].filter(version => version !== engineVersion)) {
+      for (const otherVersion of ['0.1.5', '0.1.10', '0.1.11', '0.1.15', '0.1.16', '0.1.18', '0.1.21', '0.1.24', '0.1.27'].filter(version => version !== engineVersion)) {
         const other = join(engines, otherVersion, 'impeccable');
         mkdirSync(dirname(other), { recursive: true });
         writeFileSync(other, '#!/bin/sh\necho incorrect-fallback\n', { mode: 0o755 });
@@ -229,7 +231,21 @@ describe('Impeccable managed runtime policy', () => {
     assert.equal(readFileSync(skillPath, 'utf8'), before);
   }));
 
-  for (const version of ['4.8.0', '4.9.1']) {
+  it('REQ-AGENT-181: 4.10.0 rejects an older engine or a missing relocated rubric before overlay mutation', () => withTempDir(source => {
+    copyReviewedFixture('4.10.0', source);
+    const skillPath = join(source, 'SKILL.md');
+    const browserPath = join(source, 'scripts/live-browser.js');
+    const before = [readFileSync(skillPath), readFileSync(browserPath)];
+    writeFileSync(join(source, 'scripts/VERSION'), '0.1.24\n');
+    assert.throws(() => applyCodeflareImpeccableOverlay(source), /expected image-owned 0\.1\.27/);
+    assert.deepEqual([readFileSync(skillPath), readFileSync(browserPath)], before);
+    writeFileSync(join(source, 'scripts/VERSION'), '0.1.27\n');
+    rmSync(join(source, 'reference/critique-rubric.md'));
+    assert.throws(() => applyCodeflareImpeccableOverlay(source), /ENOENT/);
+    assert.deepEqual([readFileSync(skillPath), readFileSync(browserPath)], before);
+  }));
+
+  for (const version of ['4.8.0', '4.9.1', '4.10.0']) {
     it(`REQ-AGENT-181 / REQ-AGENT-194: ${version} projection retains version and redistribution license/notices`, () => withTempDir(root => {
       const source = join(root, 'source');
       copyReviewedFixture(version, source);
@@ -241,6 +257,10 @@ describe('Impeccable managed runtime policy', () => {
       const skill = readFileSync(join(target, 'SKILL.md'), 'utf8');
       assert.equal(skill.match(/^version: (.+)$/m)?.[1], version);
       for (const name of ['LICENSE', 'NOTICE.md']) {
+        if (version === '4.10.0' && name === 'NOTICE.md') {
+          assert.equal(createHash('sha256').update(readFileSync(join(target, name))).digest('hex'), '01bf53e5d24d64e19e9e1c33b24c37cef0d314323df7bf678c6ba22d4528a115');
+          continue;
+        }
         assert.equal(readFileSync(join(target, name), 'utf8'), readFileSync(join(repoRoot, 'host/__fixtures__/impeccable-4.7.0', name), 'utf8'),
           'the reviewed redistribution license/notices remain present');
       }
@@ -248,7 +268,7 @@ describe('Impeccable managed runtime policy', () => {
   }
 
   it('REQ-OPS-020 / REQ-AGENT-181: an unreviewed bundle identity or substituted bytes fail closed', async () => {
-    for (const version of ['4.8.0', '4.8.2', '4.9.1']) {
+    for (const version of ['4.8.0', '4.8.2', '4.9.1', '4.10.0']) {
       assert.throws(() => verifyReviewedImpeccableBundle(Buffer.from('substituted release'), version), /differs from the reviewed release/);
     }
     assert.throws(() => verifyReviewedImpeccableBundle(Buffer.from('unreviewed release'), '4.8.1'), /bundle is not reviewed/);

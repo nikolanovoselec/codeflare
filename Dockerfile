@@ -88,14 +88,14 @@ RUN curl -fsSL https://static.rust-lang.org/dist/2026-11-12/rust-1.100.0-x86_64-
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
     && /tmp/rust-1.100.0-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
     && rm -rf /tmp/rust.tar.xz /tmp/rust-1.100.0-x86_64-unknown-linux-gnu
-COPY image/impeccable-engine.json image/impeccable-engine-4.8.2.json image/impeccable-engine-4.8.0.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
+COPY image/impeccable-engine-4.10.0.json image/impeccable-engine.json image/impeccable-engine-4.8.2.json image/impeccable-engine-4.8.0.json image/impeccable-engine-4.7.0.json image/impeccable-engine-4.6.0.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
 RUN <<'IMPECCABLE'
 set -eu
 export CARGO_TARGET_DIR=/tmp/impeccable-target
-for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine-4.5.0.json /tmp/impeccable-engine-4.6.0.json /tmp/impeccable-engine-4.7.0.json /tmp/impeccable-engine-4.8.0.json /tmp/impeccable-engine-4.8.2.json /tmp/impeccable-engine.json; do
-  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11","0.1.15","0.1.16","0.1.18","0.1.21","0.1.24"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256) || (p.version === "0.1.21" && (p.commit !== "fe45455d36ed14c85ece25c9b868344e55713352" || p.sha256 !== "36ebd8da4a2c6117202c9816634a05de6bcc3a55e6bba84d49e247bb7f06892b")) || (p.version === "0.1.24" && (p.commit !== "6418f185eeceddda2cdb6ea93c5c58c7f319416e" || p.sha256 !== "8d3ee6b14fb5f19224825893b88288166ed732b378347098b8edcd818c6d6c2b"))) throw new Error("Invalid Impeccable engine pin")' "$PIN"
+for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine-4.5.0.json /tmp/impeccable-engine-4.6.0.json /tmp/impeccable-engine-4.7.0.json /tmp/impeccable-engine-4.8.0.json /tmp/impeccable-engine-4.8.2.json /tmp/impeccable-engine.json /tmp/impeccable-engine-4.10.0.json; do
+  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11","0.1.15","0.1.16","0.1.18","0.1.21","0.1.24","0.1.27"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256) || (p.version === "0.1.21" && (p.commit !== "fe45455d36ed14c85ece25c9b868344e55713352" || p.sha256 !== "36ebd8da4a2c6117202c9816634a05de6bcc3a55e6bba84d49e247bb7f06892b")) || (p.version === "0.1.24" && (p.commit !== "6418f185eeceddda2cdb6ea93c5c58c7f319416e" || p.sha256 !== "8d3ee6b14fb5f19224825893b88288166ed732b378347098b8edcd818c6d6c2b")) || (p.version === "0.1.27" && (p.commit !== "b49177d32788f2dc585c42831d845dacf1ebed2c" || p.sha256 !== "518c9f7e69ca32d80221b3cd7e1a5f5755762e5e6d748137da101454caac0f44"))) throw new Error("Invalid Impeccable engine pin")' "$PIN"
   VERSION=$(node -p 'require(process.argv[1]).version' "$PIN")
   COMMIT=$(node -p 'require(process.argv[1]).commit' "$PIN")
   SHA256=$(node -p 'require(process.argv[1]).sha256' "$PIN")

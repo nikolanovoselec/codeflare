@@ -19,6 +19,7 @@ export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   '0.54.13',
   '0.54.15',
   '0.55.0',
+  '0.55.1',
 ]);
 // 0.54.15 npm SHA-512 verified; all src bytes also matched authenticated
 // narumiruna/pi-extensions@980db40db9b1db3b8dc92b2b1837eb06841bfea2.
@@ -51,6 +52,9 @@ const REVIEWED_05415 = {
 // Registry-integrity-verified 0.55.0; retain native transactional settings,
 // recovery status and usage-limit scope. Only pristine and these prepared
 // source bytes are accepted, including the two new quota-recovery modules.
+// 0.55.1 registry SHA-512 verified; every src byte matches 0.55.0 and
+// narumiruna/pi-extensions@935080628841bb143faca9d5d9f436887a3d15c0.
+// Only the Kit dependency floor changes to ^0.70.0; reuse exact source identities.
 const REVIEWED_0550 = {
   'src/accounting.ts': ['31b3a5a4ddd86fd2e8370af64e5592dfa01fad88316fd7a6217790049d586bcf'],
   'src/command-registration.ts': ['4b643682b31e99d333ceba1c117ca7ee8e08a1d3733463658f26fb7a9bbff6d8'],
@@ -1283,7 +1287,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     throw new Error(`${directory}: pi-goal package layout is incomplete for ${expectedVersion}`);
   }
 
-  const reviewed = expectedVersion === '0.55.0' ? REVIEWED_0550 : expectedVersion === '0.54.15' ? REVIEWED_05415 : undefined;
+  const reviewed = (expectedVersion === '0.55.0' || expectedVersion === '0.55.1') ? REVIEWED_0550 : expectedVersion === '0.54.15' ? REVIEWED_05415 : undefined;
   if (reviewed) {
     const info = lstatSync(paths.packageJson);
     if (!info.isFile() || info.isSymbolicLink()) throw new Error('Unsafe Goal package manifest');
@@ -1329,7 +1333,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   };
   // These reviewed releases use two-space indentation. Round-trip only
   // leading indentation through the existing exact, fail-closed patch anchors.
-  if (expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13' || expectedVersion === '0.54.15' || expectedVersion === '0.55.0') {
+  if (expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13' || expectedVersion === '0.54.15' || expectedVersion === '0.55.0' || expectedVersion === '0.55.1') {
     for (const name of Object.keys(originals)) {
       originals[name] = originals[name].replace(/^(?:  )+/gm, (indent) => '\t'.repeat(indent.length / 2));
     }
@@ -1365,7 +1369,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   }
   writeFileSync(paths.packageJson, patchedPackageManifest);
   for (const name of Object.keys(patched)) {
-    const source = expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13' || expectedVersion === '0.54.15' || expectedVersion === '0.55.0'
+    const source = expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13' || expectedVersion === '0.54.15' || expectedVersion === '0.55.0' || expectedVersion === '0.55.1'
       ? patched[name].replace(/^\t+/gm, (indent) => '  '.repeat(indent.length))
       : patched[name];
     writeFileSync(paths[name], source);

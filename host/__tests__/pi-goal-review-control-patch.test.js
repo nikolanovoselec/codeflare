@@ -637,6 +637,26 @@ const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.55
 const PINNED_PLAN_INTEGRITY = 'sha512-pBLJdDWsANbMmRkTtTUcEJO95WY3tRmbWbS57uKIHsbQ5dc5sStD20R4qpcGXSl/r5tyPVR2Gru/YqwCqpmJ3Q==';
 
 function extractPackage(archivePath, integrity, root) {
+  if (archivePath === 'bump:goal' || archivePath === 'bump:plan') {
+    const key = archivePath.slice('bump:'.length);
+    extractPackage(`task146:${key}`, undefined, root);
+    const capture = JSON.parse(readFileSync(join(FIXTURES_DIRECTORY,
+      key === 'goal' ? 'pi-goal-0.55.1-source.json' : 'pi-plan-mode-0.60.1-source.json')));
+    // Pristine npm runtime-byte deltas, SHA-512 verified at capture and compared
+    // against upstream 935080628841bb143faca9d5d9f436887a3d15c0. Each byte delta
+    // verifies its retained base and exact candidate hash before use.
+    const records = JSON.parse(gunzipSync(Buffer.from(capture.delta, 'base64')));
+    for (const [path, beforeHash, afterHash, edits, basePath] of records) {
+      let source = readFileSync(join(root, basePath));
+      assert.equal(createHash('sha256').update(source).digest('hex'), beforeHash, path);
+      for (const [offset, length, bytes] of edits.toReversed()) {
+        source = Buffer.concat([source.subarray(0, offset), Buffer.from(bytes, 'base64'), source.subarray(offset + length)]);
+      }
+      assert.equal(createHash('sha256').update(source).digest('hex'), afterHash, path);
+      writeFileSync(join(root, path), source);
+    }
+    return;
+  }
   if (archivePath === 'task146:goal' || archivePath === 'task146:plan') {
     const key = archivePath.slice('task146:'.length);
     extractPackage(`candidate:${key}`, undefined, root);
@@ -893,6 +913,8 @@ async function createStallScenario(t, versions, limits = {}) {
 
 // task146 contracts exercise the actual upstream inputs, not version-only fixtures.
 for (const [key, version, paths] of [
+  ['goal', '0.55.1', ['src/runtime.ts', 'src/lifecycle.ts', 'src/usage-limit-recovery.ts', 'src/usage-reset.ts']],
+  ['plan', '0.60.1', ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-UJ6TV2YV.ts']],
   ['goal', '0.55.0', ['src/runtime.ts', 'src/lifecycle.ts', 'src/usage-limit-recovery.ts', 'src/usage-reset.ts']],
   ['plan', '0.60.0', ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-UJ6TV2YV.ts']],
 ]) {
@@ -902,7 +924,7 @@ for (const [key, version, paths] of [
       for (const drift of ['name', 'version', 'entrypoint', ...paths]) {
         const root = mkdtempSync(join(tmpdir(), `task146-${key}-identity-`));
         t.after(() => rmSync(root, { recursive: true, force: true }));
-        extractPackage(`task146:${key}`, undefined, root);
+        extractPackage(`${version === '0.55.1' || version === '0.60.1' ? 'bump' : 'task146'}:${key}`, undefined, root);
         const destinations = ['package.json', ...paths];
         if (phase === 'prepared') {
           prepare(root);
@@ -922,7 +944,7 @@ for (const [key, version, paths] of [
         const before = destinations.map(path => readFileSync(join(root, path)));
         assert.throws(() => prepare(root), /digest|identity|version|expected|entrypoint/);
         assert.deepEqual(destinations.map(path => readFileSync(join(root, path))), before);
-        assert.throws(() => key === 'goal' ? patchPiGoalDirectory('0.55.1', root) : patchPiPlanModeDirectory('0.60.1', root), /supports only|Unsupported/);
+        assert.throws(() => key === 'goal' ? patchPiGoalDirectory('0.55.2', root) : patchPiPlanModeDirectory('0.60.2', root), /supports only|Unsupported/);
         assert.deepEqual(destinations.map(path => readFileSync(join(root, path))), before);
       }
     }
@@ -1358,6 +1380,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
   });
 
   for (const versions of [
+    { goal: '0.55.1', plan: '0.60.1', goalArchive: 'bump:goal', planArchive: 'bump:plan' },
     { goal: '0.55.0', plan: '0.60.0', goalArchive: 'task146:goal', planArchive: 'task146:plan' },
     { goal: '0.54.15', plan: '0.59.6', goalArchive: 'candidate:goal', planArchive: 'candidate:plan' },
     { goal: EXPECTED_PI_GOAL_VERSION, plan: EXPECTED_PI_PLAN_MODE_VERSION,
@@ -1385,7 +1408,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       planIntegrity: 'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==' },
   ]) {
   describe(`Goal ${versions.goal}, Plan ${versions.plan}`, () => {
-  if (versions.goal !== '0.55.0') it('REQ-AGENT-111/129: exact prior prepared bytes upgrade to the same idempotent artifact as pristine sources', t => {
+  if (!['0.55.0', '0.55.1'].includes(versions.goal)) it('REQ-AGENT-111/129: exact prior prepared bytes upgrade to the same idempotent artifact as pristine sources', t => {
     const fresh = mkdtempSync(join(tmpdir(), 'pi-goal-progress-pristine-'));
     const upgraded = mkdtempSync(join(tmpdir(), 'pi-goal-progress-upgrade-'));
     t.after(() => { rmSync(fresh, { recursive: true, force: true }); rmSync(upgraded, { recursive: true, force: true }); });
@@ -1417,7 +1440,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     patchPiGoalDirectory(versions.goal, root);
     for (const [name, anchor, damaged] of [
       ['persistence', 'stalledRuns?: number;', 'stalledRuns?: string;'],
-      ['runtime', versions.goal === '0.55.0'
+      ['runtime', (versions.goal === '0.55.0' || versions.goal === '0.55.1')
         ? 'if (request.abortTurn !== false) this.afterSettingsCommit(ctx, goal.id, () => abortCurrentTurn(ctx));'
         : 'if (request.abortTurn !== false) abortCurrentTurn(ctx);', 'abortCurrentTurn(ctx);'],
     ]) {
@@ -1521,7 +1544,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       assert.equal(s.state().status, count === 5 ? 'blocked' : 'active');
       if (count === 5) break;
       aborted = false;
-      if (versions.goal === '0.55.0' && errorMessage.includes('context window')) {
+      if ((versions.goal === '0.55.0' || versions.goal === '0.55.1') && errorMessage.includes('context window')) {
         await s.harness.dispatch('session_before_compact', { willRetry: true });
       }
       await s.harness.dispatch('agent_start'); // Pi retries without before_agent_start.
@@ -1890,9 +1913,9 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const goalAfter = readFixturePackage(goalRoot);
     patchPiGoalDirectory(versions.goal, goalRoot);
     assert.deepEqual(readFixturePackage(goalRoot), goalAfter);
-    if (versions.plan === '0.56.0' || versions.plan === '0.58.3' || versions.plan === '0.59.2' || versions.plan === '0.59.6' || versions.plan === '0.60.0') {
+    if (versions.plan === '0.56.0' || versions.plan === '0.58.3' || versions.plan === '0.59.2' || versions.plan === '0.59.6' || versions.plan === '0.60.0' || versions.plan === '0.60.1') {
       const configured = { git: ['status', 'diff'], gh: ['pr view'] };
-      const policyChunk = versions.plan === '0.60.0' ? 'dist/chunks/chunk-UJ6TV2YV.ts' : versions.plan === '0.59.6' ? 'dist/chunks/chunk-W7D6N2MI.ts' : versions.plan === '0.59.2' ? 'dist/chunks/chunk-MJV6WNHK.ts'
+      const policyChunk = (versions.plan === '0.60.0' || versions.plan === '0.60.1') ? 'dist/chunks/chunk-UJ6TV2YV.ts' : versions.plan === '0.59.6' ? 'dist/chunks/chunk-W7D6N2MI.ts' : versions.plan === '0.59.2' ? 'dist/chunks/chunk-MJV6WNHK.ts'
         : versions.plan === '0.58.3' ? 'dist/chunks/chunk-L2CXUWCH.ts' : 'dist/chunks/chunk-57OBPS7P.js';
       for (const [index, file] of ['src/tool-policy.ts', policyChunk].entries()) {
         const policy = await bundleFixture(join(planRoot, file), join(planRoot, `policy-${index}.mjs`), 'namespace');
@@ -1969,7 +1992,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(response?.ok, true);
     assert.equal(response?.status, 'active');
     assert.notEqual(response?.goalId, pausedGoalId);
-    if (versions.goal === '0.54.8' || versions.goal === '0.54.11' || versions.goal === '0.54.13' || versions.goal === '0.54.15' || versions.goal === '0.55.0') {
+    if (versions.goal === '0.54.8' || versions.goal === '0.54.11' || versions.goal === '0.54.13' || versions.goal === '0.54.15' || versions.goal === '0.55.0' || versions.goal === '0.55.1') {
       const complete = harness.tools.find((tool) => tool.name === 'goal_complete');
       await harness.dispatch('before_agent_start', { prompt: 'Continue the resumed objective', systemPrompt: '' });
       await harness.dispatch('agent_start');

@@ -73,7 +73,7 @@ def probe_module(source_root: Path, module_name: str) -> str:
     condition = conditions[0].replace("now_ms()", "now")
     version = tomllib.loads((source_root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     constants = ""
-    if version in ("0.1.21", "0.1.24"):
+    if version in ("0.1.21", "0.1.24", "0.1.27"):
         # Compile the actual reviewed upstream constant, not a probe substitute.
         declarations = re.findall(r"(?m)^const PAGE_CLOSED_GRACE_MS: f64 = [^;\n]+;$", serve)
         if declarations != ["const PAGE_CLOSED_GRACE_MS: f64 = 90000.0;"]:
@@ -158,7 +158,7 @@ def run(binary: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def verify_probe(binary: Path, expect_upstream_bugs: bool, engine_version: str) -> None:
     variant = "upstream" if expect_upstream_bugs else "patched"
-    legacy_upstream = expect_upstream_bugs and engine_version not in ("0.1.21", "0.1.24")
+    legacy_upstream = expect_upstream_bugs and engine_version not in ("0.1.21", "0.1.24", "0.1.27")
     for age, grace, closes in [
         (20000, 60000, legacy_upstream),
         (70000, 60000, not expect_upstream_bugs or legacy_upstream),
@@ -226,6 +226,8 @@ def main() -> None:
          "36ebd8da4a2c6117202c9816634a05de6bcc3a55e6bba84d49e247bb7f06892b"),
         ("impeccable-engine.json", "0.1.24", "6418f185eeceddda2cdb6ea93c5c58c7f319416e",
          "8d3ee6b14fb5f19224825893b88288166ed732b378347098b8edcd818c6d6c2b"),
+        ("impeccable-engine-4.10.0.json", "0.1.27", "b49177d32788f2dc585c42831d845dacf1ebed2c",
+         "518c9f7e69ca32d80221b3cd7e1a5f5755762e5e6d748137da101454caac0f44"),
     ]:
         pin = json.loads((root / "image" / name).read_text())
         if pin != {"version": version, "commit": commit, "sha256": digest}:

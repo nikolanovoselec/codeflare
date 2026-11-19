@@ -10,15 +10,15 @@ import time
 
 
 def verify_engine(binary, expect_idle_bug=False, expected_version="0.1.15"):
-    assert expected_version in ("0.1.5", "0.1.10", "0.1.11", "0.1.15", "0.1.16", "0.1.18", "0.1.21", "0.1.24"), expected_version
+    assert expected_version in ("0.1.5", "0.1.10", "0.1.11", "0.1.15", "0.1.16", "0.1.18", "0.1.21", "0.1.24", "0.1.27"), expected_version
     probe = subprocess.run([binary, "engine-probe"], capture_output=True, text=True, timeout=10, check=True)
     assert probe.stdout.strip() == f"impeccable-engine {expected_version}", probe.stdout
     with tempfile.TemporaryDirectory(prefix="impeccable-engine-") as directory:
         questions = Path(directory) / ".impeccable" / "questions"
         questions.mkdir(parents=True)
-        # Legacy upstream closes too early (15s); 0.1.21 and 0.1.24 close too late
+        # Legacy upstream closes too early (15s); 0.1.21, 0.1.24 and 0.1.27 close too late
         # for grace=60 (90s). Both also ignore a longer configured grace.
-        legacy_upstream = expect_idle_bug and expected_version not in ("0.1.21", "0.1.24")
+        legacy_upstream = expect_idle_bug and expected_version not in ("0.1.21", "0.1.24", "0.1.27")
         for age_seconds, grace_seconds, closes in [
             (20, 60, legacy_upstream),
             (70, 60, not expect_idle_bug or legacy_upstream),

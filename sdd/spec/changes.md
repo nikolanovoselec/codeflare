@@ -10,6 +10,7 @@ Earlier history is retained in the [November archive](changes-archive-2026-11.md
 - REQ-AGENT-029 AC5–8 carries the owner's selected OAuth account as non-secret startup metadata, separately from administrator Browser Run. Explicit clears, partial omission, transport validation and Operator exclusion preserve credential routing and account authority.
 - REQ-MEM-035 AC6 strengthens proactive scoped recall; REQ-MEM-036 replaces full-file context injection and its incompatible size budgets with native policy-only search. Keep lifecycle/path/native-binding qualification, foreground ownership, workspace scope, final writes and the old requirement fragment.
 - Test-only source was preserved before runtime changes. Source/readiness and supplemental checks are not exact-revision CI, signed publication, deployment or runtime acceptance evidence.
+- Shadow-pin preparation qualifies the existing Goal/Plan transforms for 0.55.1/0.60.1 and Impeccable 4.10.0 with additive engine 0.1.27 support, preserving prior engines and evidence/idle/traversal guards. Current shipped pins remain unchanged until their normal bump PRs. Context-mode manifest updates now target only the named dependency, preserving unrelated same-version overrides.
 
 ## 2026-11-18: Dependency compatibility and shadow-pin repair
 
