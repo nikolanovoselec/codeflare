@@ -80,6 +80,7 @@ const controlsBody = z.strictObject({ revision: z.number().int().nonnegative().m
     .refine(values => new Set(values).size === values.length), sourceResponseBytes: policy.shape.sourceResponseBytes }),
   boundaryActions: z.array(z.strictObject({
     repositoryId: z.number().int().positive().safe(), installationId: z.string().regex(ID),
+    repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).optional(),
     workflowId: z.number().int().positive().safe(),
     workflowPath: z.string().regex(/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/),
     protectedRef: z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/),

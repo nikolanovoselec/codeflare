@@ -985,6 +985,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (!Array.isArray(input.boundaryActions) || input.boundaryActions.length > 100) throw new ValidationError('Invalid boundary Action bindings');
       for (const action of input.boundaryActions) {
         if (!action || !Number.isSafeInteger(action.repositoryId) || action.repositoryId <= 0
+          || (action.repository !== undefined && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(action.repository))
           || seen.has(`${action.repositoryId}:${action.protectedRef}`) || !Number.isSafeInteger(action.workflowId) || action.workflowId <= 0
           || !/^[A-Za-z0-9_-]{1,128}$/.test(action.installationId)
           || !/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(action.workflowPath)

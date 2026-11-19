@@ -4,6 +4,12 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-19: Resolve local Review before GitHub discovery
+
+- REQ-OPERATOR-053 adds a bounded, ordinary-session-owned enrollment read on the existing owner transport. Empty/disabled enrollment and another known repository's Action select the existing local engine before GitHub discovery; legacy unknown names and unreadable configuration cannot establish absence. Verified enrollment retains its canonical repository name. A remote candidate still requires the existing exact-PR, Action, Conductor and human-authority checks.
+- REQ-AGENT-036 keeps failed Git transitions inert in the Enterprise selector, including failed pushes that previously emitted a misleading unavailable-boundary warning.
+- Selection is not review clearance. Local metadata verification and all configured remote trust checks remain mandatory; no credential or review-gate bypass is introduced.
+
 ## 2026-11-19: Temporary native Codex prompt-prefix backport
 
 - REQ-AGENT-238 carries upstream Pi PR 12319 in both installed library and bundled CLI paths, keeping the initial system prompt in the input prefix while preserving WebSocket continuation semantics.

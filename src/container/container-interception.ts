@@ -454,7 +454,7 @@ const ownerInferenceAuthority: InterceptorSpec = {
   mode: 'enterprise',
   resolve(host) {
     if (host._operatorPolicy || host._operatorContainerProfile || !host._bucketName || !host._sessionId
-      || !host._userEmail || !host.env.OPERATOR_ACTIVITY || !host.env.OPERATOR_REGISTRY) return null;
+      || !host._userEmail) return null;
     return { entrypoint: 'OperatorOwnerInferenceAuthority',
       props: { bucket: host._bucketName, sessionId: host._sessionId, email: host._userEmail },
       hosts: ['operator.internal'], mandatory: true,

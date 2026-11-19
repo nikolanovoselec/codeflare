@@ -264,7 +264,8 @@ it('REQ-ENTERPRISE-090 AC4: registered regional Vertex transport denies revoked 
   const f = fixture();
   const handlers = new Map<string, Fetcher>();
   await wireContainerInterception({ env: f.env, logger: { info() {}, warn() {}, error() {} },
-    ctx: { exports: { LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as unknown as ExecutionContext, f.env) },
+    ctx: { exports: { OperatorOwnerInferenceAuthority: () => ({ fetch: async () => new Response(null, { status: 403 }) }),
+        LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as unknown as ExecutionContext, f.env) },
       container: { interceptOutboundHttps: (name: string, handler: Fetcher) => { handlers.set(name, handler); } } },
     _bucketName: owner.bucket, _sessionId: owner.sessionId, _userEmail: owner.user, _userGroups: [], _strictEgress: false,
   } as unknown as InterceptionHost);
@@ -396,7 +397,8 @@ it('REQ-ENTERPRISE-088 AC5: real registry wiring binds human requests and denies
     const handlers = new Map<string, Fetcher>();
     const host = {
       env: f.env, logger: { info() {}, warn() {}, error() {} },
-      ctx: { exports: { LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as unknown as ExecutionContext, f.env) },
+      ctx: { exports: { OperatorOwnerInferenceAuthority: () => ({ fetch: async () => new Response(null, { status: 403 }) }),
+        LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as unknown as ExecutionContext, f.env) },
         container: { interceptOutboundHttps: (name: string, handler: Fetcher) => { handlers.set(name, handler); } } },
       _bucketName: owner.bucket, _sessionId: mode === 'unbound' ? null : owner.sessionId,
       _userEmail: owner.user, _userGroups: [], _strictEgress: false,
@@ -434,7 +436,8 @@ it.each([
     const f = fixture();
     const handlers = new Map<string, Fetcher>();
     await wireContainerInterception({ env: f.env, logger: { info() {}, warn() {}, error() {} },
-      ctx: { exports: { LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as unknown as ExecutionContext, f.env) },
+      ctx: { exports: { OperatorOwnerInferenceAuthority: () => ({ fetch: async () => new Response(null, { status: 403 }) }),
+        LlmInterceptor: ({ props }: { props: unknown }) => new LlmInterceptor({ props } as unknown as ExecutionContext, f.env) },
         container: { interceptOutboundHttps: (name: string, handler: Fetcher) => { handlers.set(name, handler); } } },
       _bucketName: owner.bucket, _sessionId: owner.sessionId, _userEmail: owner.user, _userGroups: [], _strictEgress: false,
     } as unknown as InterceptionHost);

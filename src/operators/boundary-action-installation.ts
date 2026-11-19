@@ -301,7 +301,8 @@ export async function verifyBoundaryWorkflow(input: EnrollmentTarget, ctx: Enrol
   const existing = controls.boundaryActions?.find(action => action.repositoryId === value.repositoryId
     && action.protectedRef === input.protectedRef);
   if (existing && existing.enabled !== false) throw new AppError('CONFLICT', 409, 'Active Review binding cannot be replaced');
-  const binding = { repositoryId: value.repositoryId, installationId: input.installationId,
+  const binding = { repositoryId: value.repositoryId, repository: `${value.owner}/${value.repo}`.toLowerCase(),
+    installationId: input.installationId,
     workflowId: workflowRecord.id!, workflowPath: installedPath, protectedRef: input.protectedRef,
     workflowDigest: await digest(value.contents), events: ['pull_request_target'],
     runtimeSha: value.config.commit, enabled: false, verified: true };

@@ -3,8 +3,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { createReviewEnforcement, resultText, type ReviewEnforcementController } from './review-enforcement';
-import { createOperatorReviewRemote, type OperatorReviewRemoteController } from './operator-review-remote';
+import { createReviewEnforcement, resultText, successful, type ReviewEnforcementController } from './review-enforcement';
+import { createOperatorReviewRemote, githubRepository, type OperatorReviewRemoteController } from './operator-review-remote';
 import { findGitRoot, recallActiveRepo, resolveShellInvocationRepo, shellInvocations, type ShellInvocation } from './active-repo-memory';
 import { cloneTargetHadGit, cloneTargetPath, rememberCloneTargetHadGit } from './graphify-helpers';
 import { classifyReviewBoundaryCommand } from './review-helpers';
@@ -42,6 +42,8 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
   let unavailableReported = false;
   let selectionEpoch = 0;
   const dispatch = async (name: string, event: unknown, ctx: unknown) => {
+    // Attempted commands are not completed Git transitions. Preserve pre-tool guards.
+    if (name === 'tool_result' && !successful(event)) return;
     if (name === 'session_shutdown') selectionEpoch += 1;
     const clones = shellInvocations(event, (ctx as { cwd: string }).cwd)
       .filter(invocation => classifyReviewBoundaryCommand(invocation.command).clone);
@@ -135,8 +137,37 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
 
 const repoName = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const sha = /^[a-f0-9]{40}$/i;
+type Enrollment = 'local' | 'remote-candidate' | 'unavailable';
+
+/** Parent-bound enrollment read; no GitHub credential or remote execution authority. */
+export async function readReviewEnrollment(repository: string, send: typeof fetch = fetch): Promise<Enrollment> {
+  try {
+    const response = await send('https://operator.internal/v1/review/applicability', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ repository }), redirect: 'error', signal: AbortSignal.timeout(10_000),
+    });
+    if (response.status !== 200 || !response.body) return 'unavailable';
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const part = await reader.read();
+        if (part.done) break;
+        size += part.value.byteLength;
+        if (size > 4096) return 'unavailable';
+        chunks.push(part.value);
+      }
+    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
+    return value && Object.keys(value).length === 1
+      && ['local', 'remote-candidate', 'unavailable'].includes(value.selection) ? value.selection : 'unavailable';
+  } catch { return 'unavailable'; }
+}
+
 export async function selectOperatorReviewApplicability(event: any, ctx: any,
-  runner: typeof execFile = execFile): Promise<Mode> {
+  runner: typeof execFile = execFile,
+  enrollment: (repository: string) => Promise<Enrollment> = readReviewEnrollment): Promise<Mode> {
   if (process.env.ENTERPRISE_MODE !== 'active') return 'local';
   const invocations = shellInvocations(event, ctx.cwd);
   const boundary = invocations.filter(invocation =>
@@ -153,6 +184,11 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
   if (!repo) return boundary && classifyReviewBoundaryCommand(boundary.command).clone ? 'unavailable' : 'none';
   if (!existsSync(join(repo, 'sdd', 'README.md'))) return 'none';
   try {
+    const { stdout: remote } = await runner('git', ['remote', 'get-url', 'origin'], { cwd: repo, encoding: 'utf8' });
+    const repository = githubRepository(String(remote).trim());
+    if (!repository) return 'local'; // No supported remote enrollment; local owns repository discovery.
+    const disposition = await enrollment(repository);
+    if (disposition !== 'remote-candidate') return disposition;
     let prText: unknown;
     try {
       const response = await runner('gh', ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid'],

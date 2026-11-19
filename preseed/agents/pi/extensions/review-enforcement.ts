@@ -275,7 +275,7 @@ function latestBoundary(event: any, sessionCwd: string): ClassifiedBoundary | un
     .at(-1);
 }
 
-function successful(event: any): boolean {
+export function successful(event: any): boolean {
   return event?.isError !== true && event?.result?.isError !== true;
 }
 

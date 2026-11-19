@@ -6,6 +6,7 @@ import { selectOperatorReviewApplicability } from '../../../preseed/agents/pi/ex
 import type { Env } from '../../types';
 import { getBucketName } from '../../lib/access';
 import { GitHubInterceptor } from '../../github-interceptor';
+import { selectReviewEnrollment } from '../../operators/review-enrollment';
 
 // Only the platform base and unused owner ports are replaced. The native Pi
 // selector, interceptor and protected Action applicability path remain real.
@@ -102,7 +103,7 @@ function fixture(options: { denied?: boolean; inactiveAction?: boolean; executio
       commit: { sha: 'e'.repeat(40) } });
     return new Response('unknown GitHub request', { status: 404 });
   });
-  return { client, registry, container, waiting };
+  return { client, registry, container, waiting, env };
 }
 
 describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation', () => {
@@ -119,9 +120,10 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
       mkdirSync(join(repo, '.git'));
       mkdirSync(join(repo, 'sdd'));
       writeFileSync(join(repo, 'sdd/README.md'), 'requirements');
-      const { client, registry, container, waiting } = fixture({ ...options, piFirst: true,
+      const { client, registry, container, waiting, env } = fixture({ ...options, piFirst: true,
         missingGeneration: true, noAuthority: true, missingActivity: true, unavailableSession: true });
       const runner = (async (_program: string, args: string[]) => {
+        if (_program === 'git') return { stdout: 'https://github.com/owner/repo.git' };
         if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 34, state: 'OPEN',
           baseRefName: 'main', headRefOid: head }) };
         if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/repo',
@@ -138,7 +140,7 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
         const responseHeaders = [...response.headers].map(([key, value]) => `${key}: ${value}`).join('\n');
         return { stdout: `HTTP/2 ${response.status}\n${responseHeaders}\n\n${await response.text()}` };
       }) as never;
-      expect(await selectOperatorReviewApplicability({ type: 'session_start' }, { cwd: repo }, runner)).toBe(expected);
+      expect(await selectOperatorReviewApplicability({ type: 'session_start' }, { cwd: repo }, runner, () => selectReviewEnrollment(env, 'owner/repo'))).toBe(expected);
       await Promise.all(waiting);
       expect(await container.getBoundaryInput()).toBeNull();
       expect(await registry.getBoundaryPreparation()).toBeNull();

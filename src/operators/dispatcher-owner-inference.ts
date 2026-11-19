@@ -14,6 +14,7 @@ import { DispatcherRefusal } from './dispatcher-refusal';
 import { inferenceRequestBytes } from './dispatcher-inference-limits';
 import { installedDispatcherConnection, type OperatorRuntimePlan } from './activity';
 import { openOperatorSecret } from './protected-secrets';
+import { selectReviewEnrollment } from './review-enrollment';
 
 const identity = z.string().min(1).max(512).refine(value => [...value].every(character =>
   character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) !== 0x7f));
@@ -263,8 +264,19 @@ export class OperatorOwnerInferenceAuthority extends WorkerEntrypoint<Env> {
     try {
       const url = new URL(request.url);
       if (request.method !== 'POST' || url.origin !== 'https://operator.internal'
-        || !['/v1/dispatcher/owner-context', '/v1/dispatcher/owner-raw'].includes(url.pathname) || url.search || url.hash) throw new Error('Denied');
+        || !['/v1/dispatcher/owner-context', '/v1/dispatcher/owner-raw', '/v1/review/applicability'].includes(url.pathname) || url.search || url.hash) throw new Error('Denied');
       const props = z.strictObject({ bucket: identity, sessionId: identity, email: identity }).parse(this.ctx.props);
+      if (url.pathname === '/v1/review/applicability') {
+        const bytes = await readBoundedStream(request.body, 4096, 'Review enrollment', AbortSignal.timeout(5000));
+        const input = z.strictObject({ repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/) })
+          .parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+        const container = this.env.CONTAINER.getByName(getContainerId(props.bucket, props.sessionId));
+        const before = await getPersonalPiSession(container, props, true);
+        const selection = await selectReviewEnrollment(this.env, input.repository);
+        const after = await getPersonalPiSession(container, props, true);
+        if (before.generation !== after.generation) throw new Error('Session moved');
+        return Response.json({ selection }, { headers: { 'cache-control': 'no-store' } });
+      }
       if (url.pathname === '/v1/dispatcher/owner-raw') {
         if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') throw new Error('Denied');
         const input = z.strictObject({ activityId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),

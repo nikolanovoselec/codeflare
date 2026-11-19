@@ -44,7 +44,7 @@ function wire(mode, body = { number: 42, head: { sha: head } }) {
   return `HTTP/2 200\r\nx-codeflare-operator-boundary-selection: ${mode}\r\n\r\n${JSON.stringify(body)}`;
 }
 
-function fixture(t) {
+function fixture(t, enrollment = 'remote-candidate') {
   const previous = process.env.ENTERPRISE_MODE;
   process.env.ENTERPRISE_MODE = 'active';
   const root = mkdtempSync(join(tmpdir(), 'operator-review-selection-'));
@@ -64,7 +64,13 @@ function fixture(t) {
   };
   // Only external gh I/O is simulated. No workflow filenames are inspected or inferred.
   const runner = async (program, args, { cwd }) => {
+    if (program === 'git') {
+      assert.deepEqual(args, ['remote', 'get-url', 'origin']);
+      return { stdout: 'https://github.com/owner/repo.git' };
+    }
     assert.equal(program, 'gh');
+    const response = responses.get(cwd);
+    if (response instanceof Error) throw response;
     if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN',
       baseRefName: 'main', headRefOid: head }) };
     if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/repo',
@@ -76,8 +82,6 @@ function fixture(t) {
         repositoryId: 138, pullRequest: 42, acknowledgedHead: null, targetHead: head,
         payload: { range: null, rejectedFindingsStatus: 'unavailable' },
       })).toString('base64')}`, 'repos/owner/repo/pulls/42']);
-    const response = responses.get(cwd);
-    if (response instanceof Error) throw response;
     return { stdout: response };
   };
   const handlers = new Map();
@@ -102,13 +106,13 @@ function fixture(t) {
   };
   registerOperatorReviewSelector(pi, {
     local: route('local'), remote: route('remote'),
-    applicability: (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner),
+    applicability: (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner, async () => enrollment),
   });
   const context = cwd => ({ cwd, sessionManager: { getBranch: () => [] } });
   return {
     repo, messages, remoteActive: () => remoteActive,
-    select: cwd => selectOperatorReviewApplicability(push, context(cwd), runner),
-    emit: (name, cwd) => handlers.get(name)({ type: name, ...push }, context(cwd)),
+    select: cwd => selectOperatorReviewApplicability(push, context(cwd), runner, async () => enrollment),
+    emit: (name, cwd, event = {}) => handlers.get(name)({ type: name, ...push, ...event }, context(cwd)),
   };
 }
 
@@ -203,3 +207,35 @@ test('REQ-OPERATOR-053: repository transitions stop remote Review and never reta
   assert.equal(app.remoteActive(), false);
   assert.deepEqual(app.messages, [{ customType: 'remote-stopped' }, unavailable]);
 });
+
+for (const enrollment of ['absent', 'disabled', 'other repository']) {
+  test(`REQ-OPERATOR-053: ${enrollment} enrollment selects local before unavailable GitHub discovery`, async t => {
+    const app = fixture(t, 'local');
+    const cwd = app.repo(enrollment, new Error('GitHub discovery is unavailable'));
+    assert.equal(await app.select(cwd), 'local');
+    await app.emit('session_start', cwd);
+    assert.deepEqual(app.messages, [{ customType: 'local-session_start', cwd }]);
+  });
+}
+
+test('REQ-OPERATOR-053: unavailable enrollment cannot silently select local', async t => {
+  const app = fixture(t, 'unavailable');
+  const cwd = app.repo('unknown-enrollment', wire('local'));
+  assert.equal(await app.select(cwd), 'unavailable');
+});
+
+for (const [name, failure] of [
+  ['outer failure', { isError: true }],
+  ['nested failure', { result: { isError: true } }],
+]) {
+  for (const command of ['git push origin feature', 'gh pr create', 'gh pr reopen 42']) {
+    test(`REQ-AGENT-036: ${name} from ${command} creates no review boundary`, async t => {
+      const app = fixture(t);
+      const cwd = app.repo('failed-transition', wire('unavailable'));
+      await app.emit('tool_call', cwd, { input: { command } });
+      await app.emit('tool_result', cwd, { input: { command }, ...failure });
+      assert.deepEqual(app.messages, []);
+      assert.equal(app.remoteActive(), false);
+    });
+  }
+}

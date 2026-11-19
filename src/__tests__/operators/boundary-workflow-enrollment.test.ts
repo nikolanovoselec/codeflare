@@ -174,7 +174,7 @@ describe('REQ-OPERATOR-053/054: protected Review enrollment and dormant trust', 
     expect(await installed.json()).toMatchObject({ status: 'installed', enabled: false, workflowId: 531 });
     expect(await registry.getBoundaryAction(repoId, 'refs/heads/main')).toBeNull();
     const controls = await registry.getManagementControls();
-    expect(controls.boundaryActions).toMatchObject([{ repositoryId: repoId, verified: true, enabled: false,
+    expect(controls.boundaryActions).toMatchObject([{ repositoryId: repoId, repository: 'acme/app', verified: true, enabled: false,
       runtimeSha: 'd'.repeat(40) }]);
     expect((await request('/access', 'POST', { ...controls, boundaryActions: [] })).status).toBe(409);
     expect((await request('/access', 'POST', { ...controls, boundaryActions: [{
