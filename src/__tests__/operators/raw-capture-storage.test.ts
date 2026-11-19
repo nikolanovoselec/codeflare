@@ -228,7 +228,7 @@ it('captures business transaction reads and computed writes without entering its
 });
 
 // Private v1 codec contract, used to construct authenticated malformed archives, not to bypass the reader.
-const aad = (scope: RawCaptureBinding, ordinal: number | 'receipt', frame?: { record: number; part: number }) => {
+const aad = (scope: RawCaptureBinding, ordinal: number | string, frame?: { record: number; part: number }) => {
   const identity = scope.scope.kind === 'observation' ? ['observation', scope.scope.observationId]
     : ['activity', scope.scope.activityId, scope.scope.generation];
   const context = JSON.stringify(['codeflare-operator-raw-v1', scope.ownerKey, scope.installationId,
@@ -356,17 +356,43 @@ describe('REQ-OPERATOR-090/091: encrypted private raw artifact, independent veri
     expect(await read(f)).toEqual({ status: 'complete', receipt, records });
   });
 
-  it('marks native final-manifest overflow incomplete without silently truncating the observed records', async () => {
+  it('retains and cold-exports all 1200 paced events with bounded encrypted manifest pages and root', async () => {
     const f = boundary(); const capture = f.create();
-    for (let index = 0; index < 1200; index++) {
-      capture.record('observed', () => index);
-      await Promise.all(f.pending);
+    const records = Array.from({ length: 1200 }, (_, index) => ({
+      stage: index % 2 ? 'sdk-event' : 'parent-observation', value: { index, token: `${CANARY}-${index}` },
+    }));
+    for (const record of records) {
+      capture.record(record.stage, () => record.value);
+      await capture.flush();
     }
     const receipt = await capture.finish('eof');
-    expect(receipt).toMatchObject({ status: 'incomplete', records: 1200, segments: 1200 });
-    expect(await read(f)).toEqual(incomplete);
-    expect([...f.objects.keys()].some(key => key.endsWith('/segment-1199-1199-0'))).toBe(true);
-    expect([...f.objects.keys()].some(key => key.endsWith('/receipt'))).toBe(false);
+    expect(receipt).toMatchObject({ status: 'complete', records: records.length, segments: records.length, termination: 'eof' });
+    // Private paged wire contract: the root carries a page count, never an
+    // ever-growing descriptor array (of frames OR pages). Page AAD is its name.
+    const rootPath = [...f.objects.keys()].find(path => path.endsWith('/receipt'))!;
+    const key = (await getOrImportKey({ ENCRYPTION_KEY: KEY }))!;
+    const root = JSON.parse(await decryptFromKV(f.objects.get(rootPath)!.slice(3), key, aad(binding, 'receipt')));
+    expect(root).toEqual({ version: 2, receipt, pages: expect.any(Number) });
+    expect(Number.isSafeInteger(root.pages)).toBe(true);
+    expect(root.pages).toBeGreaterThan(1);
+    expect([...f.objects.values()].every(value => Buffer.byteLength(JSON.stringify(value)) <= 128 * 1024)).toBe(true);
+    expect([...f.objects.values()].join('')).not.toContain(CANARY);
+
+    const cold = boundary();
+    for (const [path, ciphertext] of f.objects) cold.objects.set(path, ciphertext);
+    const encrypted = new Map(cold.objects);
+    expect(await discover(cold)).toEqual({ status: 'complete', bindings: [binding], cursor: null });
+    const recovered: Array<{ stage: string; value: unknown }> = [];
+    expect(await verifyRawCapture({ binding, storage: cold.storage }, record => { recovered.push(record); }))
+      .toEqual({ status: 'complete', receipt });
+    expect(recovered).toEqual(records);
+    expect(await read(cold)).toEqual({ status: 'complete', receipt, records });
+    const response = await exportRawCapture({ binding, storage: cold.storage });
+    expect(response.status).toBe(200);
+    const frames: ExportFrame[] = [];
+    for await (const frame of exportFrames(response)) frames.push(frame);
+    expect(frames).toEqual([...records.map(record => ({ type: 'record', ...record })), { type: 'complete', receipt }]);
+    expect(cold.objects).toEqual(encrypted);
   }, 30_000);
 
   it('REQ-OPERATOR-090: snapshots arrays, typed bytes, deep error causes/stacks, descriptors and literal placeholders at observation time', async () => {
@@ -689,6 +715,148 @@ async function* exportFrames(response: Response): AsyncGenerator<ExportFrame> {
     reader.releaseLock();
   }
 }
+
+// Private storage wire contracts, independent of the current writer: legacy v1
+// embeds frames; v2 has only a page count and ordered manifest-N objects. Each
+// page uses the existing capture context with its own name as the AAD ordinal.
+async function manifestFixture(paged: boolean) {
+  const f = boundary();
+  const records = [{ stage: 'cross-page-unicode', value: `${CANARY}${'漢🦊'.repeat(12_000)}` }];
+  const encoded = new TextEncoder().encode(JSON.stringify(records));
+  const key = (await getOrImportKey({ ENCRYPTION_KEY: KEY }))!;
+  const context = JSON.parse(aad(binding, 'receipt'))[0] as string;
+  const hash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(context))).toString('hex');
+  const prefix = `operator-raw:v1:${hash}/`;
+  const frames: Manifest['frames'] = [];
+  for (let offset = 0, part = 0; offset < encoded.length; offset += 64 * 1024, part++) {
+    const chunk = encoded.subarray(offset, offset + 64 * 1024);
+    const frame = { record: 0, part, bytes: chunk.length };
+    const ciphertext = await encryptForKV(Buffer.from(chunk).toString('base64'), key, aad(binding, part, frame));
+    f.objects.set(`${prefix}segment-${part}-0-${part}`, ciphertext);
+    frames.push({ ...frame,
+      digest: Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ciphertext))).toString('hex') });
+  }
+  const receipt: RawCaptureReceipt = { status: 'complete', captureId: binding.captureId,
+    records: records.length, segments: frames.length, bytes: encoded.length, termination: 'eof' };
+  if (paged) {
+    for (const [index, frame] of frames.entries()) {
+      f.objects.set(`${prefix}manifest-${index}`,
+        await encryptForKV(JSON.stringify({ frames: [frame] }), key, aad(binding, `manifest-${index}`)));
+    }
+  }
+  f.objects.set(`${prefix}receipt`, await encryptForKV(JSON.stringify(paged
+    ? { version: 2, receipt, pages: frames.length } : { version: 1, receipt, frames }), key, aad(binding, 'receipt')));
+  return { f, records, receipt, prefix, key };
+}
+
+describe('REQ-OPERATOR-090/091: authenticated bounded manifest pages', () => {
+  it.each([false, true])('cold-reads unchanged wire records with paged=%s, including a split UTF-8 record', async paged => {
+    const { f, records, receipt } = await manifestFixture(paged);
+    const encrypted = new Map(f.objects);
+    const recovered: Array<{ stage: string; value: unknown }> = [];
+    expect(await verifyRawCapture({ binding, storage: f.storage }, record => { recovered.push(record); }))
+      .toEqual({ status: 'complete', receipt });
+    expect(recovered).toEqual(records);
+    expect(await read(f)).toEqual({ status: 'complete', receipt, records });
+    const response = await exportRawCapture({ binding, storage: f.storage });
+    expect(response.status).toBe(200);
+    const exported: ExportFrame[] = [];
+    for await (const frame of exportFrames(response)) exported.push(frame);
+    expect(exported).toEqual([...records.map(record => ({ type: 'record', ...record })), { type: 'complete', receipt }]);
+    expect(f.objects).toEqual(encrypted);
+  });
+
+  it.each(['missing first page', 'missing last page', 'swapped pages', 'tampered page', 'extra page',
+    'foreign capture page', 'wrong page AAD', 'record discontinuity', 'part discontinuity'] as const)(
+    'withholds records and completion for %s', async fault => {
+      const { f, prefix, key } = await manifestFixture(true);
+      const first = `${prefix}manifest-0`; const last = `${prefix}manifest-1`;
+      if (fault === 'missing first page') f.objects.delete(first);
+      else if (fault === 'missing last page') f.objects.delete(last);
+      else if (fault === 'swapped pages') {
+        const original = f.objects.get(first)!;
+        f.objects.set(first, f.objects.get(last)!); f.objects.set(last, original);
+      } else if (fault === 'tampered page') {
+        const original = f.objects.get(last)!;
+        f.objects.set(last, `${original.slice(0, 10)}${original[10] === 'A' ? 'B' : 'A'}${original.slice(11)}`);
+      } else {
+        const page = JSON.parse(await decryptFromKV(f.objects.get(last)!.slice(3), key, aad(binding, 'manifest-1'))) as {
+          frames: Manifest['frames'];
+        };
+        if (fault === 'record discontinuity') page.frames[0].record++;
+        if (fault === 'part discontinuity') page.frames[0].part++;
+        const name = fault === 'extra page' ? 'manifest-2' : 'manifest-1';
+        const additionalData = fault === 'foreign capture page'
+          ? aad({ ...binding, captureId: 'foreign-capture' }, name)
+          : aad(binding, fault === 'wrong page AAD' ? 'manifest-0' : name);
+        f.objects.set(`${prefix}${name}`, await encryptForKV(JSON.stringify(page), key, additionalData));
+      }
+      expect(await verifyRawCapture({ binding, storage: f.storage }, () => {}))
+        .toEqual({ status: 'incomplete', receipt: null });
+      expect(await read(f)).toEqual(incomplete);
+      const response = await exportRawCapture({ binding, storage: f.storage });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: 'RAW_CAPTURE_UNAVAILABLE' });
+    });
+
+  it('rechecks authorization at a manifest-page read before releasing private records', async () => {
+    const { f } = await manifestFixture(true);
+    const encrypted = new Map(f.objects);
+    const get = f.native.get.bind(f.native);
+    f.native.get = (async (path: string) => {
+      const value = await get<unknown>(path);
+      if (path.endsWith('/manifest-1')) f.revoke();
+      return value;
+    }) as typeof f.native.get;
+    expect(await read(f)).toEqual(incomplete);
+    expect(f.objects).toEqual(encrypted);
+  });
+
+  it.each(['write rejected', 'missing readback', 'different authenticated ciphertext', 'earlier page lost at root commit'] as const)(
+    'cannot publish completion after a manifest page has %s', async fault => {
+      let injected = false;
+      const isPage = (path: string) => /\/manifest-\d+$/.test(path);
+      const f = boundary({ rejectWrite: path => {
+        if (fault !== 'write rejected' || !isPage(path)) return false;
+        injected = true; return true;
+      } });
+      f.afterCommit(paths => {
+        const page = paths.find(isPage);
+        if (fault === 'missing readback' && page && !injected) {
+          injected = true; f.objects.delete(page);
+        }
+        if (fault === 'earlier page lost at root commit' && paths.some(path => path.endsWith('/receipt'))) {
+          const earlier = [...f.objects.keys()].find(isPage);
+          if (earlier) { injected = true; f.objects.delete(earlier); }
+        }
+      });
+      const key = (await getOrImportKey({ ENCRYPTION_KEY: KEY }))!;
+      const get = f.native.get.bind(f.native);
+      f.native.get = (async (path: string) => {
+        const value = await get<string>(path);
+        if (fault !== 'different authenticated ciphertext' || !isPage(path) || !value || injected) return value;
+        injected = true;
+        // Same authenticated plaintext, fresh nonce: reconstruction alone is
+        // insufficient. The commit must read back the exact ciphertext it wrote.
+        const additionalData = aad(binding, path.split('/').at(-1)!);
+        const plaintext = await decryptFromKV(value.slice(3), key, additionalData);
+        const replacement = await encryptForKV(plaintext, key, additionalData);
+        f.objects.set(path, replacement);
+        return replacement;
+      }) as typeof f.native.get;
+      const capture = f.create();
+      for (let index = 0; index < 1200; index++) {
+        capture.record('paced-private-event', () => ({ index, token: CANARY }));
+        // A page may be flushed before finalization; its refusal must not turn
+        // into a successful finish or a discoverable completion afterwards.
+        await capture.flush().catch(() => {});
+      }
+      expect((await capture.finish('eof')).status).toBe('incomplete');
+      expect(injected).toBe(true);
+      expect(await read(f)).toEqual(incomplete);
+      expect(await discover(f)).toEqual({ status: 'complete', bindings: [], cursor: null });
+    }, 30_000);
+});
 
 describe('REQ-OPERATOR-091 AC6/7: bounded private raw READ export', () => {
   it('REQ-OPERATOR-090/091: cold encrypted export reconstructs complete native body bytes, Unicode and Error chains after emitter snapshots', async () => {
