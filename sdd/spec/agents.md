@@ -97,6 +97,35 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ---
 
+### REQ-AGENT-238: Native Codex prompt-prefix compatibility
+
+**Intent:** Native Pi Codex requests keep the system prompt in the cacheable input prefix while a removable upstream backport remains necessary.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Full Codex requests carry the initial system prompt as a leading developer input message, not top-level instructions, in the Pi library and bundled CLI. <!-- @impl: scripts/patch-pi-codex-prompt-cache.mjs::patchPiCodexPromptCache --> <!-- @test: preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs -->
+2. Cached WebSocket continuations send only new input with their original response reference; full-history fallback restores the prompt without duplication. <!-- @test: preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs -->
+3. Image preparation and post-update/repair preparation cover both installed Pi trees without changing credentials, settings, package versions or npm integrity. <!-- @impl: scripts/patch-pi-codex-prompt-cache.mjs::patchPiCodexPromptCache --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair) -->
+4. Tests and Bump Shadow Pins reject pristine packages already containing the upstream fix or incompatible source before publication; they require explicit retirement or review of the temporary backport. <!-- @impl: scripts/patch-pi-codex-prompt-cache.mjs::verifyPiCodexPatchRequired --> <!-- @impl: scripts/update-pi-runtime-artifacts.mjs::updatePiRuntimeArtifacts --> <!-- @test: host/__tests__/npm-tool-manifest-update.test.js --> <!-- @test: preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs -->
+
+**Constraints:**
+
+- The backport is limited to upstream PR 12319 at `f7d9657ce20eb6e660d90a46fa235270abd04010`; other providers, request options, streaming and cancellation semantics remain unchanged.
+- Repeat preparation accepts only receipt-verified Codeflare-patched bytes; already-fixed pristine upstream is never a successful no-op.
+- Cacheable wire placement is not proof of a live cache hit, reduced cost or successful deployed adoption.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
+**Verification:** Automated: [codex-prompt-cache-patch.test.mjs](../../preseed/agents/pi/test/codex-prompt-cache-patch.test.mjs), [npm-tool-manifest-update.test.js](../../host/__tests__/npm-tool-manifest-update.test.js), [entrypoint-runtime-behavior.test.js](../../host/__tests__/entrypoint-runtime-behavior.test.js)
+
+**Status:** Planned
+
+---
+
 ### REQ-AGENT-233: Agent image bake exclusions and IDE inventory
 
 **Intent:** Agent image preparation preserves the Codex/Copilot bake exclusions and unconditional official Claude IDE inventory verification.

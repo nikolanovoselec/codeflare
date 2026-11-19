@@ -563,7 +563,8 @@ describe('entrypoint production helpers', () => {
     t.diagnostic(`SDK layout: ${separateSdk ? 'separate' : 'shared'}`);
     const fixture = mkdtempSync(join(tmpdir(), 'pi-locked-repair-'));
     const tools = join(fixture, 'tools');
-    const source = join(fixture, 'package');
+    const source = join(fixture, 'packages/node_modules/@earendil-works/pi-coding-agent');
+    const aiSource = join(dirname(source), 'pi-ai');
     const home = join(fixture, 'home');
     const agentDir = join(home, '.pi/agent');
     const agentNpm = separateSdk ? join(agentDir, 'npm') : tools;
@@ -577,25 +578,42 @@ describe('entrypoint production helpers', () => {
     };
     try {
       mkdirSync(join(source, 'dist/utils'), { recursive: true }); mkdirSync(tools);
-      // Host CI installs the pinned preseed with scripts disabled. Copy only the
-      // authentic display assets: the production patch retains its full hash guards.
+      // Host CI installs the pinned preseed with scripts disabled. Copy authentic
+      // display and Codex provider assets so both patches retain their hash guards.
       const qualifiedSdk = resolve(__dirname, '../../preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent');
+      const qualifiedAi = join(dirname(qualifiedSdk), 'pi-ai');
       const version = JSON.parse(readFileSync(join(qualifiedSdk, 'package.json'))).version;
+      const { name: aiName, version: aiVersion } = JSON.parse(readFileSync(join(qualifiedAi, 'package.json')));
+      mkdirSync(aiSource, { recursive: true });
+      // Only name/version are admission prerequisites; omit upstream dependencies
+      // so this minimal, real-byte repair fixture stays entirely offline.
+      writeFileSync(join(aiSource, 'package.json'), JSON.stringify({ name: aiName, version: aiVersion }));
       const displayChunks = { '1.5.0': 'chunk-44DLKSKE.js', '1.5.2': 'chunk-VEJDBY3O.js' };
       assert.ok(Object.hasOwn(displayChunks, version), 'qualified display admission contract');
       writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version, type: 'module' }));
       const displayPaths = ['dist/modes/interactive/components/model-selector.js',
         'dist/modes/interactive/components/settings-selector.js', 'dist/modes/interactive/interactive-mode.js',
         `dist/bundle/chunks/${displayChunks[version]}`];
-      for (const path of displayPaths) {
-        mkdirSync(dirname(join(source, path)), { recursive: true });
-        cpSync(join(qualifiedSdk, path), join(source, path));
+      const codexArtifacts = [
+        [aiSource, 'dist/api/openai-codex-responses.js'],
+        [source, 'dist/bundle/chunks/openai-codex-responses-TEQRB65N.js'],
+      ];
+      for (const [from, to, paths] of [
+        [qualifiedSdk, source, [...displayPaths, codexArtifacts[1][1]]],
+        [qualifiedAi, aiSource, [codexArtifacts[0][1]]],
+      ]) for (const path of paths) {
+        mkdirSync(dirname(join(to, path)), { recursive: true });
+        cpSync(join(from, path), join(to, path));
       }
       writeFileSync(join(source, 'dist/utils/photon.js'), 'export async function loadPhoton() { return { PhotonImage: class { get_bytes() { return new Uint8Array([1]); } free() {} } }; }');
       writeFileSync(join(source, 'dist/utils/image-process.js'), 'export async function processImage() { return { ok: true }; }');
       const packed = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], source).stdout)[0].filename;
       const tarball = join(source, packed);
-      const dependencies = { '@earendil-works/pi-coding-agent': `file:${tarball}` };
+      const aiPacked = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], aiSource).stdout)[0].filename;
+      const dependencies = {
+        '@earendil-works/pi-coding-agent': `file:${tarball}`,
+        '@earendil-works/pi-ai': `file:${join(aiSource, aiPacked)}`,
+      };
       // Host/config dependencies remain fixture-owned; the guarded questionnaire
       // itself uses its authentic archive, including unchanged metadata/source.
       for (const name of ['typebox', '@juicesharp/rpiv-config', '@earendil-works/pi-tui', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-todo']) {
@@ -617,7 +635,10 @@ describe('entrypoint production helpers', () => {
       const installed = join(tools, 'node_modules/@earendil-works/pi-coding-agent');
       if (separateSdk) {
         mkdirSync(agentNpm, { recursive: true });
-        cpSync(join(tools, 'node_modules'), join(agentNpm, 'node_modules'), { recursive: true });
+        cpSync(join(tools, 'package.json'), join(agentNpm, 'package.json'));
+        // Generate this root's own lock: local tarball resolutions are relative
+        // to the install root, so copying the shared lock would misresolve them.
+        npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], agentNpm);
       }
       mkdirSync(agentDir, { recursive: true });
       const protectedFiles = new Map([
@@ -637,6 +658,28 @@ describe('entrypoint production helpers', () => {
       assert.equal(prepare.status, 0, prepare.stderr);
       const expectedDisplay = displayPaths.map(path => readFileSync(join(source, path), 'utf8'));
       assert.notDeepEqual(expectedDisplay, originalDisplay, 'locked archive must restore unprepared display admission bytes');
+      // REQ-AGENT-238 AC3: generated provider artifacts and the owned receipt are
+      // the repair contract. HTTP/WS semantics and pristine necessity are tested separately.
+      const originalCodex = codexArtifacts.map(([root, path]) => readFileSync(join(root, path)));
+      const prepareCodex = spawnSync(process.execPath, [join(scripts, 'patch-pi-codex-prompt-cache.mjs'), source], { encoding: 'utf8' });
+      assert.equal(prepareCodex.status, 0, prepareCodex.stderr);
+      const expectedCodex = codexArtifacts.map(([root, path]) => readFileSync(join(root, path)));
+      for (let i = 0; i < expectedCodex.length; i++) {
+        assert.notDeepEqual(expectedCodex[i], originalCodex[i], 'each locked provider must need the backport');
+      }
+      const receiptName = '.codeflare-codex-prompt-cache-backport.json';
+      const expectedReceipt = readFileSync(join(source, receiptName));
+      const assertCodex = () => {
+        for (const sdk of new Set([installed, agentSdk])) {
+          const ai = join(dirname(sdk), 'pi-ai');
+          assert.deepEqual([readFileSync(join(ai, codexArtifacts[0][1])), readFileSync(join(sdk, codexArtifacts[1][1]))],
+            expectedCodex, 'qualified Codex providers must survive npm reinstallation in both SDKs');
+          assert.deepEqual(readFileSync(join(sdk, receiptName)), expectedReceipt, 'repair must restore the owned patch receipt');
+          assert.equal(JSON.parse(readFileSync(join(sdk, 'package.json'))).version, version);
+          assert.deepEqual(JSON.parse(readFileSync(join(ai, 'package.json'))), { name: aiName, version: aiVersion });
+        }
+        assertProtected();
+      };
       const assertDisplay = () => {
         for (const sdk of new Set([installed, agentSdk])) {
           assert.deepEqual(displayPaths.map(path => readFileSync(join(sdk, path), 'utf8')), expectedDisplay,
@@ -659,11 +702,22 @@ describe('entrypoint production helpers', () => {
       const healthy = verify(); assert.equal(healthy.status, 0, healthy.stderr);
       assert.match(repaired.stdout, /repairing Pi dependencies from the lockfile/);
       assertDisplay();
-      // A second locked reinstall restores the archive's upstream UI again.
+      assertCodex();
+      // A second locked reinstall restores upstream display/provider bytes and
+      // removes the owned receipt, including in the separate prewarm SDK tree.
+      if (separateSdk) npm(['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], agentNpm);
       rmSync(processor);
       const reinstalled = run(); assert.equal(reinstalled.status, 0, reinstalled.stdout + reinstalled.stderr);
+      assert.match(reinstalled.stdout, /repairing Pi dependencies from the lockfile/);
       assert.match(reinstalled.stdout, /Pi version after update/);
       assertDisplay();
+      assertCodex();
+      // Healthy repeat preparation must accept its own receipt without requiring
+      // pristine upstream or another reinstall, and leave protected data intact.
+      const repeated = run(); assert.equal(repeated.status, 0, repeated.stdout + repeated.stderr);
+      assert.doesNotMatch(repeated.stdout, /repairing Pi dependencies from the lockfile/);
+      assertDisplay();
+      assertCodex();
       for (const sdk of new Set([installed, agentSdk])) {
         for (const damage of ['source bytes', 'bundle bytes', 'version']) {
           const path = join(sdk, damage === 'version' ? 'package.json' : damage === 'source bytes' ? displayPaths[0] : displayPaths[3]);
@@ -697,6 +751,7 @@ describe('entrypoint production helpers', () => {
       const failed = run(); assert.notEqual(failed.status, 0);
       assert.match(failed.stdout, /Pi dependency repair failed; the runtime is incomplete/);
       assert.doesNotMatch(failed.stdout, /Pi version after update/);
+      assertProtected();
     } finally { rmSync(fixture, { recursive: true, force: true }); }
   });
   }

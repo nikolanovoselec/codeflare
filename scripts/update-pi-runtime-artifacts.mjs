@@ -25,6 +25,9 @@ export function updatePiRuntimeArtifacts(repositoryRoot, currentVersion, nextVer
   updateNpmToolManifests(toolsManifest, PI_PACKAGE, currentVersion, nextVersion, prewarmManifest);
   runChecked(process.execPath, [regenerateLock, toolsDirectory], { cwd: repositoryRoot });
   runChecked(process.execPath, [regenerateLock, prewarmDirectory], { cwd: repositoryRoot });
+  runChecked(npmCommand, ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--silent'], { cwd: prewarmDirectory });
+  runChecked(process.execPath, [resolve(repositoryRoot, 'scripts/patch-pi-codex-prompt-cache.mjs'),
+    '--check-pristine', resolve(prewarmDirectory, 'node_modules/@earendil-works/pi-coding-agent')], { cwd: repositoryRoot });
   runChecked(npmCommand, ['ci', '--no-audit', '--no-fund', '--silent'], { cwd: repositoryRoot });
   runChecked(npmCommand, ['run', 'generate:agent-seed'], { cwd: repositoryRoot });
 }

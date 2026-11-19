@@ -4,6 +4,11 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 Earlier history is retained in the [November archive](changes-archive-2026-11.md).
 
+## 2026-11-19: Temporary native Codex prompt-prefix backport
+
+- REQ-AGENT-238 carries upstream Pi PR 12319 in both installed library and bundled CLI paths, keeping the initial system prompt in the input prefix while preserving WebSocket continuation semantics.
+- Image and post-update preparation share the guarded backport. Pristine upstream that already includes the fix, or has incompatible bytes, fails tests and Pi shadow-pin admission before publication; receipt-verified local reapplication remains separate. No dependency version, provider credentials or user settings change, and no live cache-hit or deployment acceptance is inferred.
+
 ## 2026-11-19: Compact Operator recovery controls
 
 - REQ-OPERATOR-210 keeps the shared recovery launcher as an accessible lock-reset icon: left of Run once in Installed, right of Activate/Deactivate in Administration. Preview and explicit confirmation remain unchanged.

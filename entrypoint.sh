@@ -3394,7 +3394,7 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     local npm_tools_dir before_pi before_codex after_pi after_codex update_failed=0
-    local agent_npm_dir pi_display_root pi_display_prepared=true
+    local agent_npm_dir pi_display_root pi_display_prepared=true pi_codex_prepared=true
     local pi_display_roots=()
     local update_cache
     update_cache="$(mktemp -d "${CODEFLARE_RUNTIME_ROOT:-${TMPDIR:-/tmp}}/npm-update.XXXXXX")" || return 1
@@ -3498,6 +3498,11 @@ update_pi_and_codex_when_fast_start_disabled() {
             pi_display_roots+=("$agent_npm_dir")
         fi
         for pi_display_root in "${pi_display_roots[@]}"; do
+            if ! node /opt/codeflare/scripts/patch-pi-codex-prompt-cache.mjs "$pi_display_root/node_modules/@earendil-works/pi-coding-agent"; then
+                echo "[entrypoint] ERROR: Pi Codex prompt-cache preparation failed"
+                pi_codex_prepared=false
+                update_failed=1
+            fi
             if ! node /opt/codeflare/scripts/patch-pi-native-model-display.mjs "$pi_display_root/node_modules/@earendil-works/pi-coding-agent"; then
                 echo "[entrypoint] ERROR: Pi native model display preparation failed"
                 pi_display_prepared=false
@@ -3507,7 +3512,7 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
     rm -rf -- "$update_cache"
 
-    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ] && [ "$pi_display_prepared" = true ]; then
+    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ] && [ "$pi_display_prepared" = true ] && [ "$pi_codex_prepared" = true ]; then
         if after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
             echo "[entrypoint] Fast Start disabled; Pi version after update: $after_pi"
         else
