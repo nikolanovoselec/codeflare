@@ -992,11 +992,11 @@ jobs:
         with:
           key-prefix: root
 
-      - uses: $/.github/actions/install-deps
-        with:
-          directory: preseed/agents/pi
-          key-prefix: pi-prompt
-          ignore-scripts: 'true'
+      # This lane patches its runtime after the necessity check. Restoring cached
+      # node_modules could feed last run's patched bytes into a pristine-only gate.
+      - name: Install pristine lock-matched Pi dependencies
+        working-directory: preseed/agents/pi
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
 
       - name: Qualify the real stock MCP extension and public client
         run: node scripts/qualify-pi-mcp.mjs

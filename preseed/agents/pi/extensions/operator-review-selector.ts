@@ -159,10 +159,62 @@ export async function readReviewEnrollment(repository: string, send: typeof fetc
         chunks.push(part.value);
       }
     } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
-    const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
+    const value = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(Buffer.concat(chunks)));
     return value && Object.keys(value).length === 1
       && ['local', 'remote-candidate', 'unavailable'].includes(value.selection) ? value.selection : 'unavailable';
   } catch { return 'unavailable'; }
+}
+
+/** Resolve public-GitHub CLI selection from local inputs, never remote metadata. */
+async function localReviewRepository(repo: string, runner: typeof execFile): Promise<string | undefined> {
+  const parse = (value: string) => {
+    const name = value.replace(/^github\.com\//i, '');
+    const repository = repoName.test(name) ? name.toLowerCase() : githubRepository(value);
+    return repository && !repository.split('/').some(part => part === '.' || part === '..') ? repository : undefined;
+  };
+  const override = process.env.GH_REPO?.trim();
+  const host = process.env.GH_HOST?.trim().toLowerCase();
+  if (override) {
+    if (host && host !== 'github.com' && repoName.test(override)) return undefined;
+    return parse(override);
+  }
+  if (host && host !== 'github.com') return undefined;
+  const { stdout } = await runner('git', ['remote', '-v'], { cwd: repo, encoding: 'utf8' });
+  const remotes = new Map<string, { url: string; fetch: boolean }>();
+  for (const line of String(stdout).trim().split('\n')) {
+    const match = /^(\S+)\s+(\S+)\s+\((fetch|push)\)$/.exec(line);
+    if (!match) return undefined;
+    const prior = remotes.get(match[1]!);
+    if (!prior || match[3] === 'fetch') remotes.set(match[1]!, { url: match[2]!, fetch: match[3] === 'fetch' });
+  }
+  if (!remotes.size) return undefined;
+  let resolved = '';
+  try {
+    const config = await runner('git', ['config', '--get-regexp', '^remote\\..*\\.gh-resolved$'], { cwd: repo, encoding: 'utf8' });
+    resolved = String(config.stdout).trim();
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== 1) throw error;
+  }
+  const configured = new Set<string>();
+  for (const line of resolved ? resolved.split('\n') : []) {
+    const match = /^remote\.(.+)\.gh-resolved\s+(.+)$/.exec(line);
+    if (!match) return undefined;
+    const remote = remotes.get(match[1]!);
+    if (!remote) continue;
+    if (!githubRepository(remote.url)) return undefined;
+    const repository = match[2] === 'base' ? githubRepository(remote.url) : parse(match[2]!.trim());
+    if (!repository) return undefined;
+    configured.add(repository);
+  }
+  if (configured.size) return configured.size === 1 ? [...configured][0] : undefined;
+  const priority = (name: string) => {
+    const rank = ['upstream', 'github', 'origin'].indexOf(name.toLowerCase());
+    return rank < 0 ? 3 : rank;
+  };
+  const rank = Math.min(...[...remotes.keys()].map(priority));
+  const candidates = [...remotes].filter(([name]) => priority(name) === rank)
+    .map(([, remote]) => githubRepository(remote.url));
+  return candidates.every(Boolean) && new Set(candidates).size === 1 ? candidates[0] : undefined;
 }
 
 export async function selectOperatorReviewApplicability(event: any, ctx: any,
@@ -184,14 +236,13 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
   if (!repo) return boundary && classifyReviewBoundaryCommand(boundary.command).clone ? 'unavailable' : 'none';
   if (!existsSync(join(repo, 'sdd', 'README.md'))) return 'none';
   try {
-    const { stdout: remote } = await runner('git', ['remote', 'get-url', 'origin'], { cwd: repo, encoding: 'utf8' });
-    const repository = githubRepository(String(remote).trim());
-    if (!repository) return 'local'; // No supported remote enrollment; local owns repository discovery.
+    const repository = await localReviewRepository(repo, runner);
+    if (!repository) return 'unavailable';
     const disposition = await enrollment(repository);
     if (disposition !== 'remote-candidate') return disposition;
     let prText: unknown;
     try {
-      const response = await runner('gh', ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid'],
+      const response = await runner('gh', ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid,url'],
         { cwd: repo, encoding: 'utf8', timeout: 10_000 });
       prText = response.stdout;
     } catch (error) {
@@ -203,21 +254,20 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
     if (!Number.isSafeInteger(pr.number) || pr.number < 1 || !['OPEN', 'CLOSED', 'MERGED'].includes(pr.state)
       || typeof pr.baseRefName !== 'string' || !pr.baseRefName.trim() || !sha.test(pr.headRefOid)) return 'unavailable';
     if (pr.state !== 'OPEN' || !['main', 'master', 'develop'].includes(pr.baseRefName)) return 'none';
-    const [{ stdout: identity }, { stdout: idText }] = await Promise.all([
-      runner('gh', ['repo', 'view', '--json', 'nameWithOwner,url'], { cwd: repo, encoding: 'utf8', timeout: 10_000 }),
-      runner('gh', ['api', 'repos/{owner}/{repo}', '--jq', '.id'], { cwd: repo, encoding: 'utf8', timeout: 10_000 }),
-    ]);
-    const target = JSON.parse(String(identity));
+    const target = new URL(pr.url);
+    if (target.origin !== 'https://github.com' || target.username || target.password || target.search || target.hash
+      || target.pathname.toLowerCase() !== `/${repository}/pull/${pr.number}`) return 'unavailable';
+    const { stdout: idText } = await runner('gh', ['api', '--hostname', 'github.com', `repos/${repository}`, '--jq', '.id'],
+      { cwd: repo, encoding: 'utf8', timeout: 10_000 });
     const id = Number(String(idText).trim());
-    if (!repoName.test(target.nameWithOwner) || !Number.isSafeInteger(id) || id < 1
-      || new URL(target.url).hostname !== 'github.com') return 'unavailable';
+    if (!Number.isSafeInteger(id) || id < 1) return 'unavailable';
     const encoded = Buffer.from(JSON.stringify({ repositoryId: id, pullRequest: pr.number,
       acknowledgedHead: null, targetHead: pr.headRefOid,
       payload: { range: null, rejectedFindingsStatus: 'unavailable' } }), 'utf8').toString('base64');
-    const { stdout } = await runner('gh', ['api', '--include',
+    const { stdout } = await runner('gh', ['api', '--hostname', 'github.com', '--include',
       '-H', 'x-codeflare-operator-boundary-select: check',
       '-H', `x-codeflare-operator-boundary-input: ${encoded}`,
-      `repos/${target.nameWithOwner}/pulls/${pr.number}`], { cwd: repo, encoding: 'utf8', timeout: 20_000 });
+      `repos/${repository}/pulls/${pr.number}`], { cwd: repo, encoding: 'utf8', timeout: 20_000 });
     const output = String(stdout).replace(/\r\n/g, '\n');
     if (output.length > 256 * 1024) return 'unavailable';
     const split = output.indexOf('\n\n');

@@ -377,6 +377,16 @@ After verified enablement, cleanup identifies obsolete Workers through platform 
 
 The separate `dispatcher-connection` mutation remains an advanced explicit handoff, not a prerequisite for normal UI activation. `connectionSecret` is write-only and encrypted at rest; ordinary projections never return its plaintext or ciphertext. Re-read after a conflict instead of resending a stale revision. Actual deployment commands and secret values belong in the private operator runbook. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @impl: src/operators/registry.ts::configureManagementDispatcherConnection --> <!-- @impl: src/operators/dispatcher-deployment.ts::verifyDispatcherDeployment -->
 
+## Internal Review enrollment
+
+This fixed outbound Worker lookup serves ordinary Enterprise sessions under [REQ-OPERATOR-053](../../sdd/spec/operators.md#req-operator-053-enterprise-pr-boundary-review-handoff). It is not a public HTTP route or an Operator execution grant. Owner identity comes from parent-bound bucket, session and user properties, never the request body. The owner and session generation are checked before and after enrollment lookup; no Activity, Conductor or native-provider grant is required. <!-- @impl: src/operators/dispatcher-owner-inference.ts::OperatorOwnerInferenceAuthority -->
+
+| Method | Fixed URL | Request | Response |
+|---|---|---|---|
+| POST | `https://operator.internal/v1/review/applicability` | Exactly `{ "repository": "owner/repo" }`; no query or fragment; UTF-8 JSON bounded to 4096 bytes and a five-second body-read budget | `200 { "selection": "local" }`, with `Cache-Control: no-store`; selection is `local`, `remote-candidate` or `unavailable` |
+
+Absent or disabled enrollment, or enrollment only for another known repository, returns `local`. Matching enabled enrollment or an enabled legacy record without repository identity returns `remote-candidate`; this still requires exact-PR trust and authorization. An unreadable or malformed enrollment configuration returns `unavailable`. Invalid input, missing ownership or a changed session returns `403 { "error": "Owner inference denied" }`, also with `no-store`. Selection neither launches Review nor clears a boundary. <!-- @impl: src/operators/review-enrollment.ts::selectReviewEnrollment -->
+
 ## Internal Operator Host APIs
 
 These routes are private container-host contracts for a restricted operator session; they are not public Worker endpoints. Every request first requires the container Bearer token. The routes exist only when trusted parent startup supplied the matching operator service configuration, use `Cache-Control: no-store`, accept at most 64 KiB of JSON, and are governed by [REQ-OPERATOR-021](../../sdd/spec/operators.md#req-operator-021-structured-owned-pi-conversation) and [REQ-OPERATOR-023](../../sdd/spec/operators.md#req-operator-023-explicit-operator-synchronization). Candidate input cannot choose the activity, Codeflare session, filesystem root, model, tools, bucket, R2 credentials, policy, remote prefix, or authority deadline.

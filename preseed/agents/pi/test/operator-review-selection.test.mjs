@@ -44,13 +44,17 @@ function wire(mode, body = { number: 42, head: { sha: head } }) {
   return `HTTP/2 200\r\nx-codeflare-operator-boundary-selection: ${mode}\r\n\r\n${JSON.stringify(body)}`;
 }
 
-function fixture(t, enrollment = 'remote-candidate') {
-  const previous = process.env.ENTERPRISE_MODE;
+function fixture(t, enrollment = 'remote-candidate', target = 'owner/repo', local = {}) {
+  const previous = Object.fromEntries(['ENTERPRISE_MODE', 'GH_REPO', 'GH_HOST'].map(key => [key, process.env[key]]));
   process.env.ENTERPRISE_MODE = 'active';
+  delete process.env.GH_REPO;
+  delete process.env.GH_HOST;
   const root = mkdtempSync(join(tmpdir(), 'operator-review-selection-'));
   t.after(() => {
-    if (previous === undefined) delete process.env.ENTERPRISE_MODE;
-    else process.env.ENTERPRISE_MODE = previous;
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     rmSync(root, { recursive: true, force: true });
   });
   const responses = new Map();
@@ -65,23 +69,24 @@ function fixture(t, enrollment = 'remote-candidate') {
   // Only external gh I/O is simulated. No workflow filenames are inspected or inferred.
   const runner = async (program, args, { cwd }) => {
     if (program === 'git') {
-      assert.deepEqual(args, ['remote', 'get-url', 'origin']);
+      if (args[0] === 'config') return { stdout: local.resolved ?? (target === 'owner/repo' ? '' : `remote.origin.gh-resolved ${target}`) };
+      if (args[1] === '-v') return { stdout: local.remotes ?? 'origin\thttps://github.com/owner/repo.git (fetch)\n' };
       return { stdout: 'https://github.com/owner/repo.git' };
     }
     assert.equal(program, 'gh');
     const response = responses.get(cwd);
     if (response instanceof Error) throw response;
     if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN',
-      baseRefName: 'main', headRefOid: head }) };
-    if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/repo',
-      url: 'https://github.com/owner/repo' }) };
-    if (args.join(' ') === 'api repos/{owner}/{repo} --jq .id') return { stdout: '138' };
+      baseRefName: 'main', headRefOid: head, url: `https://github.com/${local.prRepository ?? target}/pull/42` }) };
+    if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: target,
+      url: `https://github.com/${target}` }) };
+    if (args[0] === 'api' && !args.includes('--include')) return { stdout: '138' };
     // Intentional wire contract: applicability is a read-only exact-head check, not a launch.
-    assert.deepEqual(args, ['api', '--include', '-H', 'x-codeflare-operator-boundary-select: check',
+    assert.deepEqual(args, ['api', '--hostname', 'github.com', '--include', '-H', 'x-codeflare-operator-boundary-select: check',
       '-H', `x-codeflare-operator-boundary-input: ${Buffer.from(JSON.stringify({
         repositoryId: 138, pullRequest: 42, acknowledgedHead: null, targetHead: head,
         payload: { range: null, rejectedFindingsStatus: 'unavailable' },
-      })).toString('base64')}`, 'repos/owner/repo/pulls/42']);
+      })).toString('base64')}`, `repos/${target}/pulls/42`]);
     return { stdout: response };
   };
   const handlers = new Map();
@@ -104,14 +109,15 @@ function fixture(t, enrollment = 'remote-candidate') {
       api.sendMessage({ customType: 'remote-stopped' });
     });
   };
+  const readEnrollment = async repository => typeof enrollment === 'function' ? enrollment(repository) : enrollment;
   registerOperatorReviewSelector(pi, {
     local: route('local'), remote: route('remote'),
-    applicability: (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner, async () => enrollment),
+    applicability: (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner, readEnrollment),
   });
   const context = cwd => ({ cwd, sessionManager: { getBranch: () => [] } });
   return {
     repo, messages, remoteActive: () => remoteActive,
-    select: cwd => selectOperatorReviewApplicability(push, context(cwd), runner, async () => enrollment),
+    select: cwd => selectOperatorReviewApplicability(push, context(cwd), runner, readEnrollment),
     emit: (name, cwd, event = {}) => handlers.get(name)({ type: name, ...push, ...event }, context(cwd)),
   };
 }
@@ -222,6 +228,65 @@ test('REQ-OPERATOR-053: unavailable enrollment cannot silently select local', as
   const app = fixture(t, 'unavailable');
   const cwd = app.repo('unknown-enrollment', wire('local'));
   assert.equal(await app.select(cwd), 'unavailable');
+});
+
+test('REQ-OPERATOR-053: an enrolled upstream PR cannot inherit local selection from its unenrolled origin', async t => {
+  const app = fixture(t, repository => repository === 'upstream/repo' ? 'remote-candidate' : 'local', 'upstream/repo');
+  const cwd = app.repo('fork', wire('remote'));
+  assert.equal(await app.select(cwd), 'remote');
+  await app.emit('session_start', cwd);
+  assert.deepEqual(app.messages, [{ customType: 'remote-session_start', cwd }]);
+});
+
+test('REQ-OPERATOR-053: an unenrolled configured PR target stays local even when origin is enrolled', async t => {
+  const app = fixture(t, repository => repository === 'owner/repo' ? 'remote-candidate' : 'local', 'upstream/repo');
+  const cwd = app.repo('configured-target', new Error('GitHub discovery is unavailable'));
+  assert.equal(await app.select(cwd), 'local');
+  await app.emit('session_start', cwd);
+  assert.deepEqual(app.messages, [{ customType: 'local-session_start', cwd }]);
+});
+
+test('REQ-OPERATOR-053: unavailable target enrollment cannot inherit a local origin verdict', async t => {
+  const app = fixture(t, repository => repository === 'upstream/repo' ? 'unavailable' : 'local', 'upstream/repo');
+  const cwd = app.repo('unknown-target', wire('local'));
+  assert.equal(await app.select(cwd), 'unavailable');
+});
+
+test('REQ-OPERATOR-053: malformed configured PR target cannot inherit a local origin verdict', async t => {
+  const app = fixture(t, 'local', 'invalid-target');
+  const cwd = app.repo('malformed-target', wire('local'));
+  assert.equal(await app.select(cwd), 'unavailable');
+});
+
+test('REQ-OPERATOR-053: upstream remote priority selects its enrollment without a configured default', async t => {
+  const app = fixture(t, repository => repository === 'upstream/repo' ? 'remote-candidate' : 'local', 'upstream/repo', {
+    resolved: '', remotes: 'origin\thttps://github.com/owner/repo.git (fetch)\nupstream\thttps://github.com/upstream/repo.git (fetch)\n',
+  });
+  assert.equal(await app.select(app.repo('upstream-priority', wire('remote'))), 'remote');
+});
+
+test('REQ-OPERATOR-053: explicit GH_REPO selects enrollment before unavailable GitHub discovery', async t => {
+  const app = fixture(t, repository => repository === 'upstream/repo' ? 'local' : 'remote-candidate', 'upstream/repo', { resolved: '' });
+  process.env.GH_REPO = 'github.com/upstream/repo';
+  assert.equal(await app.select(app.repo('environment-target', new Error('GitHub unavailable'))), 'local');
+});
+
+test('REQ-OPERATOR-053: conflicting custom remotes cannot prove a local target', async t => {
+  const app = fixture(t, 'local', 'owner/repo', {
+    remotes: 'first\thttps://github.com/owner/repo.git (fetch)\nsecond\thttps://github.com/other/repo.git (fetch)\n',
+  });
+  assert.equal(await app.select(app.repo('ambiguous-target', wire('local'))), 'unavailable');
+});
+
+test('REQ-OPERATOR-053: a mismatched PR base repository cannot reuse candidate enrollment', async t => {
+  const app = fixture(t, 'remote-candidate', 'owner/repo', { prRepository: 'other/repo' });
+  assert.equal(await app.select(app.repo('mismatched-pr', wire('remote'))), 'unavailable');
+});
+
+test('REQ-OPERATOR-053: a mismatched GH_HOST cannot borrow public GitHub enrollment', async t => {
+  const app = fixture(t, 'local');
+  process.env.GH_HOST = 'github.example.test';
+  assert.equal(await app.select(app.repo('wrong-host', wire('local'))), 'unavailable');
 });
 
 for (const [name, failure] of [

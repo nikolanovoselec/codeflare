@@ -64,8 +64,10 @@ function cloneConsentFixture() {
     if (program === 'git') {
       if (args[0] === 'symbolic-ref') return { stdout: 'feature' };
       if (args[0] === 'rev-parse') return { stdout: state.head };
-      if (args[0] === 'remote') return { stdout: `git@github.com:${options.cwd === target ? state.repository : 'owner/parent'}.git` };
-      if (args[0] === 'config') return { stdout: 'origin' };
+      if (args[0] === 'remote') return { stdout: args[1] === '-v'
+        ? `origin\tgit@github.com:${options.cwd === target ? state.repository : 'owner/parent'}.git (fetch)\n`
+        : `git@github.com:${options.cwd === target ? state.repository : 'owner/parent'}.git` };
+      if (args[0] === 'config') return { stdout: args.includes('--get-regexp') ? '' : 'origin' };
       throw new Error(`Unexpected Git request: ${args.join(' ')}`);
     }
     if (args[0] === 'repo') {
@@ -75,7 +77,8 @@ function cloneConsentFixture() {
     if (args[0] === 'pr') {
       await state.beforePr?.();
       return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main',
-        headRefName: 'feature', headRefOid: state.head }) };
+        headRefName: 'feature', headRefOid: state.head,
+        url: `https://github.com/${options.cwd === target ? state.repository : 'owner/parent'}/pull/42` }) };
     }
     if (!args.includes('--include')) return { stdout: '138' };
     const mutating = args.includes('x-codeflare-operator-boundary-select: 1');
@@ -313,9 +316,9 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
       const ctx = { cwd: repo };
       const runner = (mode: string, responseHead = head, repeatHeader = false) =>
         (async (_program: string, args: string[]) => {
-          if (_program === 'git') return { stdout: 'https://github.com/owner/repo.git' };
+          if (_program === 'git') return { stdout: args[0] === 'config' ? '' : 'origin\thttps://github.com/owner/repo.git (fetch)\n' };
           if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN',
-            baseRefName: 'main', headRefOid: head }) };
+            baseRefName: 'main', headRefOid: head, url: 'https://github.com/owner/repo/pull/42' }) };
           if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/repo',
             url: 'https://github.com/owner/repo' }) };
           if (!args.includes('--include')) return { stdout: '138' };
@@ -343,10 +346,10 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
           const target = join(cwd, command.endsWith(' copied') ? 'copied' : 'target');
           const head = 'a'.repeat(40);
           const runner = (async (_program: string, args: string[], options: { cwd: string }) => {
-            if (_program === 'git') return { stdout: 'https://github.com/owner/target.git' };
+            if (_program === 'git') return { stdout: args[0] === 'config' ? '' : 'origin\thttps://github.com/owner/target.git (fetch)\n' };
             // The external GitHub responses differ by checkout; selecting the parent
             // would choose remote Review rather than the target's local consent path.
-            if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head }) };
+            if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head, url: 'https://github.com/owner/target/pull/42' }) };
             if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/target', url: 'https://github.com/owner/target' }) };
             if (!args.includes('--include')) return { stdout: '138' };
             return { stdout: `HTTP/2 200\nx-codeflare-operator-boundary-selection: ${options.cwd === target ? 'local' : 'remote'}\n\n`
@@ -373,8 +376,8 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
       writeFileSync(join(wrongTarget, 'sdd/README.md'), 'unrelated checkout');
       const head = 'a'.repeat(40);
       const runner = (async (_program: string, args: string[]) => {
-        if (_program === 'git') return { stdout: 'https://github.com/owner/target.git' };
-        if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head }) };
+        if (_program === 'git') return { stdout: args[0] === 'config' ? '' : 'origin\thttps://github.com/owner/target.git (fetch)\n' };
+        if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head, url: 'https://github.com/owner/target/pull/42' }) };
         if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/target', url: 'https://github.com/owner/target' }) };
         if (!args.includes('--include')) return { stdout: '138' };
         return { stdout: 'HTTP/2 200\nx-codeflare-operator-boundary-selection: local\n\n'
@@ -414,8 +417,8 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
       try {
         mkdirSync(join(repo, '.git'));
         if (state !== 'non-sdd') { mkdirSync(join(repo, 'sdd')); writeFileSync(join(repo, 'sdd/README.md'), 'requirements'); }
-        const runner = (async (program: string) => {
-          if (program === 'git') return { stdout: 'https://github.com/owner/repo.git' };
+        const runner = (async (program: string, args: string[]) => {
+          if (program === 'git') return { stdout: args[0] === 'config' ? '' : 'origin\thttps://github.com/owner/repo.git (fetch)\n' };
           if (state === 'no-pr') throw Object.assign(new Error('no PR'), { stderr: 'no pull requests found for branch main' });
           if (state === 'transport' || state === 'non-sdd') throw new Error('Network unavailable');
           return { stdout: state === 'malformed' ? '{invalid' : JSON.stringify({ number: 42,

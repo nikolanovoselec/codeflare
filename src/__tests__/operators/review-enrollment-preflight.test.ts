@@ -12,7 +12,7 @@ const authority = vi.hoisted(() => ({ generation: 7, denied: false }));
 vi.mock('../../lib/container-helpers', async original => ({
   ...await original<typeof import('../../lib/container-helpers')>(),
   getPersonalPiSession: async (_container: unknown, ref: { bucket: string; sessionId: string; email: string }) => {
-    if (authority.denied || ref.bucket !== 'owner-bucket' || ref.sessionId !== 'owner-session'
+    if (authority.denied || ref.bucket !== 'owner-bucket' || ref.sessionId !== 'ownersession'
       || ref.email !== 'owner@example.test') throw Error('Owner unavailable');
     return { generation: authority.generation, groups: [] };
   },
@@ -25,7 +25,7 @@ function fixture(read = async () => ({ boundaryActions: [] as unknown[] })) {
     OPERATOR_REGISTRY: { getByName: () => ({ getManagementControls: read }) },
   } as unknown as Env;
   const endpoint = new OperatorOwnerInferenceAuthority({ props: {
-    bucket: 'owner-bucket', sessionId: 'owner-session', email: 'owner@example.test',
+    bucket: 'owner-bucket', sessionId: 'ownersession', email: 'owner@example.test',
   } } as unknown as ExecutionContext, env);
   return (body: unknown = { repository: 'owner/repo' }) => endpoint.fetch(new Request(
     'https://operator.internal/v1/review/applicability', { method: 'POST',

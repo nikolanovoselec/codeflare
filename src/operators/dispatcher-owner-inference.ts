@@ -269,7 +269,7 @@ export class OperatorOwnerInferenceAuthority extends WorkerEntrypoint<Env> {
       if (url.pathname === '/v1/review/applicability') {
         const bytes = await readBoundedStream(request.body, 4096, 'Review enrollment', AbortSignal.timeout(5000));
         const input = z.strictObject({ repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/) })
-          .parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+          .parse(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)));
         const container = this.env.CONTAINER.getByName(getContainerId(props.bucket, props.sessionId));
         const before = await getPersonalPiSession(container, props, true);
         const selection = await selectReviewEnrollment(this.env, input.repository);
